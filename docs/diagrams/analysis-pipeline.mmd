@@ -1,0 +1,8 @@
+flowchart LR
+  A[CSV Input] --> B[Validation]
+  B --> C[Normalization]
+  C --> D[PostgreSQL]
+  D --> E[Analyzers]
+  E --> F[Signals]
+  F --> G[Finding Aggregator]
+  G --> H[Findings]

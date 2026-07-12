@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ops-signals"
+version = "0.1.0"
+description = "Batch Operational Signal Engine MVP"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=3.0.3",
+    "numpy>=2.5.1",
+    "PyYAML>=6.0.3",
+    "SQLAlchemy>=2.0.51",
+    "psycopg[binary]>=3.3.4",
+    "fastapi>=0.116.0",
+    "uvicorn>=0.35.0",
+    "pydantic>=2.11.7",
+    "python-multipart>=0.0.20",
+    "sentence-transformers>=5.0.0",
+    "pytest>=9.1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1.1"]
+
+[project.scripts]
+ops-signals = "ops_signals.cli:main"
+
+[tool.setuptools]
+packages = ["ops_signals"]
+
+[tool.setuptools.package-data]
+ops_signals = []

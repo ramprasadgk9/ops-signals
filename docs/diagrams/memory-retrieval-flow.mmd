@@ -1,0 +1,6 @@
+flowchart LR
+  A[Operational Case] --> B[Document Builder]
+  B --> C[Embedding Service]
+  C --> D[Qdrant]
+  D --> E[Similarity Search]
+  E --> F[Related Cases]

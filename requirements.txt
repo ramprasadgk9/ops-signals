@@ -1,0 +1,12 @@
+pandas>=3.0.3
+numpy>=2.5.1
+PyYAML>=6.0.3
+SQLAlchemy>=2.0.51
+psycopg[binary]>=3.3.4
+fastapi>=0.116.0
+uvicorn>=0.35.0
+pydantic>=2.11.7
+python-multipart>=0.0.20
+sentence-transformers>=2.2.0
+qdrant-client>=1.18.0
+pytest>=9.1.1
