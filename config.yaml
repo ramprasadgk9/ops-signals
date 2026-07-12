@@ -1,0 +1,107 @@
+input:
+  source_type: csv
+  provider: generic
+  schema_version: v1
+  file_path: sample_data/cpu_usage_sample.csv
+  history: 7d
+  interval: 5m
+  service: checkout-service
+  metric_name: cpu_usage
+  timestamp_column: timestamp
+  value_column: value
+  metric_column: metric_name
+  provider_mappings: {}
+  validation:
+    enforce_monotonic_timestamp: true
+    allow_negative_values: false
+    max_gap_minutes: 60
+    max_null_ratio: 0.1
+  required_columns:
+    - timestamp
+    - metric_name
+    - value
+  optional_columns:
+    - service
+    - env
+    - host
+    - namespace
+    - pod
+    - source
+    - unit
+    - metric_type
+
+analysis:
+  mode: batch
+  window: entire_dataset
+  analyzers:
+    baseline_shift:
+      enabled: true
+      threshold_percent: 25
+    anomaly_zscore:
+      enabled: true
+      zscore_threshold: 3.0
+      grouping_gap: 15m
+    trend:
+      enabled: true
+      min_slope_percent: 10
+
+output:
+  save_normalized_data: true
+  save_signals: true
+  save_question_answers: true
+  save_embeddings: true
+
+capabilities:
+  auto_register: true
+
+questions:
+  auto_generate_from_capabilities: true
+
+storage:
+  postgres:
+    host: localhost
+    port: 5432
+    database: ops_signals
+    user: ops_signals
+    password: ops_signals
+    table_prefix: ops_
+
+embeddings:
+  enabled: true
+  provider: sentence_transformers
+  model: all-MiniLM-L6-v2
+
+ui:
+  enabled: true
+  default_status: new
+  default_page: overview
+  show_technical_signals: true
+  theme: system
+
+memory:
+  enabled: true
+
+  vector_store:
+    provider: qdrant
+    url: http://localhost:6333
+    api_key: null
+    collection_name: operational_cases
+
+  embedding:
+    provider: sentence_transformers
+    model: sentence-transformers/all-MiniLM-L6-v2
+    dimension: 384
+    normalize_embeddings: true
+
+  indexing:
+    automatic_on_case_creation: false
+    automatic_on_case_update: false
+    include_open_cases: true
+    include_resolved_cases: true
+
+  search:
+    top_k: 5
+    minimum_score: 0.70
+    same_metric_only: true
+    same_service_only: false
+    exclude_current_case: true

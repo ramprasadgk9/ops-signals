@@ -1,0 +1,81 @@
+input:
+  source_type: csv
+  provider: prometheus
+  schema_version: v1
+  file_path: sample_data/prometheus_cpu_usage_sample.csv
+  history: 1d
+  interval: 5m
+  service: checkout
+  metric_name: node_cpu_usage_seconds_total
+  timestamp_column: timestamp
+  value_column: value
+  metric_column: metric_name
+  provider_mappings:
+    metric_name: metric
+    host: instance
+  validation:
+    enforce_monotonic_timestamp: true
+    allow_negative_values: false
+    max_gap_minutes: 30
+    max_null_ratio: 0.1
+  required_columns:
+    - timestamp
+    - metric
+    - value
+  optional_columns:
+    - service
+    - env
+    - host
+    - namespace
+    - pod
+    - source
+    - unit
+    - metric_type
+
+analysis:
+  mode: batch
+  window: entire_dataset
+  analyzers:
+    baseline_shift:
+      enabled: true
+      threshold_percent: 25
+    anomaly_zscore:
+      enabled: true
+      zscore_threshold: 2.5
+      grouping_gap: 15m
+    trend:
+      enabled: true
+      min_slope_percent: 10
+
+output:
+  save_normalized_data: true
+  save_signals: true
+  save_question_answers: true
+  save_embeddings: true
+
+capabilities:
+  auto_register: true
+
+questions:
+  auto_generate_from_capabilities: true
+
+storage:
+  postgres:
+    host: localhost
+    port: 5432
+    database: ops_signals
+    user: ops_signals
+    password: ops_signals
+    table_prefix: ops_
+
+embeddings:
+  enabled: true
+  provider: sentence_transformers
+  model: all-MiniLM-L6-v2
+
+ui:
+  enabled: true
+  default_status: new
+  default_page: overview
+  show_technical_signals: true
+  theme: system

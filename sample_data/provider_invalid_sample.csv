@@ -1,0 +1,4 @@
+timestamp,metric_name,value,service,env,source
+2026-07-09T10:00:00Z,cpu_usage,35.0,checkout,prod,prometheus
+invalid-date,cpu_usage,36.1,checkout,prod,prometheus
+2026-07-09T10:10:00Z,cpu_usage,not-a-number,checkout,prod,prometheus

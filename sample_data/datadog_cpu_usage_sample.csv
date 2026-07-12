@@ -1,0 +1,13 @@
+ts_epoch_ms,metric_name,value,tags,source,unit,metric_type
+1752055200000,system.cpu.user,31.2,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752055500000,system.cpu.user,34.9,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752055800000,system.cpu.user,79.8,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752056100000,system.cpu.user,81.1,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752056400000,system.cpu.user,36.4,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752056700000,system.cpu.user,37.2,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752057000000,system.cpu.user,38.1,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752057300000,system.cpu.user,75.3,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752057600000,system.cpu.user,77.5,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752057900000,system.cpu.user,35.6,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752058200000,system.cpu.user,34.7,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge
+1752058500000,system.cpu.user,33.9,"env:prod,service:checkout,host:i-0ab12,region:us-east-1",datadog,percent,gauge

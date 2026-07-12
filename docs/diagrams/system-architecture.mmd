@@ -1,0 +1,13 @@
+flowchart LR
+  A[Canonical Time Series] --> B[Validation]
+  B --> C[Normalization]
+  C --> D[PostgreSQL]
+  D --> E[Analyzer Registry]
+  E --> F[Signals]
+  F --> G[Finding Aggregator]
+  G --> H[Operational Findings]
+  H --> I[Operational Cases]
+  I --> J[Embedding Service]
+  J --> K[Qdrant]
+  K --> L[Similar-Case Retrieval]
+  L --> M[React UI]

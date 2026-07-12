@@ -1,0 +1,13 @@
+timestamp,metric,value,job,instance,namespace,pod,service,env,source,unit,metric_type
+2026-07-09T10:00:00Z,node_cpu_usage_seconds_total,0.62,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:05:00Z,node_cpu_usage_seconds_total,0.65,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:10:00Z,node_cpu_usage_seconds_total,0.91,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:15:00Z,node_cpu_usage_seconds_total,0.95,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:20:00Z,node_cpu_usage_seconds_total,0.97,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:25:00Z,node_cpu_usage_seconds_total,0.64,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:30:00Z,node_cpu_usage_seconds_total,0.66,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:35:00Z,node_cpu_usage_seconds_total,0.67,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:40:00Z,node_cpu_usage_seconds_total,0.99,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:45:00Z,node_cpu_usage_seconds_total,1.02,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:50:00Z,node_cpu_usage_seconds_total,1.01,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
+2026-07-09T10:55:00Z,node_cpu_usage_seconds_total,0.68,node-exporter,10.0.0.12:9100,prod,checkout-7d9f,checkout,prod,prometheus,ratio,gauge
