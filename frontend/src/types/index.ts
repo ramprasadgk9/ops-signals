@@ -30,6 +30,55 @@ export type Capability = {
   };
 };
 
+export type BehaviorDefinition = {
+  id: string;
+  enabled: boolean;
+  version: number;
+  title: string;
+  description: string;
+  scope: Record<string, unknown>;
+  inputs: Array<Record<string, unknown>>;
+  conditions: Record<string, Array<Record<string, unknown>>>;
+  correlation: Record<string, unknown>;
+  output: Record<string, unknown>;
+};
+
+export type BehaviorFinding = {
+  id: number;
+  behavior_id: string;
+  definition_id: string;
+  definition_version: number;
+  title: string;
+  summary: string;
+  category: string;
+  severity: string;
+  service?: string;
+  analysis_run_id?: string;
+  input_metrics_json: Record<string, unknown>;
+  facts_json: Record<string, unknown>;
+  evidence_json: string[];
+  matched_conditions_json: Array<Record<string, unknown>>;
+  confidence: number;
+  correlation_json: Record<string, unknown>;
+  case_id?: number | null;
+  created_at: string;
+};
+
+export type BehaviorEvaluation = {
+  definition_id: string;
+  definition_version: number;
+  title: string;
+  description: string;
+  matched: boolean;
+  confidence: number;
+  service?: string | null;
+  analysis_run_id?: string | null;
+  facts: Record<string, unknown>;
+  matched_conditions: Array<Record<string, unknown>>;
+  evidence: string[];
+  correlation: Record<string, unknown>;
+};
+
 export type Signal = {
   id: string;
   signal_type: string;
