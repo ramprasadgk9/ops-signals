@@ -1,0 +1,103 @@
+behavior_definitions:
+  cpu_throttling:
+    enabled: true
+    version: 1
+    title: Possible CPU throttling
+    description: >
+      Detects abnormal CPU usage occurring together with increased
+      CPU throttling activity.
+    scope:
+      service: "*"
+    inputs:
+      - alias: cpu
+        metric_name: cpu_usage
+        analyzers:
+          - anomaly_zscore
+          - trend
+      - alias: throttling
+        metric_name: cpu_throttled_seconds
+        analyzers:
+          - anomaly_zscore
+          - trend
+    conditions:
+      all:
+        - fact: cpu.anomaly.present
+          operator: equals
+          value: true
+        - fact: throttling.trend.direction
+          operator: equals
+          value: upward
+      any:
+        - fact: throttling.anomaly.present
+          operator: equals
+          value: true
+        - fact: throttling.trend.change_percent
+          operator: greater_than
+          value: 20
+    correlation:
+      same_analysis_context: true
+      max_time_gap: 15m
+      minimum_overlap: 5m
+    output:
+      category: resource_constraint
+      severity: high
+      title: Possible CPU throttling detected
+      summary: >
+        CPU usage showed abnormal behavior while throttling activity
+        increased during the same analysis period.
+      evidence:
+        - cpu.anomaly.count
+        - cpu.anomaly.max_score
+        - cpu.trend.direction
+        - throttling.anomaly.count
+        - throttling.trend.change_percent
+
+  server_slow:
+    enabled: true
+    version: 1
+    title: Possible server performance degradation
+    description: >
+      Detects related CPU and memory degradation that may contribute
+      to server slowness.
+    scope:
+      service: "*"
+    inputs:
+      - alias: cpu
+        metric_name: cpu_usage
+        analyzers:
+          - anomaly_zscore
+          - baseline_shift
+      - alias: memory
+        metric_name: memory_usage
+        analyzers:
+          - anomaly_zscore
+          - trend
+          - baseline_shift
+    conditions:
+      all:
+        - fact: cpu.anomaly.present
+          operator: equals
+          value: true
+      any:
+        - fact: memory.trend.direction
+          operator: equals
+          value: upward
+        - fact: memory.baseline_shift.present
+          operator: equals
+          value: true
+    correlation:
+      same_analysis_context: true
+      max_time_gap: 20m
+      minimum_overlap: 5m
+    output:
+      category: performance
+      severity: medium
+      title: Possible server performance degradation
+      summary: >
+        CPU and memory behavior indicate a degradation pattern that may
+        be contributing to server slowness.
+      evidence:
+        - cpu.anomaly.count
+        - cpu.anomaly.max_score
+        - memory.trend.direction
+        - memory.baseline_shift.present

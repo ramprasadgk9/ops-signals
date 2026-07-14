@@ -10,6 +10,8 @@ from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from backend.app.api.analysis_runs import router as analysis_runs_router
+from backend.app.api.behavior_definitions import router as behavior_definitions_router
+from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
 from backend.app.api.capabilities import router as capabilities_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.findings import router as findings_router
@@ -154,6 +156,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     # Register routers
     app.include_router(services_router)
     app.include_router(analysis_runs_router)
+    app.include_router(behavior_definitions_router)
+    app.include_router(behavior_evaluations_router)
     app.include_router(capabilities_router)
     app.include_router(questions_router)
     app.include_router(signals_router)
