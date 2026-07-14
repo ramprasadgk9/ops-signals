@@ -1,5 +1,18 @@
 import { getJson, postForm, postJson, patchJson } from './client';
-import type { AnalysisRun, Capability, CsvRunResult, Finding, OperationalCase, Question, QuestionAnswer, Signal, TimeseriesPoint } from '../types';
+import type {
+  AnalysisRun,
+  BehaviorDefinition,
+  BehaviorEvaluation,
+  BehaviorFinding,
+  Capability,
+  CsvRunResult,
+  Finding,
+  OperationalCase,
+  Question,
+  QuestionAnswer,
+  Signal,
+  TimeseriesPoint,
+} from '../types';
 
 export const api = {
   health: () => getJson<{ status: string }>('/api/health'),
@@ -7,6 +20,14 @@ export const api = {
   metrics: (service: string) => getJson<string[]>(`/api/services/${service}/metrics`),
   analysisRuns: () => getJson<AnalysisRun[]>('/api/analysis-runs'),
   capabilities: () => getJson<Capability[]>('/api/capabilities'),
+  behaviorDefinitions: () => getJson<BehaviorDefinition[]>('/api/behavior-definitions'),
+  behaviorFindings: () => getJson<BehaviorFinding[]>('/api/behavior-evaluations'),
+  behaviorEvaluations: (analysisRunId?: string, service?: string) =>
+    getJson<BehaviorEvaluation[]>(
+      analysisRunId
+        ? `/api/behavior-evaluations/evaluate?analysis_run_id=${encodeURIComponent(analysisRunId)}${service ? `&service=${encodeURIComponent(service)}` : ''}`
+        : '/api/behavior-evaluations/evaluate'
+    ),
   questions: () => getJson<Question[]>('/api/questions'),
   availableQuestions: (service: string, metric: string, runId: string) =>
     getJson<Question[]>(`/api/questions/available?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),

@@ -13,6 +13,7 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 - normalized time-series points
 - analyzer-generated signals
 - aggregated operational findings
+- behavior findings from declarative multi-signal rules
 - operational cases with investigation and RCA lifecycle fields
 - Qdrant-backed semantic retrieval for similar cases
 
@@ -22,6 +23,7 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 - Normalizes and stores points in PostgreSQL
 - Runs pluggable analyzers for baseline shift, anomaly, and trend detection
 - Aggregates signals into operational findings
+- Evaluates declarative behavior definitions across multiple signals
 - Creates operational cases for investigation, RCA, resolution, and outcome tracking
 - Indexes case summaries into Qdrant for historical similarity search
 - Serves a React frontend and FastAPI backend for review and exploration
@@ -30,6 +32,7 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 
 - It separates **source of truth** storage from **semantic retrieval**
 - It treats detector output as input to higher-level operational interpretation
+- It adds a separate behavior reasoning layer for cross-metric patterns
 - It emphasizes deterministic, explainable answers over free-form generation
 - It keeps PostgreSQL as the system of record and Qdrant as a retrieval index
 
@@ -43,6 +46,7 @@ Historical similarity does not prove two cases share the same root cause.
 - Normalization into PostgreSQL
 - Analyzer registry and capability-driven question model
 - Signal generation and aggregation into findings
+- Behavior intelligence for cross-metric operational patterns
 - Operational case lifecycle fields for investigation, RCA, corrective action, and outcome
 - Qdrant-based operational memory for similar-case retrieval
 - React UI for findings, questions, signals, cases, and history

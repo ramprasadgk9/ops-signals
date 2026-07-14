@@ -12,10 +12,12 @@ flowchart LR
   F --> G[Finding Aggregator]
   G --> H[Operational Findings]
   H --> I[Operational Cases]
-  I --> J[Embedding Service]
-  J --> K[Qdrant]
-  K --> L[Similar-Case Retrieval]
-  L --> M[React UI]
+  I --> J[Behavior Intelligence]
+  J --> K[Behavior Findings]
+  K --> L[Embedding Service]
+  L --> M[Qdrant]
+  M --> N[Similar-Case Retrieval]
+  N --> O[React UI]
 ```
 
 ## Layer Responsibilities
@@ -29,6 +31,8 @@ flowchart LR
 - Finding Aggregator: groups signals into higher-level findings
 - Operational Findings: ranked interpretations of signal sets
 - Operational Cases: investigation objects with lifecycle state
+- Behavior Intelligence: deterministic rule evaluation across multiple signals
+- Behavior Findings: higher-level operational conditions produced by behavior rules
 - Embedding Service: converts case text into vectors
 - Qdrant: semantic retrieval index for similar cases
 - Similar-Case Retrieval: query-time search over indexed case vectors
@@ -71,12 +75,14 @@ Implemented:
 - CSV ingestion into PostgreSQL
 - analyzer-based signal generation
 - operational findings and cases
+- behavior intelligence rule evaluation
 - Qdrant indexing for operational memory
 
 Experimental:
 
 - richer retrieval workflows
 - similarity-guided RCA assistance
+- behavior finding promotion into cases
 
 Planned:
 

@@ -39,6 +39,14 @@ export function TopNavigation() {
           >
             Capabilities
           </Button>
+          <Button
+            component={RouterLink}
+            to="/behavior-intelligence"
+            variant={isActive('/behavior-intelligence') ? 'contained' : 'text'}
+            size="small"
+          >
+            Behavior
+          </Button>
           <Button 
             component={RouterLink} 
             to="/settings"

@@ -177,3 +177,26 @@ class OperationalCaseEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BehaviorFindingEntity(Base):
+    __tablename__ = "ops_behavior_findings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    behavior_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    definition_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    definition_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    service: Mapped[str | None] = mapped_column(Text, nullable=True)
+    analysis_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_metrics_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    facts_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    evidence_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    matched_conditions_json: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    correlation_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    case_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
