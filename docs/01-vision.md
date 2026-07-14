@@ -23,6 +23,7 @@ Detection
 - Raw data: canonical time-series points
 - Signal: analyzer output about a pattern or change
 - Finding: aggregated operational interpretation of signals
+- Behavior finding: a higher-level condition derived from multiple signals and behavior rules
 - Case: a trackable investigation object with lifecycle fields
 - Memory: an embedding-backed retrieval index for prior cases
 
@@ -45,6 +46,7 @@ Detection
 - CSV-based ingestion
 - Analyzer-driven signal generation
 - Finding aggregation
+- Declarative behavior intelligence across multiple signals
 - Operational cases
 - Qdrant-backed retrieval
 

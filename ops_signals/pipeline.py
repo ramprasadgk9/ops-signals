@@ -18,6 +18,7 @@ from ops_signals.normalize.normalizer import normalize_timeseries
 from ops_signals.findings.schema import OperationalFinding
 from ops_signals.signals.schema import OperationalSignal
 from ops_signals.storage.postgres_store import PostgresStore
+from backend.app.behavior_intelligence.service import BehaviorIntelligenceService
 from backend.app.questions.catalog import QUESTION_CATALOG
 from backend.app.questions.composer import AnswerComposer
 
@@ -87,6 +88,8 @@ class SignalPipeline:
             finding.analysis_run_id = analysis_run_id
 
         self.store.save_findings(findings)
+
+        self._evaluate_behavior_intelligence(signals, analysis_run_id)
 
         if self.config.output.save_question_answers:
             self._save_question_answers(analysis_run_id, scored_signals)
@@ -188,3 +191,32 @@ class SignalPipeline:
                 }
             )
         self.store.save_question_answers(answers)
+
+    def _evaluate_behavior_intelligence(self, signals: list[OperationalSignal], analysis_run_id: str) -> None:
+        behavior_definitions_path = self.base_path / "config" / "behavior_definitions.yml"
+        if not behavior_definitions_path.exists() or not hasattr(self.store, "engine"):
+            return
+        service = BehaviorIntelligenceService(behavior_definitions_path)
+        signal_dicts = [
+            {
+                "id": signal.signal_id,
+                "signal_type": signal.signal_type,
+                "analyzer_id": signal.analyzer_id,
+                "metric_name": signal.metric_name,
+                "service": signal.service,
+                "severity": signal.severity,
+                "confidence": signal.confidence,
+                "start_time": signal.start_time,
+                "end_time": signal.end_time,
+                "summary": signal.summary,
+                "evidence": signal.evidence,
+                "importance_score": signal.importance_score,
+                "analysis_run_id": analysis_run_id,
+            }
+            for signal in signals
+        ]
+        from sqlalchemy.orm import sessionmaker
+
+        session_local = sessionmaker(bind=self.store.engine, autocommit=False, autoflush=False)
+        with session_local() as db:
+            service.evaluate(signal_dicts, db)
