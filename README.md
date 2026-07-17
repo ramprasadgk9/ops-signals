@@ -76,8 +76,8 @@ Canonical CSV
 
 ```bash
 docker compose up -d postgres qdrant
-python -m ops_signals.cli init-db --config config.yaml
-python -m ops_signals.cli run --config config.yaml
+python -m intelligence.cli init-db --config config.yaml
+python -m intelligence.cli run --config config.yaml
 uvicorn backend.app.main:app --reload --port 8000
 cd frontend
 npm install

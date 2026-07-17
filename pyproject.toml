@@ -26,10 +26,10 @@ dependencies = [
 dev = ["pytest>=9.1.1"]
 
 [project.scripts]
-ops-signals = "ops_signals.cli:main"
+ops-signals = "intelligence.cli:main"
 
 [tool.setuptools]
-packages = ["ops_signals"]
+packages = ["intelligence"]
 
 [tool.setuptools.package-data]
-ops_signals = []
+intelligence = []

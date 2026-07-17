@@ -7,9 +7,9 @@ import pandas as pd
 from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, select
 from sqlalchemy.dialects.postgresql import BIGINT
 
-from ops_signals.config import AppConfig
-from ops_signals.findings.schema import OperationalFinding
-from ops_signals.signals.schema import OperationalSignal
+from intelligence.config import AppConfig
+from intelligence.findings.schema import OperationalFinding
+from intelligence.signals.schema import OperationalSignal
 
 
 class PostgresStore:

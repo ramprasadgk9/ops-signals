@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from ops_signals.findings.schema import OperationalFinding
+from intelligence.findings.schema import OperationalFinding
 
 
 @dataclass(slots=True)

@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from backend.app.models.api_schema import CsvRunOut
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity
-from ops_signals.config import load_config
-from ops_signals.pipeline import SignalPipeline
+from intelligence.config import load_config
+from intelligence.pipeline import SignalPipeline
 
 router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
 

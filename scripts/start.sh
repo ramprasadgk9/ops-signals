@@ -52,5 +52,5 @@ if [[ "${1:-}" == "frontend" ]]; then
   cd frontend
   npm run dev
 else
-  exec "$VENV_DIR/bin/python" -m ops_signals.cli run --config config.yaml
+  exec "$VENV_DIR/bin/python" -m intelligence.cli run --config config.yaml
 fi

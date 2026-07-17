@@ -7,10 +7,10 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from ops_signals.config import load_config
-from ops_signals.daily_report import build_daily_report
-from ops_signals.findings.schema import OperationalFinding
-from ops_signals.storage.postgres_store import PostgresStore
+from intelligence.config import load_config
+from intelligence.daily_report import build_daily_report
+from intelligence.findings.schema import OperationalFinding
+from intelligence.storage.postgres_store import PostgresStore
 
 
 def _load_args() -> argparse.Namespace:

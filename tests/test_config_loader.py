@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ops_signals.config import load_config
+from intelligence.config import load_config
 
 
 def test_load_config_merges_shared_analyzers_with_provider_config(tmp_path: Path) -> None:
@@ -20,9 +20,9 @@ storage:
   postgres:
     host: localhost
     port: 5432
-    database: ops_signals
-    user: ops_signals
-    password: ops_signals
+    database: intelligence
+    user: intelligence
+    password: intelligence
     table_prefix: ops_
 embeddings:
   enabled: true

@@ -4,9 +4,9 @@ import math
 
 import pandas as pd
 
-from ops_signals.analyzers.base import Analyzer
-from ops_signals.capability import Capability
-from ops_signals.signals.schema import OperationalSignal
+from intelligence.analyzers.base import Analyzer
+from intelligence.capability import Capability
+from intelligence.signals.schema import OperationalSignal
 
 
 class BaselineShiftAnalyzer(Analyzer):

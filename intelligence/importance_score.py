@@ -4,8 +4,8 @@ import math
 from datetime import datetime
 from typing import Iterable
 
-from ops_signals.findings.schema import OperationalFinding
-from ops_signals.signals.schema import OperationalSignal
+from intelligence.findings.schema import OperationalFinding
+from intelligence.signals.schema import OperationalSignal
 
 
 _SEVERITY_WEIGHT = {

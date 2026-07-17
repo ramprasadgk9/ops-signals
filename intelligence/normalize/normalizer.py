@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ops_signals.config import InputConfig
+from intelligence.config import InputConfig
 
 
 CORE_COLUMNS = ["metric_name", "timestamp", "value", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"]
