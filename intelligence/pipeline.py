@@ -7,17 +7,17 @@ from uuid import uuid4
 
 import pandas as pd
 
-from ops_signals.adapters.csv_adapter import CSVAdapter
-from ops_signals.analyzers import BaselineShiftAnalyzer, RupturesAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
-from ops_signals.config import AppConfig
-from ops_signals.daily_report import OperationalIntelligenceReport, build_daily_report
-from ops_signals.finding_aggregator import FindingAggregator
-from ops_signals.embeddings.embedder import SummaryEmbedder
-from ops_signals.importance_score import score_signals
-from ops_signals.normalize.normalizer import normalize_timeseries
-from ops_signals.findings.schema import OperationalFinding
-from ops_signals.signals.schema import OperationalSignal
-from ops_signals.storage.postgres_store import PostgresStore
+from intelligence.adapters.csv_adapter import CSVAdapter
+from intelligence.analyzers import BaselineShiftAnalyzer, RupturesAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
+from intelligence.config import AppConfig
+from intelligence.daily_report import OperationalIntelligenceReport, build_daily_report
+from intelligence.finding_aggregator import FindingAggregator
+from intelligence.embeddings.embedder import SummaryEmbedder
+from intelligence.importance_score import score_signals
+from intelligence.normalize.normalizer import normalize_timeseries
+from intelligence.findings.schema import OperationalFinding
+from intelligence.signals.schema import OperationalSignal
+from intelligence.storage.postgres_store import PostgresStore
 from backend.app.behavior_intelligence.service import BehaviorIntelligenceService
 from backend.app.questions.catalog import QUESTION_CATALOG
 from backend.app.questions.composer import AnswerComposer

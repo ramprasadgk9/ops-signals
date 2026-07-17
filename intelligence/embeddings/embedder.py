@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from ops_signals.config import EmbeddingsConfig
+from intelligence.config import EmbeddingsConfig
 
 
 class SummaryEmbedder:

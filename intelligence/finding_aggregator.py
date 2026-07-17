@@ -6,10 +6,10 @@ from typing import Iterable
 
 import pandas as pd
 
-from ops_signals.findings.schema import OperationalFinding
-from ops_signals.importance_score import score_finding
-from ops_signals.signals.schema import OperationalSignal
-from ops_signals.window_compare import compare_windows
+from intelligence.findings.schema import OperationalFinding
+from intelligence.importance_score import score_finding
+from intelligence.signals.schema import OperationalSignal
+from intelligence.window_compare import compare_windows
 
 
 @dataclass(slots=True)

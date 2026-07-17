@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-from ops_signals.capability import Capability
-from ops_signals.signals.schema import OperationalSignal
+from intelligence.capability import Capability
+from intelligence.signals.schema import OperationalSignal
 
 
 class Analyzer(ABC):

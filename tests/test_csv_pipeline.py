@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ops_signals.config import load_config
-from ops_signals.pipeline import SignalPipeline
+from intelligence.config import load_config
+from intelligence.pipeline import SignalPipeline
 
 
 class InMemoryStore:

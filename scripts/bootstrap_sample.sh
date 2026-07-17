@@ -74,8 +74,8 @@ for attempt in {1..30}; do
   sleep 2
 done
 
-"$VENV_DIR/bin/python" -m ops_signals.cli init-db --config config.yaml
-"$VENV_DIR/bin/python" -m ops_signals.cli run --config config.yaml
+"$VENV_DIR/bin/python" -m intelligence.cli init-db --config config.yaml
+"$VENV_DIR/bin/python" -m intelligence.cli run --config config.yaml
 
 echo
 echo "Verifying inserted rows..."

@@ -85,6 +85,6 @@ for attempt in {1..30}; do
 done
 
 echo "Running database initialization..."
-"$VENV_DIR/bin/python" -m ops_signals.cli init-db --config config.yaml
+"$VENV_DIR/bin/python" -m intelligence.cli init-db --config config.yaml
 
 echo "Setup complete."

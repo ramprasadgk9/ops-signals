@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 
-from ops_signals.config import load_config
-from ops_signals.pipeline import SignalPipeline
+from intelligence.config import load_config
+from intelligence.pipeline import SignalPipeline
 
 
 def build_parser() -> argparse.ArgumentParser:

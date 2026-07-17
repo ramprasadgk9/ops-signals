@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ops_signals.config import InputConfig
+from intelligence.config import InputConfig
 
 
 class CSVAdapter:
