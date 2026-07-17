@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -103,8 +104,10 @@ class AppConfig:
 
 def load_config(config_path: str | Path) -> AppConfig:
     path = Path(config_path).expanduser().resolve()
-    with path.open("r", encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle)
+    raw = _load_yaml(path)
+
+    if _should_use_modular_merge(path, raw):
+        raw = _build_modular_config(path, raw)
 
     analyzers = {
         name: AnalyzerConfig(enabled=details.get("enabled", False), params={k: v for k, v in details.items() if k != "enabled"})
@@ -126,3 +129,60 @@ def load_config(config_path: str | Path) -> AppConfig:
         ui=UiConfig(**raw.get("ui", {})),
         config_path=path,
     )
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Configuration at {path} must contain a YAML mapping")
+    return data
+
+
+def _should_use_modular_merge(path: Path, raw: dict[str, Any]) -> bool:
+    if "analysis" in raw:
+        return False
+    if "input" not in raw:
+        return False
+    config_dir = _find_config_dir(path)
+    return config_dir is not None and (config_dir / "config.yaml").exists()
+
+
+def _build_modular_config(path: Path, provider_config: dict[str, Any]) -> dict[str, Any]:
+    config_dir = _find_config_dir(path)
+    if config_dir is None:
+        return provider_config
+
+    base_config = _load_yaml(config_dir / "config.yaml") if (config_dir / "config.yaml").exists() else {}
+    analyzer_config = _load_yaml(config_dir / "analyzers.yaml") if (config_dir / "analyzers.yaml").exists() else {}
+    return _deep_merge(base_config, analyzer_config, provider_config)
+
+
+def _find_config_dir(path: Path) -> Path | None:
+    candidates: list[Path] = []
+    if path.parent.name == "providers" and path.parent.parent.exists():
+        candidates.append(path.parent.parent)
+    candidates.extend([path.parent / "config", path.parent])
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_dir():
+            if (candidate / "config.yaml").exists() and (candidate / "analyzers.yaml").exists():
+                return candidate
+    return None
+
+
+def _deep_merge(*configs: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for config in configs:
+        merged = _merge_two(merged, config)
+    return merged
+
+
+def _merge_two(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    result = deepcopy(left)
+    for key, value in right.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _merge_two(result[key], value)
+        else:
+            result[key] = deepcopy(value)
+    return result

@@ -8,6 +8,7 @@ import { QuestionAnswerPage } from '../pages/QuestionAnswerPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SignalDetailPage } from '../pages/SignalDetailPage';
 import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
+import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
 
 export function AppRoutes() {
   return (
@@ -18,6 +19,7 @@ export function AppRoutes() {
       <Route path="/questions/:questionId" element={<QuestionAnswerPage />} />
       <Route path="/capabilities" element={<CapabilitiesPage />} />
       <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
+      <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
       <Route path="/findings" element={<FindingsPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/signals/:signalId" element={<SignalDetailPage />} />

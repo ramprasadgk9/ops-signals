@@ -47,6 +47,14 @@ export function TopNavigation() {
           >
             Behavior
           </Button>
+          <Button
+            component={RouterLink}
+            to="/analyzer-recommendation"
+            variant={isActive('/analyzer-recommendation') ? 'contained' : 'text'}
+            size="small"
+          >
+            Analyzer Rec
+          </Button>
           <Button 
             component={RouterLink} 
             to="/settings"

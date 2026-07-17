@@ -16,6 +16,7 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 - behavior findings from declarative multi-signal rules
 - operational cases with investigation and RCA lifecycle fields
 - Qdrant-backed semantic retrieval for similar cases
+- analyzer recommendations for selecting suitable metric analyzers from a sample
 
 ## What It Does
 
@@ -49,6 +50,7 @@ Historical similarity does not prove two cases share the same root cause.
 - Behavior intelligence for cross-metric operational patterns
 - Operational case lifecycle fields for investigation, RCA, corrective action, and outcome
 - Qdrant-based operational memory for similar-case retrieval
+- Analyzer recommendation flow for profiling metric samples and ranking analyzers
 - React UI for findings, questions, signals, cases, and history
 
 ## High-Level Architecture
@@ -66,6 +68,7 @@ Canonical CSV
   -> Embedding Service
   -> Qdrant
   -> Similar-Case Retrieval
+  -> Analyzer Recommendation
   -> React UI
 ```
 
@@ -144,6 +147,7 @@ No screenshots are checked into this repository yet. Add UI captures here when s
 - No claim that similarity equals root-cause equivalence
 - Historical retrieval depends on the quality of stored summaries and metadata
 - Some memory workflows are still evolving and should be treated as operational assistance, not automation
+- Analyzer recommendation scoring is deterministic and currently profile-based; it does not yet run deeper analyzer-specific probes
 
 ## Roadmap
 

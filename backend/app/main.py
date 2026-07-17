@@ -21,6 +21,7 @@ from backend.app.api.questions import router as questions_router
 from backend.app.api.services import router as services_router
 from backend.app.api.signals import router as signals_router
 from backend.app.api.timeseries import router as timeseries_router
+from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
 from backend.app.config import MemoryConfig, get_settings
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.indexer import CaseMemoryIndexer
@@ -164,6 +165,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(findings_router)
     app.include_router(cases_router)
     app.include_router(timeseries_router)
+    app.include_router(metric_analyzer_recommendations_router)
     app.include_router(ingestion_router)
     
     # Register memory router

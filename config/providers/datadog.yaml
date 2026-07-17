@@ -1,0 +1,33 @@
+input:
+  source_type: csv
+  provider: datadog
+  schema_version: v1
+  file_path: sample_data/datadog_cpu_usage_sample.csv
+  history: 1d
+  interval: 5m
+  service: checkout
+  metric_name: system.cpu.user
+  timestamp_column: timestamp
+  value_column: value
+  metric_column: metric_name
+  provider_mappings:
+    timestamp: ts_epoch_ms
+  validation:
+    enforce_monotonic_timestamp: true
+    allow_negative_values: false
+    max_gap_minutes: 30
+    max_null_ratio: 0.1
+  required_columns:
+    - ts_epoch_ms
+    - metric_name
+    - value
+  optional_columns:
+    - service
+    - env
+    - host
+    - namespace
+    - pod
+    - source
+    - unit
+    - metric_type
+    - tags

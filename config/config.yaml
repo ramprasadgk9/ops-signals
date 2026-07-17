@@ -1,0 +1,32 @@
+output:
+  save_normalized_data: true
+  save_signals: true
+  save_question_answers: true
+  save_embeddings: true
+
+capabilities:
+  auto_register: true
+
+questions:
+  auto_generate_from_capabilities: true
+
+storage:
+  postgres:
+    host: localhost
+    port: 5432
+    database: ops_signals
+    user: ops_signals
+    password: ops_signals
+    table_prefix: ops_
+
+embeddings:
+  enabled: true
+  provider: sentence_transformers
+  model: all-MiniLM-L6-v2
+
+ui:
+  enabled: true
+  default_status: new
+  default_page: overview
+  show_technical_signals: true
+  theme: system

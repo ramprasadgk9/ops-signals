@@ -4,7 +4,7 @@ from backend.app.questions.schema import QuestionAnswerResponse
 
 
 def compose_baseline_changes(question_id: str, signals: list[dict]) -> QuestionAnswerResponse:
-    baseline = [sig for sig in signals if sig.get("signal_type") == "baseline_shift"]
+    baseline = [sig for sig in signals if sig.get("signal_type") in {"baseline_shift", "ruptures"}]
     if not baseline:
         return QuestionAnswerResponse(
             question_id=question_id,
@@ -13,7 +13,7 @@ def compose_baseline_changes(question_id: str, signals: list[dict]) -> QuestionA
             status="healthy",
             priority="low",
             confidence=0.9,
-            key_points=["No baseline shift signals were found."],
+            key_points=["No baseline or change point signals were found."],
             evidence_signal_ids=[],
         )
     top = sorted(baseline, key=lambda x: float(x.get("importance_score") or 0), reverse=True)[0]

@@ -1,5 +1,8 @@
 import { getJson, postForm, postJson, patchJson } from './client';
 import type {
+  AnalyzerRecommendation,
+  AnalyzerRecommendationChatRequest,
+  AnalyzerRecommendationChatResponse,
   AnalysisRun,
   BehaviorDefinition,
   BehaviorEvaluation,
@@ -7,6 +10,8 @@ import type {
   Capability,
   CsvRunResult,
   Finding,
+  MetricAnalyzerRecommendation,
+  MetricSample,
   OperationalCase,
   Question,
   QuestionAnswer,
@@ -21,7 +26,13 @@ export const api = {
   analysisRuns: () => getJson<AnalysisRun[]>('/api/analysis-runs'),
   capabilities: () => getJson<Capability[]>('/api/capabilities'),
   behaviorDefinitions: () => getJson<BehaviorDefinition[]>('/api/behavior-definitions'),
-  behaviorFindings: () => getJson<BehaviorFinding[]>('/api/behavior-evaluations'),
+  behaviorFindings: (analysisRunId?: string, service?: string) => {
+    const params = new URLSearchParams();
+    if (analysisRunId) params.append('analysis_run_id', analysisRunId);
+    if (service) params.append('service', service);
+    const queryString = params.toString();
+    return getJson<BehaviorFinding[]>(`/api/behavior-evaluations${queryString ? `?${queryString}` : ''}`);
+  },
   behaviorEvaluations: (analysisRunId?: string, service?: string) =>
     getJson<BehaviorEvaluation[]>(
       analysisRunId
@@ -81,6 +92,18 @@ export const api = {
     getJson<{ enabled: boolean; provider: string; status: string; collection: string }>(
       '/api/memory/health'
     ),
+  metricAnalyzerSamples: () => getJson<MetricSample[]>('/api/metric-analyzer-recommendations/metrics'),
+  metricAnalyzerEvaluate: (service: string, metricName: string, analysisRunId?: string | null) =>
+    postJson<
+      { service: string; metric_name: string; analysis_run_id?: string | null },
+      MetricAnalyzerRecommendation
+    >('/api/metric-analyzer-recommendations/evaluate', {
+      service,
+      metric_name: metricName,
+      analysis_run_id: analysisRunId ?? null,
+    }),
+  metricAnalyzerChat: (payload: AnalyzerRecommendationChatRequest) =>
+    postJson<AnalyzerRecommendationChatRequest, AnalyzerRecommendationChatResponse>('/api/metric-analyzer-recommendations/chat', payload),
   
   timeseries: (service: string, metric: string, runId: string) =>
     getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
