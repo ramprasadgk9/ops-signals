@@ -18,6 +18,20 @@ BUILTIN_CAPABILITIES: list[Capability] = [
         ],
     ),
     Capability(
+        id="change_point_analysis",
+        title="Change Point Analysis",
+        description="Detects persistent changes in the metric baseline.",
+        analyzer_id="ruptures",
+        enabled=True,
+        supported_question_ids=[
+            "what_changed",
+            "baseline_changes",
+            "behavior_novelty",
+            "service_health",
+            "long_term_trends",
+        ],
+    ),
+    Capability(
         id="trend_analysis",
         title="Trend Analysis",
         description="Detects long-term metric direction and velocity changes.",
@@ -47,7 +61,6 @@ BUILTIN_CAPABILITIES: list[Capability] = [
 
 UNAVAILABLE_CAPABILITIES: list[dict[str, str]] = [
     {"id": "pattern_discovery", "title": "Pattern Discovery", "status": "not_installed"},
-    {"id": "change_point_analysis", "title": "Change-Point Analysis", "status": "not_installed"},
     {"id": "seasonality", "title": "Seasonality Analysis", "status": "not_installed"},
     {"id": "oscillation_detection", "title": "Oscillation Detection", "status": "not_installed"},
     {"id": "forecasting", "title": "Forecasting", "status": "not_installed"},

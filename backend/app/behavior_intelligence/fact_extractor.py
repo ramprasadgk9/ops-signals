@@ -18,9 +18,10 @@ def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         by_metric[str(signal.get("metric_name") or "unknown")].append(signal)
 
     for metric_name, metric_signals in by_metric.items():
-        anomaly_signals = [sig for sig in metric_signals if sig.get("signal_type") == "anomaly_zscore" or sig.get("signal_type") == "anomaly"]
+        anomaly_signals = [sig for sig in metric_signals if sig.get("signal_type") in {"anomaly_zscore", "anomaly"}]
         trend_signals = [sig for sig in metric_signals if sig.get("signal_type") == "trend"]
         baseline_signals = [sig for sig in metric_signals if sig.get("signal_type") == "baseline_shift"]
+        ruptures_signals = [sig for sig in metric_signals if sig.get("signal_type") == "ruptures"]
         trend_slope = next(
             (float(sig.get("evidence", {}).get("slope", 0.0)) for sig in trend_signals if sig.get("evidence", {}).get("slope") is not None),
             0.0,
@@ -51,6 +52,12 @@ def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 "present": bool(baseline_signals),
                 "count": len(baseline_signals),
                 "change_percent": max([abs(float(sig.get("evidence", {}).get("change_percent", 0.0))) for sig in baseline_signals], default=0.0),
+            },
+            "ruptures": {
+                "present": bool(ruptures_signals),
+                "count": len(ruptures_signals),
+                "change_percent": max([abs(float(sig.get("evidence", {}).get("percent_change", 0.0))) for sig in ruptures_signals], default=0.0),
+                "change_point_index": min([int(sig.get("evidence", {}).get("change_point_index", 0)) for sig in ruptures_signals], default=0),
             },
             "signal": {
                 "count": len(metric_signals),

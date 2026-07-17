@@ -8,7 +8,7 @@ from uuid import uuid4
 import pandas as pd
 
 from ops_signals.adapters.csv_adapter import CSVAdapter
-from ops_signals.analyzers import BaselineShiftAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
+from ops_signals.analyzers import BaselineShiftAnalyzer, RupturesAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
 from ops_signals.config import AppConfig
 from ops_signals.daily_report import OperationalIntelligenceReport, build_daily_report
 from ops_signals.finding_aggregator import FindingAggregator
@@ -114,6 +114,15 @@ class SignalPipeline:
         baseline_cfg = self.config.analysis.analyzers.get("baseline_shift")
         if baseline_cfg and baseline_cfg.enabled:
             analyzers.append(BaselineShiftAnalyzer(threshold_percent=float(baseline_cfg.params["threshold_percent"])))
+
+        ruptures_cfg = self.config.analysis.analyzers.get("ruptures")
+        if ruptures_cfg and ruptures_cfg.enabled:
+            analyzers.append(
+                RupturesAnalyzer(
+                    min_segment_size=int(ruptures_cfg.params.get("min_segment_size", 5)),
+                    change_threshold=float(ruptures_cfg.params.get("change_threshold", 1.5)),
+                )
+            )
 
         anomaly_cfg = self.config.analysis.analyzers.get("anomaly_zscore")
         if anomaly_cfg and anomaly_cfg.enabled:

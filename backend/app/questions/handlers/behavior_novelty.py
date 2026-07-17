@@ -5,7 +5,7 @@ from backend.app.questions.schema import QuestionAnswerResponse
 
 
 def compose_behavior_novelty(question_id: str, signals: list[dict]) -> QuestionAnswerResponse:
-    baseline_or_trend = [sig for sig in signals if sig.get("signal_type") in {"baseline_shift", "trend"}]
+    baseline_or_trend = [sig for sig in signals if sig.get("signal_type") in {"baseline_shift", "ruptures", "trend"}]
     summary = summarize_signals(baseline_or_trend)
     if not baseline_or_trend:
         return QuestionAnswerResponse(
@@ -21,6 +21,8 @@ def compose_behavior_novelty(question_id: str, signals: list[dict]) -> QuestionA
     points = ["Current behavior differs from the previous window."]
     if summary["counts"].get("baseline_shift"):
         points.append("Baseline level changed")
+    if summary["counts"].get("ruptures"):
+        points.append("A change point split the time series into different regimes")
     if summary["counts"].get("trend"):
         points.append("Trend direction changed materially")
     return QuestionAnswerResponse(

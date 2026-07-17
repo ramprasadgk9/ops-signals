@@ -163,3 +163,109 @@ export type CsvRunResult = {
   sample_count: number;
   findings_count: number;
 };
+
+export type MetricSample = {
+  service: string;
+  metric_name: string;
+  analysis_run_id?: string | null;
+  sample_count: number;
+  start_time: string;
+  end_time: string;
+  sampling_interval_seconds?: number | null;
+  missing_ratio: number;
+  min_value?: number | null;
+  max_value?: number | null;
+  mean_value?: number | null;
+  stddev_value?: number | null;
+};
+
+export type MetricProfile = {
+  sample_count: number;
+  start_time: string;
+  end_time: string;
+  sampling_interval_seconds?: number | null;
+  regular_sampling: boolean;
+  missing_ratio: number;
+  duplicate_timestamps: number;
+  constant_value_ratio: number;
+  mean: number;
+  stddev: number;
+  minimum: number;
+  maximum: number;
+  variance: number;
+  trend_slope: number;
+  trend_strength: number;
+  autocorrelation?: number | null;
+  seasonality_strength: number;
+  sparsity: number;
+  metric_behavior: string;
+};
+
+export type AnalyzerRecommendation = {
+  analyzer_id: string;
+  display_name: string;
+  recommendation: string;
+  fitness_score: number;
+  decision_confidence: number;
+  summary: string;
+  evidence: Record<string, unknown>;
+  requirements: string[];
+  warnings: string[];
+  parameters_tested: Record<string, unknown>;
+};
+
+export type MetricAnalyzerRecommendation = {
+  sample: MetricSample;
+  profile: MetricProfile;
+  recommendations: AnalyzerRecommendation[];
+};
+
+export type TimeValuePoint = {
+  timestamp: string;
+  value: number;
+};
+
+export type MetricContext = {
+  metric_id?: string | null;
+  sample_id?: number | null;
+  metric_name: string;
+  metric_description: string;
+  metric_type?: string | null;
+  provider?: string | null;
+  unit?: string | null;
+  operational_purpose: string;
+  use_cases: string[];
+  operational_questions: string[];
+  example_values: TimeValuePoint[];
+  additional_notes?: string | null;
+};
+
+export type AnalyzerRecommendationChatRequest = {
+  conversation_id?: string | null;
+  message: string;
+  metric_context: MetricContext;
+  options: {
+    include_vector_discovery: boolean;
+    run_sample_evaluation: boolean;
+    requested_analyzers?: string[] | null;
+  };
+};
+
+export type AnalyzerRecommendationChatResponse = {
+  conversation_id: string;
+  evaluation_id?: number | null;
+  response_type: string;
+  recommendation_mode: 'preliminary' | 'evaluated';
+  assistant_message: {
+    headline: string;
+    summary: string;
+    context_used: string[];
+    next_action: string;
+  };
+  recommendations: AnalyzerRecommendation[];
+  suggested_questions: string[];
+  context_hash: string;
+  context_version: number;
+  normalized_goals: Array<{ goal_id: string; display_name: string; source_text: string }>;
+  stale: boolean;
+};

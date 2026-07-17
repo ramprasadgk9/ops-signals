@@ -4,7 +4,7 @@ from backend.app.questions.schema import QuestionAnswerResponse
 
 
 def compose_long_term_trends(question_id: str, signals: list[dict]) -> QuestionAnswerResponse:
-    trend_signals = [sig for sig in signals if sig.get("signal_type") == "trend"]
+    trend_signals = [sig for sig in signals if sig.get("signal_type") in {"trend", "ruptures"}]
     if not trend_signals:
         return QuestionAnswerResponse(
             question_id=question_id,
@@ -13,7 +13,7 @@ def compose_long_term_trends(question_id: str, signals: list[dict]) -> QuestionA
             status="healthy",
             priority="low",
             confidence=0.88,
-            key_points=["No trend signal exceeded the configured threshold."],
+            key_points=["No trend or change point signal exceeded the configured threshold."],
             evidence_signal_ids=[],
         )
     top = sorted(trend_signals, key=lambda x: float(x.get("importance_score") or 0), reverse=True)[0]
