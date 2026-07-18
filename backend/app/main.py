@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, Depends
@@ -10,6 +11,7 @@ from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from backend.app.api.analysis_runs import router as analysis_runs_router
+from backend.app.api.assistant import router as assistant_router
 from backend.app.api.behavior_definitions import router as behavior_definitions_router
 from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
 from backend.app.api.capabilities import router as capabilities_router
@@ -23,8 +25,10 @@ from backend.app.api.signals import router as signals_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
 from backend.app.config import MemoryConfig, get_settings
+from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.memory.qdrant_initializer import QdrantInitializer
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import QdrantVectorStore, VectorStore
@@ -48,13 +52,13 @@ def load_memory_config() -> MemoryConfig | None:
 
 
 def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
-    """Initialize Qdrant client, vector store, indexer, and similarity service.
+    """Initialize Qdrant client, vector store, embedder, indexer, and similarity service.
 
     Args:
         memory_config: Memory configuration
 
     Returns:
-        Tuple of (vector_store, indexer, similarity_service)
+        Tuple of (vector_store, embedder, indexer, similarity_service)
     """
     try:
         # Connect to Qdrant
@@ -63,10 +67,6 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
             url=memory_config.vector_store.url,
             api_key=memory_config.vector_store.api_key,
         )
-
-        # Initialize collection
-        init_result = QdrantInitializer.initialize(qdrant_client)
-        logger.info(f"Qdrant collection initialization: {init_result}")
 
         # Initialize vector store
         vector_store = QdrantVectorStore(
@@ -92,12 +92,41 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
             config=memory_config,
         )
 
+        # Initialize collections
+        init_result = QdrantInitializer.initialize(qdrant_client)
+        knowledge_bootstrap = ApplicationKnowledgeBootstrapService(
+            client=qdrant_client,
+            embedder=embedder,
+            repo_root=Path.cwd(),
+        )
+        knowledge_init = knowledge_bootstrap.bootstrap(force=True)
+        logger.info(f"Qdrant collection initialization: {init_result}")
+        logger.info(
+            "Knowledge collection bootstrap: created=%s updated=%s missing=%s",
+            knowledge_init.created_documents,
+            knowledge_init.updated_documents,
+            knowledge_init.verification.missing_document_ids,
+        )
+
+        # Initialize assistant services
+        docs_store = QdrantVectorStore(
+            client=qdrant_client,
+            collection_name=knowledge_bootstrap.COLLECTION_NAME,
+        )
+        assistant = OperationalIntelligenceAssistant(
+            AssistantServices(
+                embedder=embedder,
+                case_similarity=similarity_service,
+                docs_store=docs_store,
+            )
+        )
+
         logger.info("Memory services initialized successfully")
-        return vector_store, indexer, similarity_service
+        return vector_store, embedder, indexer, similarity_service, assistant, knowledge_bootstrap
 
     except Exception as e:
         logger.error(f"Failed to initialize memory services: {e}")
-        return None, None, None
+        return None, None, None, None, None, None
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
@@ -109,6 +138,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
         "indexer": None,
         "similarity_service": None,
         "config": None,
+        "embedder": None,
+        "assistant": None,
+        "knowledge_bootstrap": None,
     }
 
     @asynccontextmanager
@@ -128,8 +160,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
             logger.info("Initializing operational memory services...")
             (
                 memory_services["vector_store"],
+                memory_services["embedder"],
                 memory_services["indexer"],
                 memory_services["similarity_service"],
+                memory_services["assistant"],
+                memory_services["knowledge_bootstrap"],
             ) = initialize_memory_services(memory_config)
             logger.info(f"✓ Memory services initialized successfully")
         else:
@@ -141,6 +176,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
         memory_module._services["similarity_service"] = memory_services["similarity_service"]
         memory_module._services["config"] = memory_services["config"]
         memory_module._services["vector_store"] = memory_services["vector_store"]
+        memory_module._services["embedder"] = memory_services["embedder"]
+        from backend.app.api import assistant as assistant_module
+        assistant_module._services["assistant"] = memory_services["assistant"]
+        assistant_module._services["knowledge_bootstrap"] = memory_services["knowledge_bootstrap"]
 
         yield
 
@@ -167,6 +206,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(timeseries_router)
     app.include_router(metric_analyzer_recommendations_router)
     app.include_router(ingestion_router)
+    app.include_router(assistant_router)
     
     # Register memory router
     app.include_router(memory_router)

@@ -1,6 +1,7 @@
 """Schemas for operational memory API requests and responses."""
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -61,3 +62,38 @@ class SimilarCasesResponse(BaseModel):
     source_case_id: int
     similarity_type: str = "finding_similarity"
     matches: list[SimilarCaseMatch]
+
+
+class MemoryChatRequest(BaseModel):
+    """Request for conversational retrieval over operational memory."""
+
+    conversation_id: UUID | None = None
+    message: str = Field(min_length=1)
+    case_id: int | None = None
+    top_k: int = Field(default=5, ge=1, le=10)
+    minimum_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    same_service_only: bool = False
+
+
+class MemoryChatSource(BaseModel):
+    """A source case surfaced in chat."""
+
+    case_id: int
+    title: str
+    similarity_score: float
+    service: str | None = None
+    metric_name: str | None = None
+    category: str | None = None
+    case_status: str
+    root_cause_summary: str | None = None
+    outcome_summary: str | None = None
+
+
+class MemoryChatResponse(BaseModel):
+    """Response from the operational memory chat endpoint."""
+
+    conversation_id: UUID
+    answer: str
+    limitations: list[str]
+    suggested_questions: list[str]
+    sources: list[MemoryChatSource]

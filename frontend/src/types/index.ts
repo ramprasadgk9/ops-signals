@@ -269,3 +269,60 @@ export type AnalyzerRecommendationChatResponse = {
   normalized_goals: Array<{ goal_id: string; display_name: string; source_text: string }>;
   stale: boolean;
 };
+
+export type MemoryChatRequest = {
+  conversation_id?: string | null;
+  message: string;
+  case_id?: number | null;
+  top_k?: number;
+  minimum_score?: number;
+  same_service_only?: boolean;
+};
+
+export type MemoryChatSource = {
+  case_id: number;
+  title: string;
+  similarity_score: number;
+  service?: string | null;
+  metric_name?: string | null;
+  category?: string | null;
+  case_status: string;
+  root_cause_summary?: string | null;
+  outcome_summary?: string | null;
+};
+
+export type MemoryChatResponse = {
+  conversation_id: string;
+  answer: string;
+  limitations: string[];
+  suggested_questions: string[];
+  sources: MemoryChatSource[];
+};
+
+export type AssistantChatRequest = {
+  conversation_id?: string | null;
+  message: string;
+  case_id?: number | null;
+  top_k?: number;
+  minimum_score?: number;
+  same_service_only?: boolean;
+};
+
+export type AssistantSource = {
+  source_type: string;
+  title: string;
+  score: number;
+  reference: string;
+  service?: string | null;
+  metric_name?: string | null;
+  summary?: string | null;
+};
+
+export type AssistantChatResponse = {
+  conversation_id: string;
+  intent: string;
+  answer: string;
+  limitations: string[];
+  suggested_questions: string[];
+  sources: AssistantSource[];
+};
