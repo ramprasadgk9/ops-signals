@@ -45,6 +45,22 @@ class EmbeddingConfig(BaseModel):
         return v
 
 
+class OllamaAIConfig(BaseModel):
+    base_url: str = "http://localhost:11434"
+    model: str = "qwen2.5:3b"
+    timeout_seconds: float = 30.0
+
+
+class AIConfig(BaseModel):
+    enabled: bool = False
+    provider: str = "noop"
+    temperature: float = 0.0
+    max_tokens: int | None = None
+    timeout_seconds: float = 30.0
+    retry_on_invalid_output: bool = True
+    ollama: OllamaAIConfig = Field(default_factory=OllamaAIConfig)
+
+
 class IndexingConfig(BaseModel):
     automatic_on_case_creation: bool = False
     automatic_on_case_update: bool = False
@@ -80,6 +96,10 @@ class MemoryConfig(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+
+
+class AppAIConfig(BaseModel):
+    ai: AIConfig = Field(default_factory=AIConfig)
 
 
 def get_settings() -> Settings:

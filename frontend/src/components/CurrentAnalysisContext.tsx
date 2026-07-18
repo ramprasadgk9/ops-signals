@@ -40,6 +40,12 @@ export function CurrentAnalysisContext({ run }: Props) {
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>Provider</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>{run.provider}</Typography>
               </Box>
+              {run.file_name ? (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>File</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{run.file_name}</Typography>
+                </Box>
+              ) : null}
             </Stack>
           </Grid>
 

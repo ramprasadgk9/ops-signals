@@ -25,10 +25,12 @@ from backend.app.api.signals import router as signals_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
 from backend.app.config import MemoryConfig, get_settings
+from backend.app.config import AIConfig
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
+from backend.app.ai.factory import build_optional_ai_services
 from backend.app.memory.qdrant_initializer import QdrantInitializer
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import QdrantVectorStore, VectorStore
@@ -48,6 +50,17 @@ def load_memory_config() -> MemoryConfig | None:
                 return MemoryConfig(**config_data["memory"])
     except Exception as e:
         logger.warning(f"Failed to load memory configuration: {e}")
+    return None
+
+
+def load_ai_config() -> AIConfig | None:
+    try:
+        with open("config.yaml") as f:
+            config_data = yaml.safe_load(f)
+            if config_data and "ai" in config_data:
+                return AIConfig(**config_data["ai"])
+    except Exception as e:
+        logger.warning(f"Failed to load AI configuration: {e}")
     return None
 
 
@@ -108,6 +121,9 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
             knowledge_init.verification.missing_document_ids,
         )
 
+        ai_config = load_ai_config()
+        ai_services = build_optional_ai_services(ai_config)
+
         # Initialize assistant services
         docs_store = QdrantVectorStore(
             client=qdrant_client,
@@ -118,6 +134,7 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
                 embedder=embedder,
                 case_similarity=similarity_service,
                 docs_store=docs_store,
+                ai_services=ai_services,
             )
         )
 
@@ -141,6 +158,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         "embedder": None,
         "assistant": None,
         "knowledge_bootstrap": None,
+        "ai_config": None,
     }
 
     @asynccontextmanager
@@ -153,6 +171,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         # Load memory config at startup
         memory_config = load_memory_config()
+        memory_services["ai_config"] = load_ai_config()
         memory_services["config"] = memory_config
         
         # Initialize memory services if enabled

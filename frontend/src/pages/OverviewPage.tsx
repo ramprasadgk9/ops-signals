@@ -3,7 +3,7 @@ import { Box, Grid2 as Grid, Typography, Stack, Card, CardContent, Button } from
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { AnalysisRunSelector } from '../components/AnalysisRunSelector';
-import { AnswerDrawer } from '../components/AnswerDrawer';
+import { AnswerPanel } from '../components/AnswerPanel';
 import { CurrentAnalysisContext } from '../components/CurrentAnalysisContext';
 import { CsvUploadPanel } from '../components/CsvUploadPanel';
 import { EmptyState } from '../components/EmptyState';
@@ -20,7 +20,6 @@ import type { Question, Signal, Finding } from '../types';
 export function OverviewPage() {
   const { runsQuery, selectedRun, setSelectedRunId, service, metric, runId } = useOverviewData();
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
   const [signalDrawerOpen, setSignalDrawerOpen] = useState(false);
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
@@ -57,6 +56,14 @@ export function OverviewPage() {
     enabled: Boolean(activeQuestion?.id && service && metric && runId),
   });
 
+  const handleQuestionOpen = (question: Question) => {
+    if (activeQuestion?.id === question.id) {
+      setActiveQuestion(null);
+      return;
+    }
+    setActiveQuestion(question);
+  };
+
   // Calculate health metrics from findings
   const health = useMemo(() => {
     const findings = findingQuery.data ?? [];
@@ -76,9 +83,9 @@ export function OverviewPage() {
       score: Math.round(score),
       status,
       breakdown: {
-        critical: -criticalImpact,
-        significant: -significantImpact,
-        normal: 0,
+        baselineShift: -criticalImpact,
+        trend: -significantImpact,
+        anomalyWindows: criticalCount + significantCount,
       },
     };
   }, [findingQuery.data]);
@@ -126,13 +133,22 @@ export function OverviewPage() {
         <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
           Ask Questions About This Analysis Run
         </Typography>
-        <QuestionGrid
-          questions={(questionsQuery.data ?? []) as Question[]}
-          onOpen={(question) => {
-            setActiveQuestion(question);
-            setDrawerOpen(true);
-          }}
-        />
+        <Grid container spacing={2} alignItems="stretch">
+          <Grid size={{ xs: 12, lg: 4 }}>
+            <QuestionGrid
+              questions={(questionsQuery.data ?? []) as Question[]}
+              onOpen={handleQuestionOpen}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, lg: 8 }}>
+            <AnswerPanel
+              question={activeQuestion}
+              answer={answerQuery.data ?? null}
+              signals={signalQuery.data ?? []}
+              timeseries={timeSeriesQuery.data ?? []}
+            />
+          </Grid>
+        </Grid>
       </Box>
 
       {/* Top Findings */}
@@ -142,6 +158,7 @@ export function OverviewPage() {
         </Typography>
         <TopFindingsList 
           findings={findingQuery.data ?? []}
+          signals={signalQuery.data ?? []}
           onViewDetails={(finding) => {
             setSelectedFinding(finding);
             setFindingDrawerOpen(true);
@@ -154,7 +171,7 @@ export function OverviewPage() {
         <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
           Metric Timeline
         </Typography>
-        {/* The timeline is displayed in the AnswerDrawer, could add a standalone view here */}
+        {/* The timeline is displayed in the inline answer panel. */}
       </Box>
 
       {/* Recent Runs */}
@@ -208,15 +225,6 @@ export function OverviewPage() {
         </Box>
       )}
 
-      <AnswerDrawer
-        open={drawerOpen}
-        question={activeQuestion}
-        answer={answerQuery.data ?? null}
-        signals={signalQuery.data ?? []}
-        timeseries={timeSeriesQuery.data ?? []}
-        onClose={() => setDrawerOpen(false)}
-      />
-
       <SignalDetailsDrawer
         open={signalDrawerOpen}
         signal={selectedSignal}
@@ -227,6 +235,7 @@ export function OverviewPage() {
       <FindingDetailsDrawer
         open={findingDrawerOpen}
         finding={selectedFinding}
+        signals={signalQuery.data ?? []}
         onClose={() => setFindingDrawerOpen(false)}
       />
     </Box>

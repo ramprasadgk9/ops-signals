@@ -16,6 +16,7 @@ import type {
   AssistantChatResponse,
   MemoryChatRequest,
   MemoryChatResponse,
+  CsvValidationResult,
   OperationalCase,
   Question,
   QuestionAnswer,
@@ -116,4 +117,5 @@ export const api = {
   timeseries: (service: string, metric: string, runId: string) =>
     getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
   runCsvUpload: (payload: FormData) => postForm<CsvRunResult>('/api/ingestion/csv-run', payload),
+  runCsvValidation: (payload: FormData) => postForm<CsvValidationResult>('/api/ingestion/csv-validate', payload),
 };

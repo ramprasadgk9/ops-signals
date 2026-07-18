@@ -1,13 +1,14 @@
-import { Box, Chip, Drawer, List, ListItem, ListItemText, Stack, Typography } from '@mui/material';
-import type { Finding } from '../types';
+import { Box, Chip, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
+import type { Finding, Signal } from '../types';
 
 type Props = {
   open: boolean;
   finding: Finding | null;
+  signals?: Signal[];
   onClose: () => void;
 };
 
-export function FindingDetailsDrawer({ open, finding, onClose }: Props) {
+export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: Props) {
   if (!finding) return null;
 
   const getHealthColor = (status?: string): 'error' | 'warning' | 'success' | 'default' => {
@@ -29,6 +30,23 @@ export function FindingDetailsDrawer({ open, finding, onClose }: Props) {
       .split('_')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  };
+
+  const matchedSignals = finding.signal_ids
+    .map((signalId) => signals.find((signal) => signal.id === signalId))
+    .filter((signal): signal is Signal => Boolean(signal))
+    .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
+
+  const signalTooltip = (signal: Signal) => {
+    const evidenceKeys = Object.keys(signal.evidence ?? {});
+    const evidenceSummary =
+      evidenceKeys.length > 0
+        ? evidenceKeys
+            .slice(0, 3)
+            .map((key) => `${key}: ${typeof signal.evidence[key] === 'object' ? JSON.stringify(signal.evidence[key]) : String(signal.evidence[key])}`)
+            .join('\n')
+        : 'No evidence details available.';
+    return `${signal.analyzer_id ?? signal.signal_type}\n${signal.summary ?? 'No summary available.'}\n\nEvidence:\n${evidenceSummary}`;
   };
 
   return (
@@ -61,21 +79,28 @@ export function FindingDetailsDrawer({ open, finding, onClose }: Props) {
           )}
           <ListItem>
             <ListItemText 
-              primary="Evidence (Anomaly Windows)" 
-              secondary={`${finding.signal_ids.length} anomalies detected`}
+              primary="Evidence (Supporting Signals)" 
+              secondary={`${matchedSignals.length} supporting signal${matchedSignals.length !== 1 ? 's' : ''} detected`}
             />
           </ListItem>
           {finding.signal_ids.length > 0 && (
             <ListItem>
               <ListItemText 
-                primary="Signal IDs"
+                primary="Signals used"
                 secondary={
-                  <Stack component="span" spacing={0.5} sx={{ mt: 1 }}>
-                    {finding.signal_ids.map((id) => (
-                      <Typography key={id} variant="caption" component="div" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        {id}
-                      </Typography>
-                    ))}
+                  <Stack component="span" spacing={0.75} sx={{ mt: 1, flexWrap: 'wrap' }}>
+                    {matchedSignals.length > 0
+                      ? matchedSignals.map((signal) => (
+                          <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
+                            <Chip
+                              label={signal.analyzer_id ?? signal.signal_type}
+                              size="small"
+                              variant="outlined"
+                              sx={{ mr: 0.5, mb: 0.5 }}
+                            />
+                          </Tooltip>
+                        ))
+                      : <Typography variant="caption" color="text.secondary">No problem-signals matched.</Typography>}
                   </Stack>
                 }
               />

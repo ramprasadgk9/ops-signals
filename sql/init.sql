@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS capability_questions (
 CREATE TABLE IF NOT EXISTS analysis_runs (
     id VARCHAR(64) PRIMARY KEY,
     source_type VARCHAR(32) NOT NULL,
+    file_name VARCHAR(255),
     provider VARCHAR(32) NOT NULL DEFAULT 'generic',
     service VARCHAR(128) NOT NULL,
     metric_name VARCHAR(128) NOT NULL,
@@ -185,6 +186,9 @@ CREATE TABLE IF NOT EXISTS analysis_runs (
 
 ALTER TABLE IF EXISTS analysis_runs
     ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'generic';
+
+ALTER TABLE IF EXISTS analysis_runs
+    ADD COLUMN IF NOT EXISTS file_name VARCHAR(255);
 
 CREATE TABLE IF NOT EXISTS question_answers (
     id BIGSERIAL PRIMARY KEY,
