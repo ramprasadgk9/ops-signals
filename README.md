@@ -4,6 +4,18 @@ Ops Signals is a vendor-neutral Operational Intelligence framework that transfor
 
 It is designed to help teams move from raw metrics to actionable operational context without replacing existing observability or incident platforms.
 
+## In One Sentence
+
+Upload a metric time series, let the analyzers explain what changed, promote important findings into cases, and reuse prior cases as searchable operational memory.
+
+## What Users Gain
+
+- Faster triage from raw data to explainable findings
+- A consistent path from signal to case to resolution
+- Visibility into which analyzers and signals contributed to each result
+- A reusable memory layer for similar cases and prior context
+- An open, self-hostable workflow instead of a closed black box
+
 ## Problem
 
 Raw time-series points are noisy, high-volume, and hard to reason about directly. Detector outputs alone can tell you that something changed, but not what it means, how severe it is, or how it relates to prior incidents.
@@ -37,6 +49,28 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 - It adds a separate behavior reasoning layer for cross-metric patterns
 - It emphasizes deterministic, explainable answers over free-form generation
 - It keeps PostgreSQL as the system of record and Qdrant as a retrieval index
+
+## How It Works
+
+```text
+CSV / metric sample
+  -> normalization
+  -> analyzers
+  -> signals
+  -> findings
+  -> cases
+  -> memory / assistant
+```
+
+```mermaid
+flowchart LR
+  A[Upload CSV or metric sample] --> B[Normalize and store]
+  B --> C[Run analyzers]
+  C --> D[Generate signals]
+  D --> E[Aggregate findings]
+  E --> F[Open or create a case]
+  F --> G[Ask questions and reuse memory]
+```
 
 This is not a replacement for Prometheus, Datadog, Grafana, or incident-management platforms.
 It does not currently perform autonomous remediation.
