@@ -4,6 +4,7 @@ import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import StarOutlineRoundedIcon from '@mui/icons-material/StarOutlineRounded';
 import PsychologyAltRoundedIcon from '@mui/icons-material/PsychologyAltRounded';
 import AutoGraphRoundedIcon from '@mui/icons-material/AutoGraphRounded';
+import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
@@ -80,6 +81,16 @@ export function TopNavigation() {
             sx={navButtonSx}
           >
             Analyzer Rec
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/assistant"
+            variant={isActive('/assistant') ? 'contained' : 'text'}
+            size="small"
+            startIcon={<ChatRoundedIcon />}
+            sx={navButtonSx}
+          >
+            Assistant
           </Button>
           <Button 
             component={RouterLink} 

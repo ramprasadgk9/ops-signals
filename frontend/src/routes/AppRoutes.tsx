@@ -9,6 +9,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { SignalDetailPage } from '../pages/SignalDetailPage';
 import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
 import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
+import { MemoryChatPage } from '../pages/MemoryChatPage';
 
 export function AppRoutes() {
   return (
@@ -20,6 +21,8 @@ export function AppRoutes() {
       <Route path="/capabilities" element={<CapabilitiesPage />} />
       <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
       <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
+      <Route path="/assistant" element={<MemoryChatPage />} />
+      <Route path="/memory-chat" element={<MemoryChatPage />} />
       <Route path="/findings" element={<FindingsPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/signals/:signalId" element={<SignalDetailPage />} />

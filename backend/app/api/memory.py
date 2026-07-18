@@ -2,14 +2,19 @@
 
 import logging
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from backend.app.config import MemoryConfig
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.schemas import (
     MemoryHealthResponse,
+    MemoryChatRequest,
+    MemoryChatResponse,
+    MemoryChatSource,
     MemoryIndexResponse,
     MemoryStatusResponse,
     SimilarCasesResponse,
@@ -18,7 +23,8 @@ from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import OperationalCaseEntity
-from sqlalchemy import select
+from backend.app.memory.embedder import Embedder
+from backend.app.memory.document_builder import CaseDocumentBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +36,7 @@ _services = {
     "similarity_service": None,
     "config": None,
     "vector_store": None,
+    "embedder": None,
 }
 
 
@@ -56,6 +63,11 @@ def get_memory_config() -> MemoryConfig | None:
 def get_vector_store() -> VectorStore | None:
     """Get vector store."""
     return _services["vector_store"]
+
+
+def get_embedder() -> Embedder | None:
+    """Get embedder."""
+    return _services.get("embedder")
 
 
 @router.post("/cases/{case_id}/memory/index", response_model=MemoryIndexResponse)
@@ -226,6 +238,137 @@ async def find_similar_cases(
     except Exception as e:
         logger.error(f"Failed to search similar cases for {case_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@router.post("/memory/chat", response_model=MemoryChatResponse)
+async def chat_memory(
+    payload: MemoryChatRequest,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    config: MemoryConfig | None = Depends(get_memory_config),
+    embedder: Embedder | None = Depends(get_embedder),
+) -> MemoryChatResponse:
+    """Answer a natural-language question using operational memory retrieval."""
+    if not config or not config.enabled:
+        raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
+    if not service or not embedder:
+        raise HTTPException(status_code=503, detail="Memory services are not initialized")
+
+    question = payload.message.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="Message cannot be empty")
+
+    current_case = None
+    if payload.case_id is not None:
+        current_case = db.execute(
+            select(OperationalCaseEntity).where(OperationalCaseEntity.id == payload.case_id)
+        ).scalar_one_or_none()
+        if not current_case:
+            raise HTTPException(status_code=404, detail="Case not found")
+
+    query_text = question
+    if current_case:
+        query_text = "\n".join(
+            [
+                "Operational case context:",
+                CaseDocumentBuilder.build(current_case),
+                "",
+                f"User question: {question}",
+            ]
+        )
+
+    try:
+        vector = embedder.encode(query_text)
+        filters = None
+        if current_case:
+            filters = service._build_filters(current_case, payload.same_service_only)
+
+        search_results = service.vector_store.search(
+            vector=vector,
+            filters=filters,
+            limit=payload.top_k * 2,
+            score_threshold=payload.minimum_score,
+        )
+
+        if current_case:
+            search_results = [
+                result
+                for result in search_results
+                if result["payload"].get("case_id") != current_case.id
+            ]
+
+        filtered_results = search_results[: payload.top_k]
+        source_case_ids = [result["payload"].get("case_id") for result in filtered_results if result["payload"].get("case_id")]
+        matched_cases = db.execute(
+            select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(source_case_ids))
+        ).scalars().all() if source_case_ids else []
+        case_by_id = {case.id: case for case in matched_cases}
+
+        sources: list[MemoryChatSource] = []
+        for result in filtered_results:
+            case_id = result["payload"].get("case_id")
+            if not case_id:
+                continue
+            matched_case = case_by_id.get(case_id)
+            if not matched_case:
+                continue
+            sources.append(
+                MemoryChatSource(
+                    case_id=matched_case.id,
+                    title=matched_case.case_title,
+                    similarity_score=float(result["score"]),
+                    service=result["payload"].get("service"),
+                    metric_name=result["payload"].get("metric_name"),
+                    category=result["payload"].get("category"),
+                    case_status=matched_case.case_status,
+                    root_cause_summary=matched_case.root_cause_summary,
+                    outcome_summary=matched_case.outcome_summary,
+                )
+            )
+
+        if sources:
+            top = sources[0]
+            answer_lines = [
+                f"I found {len(sources)} related case{'s' if len(sources) != 1 else ''} in operational memory.",
+                f"The closest match is case #{top.case_id} ({top.title}) with a similarity score of {top.similarity_score:.2f}.",
+            ]
+            if top.root_cause_summary:
+                answer_lines.append(f"That case recorded this RCA summary: {top.root_cause_summary}")
+            elif top.outcome_summary:
+                answer_lines.append(f"That case recorded this outcome: {top.outcome_summary}")
+            else:
+                answer_lines.append("The match contains useful operational context, but no RCA or outcome summary yet.")
+            answer_lines.append("Use the source cases below to inspect the evidence before treating this as a final conclusion.")
+        else:
+            answer_lines = [
+                "I could not find a strong operational-memory match for that question.",
+                "Try asking about a specific service, metric, or case, or lower the similarity threshold.",
+            ]
+
+        suggested_questions = [
+            "Have we seen this before?",
+            "What changed in the most similar case?",
+            "Show the RCA for the closest match.",
+        ]
+        if current_case:
+            suggested_questions.insert(0, "What changed compared with this case?")
+
+        limitations = [
+            "Answers are grounded in retrieved case memory, not direct root-cause proof.",
+            "Chat does not change systems or perform remediation.",
+            "Results depend on the quality of indexed case summaries and metadata.",
+        ]
+
+        return MemoryChatResponse(
+            conversation_id=payload.conversation_id or uuid4(),
+            answer="\n".join(answer_lines),
+            limitations=limitations,
+            suggested_questions=suggested_questions[:4],
+            sources=sources,
+        )
+    except Exception as e:
+        logger.error(f"Failed to answer memory chat request: {e}")
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
 
 @router.get("/memory/health", response_model=MemoryHealthResponse)

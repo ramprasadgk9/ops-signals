@@ -12,6 +12,10 @@ import type {
   Finding,
   MetricAnalyzerRecommendation,
   MetricSample,
+  AssistantChatRequest,
+  AssistantChatResponse,
+  MemoryChatRequest,
+  MemoryChatResponse,
   OperationalCase,
   Question,
   QuestionAnswer,
@@ -104,6 +108,10 @@ export const api = {
     }),
   metricAnalyzerChat: (payload: AnalyzerRecommendationChatRequest) =>
     postJson<AnalyzerRecommendationChatRequest, AnalyzerRecommendationChatResponse>('/api/metric-analyzer-recommendations/chat', payload),
+  assistantChat: (payload: AssistantChatRequest) =>
+    postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload),
+  memoryChat: (payload: MemoryChatRequest) =>
+    postJson<MemoryChatRequest, MemoryChatResponse>('/api/memory/chat', payload),
   
   timeseries: (service: string, metric: string, runId: string) =>
     getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),

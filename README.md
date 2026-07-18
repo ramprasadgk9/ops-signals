@@ -53,6 +53,27 @@ Historical similarity does not prove two cases share the same root cause.
 - Analyzer recommendation flow for profiling metric samples and ranking analyzers
 - React UI for findings, questions, signals, cases, and history
 
+## Operational Intelligence Assistant
+
+Ops Signals includes a single chat interface that routes questions across historical cases and application knowledge.
+The assistant should be treated as a retrieval and explanation layer, not as an oracle.
+
+### What users can expect
+
+- Ask natural-language questions about findings, cases, signals, behaviors, analyzers, and architecture
+- Retrieve relevant cases, documentation, and evidence from vector search
+- Get plain-language summaries grounded in stored operational data and repo docs
+- Ask follow-up questions like "what changed?", "have we seen this before?", or "what is behavior intelligence?"
+- See source links, case IDs, or documentation references used in the answer
+
+### What users should not expect
+
+- Guaranteed root-cause truth from the chat output alone
+- Autoremediation or direct system changes
+- Free-form guesses without evidence
+- Answers that go beyond the stored data, docs, and retrieval context
+- Replacement for the underlying analyzers, rules, or source observability tools
+
 ## High-Level Architecture
 
 ```text
