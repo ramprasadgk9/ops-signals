@@ -1,0 +1,17 @@
+timestamp,metric_name,metric,value,service
+2026-07-01T00:00:00Z,cpu_usage,cpu_usage,10,checkout
+2026-07-01T00:05:00Z,cpu_usage,cpu_usage,12,checkout
+2026-07-01T00:10:00Z,cpu_usage,cpu_usage,11,checkout
+2026-07-01T00:15:00Z,cpu_usage,cpu_usage,13,checkout
+2026-07-01T00:20:00Z,cpu_usage,cpu_usage,10,checkout
+2026-07-01T00:25:00Z,cpu_usage,cpu_usage,12,checkout
+2026-07-01T00:30:00Z,cpu_usage,cpu_usage,11,checkout
+2026-07-01T00:35:00Z,cpu_usage,cpu_usage,13,checkout
+2026-07-01T00:40:00Z,cpu_usage,cpu_usage,10,checkout
+2026-07-01T00:45:00Z,cpu_usage,cpu_usage,12,checkout
+2026-07-01T00:50:00Z,cpu_usage,cpu_usage,11,checkout
+2026-07-01T00:55:00Z,cpu_usage,cpu_usage,13,checkout
+2026-07-01T01:00:00Z,cpu_usage,cpu_usage,10,checkout
+2026-07-01T01:05:00Z,cpu_usage,cpu_usage,12,checkout
+2026-07-01T01:10:00Z,cpu_usage,cpu_usage,11,checkout
+2026-07-01T01:15:00Z,cpu_usage,cpu_usage,13,checkout

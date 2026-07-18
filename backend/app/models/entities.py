@@ -97,6 +97,7 @@ class AnalysisRunEntity(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     provider: Mapped[str] = mapped_column(String(32), nullable=False, default="generic")
     service: Mapped[str] = mapped_column(String(128), nullable=False)
     metric_name: Mapped[str] = mapped_column(String(128), nullable=False)

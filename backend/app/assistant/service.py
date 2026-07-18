@@ -9,6 +9,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.ai.factory import OptionalAIServices
+from backend.app.ai.services.intent_service import IntentService
 from backend.app.assistant.schemas import AssistantChatRequest, AssistantChatResponse, AssistantSource
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.embedder import Embedder
@@ -22,11 +24,15 @@ class AssistantServices:
     embedder: Embedder
     case_similarity: SimilarityService
     docs_store: VectorStore
+    ai_services: OptionalAIServices | None = None
 
 
 class OperationalIntelligenceAssistant:
     def __init__(self, services: AssistantServices):
         self.services = services
+        self.intent_service = IntentService(
+            services.ai_services.structured if services.ai_services else None
+        )
 
     @staticmethod
     def detect_intent(message: str) -> str:
@@ -51,7 +57,7 @@ class OperationalIntelligenceAssistant:
         return "mixed"
 
     def chat(self, payload: AssistantChatRequest, db: Session) -> AssistantChatResponse:
-        intent = self.detect_intent(payload.message)
+        intent = self.intent_service.classify(payload.message) if self.services.ai_services else self.detect_intent(payload.message)
         sources: list[AssistantSource] = []
         answers: list[str] = []
 

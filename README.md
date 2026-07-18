@@ -23,6 +23,7 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 - Ingests canonical CSV time-series data
 - Normalizes and stores points in PostgreSQL
 - Runs pluggable analyzers for baseline shift, anomaly, and trend detection
+- Adds optional STUMPY pattern discovery and Prophet forecasting analyzers
 - Aggregates signals into operational findings
 - Evaluates declarative behavior definitions across multiple signals
 - Creates operational cases for investigation, RCA, resolution, and outcome tracking

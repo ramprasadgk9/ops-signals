@@ -1,15 +1,16 @@
-import { Button, Card, CardActions, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import type { Finding } from '../types';
+import type { Finding, Signal } from '../types';
 
 type Props = {
   finding: Finding;
   onViewDetails?: (finding: Finding) => void;
+  signals?: Signal[];
 };
 
-export function FindingCard({ finding, onViewDetails }: Props) {
+export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
   const navigate = useNavigate();
   const createCaseMutation = useMutation({
     mutationFn: (findingId: number) => api.createCase(findingId),
@@ -49,6 +50,23 @@ export function FindingCard({ finding, onViewDetails }: Props) {
     }
   };
 
+  const matchedSignals = finding.signal_ids
+    .map((signalId) => signals.find((signal) => signal.id === signalId))
+    .filter((signal): signal is Signal => Boolean(signal))
+    .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
+
+  const signalTooltip = (signal: Signal) => {
+    const evidenceKeys = Object.keys(signal.evidence ?? {});
+    const evidenceSummary =
+      evidenceKeys.length > 0
+        ? evidenceKeys
+            .slice(0, 3)
+            .map((key) => `${key}: ${typeof signal.evidence[key] === 'object' ? JSON.stringify(signal.evidence[key]) : String(signal.evidence[key])}`)
+            .join('\n')
+        : 'No evidence details available.';
+    return `${signal.analyzer_id ?? signal.signal_type}\n${signal.summary ?? 'No summary available.'}\n\nEvidence:\n${evidenceSummary}`;
+  };
+
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardContent sx={{ flexGrow: 1 }}>
@@ -81,8 +99,25 @@ export function FindingCard({ finding, onViewDetails }: Props) {
           
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="caption" color="text.secondary">Evidence</Typography>
-            <Typography variant="body2">{finding.signal_ids.length} anomaly window{finding.signal_ids.length !== 1 ? 's' : ''}</Typography>
+            <Typography variant="body2">{matchedSignals.length} supporting signal{matchedSignals.length !== 1 ? 's' : ''}</Typography>
           </Stack>
+
+          {matchedSignals.length > 0 ? (
+            <Stack spacing={0.5}>
+              <Typography variant="caption" color="text.secondary">Signals used</Typography>
+              <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                {matchedSignals.map((signal) => (
+                  <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
+                    <Chip
+                      label={`${signal.analyzer_id ?? signal.signal_type}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </Tooltip>
+                ))}
+              </Stack>
+            </Stack>
+          ) : null}
           
           <Stack>
             <Typography variant="caption" color="text.secondary">Metric</Typography>

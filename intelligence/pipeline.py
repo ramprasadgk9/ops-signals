@@ -8,7 +8,14 @@ from uuid import uuid4
 import pandas as pd
 
 from intelligence.adapters.csv_adapter import CSVAdapter
-from intelligence.analyzers import BaselineShiftAnalyzer, RupturesAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
+from intelligence.analyzers import (
+    BaselineShiftAnalyzer,
+    ProphetAnalyzer,
+    RupturesAnalyzer,
+    STUMPYAnalyzer,
+    TrendAnalyzer,
+    ZScoreAnomalyAnalyzer,
+)
 from intelligence.config import AppConfig
 from intelligence.daily_report import OperationalIntelligenceReport, build_daily_report
 from intelligence.finding_aggregator import FindingAggregator
@@ -46,12 +53,12 @@ class SignalPipeline:
             return
         self.store.init_db()
 
-    def run(self) -> PipelineResult:
+    def run(self, run_metadata: dict[str, object] | None = None) -> PipelineResult:
         raw = self._load_input()
         normalized = normalize_timeseries(raw, self.config.input)
         analysis_run_id = uuid4().hex
 
-        self._create_analysis_run(analysis_run_id, normalized)
+        self._create_analysis_run(analysis_run_id, normalized, run_metadata=run_metadata)
         if self.config.output.save_normalized_data:
             self.store.save_normalized_points(normalized, analysis_run_id=analysis_run_id)
 
@@ -136,6 +143,26 @@ class SignalPipeline:
         trend_cfg = self.config.analysis.analyzers.get("trend")
         if trend_cfg and trend_cfg.enabled:
             analyzers.append(TrendAnalyzer(min_slope_percent=float(trend_cfg.params["min_slope_percent"])))
+
+        stumpy_cfg = self.config.analysis.analyzers.get("stumpy")
+        if stumpy_cfg and stumpy_cfg.enabled:
+            analyzers.append(
+                STUMPYAnalyzer(
+                    window_size=int(stumpy_cfg.params.get("window_size", 20)),
+                    motif_count=int(stumpy_cfg.params.get("motif_count", 1)),
+                    profile_threshold=float(stumpy_cfg.params.get("profile_threshold", 2.0)),
+                )
+            )
+
+        prophet_cfg = self.config.analysis.analyzers.get("prophet")
+        if prophet_cfg and prophet_cfg.enabled:
+            analyzers.append(
+                ProphetAnalyzer(
+                    horizon_points=int(prophet_cfg.params.get("horizon_points", 10)),
+                    changepoint_prior_scale=float(prophet_cfg.params.get("changepoint_prior_scale", 0.05)),
+                    uncertainty_threshold=float(prophet_cfg.params.get("uncertainty_threshold", 0.15)),
+                )
+            )
         return analyzers
 
     def _build_embeddings(self, signals: list[OperationalSignal]) -> dict[int, list[float]]:
@@ -148,12 +175,18 @@ class SignalPipeline:
                 vectors[index] = list(embedding)
         return vectors
 
-    def _create_analysis_run(self, analysis_run_id: str, normalized: pd.DataFrame) -> None:
+    def _create_analysis_run(
+        self,
+        analysis_run_id: str,
+        normalized: pd.DataFrame,
+        run_metadata: dict[str, object] | None = None,
+    ) -> None:
         if normalized.empty:
             return
         payload = {
             "id": analysis_run_id,
             "source_type": self.config.input.source_type,
+            "file_name": str(run_metadata.get("file_name")) if run_metadata and run_metadata.get("file_name") else None,
             "provider": (self.config.input.provider or "generic").lower(),
             "service": str(normalized["service"].dropna().iloc[0]) if "service" in normalized.columns and not normalized["service"].dropna().empty else "unknown",
             "metric_name": str(normalized["metric_name"].dropna().iloc[0]),

@@ -1,4 +1,4 @@
-import { Grid2 as Grid } from '@mui/material';
+import { Stack } from '@mui/material';
 import type { Question } from '../types';
 import { QuestionCard } from './QuestionCard';
 
@@ -9,12 +9,10 @@ type Props = {
 
 export function QuestionGrid({ questions, onOpen }: Props) {
   return (
-    <Grid container spacing={2}>
+    <Stack spacing={1.25}>
       {questions.map((q) => (
-        <Grid key={q.id} size={{ xs: 12, md: 6, lg: 4 }}>
-          <QuestionCard question={q} onOpen={onOpen} />
-        </Grid>
+        <QuestionCard key={q.id} question={q} onOpen={onOpen} compact />
       ))}
-    </Grid>
+    </Stack>
   );
 }

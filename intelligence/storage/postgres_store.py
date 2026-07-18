@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, select
+from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select
 from sqlalchemy.dialects.postgresql import BIGINT
 
 from intelligence.config import AppConfig
@@ -126,6 +126,7 @@ class PostgresStore:
             self.metadata,
             Column("id", String(64), primary_key=True),
             Column("source_type", String(32), nullable=False),
+            Column("file_name", String(255)),
             Column("provider", String(32), nullable=False, server_default="generic"),
             Column("service", String(128), nullable=False),
             Column("metric_name", String(128), nullable=False),
@@ -255,8 +256,10 @@ class PostgresStore:
                 )
 
     def create_analysis_run(self, payload: dict[str, Any]) -> None:
+        column_names = {column["name"] for column in inspect(self.engine).get_columns("analysis_runs", schema=None)}
+        filtered_payload = {key: value for key, value in payload.items() if key in column_names}
         with self.engine.begin() as connection:
-            connection.execute(self.analysis_runs_table.insert().values(**payload))
+            connection.execute(self.analysis_runs_table.insert().values(**filtered_payload))
 
     def save_question_answers(self, answers: list[dict[str, Any]]) -> None:
         if not answers:

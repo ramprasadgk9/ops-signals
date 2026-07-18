@@ -9,6 +9,9 @@ Analyzers convert normalized time-series data into standardized signals.
 - baseline shift detection
 - anomaly detection
 - trend analysis
+- change-point / regime detection
+- repeated-motif / pattern discovery
+- forecasting
 
 ## Registry Model
 

@@ -28,7 +28,7 @@ export function AnalysisRunSelector({ runs, value, onChange }: Props) {
           >
             {runs.map((run) => (
               <MenuItem key={run.id} value={run.id}>
-                {formatDate(run.start_time)} - {formatDate(run.end_time)} ({run.sample_count} samples)
+                {formatDate(run.start_time)} - {formatDate(run.end_time)} ({run.sample_count} samples){run.file_name ? ` · ${run.file_name}` : ''}
               </MenuItem>
             ))}
           </Select>
@@ -52,6 +52,14 @@ export function AnalysisRunSelector({ runs, value, onChange }: Props) {
                 </Typography>
               </Box>
             </Grid>
+            {selectedRun.file_name ? (
+              <Grid size={{ xs: 12 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>File</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>{selectedRun.file_name}</Typography>
+                </Box>
+              </Grid>
+            ) : null}
           </Grid>
         )}
       </CardContent>

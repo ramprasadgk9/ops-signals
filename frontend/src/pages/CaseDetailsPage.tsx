@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Card,
@@ -9,21 +10,31 @@ import {
   CircularProgress,
   FormControl,
   FormControlLabel,
+  Grid2 as Grid,
   InputLabel,
   MenuItem,
   Select,
   Stack,
+  Step,
+  StepLabel,
+  Stepper,
   Tab,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
-  Alert,
 } from '@mui/material';
+import AssistantRoundedIcon from '@mui/icons-material/AssistantRounded';
+import PlayCircleRoundedIcon from '@mui/icons-material/PlayCircleRounded';
+import BuildRoundedIcon from '@mui/icons-material/BuildRounded';
+import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import { useParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
+import type { Signal } from '../types';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -34,34 +45,45 @@ interface TabPanelProps {
 function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
   return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`case-tabpanel-${index}`}
-      aria-labelledby={`case-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+    <div role="tabpanel" hidden={value !== index} id={`case-tabpanel-${index}`} aria-labelledby={`case-tab-${index}`} {...other}>
+      {value === index ? <Box sx={{ pt: 3 }}>{children}</Box> : null}
     </div>
   );
+}
+
+function stepForCase(caseStatus: string, investigationStatus: string, rootCauseStatus: string, outcomeStatus: string): number {
+  if (outcomeStatus === 'resolved') return 4;
+  if (rootCauseStatus === 'confirmed' || rootCauseStatus === 'identified') return 3;
+  if (investigationStatus === 'completed' || investigationStatus === 'in_progress') return 2;
+  if (caseStatus === 'open' || caseStatus === 'in_progress') return 1;
+  return 0;
+}
+
+function stepVisualState(stepIndex: number, activeStep: number) {
+  if (stepIndex < activeStep) return 'completed';
+  if (stepIndex === activeStep) return 'active';
+  return 'upcoming';
+}
+
+function statusLabel(value: string): string {
+  return value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 export function CaseDetailsPage() {
   const { caseId } = useParams<{ caseId: string }>();
   const [tabValue, setTabValue] = useState(0);
   const queryClient = useQueryClient();
+  const [initialized, setInitialized] = useState(false);
 
-  // Investigation form state
   const [investigationStatus, setInvestigationStatus] = useState('');
   const [investigationNote, setInvestigationNote] = useState('');
-
-  // RCA form state
   const [rcaStatus, setRcaStatus] = useState('');
   const [rcaSummary, setRcaSummary] = useState('');
   const [rcaConfidence, setRcaConfidence] = useState<number | string>('');
   const [rcaVerified, setRcaVerified] = useState(false);
-
-  // Resolution form state
   const [outcomeStatus, setOutcomeStatus] = useState('');
   const [outcomeSummary, setOutcomeSummary] = useState('');
   const [correctiveAction, setCorrectiveAction] = useState('');
@@ -72,8 +94,28 @@ export function CaseDetailsPage() {
     enabled: Boolean(caseId),
   });
 
-  // Initialize form state when case loads
-  if (caseQuery.data && investigationStatus === '') {
+  const caseSignalsQuery = useQuery({
+    queryKey: [
+      'case-signals',
+      caseQuery.data?.analysis_run_id,
+      caseQuery.data?.finding_snapshot.service ?? '',
+      caseQuery.data?.finding_snapshot.metric_name ?? '',
+    ],
+    queryFn: () =>
+      api.signals(
+        caseQuery.data!.finding_snapshot.service ?? '',
+        caseQuery.data!.finding_snapshot.metric_name,
+        caseQuery.data!.analysis_run_id
+      ),
+    enabled: Boolean(
+      caseQuery.data?.analysis_run_id &&
+        caseQuery.data?.finding_snapshot.metric_name &&
+        caseQuery.data?.finding_snapshot.service
+    ),
+  });
+
+  useEffect(() => {
+    if (!caseQuery.data || initialized) return;
     setInvestigationStatus(caseQuery.data.investigation_status);
     setRcaStatus(caseQuery.data.root_cause_status);
     setRcaSummary(caseQuery.data.root_cause_summary || '');
@@ -82,7 +124,8 @@ export function CaseDetailsPage() {
     setOutcomeStatus(caseQuery.data.outcome_status);
     setOutcomeSummary(caseQuery.data.outcome_summary || '');
     setCorrectiveAction(caseQuery.data.corrective_action || '');
-  }
+    setInitialized(true);
+  }, [caseQuery.data, initialized]);
 
   const updateInvestigationMutation = useMutation({
     mutationFn: () =>
@@ -128,12 +171,12 @@ export function CaseDetailsPage() {
     },
   });
 
-  if (caseQuery.isLoading) return <LoadingSkeleton />;
-  if (caseQuery.error) return <ErrorState message="Failed to load case details" />;
-  if (!caseQuery.data) return <ErrorState message="Case not found" />;
+  const askAssistant = () => {
+    window.location.href = '/assistant';
+  };
 
   const caseData = caseQuery.data;
-  const finding = caseData.finding_snapshot;
+  const finding = caseData?.finding_snapshot;
 
   const getHealthColor = (status?: string): 'error' | 'warning' | 'success' | 'default' => {
     switch (status?.toLowerCase()) {
@@ -148,296 +191,420 @@ export function CaseDetailsPage() {
     }
   };
 
-  const getCategoryLabel = (category?: string): string => {
-    if (!category) return 'Insight';
-    return category
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+  const currentStep = useMemo(() => {
+    if (!caseData) return 0;
+    return stepForCase(caseData.case_status, caseData.investigation_status, caseData.root_cause_status, caseData.outcome_status);
+  }, [caseData]);
+
+  const matchedSignals = useMemo(() => {
+    const signals = caseSignalsQuery.data ?? [];
+    return finding.signal_ids
+      .map((signalId) => signals.find((signal) => signal.id === signalId))
+      .filter((signal): signal is Signal => Boolean(signal))
+      .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
+  }, [caseSignalsQuery.data, finding.signal_ids]);
+
+  const signalTooltip = (signal: Signal) => {
+    const evidenceKeys = Object.keys(signal.evidence ?? {});
+    const evidenceSummary =
+      evidenceKeys.length > 0
+        ? evidenceKeys
+            .slice(0, 3)
+            .map((key) => `${key}: ${typeof signal.evidence[key] === 'object' ? JSON.stringify(signal.evidence[key]) : String(signal.evidence[key])}`)
+            .join('\n')
+        : 'No evidence details available.';
+    return `${signal.analyzer_id ?? signal.signal_type}\n${signal.summary ?? 'No summary available.'}\n\nEvidence:\n${evidenceSummary}`;
   };
+
+  const steps = [
+    { label: 'Review Finding', icon: <FactCheckRoundedIcon /> },
+    { label: 'Investigate', icon: <PlayCircleRoundedIcon /> },
+    { label: 'Root Cause', icon: <BuildRoundedIcon /> },
+    { label: 'Resolution', icon: <TaskAltRoundedIcon /> },
+    { label: 'Publish Knowledge', icon: <AssistantRoundedIcon /> },
+  ];
+
+  if (caseQuery.isLoading) return <LoadingSkeleton />;
+  if (caseQuery.error) return <ErrorState message="Failed to load case details" />;
+  if (!caseData || !finding) return <ErrorState message="Case not found" />;
+
+  const summaryCards = [
+    { label: 'Severity', value: statusLabel(finding.health_status), color: getHealthColor(finding.health_status) },
+    { label: 'Importance', value: `${(finding.importance_score * 100).toFixed(0)}%` },
+    { label: 'Category', value: finding.category.split('_').join(' ') },
+    { label: 'Service', value: finding.service ?? caseData.service ?? 'n/a' },
+  ];
 
   return (
     <Box sx={{ pb: 4 }}>
-      {/* Case Header */}
-      <Box sx={{ mb: 3 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
-          <div>
-            <Typography variant="h4" sx={{ mb: 1 }}>{caseData.case_title}</Typography>
-            <Typography variant="body2" color="text.secondary">Case #{caseData.id}</Typography>
-          </div>
-        </Stack>
+      <Stack spacing={2.5}>
+        <Box>
+          <Button variant="text" onClick={() => window.location.href = '/'} sx={{ px: 0 }}>
+            ← Back to Overview
+          </Button>
 
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">Finding Summary</Typography>
-                <Typography variant="body2" sx={{ mt: 0.5 }}>{finding.summary}</Typography>
-              </Box>
-
-              <Stack direction="row" spacing={3} sx={{ pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Case Status</Typography>
-                  <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {caseData.case_status.charAt(0).toUpperCase() + caseData.case_status.slice(1)}
-                    </Typography>
-                    {caseData.case_status === 'resolved' && <Typography sx={{ fontSize: '1.2rem' }}>🟢</Typography>}
-                    {caseData.case_status === 'in_progress' && <Typography sx={{ fontSize: '1.2rem' }}>🟡</Typography>}
-                    {caseData.case_status === 'open' && <Typography sx={{ fontSize: '1.2rem' }}>🔴</Typography>}
-                  </Stack>
-                </Box>
-
-                <Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Investigation</Typography>
-                  <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {caseData.investigation_status === 'completed' ? 'Completed' : caseData.investigation_status === 'in_progress' ? 'In Progress' : 'Not Started'}
-                    </Typography>
-                    {caseData.investigation_status === 'completed' && <Typography sx={{ fontSize: '1.2rem' }}>✅</Typography>}
-                    {caseData.investigation_status === 'in_progress' && <Typography sx={{ fontSize: '1.2rem' }}>🔄</Typography>}
-                  </Stack>
-                </Box>
-
-                <Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Memory Status</Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {caseData.memory_status === 'not_indexed' && 'Not Indexed'}
-                        {caseData.memory_status === 'indexing' && 'Indexing...'}
-                        {caseData.memory_status === 'indexed' && 'Indexed'}
-                        {caseData.memory_status === 'stale' && 'Update Available'}
-                        {caseData.memory_status === 'failed' && 'Failed'}
-                      </Typography>
-                      {caseData.memory_status === 'indexed' && <Typography sx={{ fontSize: '1rem' }}>✅</Typography>}
-                      {caseData.memory_status === 'indexing' && <CircularProgress size={16} sx={{ ml: 1 }} />}
-                      {caseData.memory_status === 'stale' && <Typography sx={{ fontSize: '1rem' }}>⚠️</Typography>}
-                      {caseData.memory_status === 'failed' && <Typography sx={{ fontSize: '1rem' }}>❌</Typography>}
-                    </Stack>
-                    
-                    {(caseData.memory_status === 'not_indexed' || caseData.memory_status === 'stale' || caseData.memory_status === 'failed') && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => indexMemoryMutation.mutate()}
-                        disabled={indexMemoryMutation.isPending}
-                        sx={{ ml: 'auto' }}
-                      >
-                        {indexMemoryMutation.isPending ? 'Indexing...' : 'Add to Memory'}
-                      </Button>
-                    )}
-                  </Stack>
-                </Box>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', md: 'center' }}
+            spacing={2}
+            sx={{ mt: 1 }}
+          >
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: 'wrap' }}>
+                <Typography variant="h4">Investigation #{caseData.id}</Typography>
+                <Chip label={statusLabel(caseData.case_status)} color={caseData.case_status === 'resolved' ? 'success' : 'default'} size="small" />
+                <Chip label={`Case ${caseData.memory_status.split('_').join(' ')}`} size="small" variant="outlined" />
               </Stack>
-
-              <Stack direction="row" spacing={2} sx={{ pt: 1 }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Severity</Typography>
-                  <Chip
-                    label={finding.health_status.charAt(0).toUpperCase() + finding.health_status.slice(1)}
-                    color={getHealthColor(finding.health_status)}
-                    size="small"
-                    sx={{ mt: 0.5 }}
-                  />
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Importance</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700 }}>
-                    {(finding.importance_score * 100).toFixed(0)}%
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Category</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>
-                    {getCategoryLabel(finding.category)}
-                  </Typography>
-                </Box>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
-      </Box>
-
-      {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-          <Tab label="Summary" id="case-tab-0" aria-controls="case-tabpanel-0" />
-          <Tab label="Evidence" id="case-tab-1" aria-controls="case-tabpanel-1" />
-          <Tab label="Investigation" id="case-tab-2" aria-controls="case-tabpanel-2" />
-          <Tab label="RCA" id="case-tab-3" aria-controls="case-tabpanel-3" />
-          <Tab label="Resolution" id="case-tab-4" aria-controls="case-tabpanel-4" />
-          <Tab label="Similar Cases" id="case-tab-5" aria-controls="case-tabpanel-5" />
-        </Tabs>
-      </Box>
-
-      {/* Tab Panels */}
-      <TabPanel value={tabValue} index={0}>
-        <Stack spacing={2}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>Case Overview</Typography>
-              <Stack spacing={2}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Title</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>{caseData.case_title}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Status</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>{caseData.case_status}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Created</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>
-                    {new Date(caseData.created_at).toLocaleString()}
-                  </Typography>
-                </Box>
-                {caseData.resolved_at && (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Resolved</Typography>
-                    <Typography variant="body2" sx={{ mt: 0.5 }}>
-                      {new Date(caseData.resolved_at).toLocaleString()}
-                    </Typography>
-                  </Box>
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>Finding Details</Typography>
-              <Stack spacing={2}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Finding Title</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>{finding.title}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Metric</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>{finding.metric_name}</Typography>
-                </Box>
-                {finding.service && (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Service</Typography>
-                    <Typography variant="body2" sx={{ mt: 0.5 }}>{finding.service}</Typography>
-                  </Box>
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
-        </Stack>
-      </TabPanel>
-
-      <TabPanel value={tabValue} index={1}>
-        <Stack spacing={2}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>Anomaly Windows</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                {finding.signal_ids.length} anomaly window{finding.signal_ids.length !== 1 ? 's' : ''} detected
+              <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 400 }}>
+                {finding.title}
               </Typography>
-              
-              {finding.signal_ids.length > 0 && (
-                <Box sx={{ backgroundColor: '#f5f5f5', p: 2, borderRadius: 1, maxHeight: 400, overflowY: 'auto' }}>
-                  <Typography variant="caption" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>Signal IDs:</Typography>
-                  {finding.signal_ids.map((id) => (
-                    <Typography key={id} variant="caption" component="div" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', mb: 0.5 }}>
-                      {id}
-                    </Typography>
-                  ))}
-                </Box>
-              )}
-            </CardContent>
-          </Card>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                {finding.summary}
+              </Typography>
+            </Box>
 
-          {Object.keys(finding.comparison_json).length > 0 && (
-            <Card>
-              <CardContent>
-                <Typography variant="h6" sx={{ mb: 2 }}>Comparison Analysis</Typography>
-                <Box sx={{ backgroundColor: '#f5f5f5', p: 2, borderRadius: 1, maxHeight: 300, overflowY: 'auto' }}>
-                  <Typography variant="caption" component="pre" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
-                    {JSON.stringify(finding.comparison_json, null, 2)}
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          )}
-        </Stack>
-      </TabPanel>
-
-      <TabPanel value={tabValue} index={2}>
-        <Stack spacing={2}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>Update Investigation</Typography>
-              <Stack spacing={2}>
-                <FormControl fullWidth>
-                  <InputLabel>Status</InputLabel>
-                  <Select
-                    value={investigationStatus}
-                    onChange={(e) => setInvestigationStatus(e.target.value)}
-                    label="Status"
-                  >
-                    <MenuItem value="not_started">Not Started</MenuItem>
-                    <MenuItem value="in_progress">In Progress</MenuItem>
-                    <MenuItem value="completed">Completed</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <TextField
-                  label="Add Investigation Note"
-                  multiline
-                  rows={3}
-                  value={investigationNote}
-                  onChange={(e) => setInvestigationNote(e.target.value)}
-                  placeholder="Add notes about your investigation..."
-                />
-
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button variant="outlined" startIcon={<AssistantRoundedIcon />} onClick={askAssistant}>
+                Ask Assistant
+              </Button>
+              {(caseData.memory_status === 'not_indexed' || caseData.memory_status === 'stale' || caseData.memory_status === 'failed') && (
                 <Button
                   variant="contained"
-                  onClick={() => updateInvestigationMutation.mutate()}
-                  disabled={updateInvestigationMutation.isPending}
+                  onClick={() => indexMemoryMutation.mutate()}
+                  disabled={indexMemoryMutation.isPending}
                 >
-                  {updateInvestigationMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-                  Update Investigation
+                  {indexMemoryMutation.isPending ? 'Indexing…' : 'Add to Memory'}
                 </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+              )}
+            </Stack>
+          </Stack>
+        </Box>
 
-          {caseData.investigation_notes.length > 0 && (
-            <Card>
+        <Card variant="outlined">
+          <CardContent sx={{ py: 2.5 }}>
+            <Stepper activeStep={currentStep} alternativeLabel>
+              {steps.map((step, index) => {
+                const visualState = stepVisualState(index, currentStep);
+                return (
+                <Step key={step.label}>
+                  <StepLabel
+                    icon={step.icon}
+                    sx={{
+                      '& .MuiStepLabel-label': {
+                        color:
+                          visualState === 'active'
+                            ? 'success.main'
+                            : visualState === 'completed'
+                              ? 'text.secondary'
+                              : 'text.disabled',
+                        fontWeight: visualState === 'active' ? 700 : 600,
+                      },
+                      '& .MuiStepIcon-root': {
+                        color:
+                          visualState === 'active'
+                            ? 'success.main'
+                            : visualState === 'completed'
+                              ? 'success.light'
+                              : 'action.disabled',
+                      },
+                    }}
+                  >
+                    {step.label}
+                  </StepLabel>
+                </Step>
+                );
+              })}
+            </Stepper>
+          </CardContent>
+        </Card>
+
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, md: 7 }}>
+            <Card
+              variant="outlined"
+              sx={{
+                borderColor: currentStep >= 2 ? 'success.light' : 'divider',
+                boxShadow: currentStep >= 2 ? '0 0 0 1px rgba(46, 125, 50, 0.12)' : 'none',
+              }}
+            >
               <CardContent>
-                <Typography variant="h6" sx={{ mb: 2 }}>Investigation Notes</Typography>
-                <Stack spacing={1}>
-                  {caseData.investigation_notes.map((note, idx) => (
-                    <Box key={idx} sx={{ p: 1.5, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        {note.timestamp ? new Date(note.timestamp).toLocaleString() : 'No timestamp'}
-                      </Typography>
-                      <Typography variant="body2" sx={{ mt: 0.5 }}>{note.note}</Typography>
-                    </Box>
-                  ))}
+                <Stack spacing={2}>
+                  <Typography variant="overline" color="text.secondary">
+                    Operational Summary
+                  </Typography>
+                  <Typography variant="body1">
+                    {finding.summary}
+                  </Typography>
+                  <Grid container spacing={2}>
+                    {summaryCards.map((item) => (
+                      <Grid key={item.label} size={{ xs: 6, sm: 3 }}>
+                        <Box sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {item.label}
+                          </Typography>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                              {item.value}
+                            </Typography>
+                            {'color' in item && item.color ? <Chip size="small" color={item.color} label={statusLabel(finding.health_status)} /> : null}
+                          </Stack>
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+
+                  <Box sx={{ pt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Signals used
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+                      {matchedSignals.length > 0 ? (
+                        matchedSignals.map((signal) => (
+                          <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
+                            <Chip label={signal.analyzer_id ?? signal.signal_type} size="small" variant="outlined" />
+                          </Tooltip>
+                        ))
+                      ) : (
+                        <Chip label="No problem-signals matched" size="small" variant="outlined" />
+                      )}
+                    </Stack>
+                  </Box>
                 </Stack>
               </CardContent>
             </Card>
-          )}
-        </Stack>
-      </TabPanel>
+          </Grid>
 
-      <TabPanel value={tabValue} index={3}>
-        <Stack spacing={2}>
-          <Card>
+          <Grid size={{ xs: 12, md: 5 }}>
+            <Card
+              variant="outlined"
+              sx={{
+                height: '100%',
+                borderColor: currentStep === 1 ? 'success.light' : 'divider',
+                boxShadow: currentStep === 1 ? '0 0 0 1px rgba(46, 125, 50, 0.12)' : 'none',
+              }}
+            >
+              <CardContent>
+                <Stack spacing={2}>
+                  <Typography variant="overline" color="text.secondary">
+                    Next Action
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {currentStep === 0
+                      ? 'Review the finding and decide whether this is actionable.'
+                      : currentStep === 1
+                        ? 'Capture investigation notes and inspect the evidence.'
+                        : currentStep === 2
+                          ? 'Document the root cause and confidence.'
+                          : currentStep === 3
+                            ? 'Record the resolution and corrective action.'
+                            : 'Confirm the outcome and publish knowledge.'}
+                  </Typography>
+                  <Button variant="contained" onClick={() => setTabValue(Math.min(currentStep + 1, 4))}>
+                    Continue Investigation
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        <Box>
+          <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)} variant="scrollable" scrollButtons="auto">
+            <Tab label="Overview" id="case-tab-0" aria-controls="case-tabpanel-0" />
+            <Tab label="Evidence" id="case-tab-1" aria-controls="case-tabpanel-1" />
+            <Tab label="Investigation" id="case-tab-2" aria-controls="case-tabpanel-2" />
+            <Tab label="Root Cause" id="case-tab-3" aria-controls="case-tabpanel-3" />
+            <Tab label="Resolution" id="case-tab-4" aria-controls="case-tabpanel-4" />
+            <Tab label="Similar Cases" id="case-tab-5" aria-controls="case-tabpanel-5" />
+          </Tabs>
+        </Box>
+
+        <TabPanel value={tabValue} index={0}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>
+                    Why this case exists
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    The system detected a change in {finding.metric_name} that is worth reviewing before it is dismissed as normal variation.
+                  </Typography>
+                  <Stack spacing={1.5}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Case title
+                      </Typography>
+                      <Typography variant="body2">{caseData.case_title}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Created
+                      </Typography>
+                      <Typography variant="body2">{new Date(caseData.created_at).toLocaleString()}</Typography>
+                    </Box>
+                    {caseData.resolved_at ? (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Resolved
+                        </Typography>
+                        <Typography variant="body2">{new Date(caseData.resolved_at).toLocaleString()}</Typography>
+                      </Box>
+                    ) : null}
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>
+                    Suggested focus
+                  </Typography>
+                  <Stack spacing={1}>
+                    <Typography variant="body2">• Review the signal evidence window</Typography>
+                    <Typography variant="body2">• Check whether the change is expected</Typography>
+                    <Typography variant="body2">• Capture the first hypothesis in Investigation</Typography>
+                    <Typography variant="body2">• Move to root cause once the pattern is clear</Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={1}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>
+                    Signals used
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    {matchedSignals.length} supporting signal{matchedSignals.length !== 1 ? 's' : ''} detected.
+                  </Typography>
+                  <Stack spacing={1}>
+                    {matchedSignals.length > 0 ? (
+                      matchedSignals.map((signal) => (
+                        <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
+                          <Chip label={signal.analyzer_id ?? signal.signal_type} variant="outlined" sx={{ justifyContent: 'flex-start' }} />
+                        </Tooltip>
+                      ))
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No problem-signals matched.
+                      </Typography>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>
+                    Comparison details
+                  </Typography>
+                  <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 2, overflowX: 'auto' }}>
+                    <Typography variant="caption" component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
+                      {JSON.stringify(finding.comparison_json, null, 2)}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={2}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Card
+                variant="outlined"
+                sx={{
+                  borderColor: investigationStatus === 'in_progress' ? 'success.light' : 'divider',
+                  boxShadow: investigationStatus === 'in_progress' ? '0 0 0 1px rgba(46, 125, 50, 0.12)' : 'none',
+                }}
+              >
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>
+                    Update Investigation
+                  </Typography>
+                  <Stack spacing={2}>
+                    <FormControl fullWidth>
+                      <InputLabel>Status</InputLabel>
+                      <Select value={investigationStatus} onChange={(e) => setInvestigationStatus(e.target.value)} label="Status">
+                        <MenuItem value="not_started">Not Started</MenuItem>
+                        <MenuItem value="in_progress">In Progress</MenuItem>
+                        <MenuItem value="completed">Completed</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <TextField
+                      label="Investigation note"
+                      multiline
+                      rows={4}
+                      value={investigationNote}
+                      onChange={(e) => setInvestigationNote(e.target.value)}
+                      placeholder="Capture what you checked, what you ruled out, and what to do next."
+                    />
+
+                    <Button variant="contained" onClick={() => updateInvestigationMutation.mutate()} disabled={updateInvestigationMutation.isPending}>
+                      {updateInvestigationMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+                      Save Investigation
+                    </Button>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>
+                    Investigation notes
+                  </Typography>
+                  {caseData.investigation_notes.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No notes yet.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={1}>
+                      {caseData.investigation_notes.map((note, index) => (
+                        <Box key={index} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 2 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {note.timestamp ? new Date(note.timestamp).toLocaleString() : 'No timestamp'}
+                          </Typography>
+                          <Typography variant="body2">{note.note}</Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={3}>
+          <Card
+            variant="outlined"
+            sx={{
+              borderColor: rcaStatus === 'investigating' || rcaStatus === 'identified' ? 'success.light' : 'divider',
+              boxShadow: rcaStatus === 'investigating' || rcaStatus === 'identified' ? '0 0 0 1px rgba(46, 125, 50, 0.12)' : 'none',
+            }}
+          >
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>Root Cause Analysis</Typography>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                Root Cause
+              </Typography>
               <Stack spacing={2}>
                 <FormControl fullWidth>
                   <InputLabel>Status</InputLabel>
-                  <Select
-                    value={rcaStatus}
-                    onChange={(e) => setRcaStatus(e.target.value)}
-                    label="Status"
-                  >
+                  <Select value={rcaStatus} onChange={(e) => setRcaStatus(e.target.value)} label="Status">
                     <MenuItem value="unknown">Unknown</MenuItem>
                     <MenuItem value="investigating">Investigating</MenuItem>
                     <MenuItem value="identified">Identified</MenuItem>
@@ -446,12 +613,12 @@ export function CaseDetailsPage() {
                 </FormControl>
 
                 <TextField
-                  label="Root Cause Summary"
+                  label="Root cause summary"
                   multiline
-                  rows={3}
+                  rows={4}
                   value={rcaSummary}
                   onChange={(e) => setRcaSummary(e.target.value)}
-                  placeholder="Describe the root cause..."
+                  placeholder="Summarize the root cause in plain language."
                 />
 
                 <TextField
@@ -463,42 +630,35 @@ export function CaseDetailsPage() {
                 />
 
                 <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={rcaVerified}
-                      onChange={(e) => setRcaVerified(e.target.checked)}
-                    />
-                  }
+                  control={<Checkbox checked={rcaVerified} onChange={(e) => setRcaVerified(e.target.checked)} />}
                   label="Verified"
                 />
 
-                <Button
-                  variant="contained"
-                  onClick={() => updateRCAMutation.mutate()}
-                  disabled={updateRCAMutation.isPending}
-                >
+                <Button variant="contained" onClick={() => updateRCAMutation.mutate()} disabled={updateRCAMutation.isPending}>
                   {updateRCAMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-                  Update RCA
+                  Save Root Cause
                 </Button>
               </Stack>
             </CardContent>
           </Card>
-        </Stack>
-      </TabPanel>
+        </TabPanel>
 
-      <TabPanel value={tabValue} index={4}>
-        <Stack spacing={2}>
-          <Card>
+        <TabPanel value={tabValue} index={4}>
+          <Card
+            variant="outlined"
+            sx={{
+              borderColor: outcomeStatus === 'in_progress' || outcomeStatus === 'resolved' ? 'success.light' : 'divider',
+              boxShadow: outcomeStatus === 'in_progress' || outcomeStatus === 'resolved' ? '0 0 0 1px rgba(46, 125, 50, 0.12)' : 'none',
+            }}
+          >
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>Resolution & Outcome</Typography>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                Resolution
+              </Typography>
               <Stack spacing={2}>
                 <FormControl fullWidth>
                   <InputLabel>Outcome Status</InputLabel>
-                  <Select
-                    value={outcomeStatus}
-                    onChange={(e) => setOutcomeStatus(e.target.value)}
-                    label="Outcome Status"
-                  >
+                  <Select value={outcomeStatus} onChange={(e) => setOutcomeStatus(e.target.value)} label="Outcome Status">
                     <MenuItem value="pending">Pending</MenuItem>
                     <MenuItem value="in_progress">In Progress</MenuItem>
                     <MenuItem value="resolved">Resolved</MenuItem>
@@ -507,48 +667,36 @@ export function CaseDetailsPage() {
                 </FormControl>
 
                 <TextField
-                  label="Outcome Summary"
+                  label="Outcome summary"
                   multiline
-                  rows={3}
+                  rows={4}
                   value={outcomeSummary}
                   onChange={(e) => setOutcomeSummary(e.target.value)}
-                  placeholder="Describe the outcome..."
                 />
 
                 <TextField
-                  label="Corrective Action"
+                  label="Corrective action"
                   multiline
-                  rows={3}
+                  rows={4}
                   value={correctiveAction}
                   onChange={(e) => setCorrectiveAction(e.target.value)}
-                  placeholder="Describe actions taken to resolve..."
                 />
 
-                <Button
-                  variant="contained"
-                  onClick={() => updateResolutionMutation.mutate()}
-                  disabled={updateResolutionMutation.isPending}
-                >
+                <Button variant="contained" onClick={() => updateResolutionMutation.mutate()} disabled={updateResolutionMutation.isPending}>
                   {updateResolutionMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-                  Update Resolution
+                  Save Resolution
                 </Button>
               </Stack>
             </CardContent>
           </Card>
-        </Stack>
-      </TabPanel>
+        </TabPanel>
 
-      <TabPanel value={tabValue} index={5}>
-        {caseData.memory_status === 'indexed' ? (
+        <TabPanel value={tabValue} index={5}>
           <SimilarCasesList caseId={parseInt(caseId || '0')} />
-        ) : (
-          <Alert severity="info">
-            Case needs to be indexed first. {
-              caseData.memory_status === 'not_indexed' && 'Click "Add to Memory" to enable similar case search.'
-            }
-          </Alert>
-        )}
-      </TabPanel>
+        </TabPanel>
+
+        {caseData.memory_status === 'failed' ? <Alert severity="warning">Memory indexing failed for this case. You can retry from the header.</Alert> : null}
+      </Stack>
     </Box>
   );
 }
@@ -569,57 +717,33 @@ function SimilarCasesList({ caseId }: { caseId: number }) {
   return (
     <Stack spacing={2}>
       {similarCases.matches.map((match: any) => (
-        <Box key={match.case_id} sx={{ border: '1px solid #ddd', p: 2, borderRadius: 1 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-            <Box>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                {match.title}
-              </Typography>
-              <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
-                <Typography variant="caption">
-                  <strong>Service:</strong> {match.service}
+        <Card key={match.case_id} variant="outlined">
+          <CardContent>
+            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                  {match.title}
                 </Typography>
-                <Typography variant="caption">
-                  <strong>Metric:</strong> {match.metric_name}
+                <Typography variant="body2" color="text.secondary">
+                  {match.service} · {match.metric_name} · {statusLabel(match.case_status)}
                 </Typography>
-                <Typography variant="caption">
-                  <strong>Status:</strong> {match.case_status}
-                </Typography>
-              </Stack>
-              {match.root_cause_summary && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    <strong>RCA:</strong> {match.root_cause_summary}
+                {match.root_cause_summary ? (
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    RCA: {match.root_cause_summary}
                   </Typography>
-                </Box>
-              )}
-              {match.corrective_action && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    <strong>Action:</strong> {match.corrective_action}
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-            <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="h6" sx={{ fontWeight: 700, color: '#2196F3' }}>
-                {(match.similarity_score * 100).toFixed(0)}%
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Similarity
-              </Typography>
-              <Box sx={{ mt: 1 }}>
-                <Button
-                  size="small"
-                  variant="text"
-                  onClick={() => window.location.href = `/cases/${match.case_id}`}
-                >
-                  View Case
-                </Button>
+                ) : null}
               </Box>
-            </Box>
-          </Stack>
-        </Box>
+              <Stack alignItems="flex-end" spacing={1}>
+                <Typography variant="h5" sx={{ fontWeight: 700, color: 'primary.main' }}>
+                  {(match.similarity_score * 100).toFixed(0)}%
+                </Typography>
+                <Button size="small" variant="text" onClick={() => (window.location.href = `/cases/${match.case_id}`)}>
+                  Open Case
+                </Button>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
       ))}
     </Stack>
   );

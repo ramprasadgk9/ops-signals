@@ -5,6 +5,7 @@ import StarOutlineRoundedIcon from '@mui/icons-material/StarOutlineRounded';
 import PsychologyAltRoundedIcon from '@mui/icons-material/PsychologyAltRounded';
 import AutoGraphRoundedIcon from '@mui/icons-material/AutoGraphRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
@@ -91,6 +92,16 @@ export function TopNavigation() {
             sx={navButtonSx}
           >
             Assistant
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/validate-data"
+            variant={isActive('/validate-data') ? 'contained' : 'text'}
+            size="small"
+            startIcon={<FactCheckRoundedIcon />}
+            sx={navButtonSx}
+          >
+            Dry-Run
           </Button>
           <Button 
             component={RouterLink} 

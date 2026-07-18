@@ -24,6 +24,17 @@ embeddings:
   provider: sentence_transformers
   model: all-MiniLM-L6-v2
 
+ai:
+  enabled: false
+  provider: noop
+  temperature: 0.0
+  timeout_seconds: 30.0
+  retry_on_invalid_output: true
+  ollama:
+    base_url: http://localhost:11434
+    model: qwen2.5:3b
+    timeout_seconds: 30.0
+
 ui:
   enabled: true
   default_status: new

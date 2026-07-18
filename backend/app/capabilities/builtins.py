@@ -57,12 +57,36 @@ BUILTIN_CAPABILITIES: list[Capability] = [
             "service_health",
         ],
     ),
+    Capability(
+        id="pattern_discovery",
+        title="Pattern Discovery",
+        description="Detects repeated motifs, recurring subsequences, and unusual patterns in regular series.",
+        analyzer_id="stumpy",
+        enabled=True,
+        supported_question_ids=[
+            "what_changed",
+            "behavior_novelty",
+            "long_term_trends",
+            "service_health",
+        ],
+    ),
+    Capability(
+        id="forecasting",
+        title="Forecasting",
+        description="Forecasts future values and highlights deviations from the expected trajectory.",
+        analyzer_id="prophet",
+        enabled=True,
+        supported_question_ids=[
+            "long_term_trends",
+            "what_changed",
+            "service_health",
+            "investigation_priority",
+        ],
+    ),
 ]
 
 UNAVAILABLE_CAPABILITIES: list[dict[str, str]] = [
-    {"id": "pattern_discovery", "title": "Pattern Discovery", "status": "not_installed"},
     {"id": "seasonality", "title": "Seasonality Analysis", "status": "not_installed"},
     {"id": "oscillation_detection", "title": "Oscillation Detection", "status": "not_installed"},
-    {"id": "forecasting", "title": "Forecasting", "status": "not_installed"},
     {"id": "recovery_detection", "title": "Recovery Detection", "status": "not_installed"},
 ]

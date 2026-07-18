@@ -5,9 +5,15 @@ analysis:
     ruptures:
       enabled: true
     stumpy:
-      enabled: false
+      enabled: true
+      window_size: 20
+      motif_count: 1
+      profile_threshold: 2.0
     prophet:
-      enabled: false
+      enabled: true
+      horizon_points: 10
+      changepoint_prior_scale: 0.05
+      uncertainty_threshold: 0.15
     baseline_shift:
       enabled: true
       threshold_percent: 25

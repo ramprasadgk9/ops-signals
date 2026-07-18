@@ -136,6 +136,7 @@ export type OperationalCase = {
 export type AnalysisRun = {
   id: string;
   source_type: string;
+  file_name?: string | null;
   provider: string;
   service: string;
   metric_name: string;
@@ -156,12 +157,52 @@ export type TimeseriesPoint = {
 
 export type CsvRunResult = {
   analysis_run_id: string;
+  file_name?: string | null;
   provider: string;
   source_type: string;
   service: string;
   metric_name: string;
   sample_count: number;
   findings_count: number;
+};
+
+export type ValidationSignal = {
+  signal_id: string;
+  signal_type: string;
+  analyzer_id: string;
+  metric_name: string;
+  service?: string;
+  severity: string;
+  confidence: number;
+  start_time: string;
+  end_time: string;
+  summary: string;
+  evidence: Record<string, unknown>;
+};
+
+export type ValidationFinding = {
+  metric_name: string;
+  service?: string;
+  title: string;
+  summary: string;
+  category: string;
+  health_status: string;
+  importance_score: number;
+  investigation_priority: number;
+  signal_ids: string[];
+  comparison_json: Record<string, unknown>;
+};
+
+export type CsvValidationResult = {
+  provider: string;
+  source_type: string;
+  analyzer_id: string;
+  service: string;
+  metric_name: string;
+  sample_count: number;
+  normalized_preview: Array<Record<string, unknown>>;
+  signals: ValidationSignal[];
+  findings: ValidationFinding[];
 };
 
 export type MetricSample = {
