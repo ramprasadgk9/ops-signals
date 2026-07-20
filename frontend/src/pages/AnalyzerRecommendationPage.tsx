@@ -184,8 +184,8 @@ export function AnalyzerRecommendationPage() {
     setContext((current) => ({
       ...current,
       operational_purpose: preset.operational_purpose,
-      use_cases: preset.use_cases,
-      operational_questions: preset.operational_questions,
+      use_cases: [...preset.use_cases],
+      operational_questions: [...preset.operational_questions],
     }));
   };
 
@@ -335,7 +335,7 @@ export function AnalyzerRecommendationPage() {
                           onChange={(event) => setContext((current) => ({ ...current, metric_type: event.target.value }))}
                         >
                           {['Gauge', 'Counter', 'Rate', 'Percentage', 'Latency', 'Duration', 'Histogram-derived', 'Sparse event', 'Unknown'].map((item) => (
-                            <MenuItem key={item} value={item.toLowerCase().replaceAll(' ', '-')}>
+                            <MenuItem key={item} value={item.toLowerCase().split(' ').join('-')}>
                               {item}
                             </MenuItem>
                           ))}
@@ -354,7 +354,7 @@ export function AnalyzerRecommendationPage() {
                           onChange={(event) => setContext((current) => ({ ...current, provider: event.target.value }))}
                         >
                           {['Prometheus', 'Datadog', 'CloudWatch', 'OpenTelemetry', 'Custom CSV', 'Other'].map((item) => (
-                            <MenuItem key={item} value={item.toLowerCase().replaceAll(' ', '-')}>
+                            <MenuItem key={item} value={item.toLowerCase().split(' ').join('-')}>
                               {item}
                             </MenuItem>
                           ))}
@@ -450,7 +450,7 @@ export function AnalyzerRecommendationPage() {
                   disabled={chatMutation.isPending || missingFields.length > 0}
                   onClick={() => chatMutation.mutate()}
                 >
-                  {chatMutation.isPending ? 'Evaluating...' : chatResult?.sample ? 'Evaluate with Sample' : 'Get Preliminary Recommendation'}
+                  {chatMutation.isPending ? 'Evaluating...' : selectedSample ? 'Evaluate with Sample' : 'Get Preliminary Recommendation'}
                 </Button>
               </Stack>
               {missingFields.length > 0 ? (
@@ -539,7 +539,7 @@ export function AnalyzerRecommendationPage() {
               {(['recommended', 'conditional', 'not_recommended'] as const).map((bucket) => (
                 <Grid key={bucket} size={{ xs: 12, md: 4 }}>
                   <Paper sx={{ p: 1.5, bgcolor: bucket === 'recommended' ? 'rgba(34, 197, 94, 0.06)' : bucket === 'conditional' ? 'rgba(250, 204, 21, 0.08)' : 'rgba(239, 68, 68, 0.06)' }}>
-                    <Typography variant="subtitle1" sx={{ mb: 1, textTransform: 'capitalize' }}>{bucket.replaceAll('_', ' ')}</Typography>
+                  <Typography variant="subtitle1" sx={{ mb: 1, textTransform: 'capitalize' }}>{bucket.split('_').join(' ')}</Typography>
                     <Stack spacing={1}>
                       {chatResult.recommendations.filter((item) => item.recommendation === bucket).map((item) => (
                         <Box

@@ -1,11 +1,11 @@
-import { AppShell } from './components/AppShell';
-import { AppRoutes } from './routes/AppRoutes';
+import { PluginPage } from '@grafana/runtime';
+import { OpsSignalsPlugin } from './plugin/OpsSignalsPlugin';
 
 function App() {
   return (
-    <AppShell>
-      <AppRoutes />
-    </AppShell>
+    <PluginPage>
+      <OpsSignalsPlugin />
+    </PluginPage>
   );
 }
 

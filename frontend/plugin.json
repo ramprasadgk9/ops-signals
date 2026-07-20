@@ -1,0 +1,28 @@
+{
+  "id": "ops-signals-app",
+  "type": "app",
+  "name": "Ops Signals",
+  "description": "Operational signal analysis and behavior intelligence for Grafana.",
+  "info": {
+    "author": {
+      "name": "Ops Signals"
+    },
+    "keywords": ["grafana", "observability", "analysis", "signals"],
+    "logos": {
+      "small": "img/logo-small.svg",
+      "large": "img/logo-large.svg"
+    },
+    "screenshots": [],
+    "version": "1.0.8",
+    "updated": "2026-07-19"
+  },
+  "includes": [
+    {
+      "type": "page",
+      "name": "Ops Signals",
+      "path": "/a/%PLUGIN_ID%/ops-signals",
+      "addToNav": true,
+      "defaultNav": true
+    }
+  ]
+}

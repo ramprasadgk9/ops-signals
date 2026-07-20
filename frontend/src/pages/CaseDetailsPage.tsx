@@ -198,11 +198,12 @@ export function CaseDetailsPage() {
 
   const matchedSignals = useMemo(() => {
     const signals = caseSignalsQuery.data ?? [];
-    return finding.signal_ids
+    const signalIds = finding?.signal_ids ?? [];
+    return signalIds
       .map((signalId) => signals.find((signal) => signal.id === signalId))
       .filter((signal): signal is Signal => Boolean(signal))
       .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
-  }, [caseSignalsQuery.data, finding.signal_ids]);
+  }, [caseSignalsQuery.data, finding?.signal_ids]);
 
   const signalTooltip = (signal: Signal) => {
     const evidenceKeys = Object.keys(signal.evidence ?? {});
@@ -228,11 +229,17 @@ export function CaseDetailsPage() {
   if (caseQuery.error) return <ErrorState message="Failed to load case details" />;
   if (!caseData || !finding) return <ErrorState message="Case not found" />;
 
+  const signalIds = finding.signal_ids ?? [];
+  const categoryLabel = typeof finding.category === 'string' && finding.category.length > 0 ? finding.category.split('_').join(' ') : 'n/a';
+  const memoryLabel = typeof caseData.memory_status === 'string' && caseData.memory_status.length > 0
+    ? caseData.memory_status.split('_').join(' ')
+    : 'unknown';
+
   const summaryCards = [
     { label: 'Severity', value: statusLabel(finding.health_status), color: getHealthColor(finding.health_status) },
     { label: 'Importance', value: `${(finding.importance_score * 100).toFixed(0)}%` },
-    { label: 'Category', value: finding.category.split('_').join(' ') },
-    { label: 'Service', value: finding.service ?? caseData.service ?? 'n/a' },
+    { label: 'Category', value: categoryLabel },
+    { label: 'Service', value: finding.service ?? 'n/a' },
   ];
 
   return (
@@ -254,7 +261,7 @@ export function CaseDetailsPage() {
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: 'wrap' }}>
                 <Typography variant="h4">Investigation #{caseData.id}</Typography>
                 <Chip label={statusLabel(caseData.case_status)} color={caseData.case_status === 'resolved' ? 'success' : 'default'} size="small" />
-                <Chip label={`Case ${caseData.memory_status.split('_').join(' ')}`} size="small" variant="outlined" />
+                <Chip label={`Case ${memoryLabel}`} size="small" variant="outlined" />
               </Stack>
               <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 400 }}>
                 {finding.title}

@@ -32,6 +32,25 @@ services:
       timeout: 5s
       retries: 5
 
+  grafana:
+    image: grafana/grafana:13.1.0
+    container_name: ops-signals-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: ops-signals-app
+    volumes:
+      - ./frontend/dist:/var/lib/grafana/plugins/ops-signals-app:ro
+      - ./grafana/provisioning/plugins:/etc/grafana/provisioning/plugins:ro
+    depends_on:
+      - postgres
+      - qdrant
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   qdrant_data:
