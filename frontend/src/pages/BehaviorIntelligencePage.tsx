@@ -7,10 +7,22 @@ import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 
+type BehaviorCondition = {
+  fact?: string;
+  operator?: string;
+  value?: unknown;
+  passed?: boolean;
+  group?: string;
+};
+
 function formatFactValue(value: unknown): string {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (value === null || value === undefined) return 'n/a';
   return JSON.stringify(value);
+}
+
+function replaceUnderscores(value: string): string {
+  return value.split('_').join(' ');
 }
 
 export function BehaviorIntelligencePage() {
@@ -231,7 +243,7 @@ export function BehaviorIntelligencePage() {
                   />
                 </IconButton>
               </Stack>
-              <Typography variant="body2" color="text.secondary">{finding.description}</Typography>
+              <Typography variant="body2" color="text.secondary">{finding.summary}</Typography>
               <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
                 <Chip
                   size="small"
@@ -389,7 +401,7 @@ export function BehaviorIntelligencePage() {
                         Condition check
                       </Typography>
                       <Stack spacing={0.75}>
-                        {finding.matched_conditions_json.map((condition, index) => (
+                        {(finding.matched_conditions_json as BehaviorCondition[]).map((condition, index) => (
                           <Box
                             key={`${finding.id}-${index}`}
                             sx={{
@@ -411,7 +423,7 @@ export function BehaviorIntelligencePage() {
                               />
                             </Stack>
                             <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
-                              {condition.operator} {String(condition.value)}
+                              {condition.operator ?? 'equals'} {String(condition.value ?? '')}
                             </Typography>
                           </Box>
                         ))}
@@ -447,7 +459,7 @@ export function BehaviorIntelligencePage() {
                               }}
                             >
                               <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                                {label.replaceAll('_', ' ')}
+                                {replaceUnderscores(label)}
                               </Typography>
                               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                                 derived from {evidence}
@@ -471,7 +483,7 @@ export function BehaviorIntelligencePage() {
                         Correlation summary
                       </Typography>
                       <Stack spacing={0.75}>
-                        {Object.entries(finding.correlation_json ?? {}).map(([key, value]) => (
+                        {Object.entries(finding.correlation_json ?? {}).map(([key, value]: [string, unknown]) => (
                           <Box
                             key={key}
                             sx={{
@@ -482,7 +494,7 @@ export function BehaviorIntelligencePage() {
                             }}
                           >
                             <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                              {key.replaceAll('_', ' ')}
+                              {replaceUnderscores(key)}
                             </Typography>
                             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                               {formatFactValue(value)}

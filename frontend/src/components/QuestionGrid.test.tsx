@@ -1,4 +1,6 @@
 import { render, screen } from '@testing-library/react';
+import { expect, it } from 'vitest';
+import '@testing-library/jest-dom/vitest';
 import { QuestionGrid } from './QuestionGrid';
 
 it('renders dynamic questions and labels', () => {

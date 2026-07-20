@@ -6,12 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:plugin": "npm run build",
+    "build:grafana": "vite build --config vite.plugin.config.ts && cp plugin.json dist/plugin.json && cp README.md dist/README.md && mkdir -p dist/img && cp -R img/. dist/img/",
     "preview": "vite preview",
     "test": "vitest run"
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
+    "@grafana/data": "^13.1.0",
+    "@grafana/runtime": "^13.1.0",
+    "@grafana/ui": "^13.1.0",
     "@mui/icons-material": "^6.1.7",
     "@mui/material": "^6.1.7",
     "@tanstack/react-query": "^5.59.16",

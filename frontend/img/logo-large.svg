@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 128" fill="none">
+  <rect width="256" height="128" rx="24" fill="#0F172A"/>
+  <path d="M40 70c0-24.853 20.147-45 45-45h64v32c0 24.853-20.147 45-45 45H40V70Z" fill="#F97316"/>
+  <path d="M56 70c0-15.464 12.536-28 28-28h40v18c0 15.464-12.536 28-28 28H56V70Z" fill="#FDBA74"/>
+  <text x="128" y="108" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#E5E7EB">Ops Signals</text>
+</svg>
