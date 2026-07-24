@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -105,6 +105,13 @@ class AnalysisRunEntity(Base):
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     sample_count: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    router_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    feature_extractor_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    analyzer_registry_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    series_profile_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    router_decisions_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    executed_analyzers_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    generated_findings_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -178,6 +185,50 @@ class OperationalCaseEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AnalyzerLearningOutcomeEntity(Base):
+    __tablename__ = "analyzer_learning_outcomes"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome_status IN ('confirmed', 'partially_confirmed', 'rejected', 'inconclusive')",
+            name="analyzer_learning_outcomes_status_check",
+        ),
+        UniqueConstraint("case_id", "finding_id", name="uq_analyzer_learning_case_finding"),
+        Index("idx_analyzer_learning_analysis_run_id", "analysis_run_id"),
+        Index("idx_analyzer_learning_case_id", "case_id"),
+        Index("idx_analyzer_learning_finding_id", "finding_id"),
+        Index("idx_analyzer_learning_metric_name", "metric_name"),
+        Index("idx_analyzer_learning_service_id", "service_id"),
+        Index("idx_analyzer_learning_organization_id", "organization_id"),
+        Index("idx_analyzer_learning_outcome_status", "outcome_status"),
+        Index("idx_analyzer_learning_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    organization_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    service_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    analysis_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    finding_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    case_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    router_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    feature_extractor_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    analyzer_registry_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    series_profile: Mapped[dict] = mapped_column(JSON, nullable=False)
+    router_decisions: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
+    executed_analyzers: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
+    generated_findings: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    outcome_status: Mapped[str] = mapped_column(String(50), nullable=False)
+    outcome_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    root_cause_category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    resolution_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmed_analyzers: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    rejected_analyzers: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class BehaviorFindingEntity(Base):

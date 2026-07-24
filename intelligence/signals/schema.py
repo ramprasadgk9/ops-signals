@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+import math
 from typing import Any
 from uuid import uuid4
 
@@ -25,6 +26,18 @@ class OperationalSignal:
     analysis_run_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
+        payload = _sanitize_json(asdict(self))
         payload["evidence_json"] = payload.pop("evidence")
         return payload
+
+
+def _sanitize_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _sanitize_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_json(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_json(item) for item in value]
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    return value

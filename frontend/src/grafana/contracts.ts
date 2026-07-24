@@ -22,6 +22,16 @@ export type GrafanaAnalysisSignal = {
   importance_score: number;
 };
 
+export type GrafanaAnalyzerRoutingDecision = {
+  analyzer_id: string;
+  display_name: string;
+  eligible: boolean;
+  recommendation: string;
+  final_score: number;
+  reasons: string[];
+  warnings: string[];
+};
+
 export type GrafanaAnalysisFinding = {
   id: number;
   title: string;
@@ -46,8 +56,10 @@ export type GrafanaAnalysisResult = {
   runId: string;
   status: GrafanaAnalysisStatus;
   datasource: string;
+  datasourceUid?: string;
   service: string;
   metric: string;
+  promql?: string;
   from: string;
   to: string;
   summary: string;
@@ -56,6 +68,13 @@ export type GrafanaAnalysisResult = {
   behaviorFindings: GrafanaBehaviorFinding[];
   timeseries: TimeseriesPoint[];
   analysisRuns: AnalysisRun[];
+  seriesCount?: number;
+  sampleCount?: number;
+  warnings?: string[];
+  durationMs?: number;
+  analyzerSelectionMode?: string;
+  analyzerRouting?: GrafanaAnalyzerRoutingDecision[];
+  executedAnalyzers?: string[];
 };
 
 export type GrafanaQuestion = {

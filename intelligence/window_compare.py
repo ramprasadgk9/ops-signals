@@ -10,11 +10,21 @@ import pandas as pd
 def _trend_percent(values: pd.Series) -> float:
     if len(values) < 3:
         return 0.0
+    values = pd.to_numeric(values, errors="coerce").dropna()
+    if len(values) < 3:
+        return 0.0
     x_values = np.arange(len(values), dtype=float)
     y_values = values.to_numpy(dtype=float)
+    if not np.isfinite(y_values).all():
+        return 0.0
     slope, _ = np.polyfit(x_values, y_values, 1)
+    if not np.isfinite(slope):
+        return 0.0
     baseline = abs(y_values[0]) if abs(y_values[0]) > 1e-9 else 1.0
-    return float((slope * (len(values) - 1) / baseline) * 100.0)
+    if not np.isfinite(baseline) or baseline <= 0:
+        return 0.0
+    trend_percent = float((slope * (len(values) - 1) / baseline) * 100.0)
+    return trend_percent if np.isfinite(trend_percent) else 0.0
 
 
 def compare_windows(points: pd.DataFrame, signals: Iterable[object] | None = None) -> dict[str, object]:
@@ -33,6 +43,21 @@ def compare_windows(points: pd.DataFrame, signals: Iterable[object] | None = Non
         }
 
     ordered = points.sort_values("timestamp").reset_index(drop=True).copy()
+    ordered["value"] = pd.to_numeric(ordered["value"], errors="coerce")
+    ordered = ordered.dropna(subset=["value"])
+    if ordered.empty:
+        return {
+            "new_behavior": False,
+            "change_percent": 0.0,
+            "summary": "No valid numeric points available for comparison.",
+            "current_mean": 0.0,
+            "previous_mean": 0.0,
+            "current_max": 0.0,
+            "previous_max": 0.0,
+            "signal_count_difference": 0,
+            "anomaly_count_difference": 0,
+            "trend_difference": 0.0,
+        }
     midpoint = max(len(ordered) // 2, 1)
     previous_window = ordered.iloc[:midpoint].copy()
     current_window = ordered.iloc[midpoint:].copy() if midpoint < len(ordered) else ordered.iloc[:midpoint].copy()

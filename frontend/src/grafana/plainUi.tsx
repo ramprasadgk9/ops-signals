@@ -17,6 +17,10 @@ export const styles = {
     color: 'inherit',
     padding: '7px 10px',
   },
+  inputReadOnly: {
+    background: '#161920',
+    color: 'rgba(204, 204, 220, 0.82)',
+  },
   button: {
     border: 0,
     borderRadius: 4,
@@ -34,6 +38,7 @@ export const styles = {
   label: { display: 'block', marginBottom: 6, fontSize: 12, color: 'rgba(204, 204, 220, 0.72)' },
   muted: { color: 'rgba(204, 204, 220, 0.72)' },
   chip: { border: '1px solid rgba(204, 204, 220, 0.2)', borderRadius: 999, padding: '4px 10px', fontSize: 12 },
+  helperText: { color: 'rgba(204, 204, 220, 0.66)', fontSize: 11, lineHeight: 1.45, marginTop: 6 },
   pre: { margin: 0, padding: 12, borderRadius: 6, overflow: 'auto', background: '#111217' },
   alert: { border: '1px solid rgba(87, 148, 242, 0.4)', borderRadius: 8, padding: 12, background: 'rgba(87, 148, 242, 0.1)' },
   toolbar: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, alignItems: 'end' },

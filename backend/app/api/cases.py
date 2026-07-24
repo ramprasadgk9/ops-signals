@@ -15,6 +15,7 @@ from backend.app.models.api_schema import (
 )
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.services.analyzer_learning_service import AnalyzerLearningService, LearningOutcomeError
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
 
@@ -82,6 +83,30 @@ def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
         updated_at=case.updated_at,
         resolved_at=case.resolved_at,
     )
+
+
+@router.get("", response_model=list[CaseOut])
+def list_cases(
+    service: str | None = None,
+    metric_name: str | None = None,
+    limit: int = 25,
+    db: Session = Depends(get_db),
+) -> list[CaseOut]:
+    capped_limit = max(1, min(limit, 200))
+    cases = db.execute(
+        select(OperationalCaseEntity)
+        .order_by(OperationalCaseEntity.updated_at.desc())
+        .limit(capped_limit)
+    ).scalars().all()
+    filtered: list[OperationalCaseEntity] = []
+    for case in cases:
+        snapshot = case.finding_snapshot or {}
+        if service and snapshot.get("service") != service:
+            continue
+        if metric_name and snapshot.get("metric_name") != metric_name:
+            continue
+        filtered.append(case)
+    return [_to_case_out(case) for case in filtered]
 
 
 @router.get("/{case_id}", response_model=CaseOut)
@@ -229,13 +254,38 @@ def update_resolution(
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     
+    final_states = {"resolved", "mitigated", "won_t_fix"}
+    if payload.outcome_status in final_states and not payload.learning_outcome_status:
+        raise HTTPException(
+            status_code=400,
+            detail="learning_outcome_status is required when resolving or closing a case",
+        )
+
     case.outcome_status = payload.outcome_status
     case.outcome_summary = payload.outcome_summary
     case.corrective_action = payload.corrective_action
     case.updated_at = datetime.utcnow()
     
     # Mark memory as stale if it was indexed
-    _mark_memory_stale_if_needed(case, db)
+    if case.memory_status == "indexed":
+        case.memory_status = "stale"
+
+    if payload.outcome_status in final_states and payload.learning_outcome_status:
+        try:
+            AnalyzerLearningService(db).create_from_case_resolution(
+                case_id=case.id,
+                outcome_status=payload.learning_outcome_status,
+                outcome_summary=payload.outcome_summary,
+                root_cause_category=payload.root_cause_category,
+                resolution_summary=payload.resolution_summary or payload.outcome_summary,
+                resolved_by=payload.resolved_by,
+            )
+        except LearningOutcomeError as exc:
+            db.rollback()
+            status_code = 409 if "already exists" in str(exc) else 400
+            if str(exc) in {"case not found", "analysis run not found"}:
+                status_code = 404
+            raise HTTPException(status_code=status_code, detail=str(exc))
     
     db.commit()
     db.refresh(case)

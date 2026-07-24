@@ -1,5 +1,6 @@
-import type { AnalysisRun, BehaviorFinding, Finding, Signal, TimeseriesPoint } from '../types';
+import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, Signal, TimeseriesPoint } from '../types';
 import type {
+  GrafanaAnalyzerRoutingDecision,
   GrafanaAnalysisFinding,
   GrafanaAnalysisResult,
   GrafanaAnalysisSignal,
@@ -9,12 +10,15 @@ import type {
   GrafanaQuestion,
   GrafanaQuestionAnswer,
 } from './contracts';
+import type { MetricSample } from './prometheusFrameNormalizer';
 
 export type BackendPluginAnalysis = {
   runId: string;
   datasource: string;
+  datasourceUid?: string;
   service: string;
   metric: string;
+  promql?: string;
   from: string;
   to: string;
   status: 'idle' | 'running' | 'complete' | 'error';
@@ -24,16 +28,47 @@ export type BackendPluginAnalysis = {
   behaviorFindings: GrafanaBehaviorFinding[];
   timeseries: TimeseriesPoint[];
   analysisRuns: AnalysisRun[];
+  seriesCount?: number;
+  sampleCount?: number;
+  warnings?: string[];
+  durationMs?: number;
+  analyzerSelectionMode?: string;
+  analyzerRouting?: GrafanaAnalyzerRoutingDecision[];
+  executedAnalyzers?: string[];
 };
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, '');
 }
 
+async function buildRequestError(response: Response) {
+  let detail = '';
+  try {
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const payload = await response.json();
+      if (typeof payload?.detail === 'string') {
+        detail = payload.detail;
+      } else if (Array.isArray(payload?.detail)) {
+        detail = payload.detail.map((item: unknown) => JSON.stringify(item)).join(', ');
+      } else if (payload?.message) {
+        detail = String(payload.message);
+      }
+    } else {
+      const text = await response.text();
+      if (text) detail = text;
+    }
+  } catch {
+    detail = '';
+  }
+
+  return new Error(detail ? `Request failed: ${response.status} - ${detail}` : `Request failed: ${response.status}`);
+}
+
 async function fetchJson<T>(baseUrl: string, path: string): Promise<T> {
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`);
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw await buildRequestError(response);
   }
   return response.json() as Promise<T>;
 }
@@ -45,7 +80,7 @@ async function postJson<T>(baseUrl: string, path: string, payload?: unknown): Pr
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw await buildRequestError(response);
   }
   return response.json() as Promise<T>;
 }
@@ -57,7 +92,7 @@ async function patchJson<T>(baseUrl: string, path: string, payload: unknown): Pr
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw await buildRequestError(response);
   }
   return response.json() as Promise<T>;
 }
@@ -189,6 +224,104 @@ export async function runBackendAnalysis(baseUrl: string, target: {
   };
 }
 
+export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
+  datasourceUid: string;
+  datasourceName?: string;
+  service: string;
+  metric: string;
+  promql: string;
+  from: string;
+  to: string;
+  stepSeconds: number;
+  samples: MetricSample[];
+  seriesCount: number;
+  sampleCount: number;
+  warnings: string[];
+  durationMs: number;
+}): Promise<BackendPluginAnalysis> {
+  const run = await postJson<{
+    analysis_run_id: string;
+    sample_count: number;
+    series_count: number;
+    signal_count: number;
+    findings_count: number;
+    behavior_findings_count: number;
+    warnings: string[];
+    analyzer_selection_mode?: string;
+    analyzer_routing?: GrafanaAnalyzerRoutingDecision[];
+    executed_analyzers?: string[];
+  }>(baseUrl, '/api/ingestion/prometheus-run', {
+    provider: 'prometheus',
+    datasource_uid: target.datasourceUid,
+    datasource_name: target.datasourceName,
+    service: target.service,
+    metric_name: target.metric,
+    promql: target.promql,
+    from: target.from,
+    to: target.to,
+    step_seconds: target.stepSeconds,
+    samples: target.samples,
+    series_count: target.seriesCount,
+    sample_count: target.sampleCount,
+    max_series: 20,
+    max_samples_per_series: 10000,
+    warnings: target.warnings,
+  });
+
+  const timeseriesParams = new URLSearchParams({
+    service: target.service,
+    metric_name: target.metric,
+    analysis_run_id: run.analysis_run_id,
+  });
+  const findingsParams = new URLSearchParams({
+    service: target.service,
+    metric_name: target.metric,
+    analysis_run_id: run.analysis_run_id,
+  });
+  const signalsParams = new URLSearchParams({
+    service: target.service,
+    metric_name: target.metric,
+    analysis_run_id: run.analysis_run_id,
+  });
+  const behaviorParams = new URLSearchParams({
+    service: target.service,
+    analysis_run_id: run.analysis_run_id,
+  });
+
+  const [runs, timeseries, findings, signals, behaviorFindings] = await Promise.all([
+    fetchJson<AnalysisRun[]>(baseUrl, '/api/analysis-runs'),
+    fetchJson<TimeseriesPoint[]>(baseUrl, `/api/timeseries?${timeseriesParams.toString()}`),
+    fetchJson<Finding[]>(baseUrl, `/api/findings?${findingsParams.toString()}`),
+    fetchJson<Signal[]>(baseUrl, `/api/signals?${signalsParams.toString()}`),
+    fetchJson<BehaviorFinding[]>(baseUrl, `/api/behavior-evaluations?${behaviorParams.toString()}`),
+  ]);
+
+  return {
+    runId: run.analysis_run_id,
+    datasource: target.datasourceName ?? target.datasourceUid,
+    datasourceUid: target.datasourceUid,
+    service: target.service,
+    metric: target.metric,
+    promql: target.promql,
+    from: target.from,
+    to: target.to,
+    status: 'complete',
+    summary: `Prometheus returned ${run.sample_count.toLocaleString()} samples across ${run.series_count.toLocaleString()} series. Ops Signals produced ${run.signal_count} signals, ${run.findings_count} findings, and ${run.behavior_findings_count} behavior findings.`,
+    signals: signals.map(toGrafanaSignal),
+    findings: findings.map(toGrafanaFinding),
+    behaviorFindings: behaviorFindings.map(toGrafanaBehaviorFinding),
+    timeseries,
+    analysisRuns: runs,
+    seriesCount: run.series_count,
+    sampleCount: run.sample_count,
+    warnings: run.warnings,
+    durationMs: target.durationMs,
+    analyzerSelectionMode: run.analyzer_selection_mode,
+    analyzerRouting: run.analyzer_routing ?? [],
+    executedAnalyzers: run.executed_analyzers ?? [],
+  };
+}
+
 export async function listAvailableQuestions(baseUrl: string, target: {
   service: string;
   metric: string;
@@ -216,12 +349,51 @@ export async function answerQuestion(baseUrl: string, target: {
   });
 }
 
+export async function askAssistantWithMemory(baseUrl: string, target: {
+  message: string;
+  caseId?: number | null;
+  conversationId?: string | null;
+}) {
+  return postJson<AssistantChatResponse>(baseUrl, '/api/assistant/chat', {
+    message: target.message,
+    case_id: target.caseId ?? null,
+    conversation_id: target.conversationId ?? null,
+    top_k: 5,
+    minimum_score: 0.4,
+    same_service_only: false,
+  });
+}
+
+export async function resetTestingOperationalData(baseUrl: string) {
+  return postJson<{
+    status: string;
+    deleted_rows: Record<string, number>;
+    vector_memory: Record<string, unknown>;
+  }>(baseUrl, '/api/testing/reset-operational-data', {
+    confirm: 'RESET_OPS_SIGNALS_TEST_DATA',
+    clear_vector_memory: true,
+  });
+}
+
 export async function createCaseFromFinding(baseUrl: string, findingId: number) {
   return postJson<GrafanaCaseCreateResponse>(baseUrl, `/api/cases/findings/${findingId}/create`);
 }
 
 export async function getCase(baseUrl: string, caseId: number) {
   return fetchJson<GrafanaCase>(baseUrl, `/api/cases/${caseId}`);
+}
+
+export async function listCases(baseUrl: string, params?: {
+  service?: string;
+  metricName?: string;
+  limit?: number;
+}) {
+  const search = new URLSearchParams();
+  if (params?.service) search.set('service', params.service);
+  if (params?.metricName) search.set('metric_name', params.metricName);
+  if (params?.limit) search.set('limit', String(params.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson<GrafanaCase[]>(baseUrl, `/api/cases${suffix}`);
 }
 
 export async function updateCaseInvestigation(baseUrl: string, caseId: number, payload: {
@@ -244,6 +416,10 @@ export async function updateCaseResolution(baseUrl: string, caseId: number, payl
   outcome_status: string;
   outcome_summary?: string | null;
   corrective_action?: string | null;
+  learning_outcome_status?: string | null;
+  root_cause_category?: string | null;
+  resolution_summary?: string | null;
+  resolved_by?: string | null;
 }) {
   return patchJson<GrafanaCase>(baseUrl, `/api/cases/${caseId}/resolution`, payload);
 }

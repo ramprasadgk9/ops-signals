@@ -6,6 +6,7 @@ import PsychologyAltRoundedIcon from '@mui/icons-material/PsychologyAltRounded';
 import AutoGraphRoundedIcon from '@mui/icons-material/AutoGraphRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
+import RocketLaunchRoundedIcon from '@mui/icons-material/RocketLaunchRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
@@ -102,6 +103,16 @@ export function TopNavigation() {
             sx={navButtonSx}
           >
             Dry-Run
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/experiments"
+            variant={isActive('/experiments') ? 'contained' : 'text'}
+            size="small"
+            startIcon={<RocketLaunchRoundedIcon />}
+            sx={navButtonSx}
+          >
+            Experiments
           </Button>
           <Button 
             component={RouterLink} 

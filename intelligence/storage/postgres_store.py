@@ -134,6 +134,13 @@ class PostgresStore:
             Column("end_time", TIMESTAMP(timezone=True), nullable=False),
             Column("sample_count", Integer, nullable=False),
             Column("status", String(32), nullable=False),
+            Column("router_version", String(100)),
+            Column("feature_extractor_version", String(100)),
+            Column("analyzer_registry_version", String(100)),
+            Column("series_profile_json", JSON),
+            Column("router_decisions_json", JSON),
+            Column("executed_analyzers_json", JSON),
+            Column("generated_findings_json", JSON),
             Column("created_at", TIMESTAMP(timezone=True), server_default=func.now()),
         )
 
@@ -260,6 +267,27 @@ class PostgresStore:
         filtered_payload = {key: value for key, value in payload.items() if key in column_names}
         with self.engine.begin() as connection:
             connection.execute(self.analysis_runs_table.insert().values(**filtered_payload))
+
+    def update_analysis_run_learning_snapshot(self, analysis_run_id: str, payload: dict[str, Any]) -> None:
+        column_names = {column["name"] for column in inspect(self.engine).get_columns("analysis_runs", schema=None)}
+        allowed = {
+            "router_version",
+            "feature_extractor_version",
+            "analyzer_registry_version",
+            "series_profile_json",
+            "router_decisions_json",
+            "executed_analyzers_json",
+            "generated_findings_json",
+        }
+        filtered_payload = {key: value for key, value in payload.items() if key in column_names and key in allowed}
+        if not filtered_payload:
+            return
+        with self.engine.begin() as connection:
+            connection.execute(
+                self.analysis_runs_table.update()
+                .where(self.analysis_runs_table.c.id == analysis_run_id)
+                .values(**filtered_payload)
+            )
 
     def save_question_answers(self, answers: list[dict[str, Any]]) -> None:
         if not answers:

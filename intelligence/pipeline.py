@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +8,7 @@ from uuid import uuid4
 
 import pandas as pd
 
+from experiments.analyzer_router.router import UniversalTimeSeriesRouter
 from intelligence.adapters.csv_adapter import CSVAdapter
 from intelligence.analyzers import (
     BaselineShiftAnalyzer,
@@ -30,6 +32,12 @@ from backend.app.questions.catalog import QUESTION_CATALOG
 from backend.app.questions.composer import AnswerComposer
 
 
+logger = logging.getLogger(__name__)
+
+ROUTER_VERSION = "1.0"
+FEATURE_EXTRACTOR_VERSION = "1.0"
+
+
 @dataclass(slots=True)
 class PipelineResult:
     normalized_points: pd.DataFrame
@@ -37,6 +45,8 @@ class PipelineResult:
     findings: list[OperationalFinding]
     report: OperationalIntelligenceReport
     analysis_run_id: str
+    analyzer_routing: list[dict[str, object]]
+    executed_analyzers: list[str]
 
 
 class SignalPipeline:
@@ -56,13 +66,34 @@ class SignalPipeline:
     def run(self, run_metadata: dict[str, object] | None = None) -> PipelineResult:
         raw = self._load_input()
         normalized = normalize_timeseries(raw, self.config.input)
+        return self.run_normalized(normalized, run_metadata=run_metadata)
+
+    def run_dataframe(self, dataframe: pd.DataFrame, run_metadata: dict[str, object] | None = None) -> PipelineResult:
+        normalized = normalize_timeseries(dataframe, self.config.input)
+        return self.run_normalized(normalized, run_metadata=run_metadata)
+
+    def run_normalized(self, normalized: pd.DataFrame, run_metadata: dict[str, object] | None = None) -> PipelineResult:
         analysis_run_id = uuid4().hex
 
         self._create_analysis_run(analysis_run_id, normalized, run_metadata=run_metadata)
         if self.config.output.save_normalized_data:
             self.store.save_normalized_points(normalized, analysis_run_id=analysis_run_id)
 
-        analyzers = self._build_analyzers()
+        analyzer_routing, series_profile, registry_version = self._route_analyzers(normalized)
+        analyzers = self._build_analyzers(analyzer_routing)
+        executed_analyzers = [analyzer.analyzer_id for analyzer in analyzers]
+        executed_analyzer_snapshots = self._executed_analyzer_snapshots(analyzer_routing, executed_analyzers)
+        self.store.update_analysis_run_learning_snapshot(
+            analysis_run_id,
+            {
+                "router_version": ROUTER_VERSION,
+                "feature_extractor_version": FEATURE_EXTRACTOR_VERSION,
+                "analyzer_registry_version": registry_version,
+                "series_profile_json": series_profile,
+                "router_decisions_json": analyzer_routing,
+                "executed_analyzers_json": executed_analyzer_snapshots,
+            },
+        )
         if self.config.questions.auto_generate_from_capabilities:
             self.store.save_questions(QUESTION_CATALOG)
         if self.config.capabilities.auto_register:
@@ -95,6 +126,10 @@ class SignalPipeline:
             finding.analysis_run_id = analysis_run_id
 
         self.store.save_findings(findings)
+        self.store.update_analysis_run_learning_snapshot(
+            analysis_run_id,
+            {"generated_findings_json": [finding.to_record() for finding in findings]},
+        )
 
         self._evaluate_behavior_intelligence(signals, analysis_run_id)
 
@@ -108,6 +143,8 @@ class SignalPipeline:
             findings=findings,
             report=report,
             analysis_run_id=analysis_run_id,
+            analyzer_routing=analyzer_routing,
+            executed_analyzers=executed_analyzers,
         )
 
     def _load_input(self) -> pd.DataFrame:
@@ -116,14 +153,15 @@ class SignalPipeline:
         adapter = CSVAdapter(self.config.input, self.base_path)
         return adapter.load()
 
-    def _build_analyzers(self) -> list:
+    def _build_analyzers(self, analyzer_routing: list[dict[str, object]] | None = None) -> list:
+        allowed = self._allowed_pipeline_analyzers(analyzer_routing or [])
         analyzers = []
         baseline_cfg = self.config.analysis.analyzers.get("baseline_shift")
-        if baseline_cfg and baseline_cfg.enabled:
+        if baseline_cfg and baseline_cfg.enabled and self._should_run_analyzer("baseline_shift", allowed):
             analyzers.append(BaselineShiftAnalyzer(threshold_percent=float(baseline_cfg.params["threshold_percent"])))
 
         ruptures_cfg = self.config.analysis.analyzers.get("ruptures")
-        if ruptures_cfg and ruptures_cfg.enabled:
+        if ruptures_cfg and ruptures_cfg.enabled and self._should_run_analyzer("ruptures", allowed):
             analyzers.append(
                 RupturesAnalyzer(
                     min_segment_size=int(ruptures_cfg.params.get("min_segment_size", 5)),
@@ -132,7 +170,7 @@ class SignalPipeline:
             )
 
         anomaly_cfg = self.config.analysis.analyzers.get("anomaly_zscore")
-        if anomaly_cfg and anomaly_cfg.enabled:
+        if anomaly_cfg and anomaly_cfg.enabled and self._should_run_analyzer("anomaly_zscore", allowed):
             analyzers.append(
                 ZScoreAnomalyAnalyzer(
                     zscore_threshold=float(anomaly_cfg.params["zscore_threshold"]),
@@ -141,11 +179,11 @@ class SignalPipeline:
             )
 
         trend_cfg = self.config.analysis.analyzers.get("trend")
-        if trend_cfg and trend_cfg.enabled:
+        if trend_cfg and trend_cfg.enabled and self._should_run_analyzer("trend", allowed):
             analyzers.append(TrendAnalyzer(min_slope_percent=float(trend_cfg.params["min_slope_percent"])))
 
         stumpy_cfg = self.config.analysis.analyzers.get("stumpy")
-        if stumpy_cfg and stumpy_cfg.enabled:
+        if stumpy_cfg and stumpy_cfg.enabled and self._should_run_analyzer("stumpy", allowed):
             analyzers.append(
                 STUMPYAnalyzer(
                     window_size=int(stumpy_cfg.params.get("window_size", 20)),
@@ -155,7 +193,7 @@ class SignalPipeline:
             )
 
         prophet_cfg = self.config.analysis.analyzers.get("prophet")
-        if prophet_cfg and prophet_cfg.enabled:
+        if prophet_cfg and prophet_cfg.enabled and self._should_run_analyzer("prophet", allowed):
             analyzers.append(
                 ProphetAnalyzer(
                     horizon_points=int(prophet_cfg.params.get("horizon_points", 10)),
@@ -164,6 +202,111 @@ class SignalPipeline:
                 )
             )
         return analyzers
+
+    def _route_analyzers(self, normalized: pd.DataFrame) -> tuple[list[dict[str, object]], dict[str, object], str | None]:
+        if normalized.empty:
+            return [], {}, None
+        try:
+            router = UniversalTimeSeriesRouter()
+            _, profile, _ = router.profile_dataframe(normalized, "timestamp", "value")
+            decisions = router.recommend_analyzers_for_profile(profile)
+        except Exception as exc:
+            logger.exception("Analyzer router failed during pipeline routing")
+            return [
+                {
+                    "analyzer_id": "router",
+                    "display_name": "Analyzer Router",
+                    "eligible": False,
+                    "recommendation": "REJECTED",
+                    "final_score": 0.0,
+                    "reasons": [
+                        "Router metadata could not be calculated for this run. Check backend logs for the full exception."
+                    ],
+                    "warnings": [str(exc)],
+                }
+            ], {}, None
+        return [
+            {
+                "analyzer_id": decision.analyzer,
+                "display_name": decision.display_name,
+                "eligible": decision.eligible,
+                "eligibility_score": decision.eligibility_score,
+                "suitability_score": decision.suitability_score,
+                "recommendation": decision.recommendation,
+                "final_score": decision.final_score,
+                "reasons": decision.reasons,
+                "warnings": decision.warnings,
+                "explanation": decision.explanation,
+                "parameters_tested": decision.parameters_tested,
+            }
+            for decision in decisions
+        ], asdict(profile), router.registry.registry_version
+
+    def _allowed_pipeline_analyzers(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
+        mode = (self.config.analysis.selection_mode or "all").lower().strip()
+        if mode == "all" or not analyzer_routing:
+            return None
+
+        selected = set(self.config.analysis.selected_analyzers or [])
+        recommended_router_ids = {
+            str(decision["analyzer_id"])
+            for decision in analyzer_routing
+            if str(decision.get("recommendation")) == "RECOMMENDED"
+        }
+        if mode == "manual_override":
+            recommended_router_ids.update(selected)
+        elif mode != "recommended_only":
+            return None
+
+        router_to_pipeline = {
+            "ruptures": {"ruptures", "baseline_shift"},
+            "stumpy": {"stumpy"},
+            "prophet": {"prophet"},
+            "darts": {"prophet"},
+            "trend_regression": {"trend"},
+            "adtk": {"anomaly_zscore"},
+            "pyod": {"anomaly_zscore"},
+        }
+        allowed: set[str] = set()
+        for analyzer_id in recommended_router_ids:
+            allowed.update(router_to_pipeline.get(analyzer_id, {analyzer_id}))
+        return allowed
+
+    def _executed_analyzer_snapshots(
+        self,
+        analyzer_routing: list[dict[str, object]],
+        executed_analyzers: list[str],
+    ) -> list[dict[str, str]]:
+        reverse_mapping = {
+            "ruptures": "ruptures",
+            "baseline_shift": "ruptures",
+            "stumpy": "stumpy",
+            "prophet": "prophet",
+            "trend": "trend_regression",
+            "anomaly_zscore": "adtk",
+        }
+        recommended_router_ids = {
+            str(decision.get("analyzer_id"))
+            for decision in analyzer_routing
+            if str(decision.get("recommendation")) == "RECOMMENDED"
+        }
+        snapshots = []
+        for analyzer_id in executed_analyzers:
+            router_analyzer_id = reverse_mapping.get(analyzer_id, analyzer_id)
+            if router_analyzer_id not in recommended_router_ids:
+                router_analyzer_id = analyzer_id
+            snapshots.append(
+                {
+                    "router_analyzer_id": router_analyzer_id,
+                    "pipeline_analyzer_id": analyzer_id,
+                    "execution_status": "completed",
+                }
+            )
+        return snapshots
+
+    @staticmethod
+    def _should_run_analyzer(analyzer_id: str, allowed: set[str] | None) -> bool:
+        return allowed is None or analyzer_id in allowed
 
     def _build_embeddings(self, signals: list[OperationalSignal]) -> dict[int, list[float]]:
         if not (self.config.embeddings.enabled and self.config.output.save_embeddings):

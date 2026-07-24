@@ -33,13 +33,22 @@ class TrendAnalyzer(Analyzer):
         signals: list[OperationalSignal] = []
         for _, group in dataframe.groupby(["metric_name", "service", "env"], dropna=False):
             ordered = group.sort_values("timestamp").reset_index(drop=True)
+            ordered = ordered.copy()
+            ordered["value"] = pd.to_numeric(ordered["value"], errors="coerce")
+            ordered = ordered.dropna(subset=["value"])
             if len(ordered) < 3:
                 continue
             x_values = np.arange(len(ordered))
             y_values = ordered["value"].to_numpy(dtype=float)
+            if not np.isfinite(y_values).all():
+                continue
             slope, intercept = np.polyfit(x_values, y_values, 1)
             baseline = abs(y_values[0]) if abs(y_values[0]) > 1e-9 else 1.0
+            if not np.isfinite(baseline) or baseline <= 0:
+                baseline = 1.0
             slope_percent = (slope * (len(ordered) - 1) / baseline) * 100.0
+            if not np.isfinite(slope_percent):
+                continue
             if abs(slope_percent) < self.min_slope_percent:
                 continue
             severity = "high" if abs(slope_percent) >= self.min_slope_percent * 2 else "medium"

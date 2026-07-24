@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -32,6 +34,13 @@ class AnalysisRunOut(BaseModel):
     end_time: datetime
     sample_count: int
     status: str
+    router_version: str | None = None
+    feature_extractor_version: str | None = None
+    analyzer_registry_version: str | None = None
+    series_profile_json: dict | None = None
+    router_decisions_json: list[dict] | None = None
+    executed_analyzers_json: list[dict] | None = None
+    generated_findings_json: list[dict] | None = None
     created_at: datetime
 
 
@@ -58,6 +67,56 @@ class CsvRunOut(BaseModel):
     metric_name: str
     sample_count: int
     findings_count: int
+
+
+class PrometheusMetricSample(BaseModel):
+    timestamp: datetime
+    value: float
+    metric_name: str
+    service: str
+    labels: dict[str, str] = Field(default_factory=dict)
+    series_id: str | None = None
+
+
+class PrometheusAnalysisRequest(BaseModel):
+    provider: str = "prometheus"
+    datasource_uid: str
+    datasource_name: str | None = None
+    service: str
+    metric_name: str
+    promql: str
+    from_time: datetime = Field(alias="from")
+    to_time: datetime = Field(alias="to")
+    step_seconds: int
+    samples: list[PrometheusMetricSample]
+    series_count: int
+    sample_count: int
+    max_series: int | None = None
+    max_samples_per_series: int | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class PrometheusRunOut(BaseModel):
+    analysis_run_id: str
+    provider: str
+    source_type: str
+    datasource_uid: str
+    datasource_name: str | None = None
+    service: str
+    metric_name: str
+    promql: str
+    from_time: datetime
+    to_time: datetime
+    step_seconds: int
+    sample_count: int
+    series_count: int
+    findings_count: int
+    signal_count: int
+    behavior_findings_count: int
+    warnings: list[str] = Field(default_factory=list)
+    analyzer_selection_mode: str = "all"
+    analyzer_routing: list[dict] = Field(default_factory=list)
+    executed_analyzers: list[str] = Field(default_factory=list)
 
 
 class ValidationFindingOut(BaseModel):
@@ -160,3 +219,42 @@ class ResolutionUpdateRequest(BaseModel):
     outcome_status: str
     outcome_summary: str | None = None
     corrective_action: str | None = None
+    learning_outcome_status: Literal["confirmed", "partially_confirmed", "rejected", "inconclusive"] | None = None
+    root_cause_category: str | None = None
+    resolution_summary: str | None = None
+    resolved_by: str | None = None
+
+
+class LearningOutcomeCreateRequest(BaseModel):
+    outcome_status: Literal["confirmed", "partially_confirmed", "rejected", "inconclusive"]
+    outcome_summary: str | None = None
+    root_cause_category: str | None = None
+    resolution_summary: str | None = None
+    resolved_by: str | None = None
+
+
+class AnalyzerLearningOutcomeOut(BaseModel):
+    id: str
+    organization_id: str | None = None
+    service_id: str | None = None
+    metric_name: str
+    analysis_run_id: str
+    finding_id: int | None = None
+    case_id: int
+    router_version: str | None = None
+    feature_extractor_version: str | None = None
+    analyzer_registry_version: str | None = None
+    series_profile: dict
+    router_decisions: list[dict]
+    executed_analyzers: list[dict]
+    generated_findings: list[dict] | None = None
+    outcome_status: str
+    outcome_summary: str | None = None
+    root_cause_category: str | None = None
+    resolution_summary: str | None = None
+    confirmed_analyzers: list[str] = Field(default_factory=list)
+    rejected_analyzers: list[str] = Field(default_factory=list)
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime

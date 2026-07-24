@@ -1,6 +1,8 @@
 analysis:
   mode: batch
   window: entire_dataset
+  selection_mode: recommended_only
+  selected_analyzers: []
   analyzers:
     ruptures:
       enabled: true

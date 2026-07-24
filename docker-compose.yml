@@ -32,6 +32,33 @@ services:
       timeout: 5s
       retries: 5
 
+  mock-metrics:
+    image: python:3.12-alpine
+    container_name: ops-signals-mock-metrics
+    working_dir: /workspace
+    command: ["python", "dev/mock_prometheus_target.py"]
+    ports:
+      - "9101:9101"
+    volumes:
+      - ./:/workspace:ro
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ops-signals-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./grafana/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - mock-metrics
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:13.1.0
     container_name: ops-signals-grafana
@@ -46,11 +73,14 @@ services:
     volumes:
       - ./frontend/dist:/var/lib/grafana/plugins/ops-signals-app:ro
       - ./grafana/provisioning/plugins:/etc/grafana/provisioning/plugins:ro
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
     depends_on:
       - postgres
       - qdrant
+      - prometheus
     restart: unless-stopped
 
 volumes:
   postgres_data:
   qdrant_data:
+  prometheus_data:

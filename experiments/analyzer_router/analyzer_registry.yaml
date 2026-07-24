@@ -1,0 +1,351 @@
+registry_version: "1.0"
+
+analyzers:
+  ruptures:
+    display_name: Ruptures
+    supported_profiles:
+      - baseline_shift
+      - regime_change
+      - mixed
+      - trend
+    eligibility_rules:
+      min_samples: 30
+      requires_numeric: true
+    suitability_rules:
+      prefer_regular_sampling: true
+      min_variance: 1.0e-9
+    scoring_rules:
+      base: 0.45
+      rules:
+        - metric: shift_index
+          gte: 0.12
+          add: 0.18
+        - metric: shift_index
+          gte: 0.22
+          add: 0.22
+        - metric: shift_index
+          gte: 0.32
+          add: 0.08
+        - metric: regular_sampling
+          equals: true
+          add: 0.08
+        - metric: spikiness
+          gt: 0.35
+          add: 0.04
+    explanation_templates:
+      selected: The series shows evidence of sustained baseline changes and enough samples for segment comparison.
+      excluded: The series lacks the minimum history or numeric stability needed for change-point detection.
+
+  stumpy:
+    display_name: STUMPY
+    supported_profiles:
+      - seasonal
+      - motif
+      - repeating_pattern
+    eligibility_rules:
+      min_samples: 30
+      requires_regular_sampling: true
+    suitability_rules:
+      prefer_high_seasonality: true
+    scoring_rules:
+      base: 0.3
+      rules:
+        - metric: seasonality_strength
+          gte: 0.42
+          add: 0.2
+        - metric: seasonality_strength
+          gte: 0.65
+          add: 0.22
+        - metric: seasonality_strength
+          gte: 0.8
+          add: 0.08
+        - metric: regular_sampling
+          equals: true
+          add: 0.08
+        - metric: sample_count
+          gte: 60
+          add: 0.04
+    explanation_templates:
+      selected: The series appears to repeat similar shapes or seasonal motifs.
+      excluded: The series is too irregular or too short for reliable motif discovery.
+
+  prophet:
+    display_name: Prophet
+    supported_profiles:
+      - trend
+      - seasonal
+      - forecast
+    eligibility_rules:
+      min_samples: 60
+      requires_timestamp: true
+      requires_regular_sampling: true
+    suitability_rules:
+      prefer_regular_sampling: true
+      prefer_trend: true
+    scoring_rules:
+      base: 0.28
+      rules:
+        - metric: sample_count
+          gte: 60
+          add: 0.16
+        - metric: sample_count
+          gte: 120
+          add: 0.08
+        - metric: regular_sampling
+          equals: true
+          add: 0.18
+        - metric: trend_strength
+          gte: 0.18
+          add: 0.16
+        - metric: trend_strength
+          gte: 0.35
+          add: 0.08
+        - metric: seasonality_strength
+          gte: 0.32
+          add: 0.1
+        - metric: seasonality_strength
+          gte: 0.55
+          add: 0.06
+    explanation_templates:
+      selected: The series has enough history and a predictable structure for forecasting.
+      excluded: The series is too short or too irregular for reliable forecast-based routing.
+
+  river:
+    display_name: River
+    supported_profiles:
+      - online_anomaly
+      - streaming
+      - drift
+    eligibility_rules:
+      requires_numeric: true
+    suitability_rules:
+      prefer_online_use: true
+    scoring_rules:
+      base: 0.35
+      rules:
+        - metric: irregular_sampling_percentage
+          gte: 12
+          add: 0.18
+        - metric: irregular_sampling_percentage
+          gte: 25
+          add: 0.12
+        - metric: spikiness
+          gte: 0.22
+          add: 0.18
+        - metric: spikiness
+          gte: 0.4
+          add: 0.08
+        - metric: regular_sampling
+          equals: false
+          add: 0.1
+    explanation_templates:
+      selected: The series is appropriate for online anomaly or drift detection.
+      excluded: The series is not yet a strong fit for streaming-style analysis.
+
+  kats:
+    display_name: Kats
+    supported_profiles:
+      - baseline_shift
+      - forecast
+      - anomaly
+      - seasonal
+    eligibility_rules:
+      min_samples: 30
+    suitability_rules:
+      prefer_mixed_behavior: true
+    scoring_rules:
+      base: 0.28
+      rules:
+        - metric: shift_index
+          gte: 0.08
+          add: 0.14
+        - metric: seasonality_strength
+          gte: 0.2
+          add: 0.12
+        - metric: trend_strength
+          gte: 0.12
+          add: 0.08
+        - metric: sample_count
+          gte: 40
+          add: 0.08
+        - metric: behavior_mix
+          gte: 2
+          add: 0.14
+        - metric: behavior_mix
+          gte: 3
+          add: 0.08
+    explanation_templates:
+      selected: The series contains multiple behaviors that Kats can analyze through a flexible set of algorithms.
+      excluded: The series does not currently show the mix or length needed for Kats to be the strongest option.
+
+  darts:
+    display_name: Darts
+    supported_profiles:
+      - forecast
+      - seasonal
+      - trend
+      - complex_pattern
+    eligibility_rules:
+      min_samples: 80
+      requires_timestamp: true
+      requires_regular_sampling: true
+    suitability_rules:
+    scoring_rules:
+      base: 0.24
+      rules:
+        - metric: sample_count
+          gte: 80
+          add: 0.16
+        - metric: sample_count
+          gte: 120
+          add: 0.08
+        - metric: regular_sampling
+          equals: true
+          add: 0.18
+        - metric: seasonality_strength
+          gte: 0.45
+          add: 0.2
+        - metric: trend_strength
+          gte: 0.12
+          add: 0.08
+        - metric: seasonality_strength
+          gte: 0.7
+          add: 0.08
+    explanation_templates:
+      selected: The series has enough history and non-linear structure for advanced forecasting approaches.
+      excluded: The series is too short or too simple for the more expressive forecasting models Darts represents.
+
+  alibi_detect:
+    display_name: Alibi Detect
+    supported_profiles:
+      - drift
+      - distribution_change
+      - concept_drift
+    eligibility_rules:
+      requires_numeric: true
+      min_samples: 50
+    suitability_rules:
+    scoring_rules:
+      base: 0.32
+      rules:
+        - metric: missing_percentage
+          gte: 5
+          add: 0.04
+        - metric: irregular_sampling_percentage
+          gte: 5
+          add: 0.12
+        - metric: shift_index
+          gte: 0.05
+          add: 0.18
+        - metric: spikiness
+          gte: 0.1
+          add: 0.12
+        - metric: shift_index
+          gte: 0.15
+          add: 0.08
+    explanation_templates:
+      selected: The series suggests drift or distribution movement that merits drift-oriented monitoring.
+      excluded: The series does not yet show enough drift-like behavior for Alibi Detect to stand out.
+
+  trend_regression:
+    display_name: Trend Regression
+    supported_profiles:
+      - trend
+      - linear_movement
+      - slow_change
+    eligibility_rules:
+      requires_numeric: true
+      min_samples: 30
+    suitability_rules:
+    scoring_rules:
+      base: 0.34
+      rules:
+        - metric: sample_count
+          gte: 30
+          add: 0.12
+        - metric: regular_sampling
+          equals: true
+          add: 0.12
+        - metric: trend_strength
+          gte: 0.08
+          add: 0.18
+        - metric: trend_strength
+          gte: 0.18
+          add: 0.12
+        - metric: shift_index
+          lt: 0.05
+          add: 0.0
+        - metric: shift_index
+          gte: 0.05
+          add: -0.08
+    explanation_templates:
+      selected: The series contains a measurable directional movement that regression can summarize well.
+      excluded: The series does not show a stable enough trend for regression to be a strong fit.
+
+  adtk:
+    display_name: ADTK
+    supported_profiles:
+      - spike
+      - seasonal_anomaly
+      - rule_based
+      - outlier
+    eligibility_rules:
+      requires_numeric: true
+      min_samples: 40
+    suitability_rules:
+    scoring_rules:
+      base: 0.28
+      rules:
+        - metric: sample_count
+          gte: 40
+          add: 0.1
+        - metric: regular_sampling
+          equals: true
+          add: 0.08
+        - metric: spikiness
+          gte: 0.18
+          add: 0.18
+        - metric: spikiness
+          gte: 0.6
+          add: 0.16
+        - metric: seasonality_strength
+          gte: 0.18
+          add: 0.14
+        - metric: shift_index
+          gte: 0.08
+          add: 0.06
+    explanation_templates:
+      selected: The series is suitable for rule-based anomaly checks and seasonal contradiction detection.
+      excluded: The series does not currently look like a strong fit for rule-based anomaly logic.
+
+  pyod:
+    display_name: PyOD
+    supported_profiles:
+      - outlier
+      - multivariate_outlier
+      - anomaly
+    eligibility_rules:
+      requires_numeric: true
+      min_samples: 50
+    suitability_rules:
+    scoring_rules:
+      base: 0.26
+      rules:
+        - metric: sample_count
+          gte: 50
+          add: 0.12
+        - metric: spikiness
+          gte: 0.2
+          add: 0.16
+        - metric: shift_index
+          gte: 0.05
+          add: 0.12
+        - metric: spikiness
+          gte: 0.35
+          add: 0.08
+        - metric: spikiness
+          gte: 0.6
+          add: 0.16
+    explanation_templates:
+      selected: The series contains enough unusual variation to justify an outlier-centric view.
+      excluded: The series is too smooth to make outlier scoring especially useful.
