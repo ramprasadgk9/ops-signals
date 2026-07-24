@@ -10,6 +10,9 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
+from experiments.analyzer_router.router import UniversalTimeSeriesRouter
+
 from backend.app.models.entities import NormalizedPoint
 
 
@@ -37,6 +40,12 @@ class MetricProfile:
 
 
 class MetricAnalyzerRecommendationService:
+    def __init__(self, registry_path: str | None = None) -> None:
+        self.router = UniversalTimeSeriesRouter(
+            registry=AnalyzerRegistry(registry_path or "experiments/analyzer_router/analyzer_registry.yaml"),
+            config={"data_validation": {"interpolation": {"enabled": True, "maximum_gap_points": 5, "maximum_interpolated_percentage": 20}}},
+        )
+
     GOAL_KEYWORDS: dict[str, tuple[str, str]] = {
         "trend": ("detect_trend", "Detect Trend"),
         "increasing": ("detect_trend", "Detect Trend"),
@@ -138,16 +147,79 @@ class MetricAnalyzerRecommendationService:
         )
         return profile, list(zip(timestamps, values))
 
-    def recommend(self, profile: MetricProfile) -> list[dict[str, Any]]:
-        candidates = [
-            self._ruptures(profile),
-            self._trend(profile),
-            self._baseline_shift(profile),
-            self._anomaly(profile),
-            self._stumpy(profile),
-            self._forecast(profile),
+    def recommend(
+        self,
+        profile: MetricProfile,
+        selection_mode: str = "all",
+        selected_analyzers: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        router_profile = type(
+            "RouterProfile",
+            (),
+            {
+                "sample_count": profile.sample_count,
+                "valid_sample_count": profile.sample_count,
+                "regular_sampling": profile.regular_sampling,
+                "missing_percentage": profile.missing_ratio * 100.0,
+                "irregular_sampling_percentage": profile.missing_ratio * 100.0,
+                "constant_value_percentage": profile.constant_value_ratio * 100.0,
+                "mean": profile.mean,
+                "stddev": profile.stddev,
+                "minimum": profile.minimum,
+                "maximum": profile.maximum,
+                "variance": profile.variance,
+                "trend_slope": profile.trend_slope,
+                "trend_strength": profile.trend_strength,
+                "autocorrelation": profile.autocorrelation,
+                "seasonality_strength": profile.seasonality_strength,
+                "spikiness": 0.0,
+                "shift_index": min(1.0, max(0.0, profile.variance / (abs(profile.mean) + 1e-9))),
+                "duration_seconds": int((profile.end_time - profile.start_time).total_seconds()) if profile.start_time and profile.end_time else None,
+                "notes": [],
+            },
+        )()
+        decisions = self.router.recommend_analyzers_for_profile(router_profile)
+        selected = set(selected_analyzers or [])
+        mode = selection_mode.lower().strip()
+        if mode == "recommended_only":
+            decisions = [decision for decision in decisions if decision.recommendation == "RECOMMENDED"]
+        elif mode == "manual_override" and selected:
+            decisions = [
+                decision
+                for decision in decisions
+                if decision.recommendation == "RECOMMENDED" or decision.analyzer in selected
+            ]
+        return [
+            {
+                "analyzer_id": self._public_analyzer_id(decision.analyzer),
+                "display_name": decision.display_name,
+                "recommendation": decision.recommendation.lower(),
+                "fitness_score": decision.final_score,
+                "decision_confidence": min(1.0, 0.55 + decision.final_score * 0.45),
+                "summary": decision.explanation,
+                "evidence": {"reasons": decision.reasons, "warnings": decision.warnings},
+                "requirements": self._requirements_list(decision.parameters_tested.get("eligibility_rules", {})),
+                "warnings": decision.warnings,
+                "parameters_tested": decision.parameters_tested,
+            }
+            for decision in decisions
         ]
-        return candidates
+
+    @staticmethod
+    def _public_analyzer_id(analyzer_id: str) -> str:
+        if analyzer_id == "trend_regression":
+            return "trend"
+        return analyzer_id
+
+    @staticmethod
+    def _requirements_list(requirements: Any) -> list[str]:
+        if isinstance(requirements, list):
+            return [str(item) for item in requirements]
+        if isinstance(requirements, dict):
+            return [f"{key}: {value}" for key, value in requirements.items()]
+        if requirements is None:
+            return []
+        return [str(requirements)]
 
     def normalize_goals(self, texts: list[str]) -> list[dict[str, str]]:
         normalized: dict[str, dict[str, str]] = {}

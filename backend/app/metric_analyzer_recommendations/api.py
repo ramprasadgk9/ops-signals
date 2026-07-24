@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime
 from itertools import count
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+import yaml
 
 from backend.app.metric_analyzer_recommendations.schemas import (
     AnalyzerRecommendationChatResponseOut,
@@ -22,6 +24,7 @@ from backend.app.models.db import get_db
 
 router = APIRouter(prefix="/api/metric-analyzer-recommendations", tags=["metric-analyzer-recommendations"])
 service = MetricAnalyzerRecommendationService()
+_analyzer_config = yaml.safe_load(Path("config/analyzers.yaml").read_text()) if Path("config/analyzers.yaml").exists() else {}
 _conversation_counter = count(1)
 _evaluation_counter = count(1)
 _conversation_store: dict[str, dict[str, Any]] = {}
@@ -58,7 +61,10 @@ def evaluate_metric_sample(
     if not selected:
         raise HTTPException(status_code=404, detail="sample not found")
 
-    recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile)]
+    analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
+    selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
+    selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])
+    recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers)]
     return RecommendationResponseOut(
         sample=MetricSampleOut(**selected),
         profile=MetricProfileOut(**asdict(profile)),
@@ -84,6 +90,9 @@ def chat_metric_analyzer_recommendation(
     recommendations: list[AnalyzerRecommendationOut] = []
     recommendation_mode: str = "preliminary"
     evaluation_id: int | None = None
+    analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
+    selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
+    selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])
 
     if context.sample_id is not None or (context.metric_name and context.provider):
         try:
@@ -99,14 +108,14 @@ def chat_metric_analyzer_recommendation(
             )
             if context.sample_id is not None and sample is not None:
                 profile, _ = service.profile_sample(db, sample["service"], sample["metric_name"], sample.get("analysis_run_id"))
-                recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile)]
+                recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers)]
                 recommendation_mode = "evaluated"
                 evaluation_id = next(_evaluation_counter)
         except Exception:
             sample = None
 
     if sample is None:
-        recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(_preliminary_profile(context))]
+        recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(_preliminary_profile(context), selection_mode, selected_analyzers)]
         recommendation_mode = "preliminary"
 
     assistant_message = {
@@ -154,7 +163,14 @@ def _preliminary_profile(context: MetricContextIn):
             "variance": 1.0,
             "stddev": 1.0,
             "mean": 1.0,
+            "minimum": 0.0,
+            "maximum": 1.0,
             "trend_slope": 0.0,
+            "autocorrelation": None,
+            "start_time": datetime.utcnow(),
+            "end_time": datetime.utcnow(),
+            "duplicate_timestamps": 0,
+            "sparsity": 0.0,
         },
     )()
 

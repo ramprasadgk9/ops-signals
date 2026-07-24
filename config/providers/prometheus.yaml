@@ -16,7 +16,7 @@ input:
   validation:
     enforce_monotonic_timestamp: true
     allow_negative_values: false
-    max_gap_minutes: 30
+    max_gap_minutes: 120
     max_null_ratio: 0.1
   required_columns:
     - timestamp

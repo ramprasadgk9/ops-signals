@@ -11,6 +11,8 @@ import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
 import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
 import { MemoryChatPage } from '../pages/MemoryChatPage';
 import { ValidateDataPage } from '../pages/ValidateDataPage';
+import { ExperimentDashboardPage } from '../pages/ExperimentDashboardPage';
+import { AnalyzerRouterExperimentPage } from '../pages/AnalyzerRouterExperimentPage';
 
 export function AppRoutes() {
   return (
@@ -23,6 +25,8 @@ export function AppRoutes() {
       <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
       <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
       <Route path="/validate-data" element={<ValidateDataPage />} />
+      <Route path="/experiments" element={<ExperimentDashboardPage />} />
+      <Route path="/analyzer-router" element={<AnalyzerRouterExperimentPage />} />
       <Route path="/assistant" element={<MemoryChatPage />} />
       <Route path="/memory-chat" element={<MemoryChatPage />} />
       <Route path="/findings" element={<FindingsPage />} />

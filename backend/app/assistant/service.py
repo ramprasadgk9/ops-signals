@@ -56,6 +56,18 @@ class OperationalIntelligenceAssistant:
             return "historical"
         return "mixed"
 
+    @staticmethod
+    def _dedupe_sources(sources: list[AssistantSource]) -> list[AssistantSource]:
+        deduped: list[AssistantSource] = []
+        seen: set[tuple[str, str, str]] = set()
+        for source in sorted(sources, key=lambda item: item.score, reverse=True):
+            key = (source.source_type, source.reference or source.title, source.title)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(source)
+        return deduped
+
     def chat(self, payload: AssistantChatRequest, db: Session) -> AssistantChatResponse:
         intent = self.intent_service.classify(payload.message) if self.services.ai_services else self.detect_intent(payload.message)
         sources: list[AssistantSource] = []
@@ -75,6 +87,8 @@ class OperationalIntelligenceAssistant:
 
         if not answers:
             answers.append("I could not confidently route that question. Try asking about a case, a behavior, an analyzer, or the application architecture.")
+
+        sources = self._dedupe_sources(sources)
 
         suggested_questions = [
             "Show similar historical cases",

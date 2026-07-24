@@ -12,16 +12,20 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.analysis_runs import router as analysis_runs_router
 from backend.app.api.assistant import router as assistant_router
+from backend.app.api.analyzer_router import router as analyzer_router
+from backend.app.api.experiments import router as experiments_router
 from backend.app.api.behavior_definitions import router as behavior_definitions_router
 from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
 from backend.app.api.capabilities import router as capabilities_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.findings import router as findings_router
 from backend.app.api.ingestion import router as ingestion_router
+from backend.app.api.learning_outcomes import router as learning_outcomes_router
 from backend.app.api.memory import router as memory_router
 from backend.app.api.questions import router as questions_router
 from backend.app.api.services import router as services_router
 from backend.app.api.signals import router as signals_router
+from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
 from backend.app.config import MemoryConfig, get_settings
@@ -36,6 +40,7 @@ from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import QdrantVectorStore, VectorStore
 from backend.app.models.db import get_engine, get_session_local, init_engine, get_db
 from backend.app.models.entities import Base
+from backend.app.models.schema_compat import ensure_learning_schema
 from backend.app.storage.bootstrap import seed_reference_data
 
 logger = logging.getLogger(__name__)
@@ -165,6 +170,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         init_engine(database_url)
         Base.metadata.create_all(bind=get_engine())
+        ensure_learning_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
@@ -229,8 +235,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(cases_router)
     app.include_router(timeseries_router)
     app.include_router(metric_analyzer_recommendations_router)
+    app.include_router(analyzer_router)
+    app.include_router(experiments_router)
     app.include_router(ingestion_router)
+    app.include_router(learning_outcomes_router)
     app.include_router(assistant_router)
+    app.include_router(testing_router)
     
     # Register memory router
     app.include_router(memory_router)

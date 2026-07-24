@@ -147,6 +147,112 @@ export type AnalysisRun = {
   created_at: string;
 };
 
+export type ExperimentEvent = {
+  event_id: string;
+  event_type: string;
+  index?: number | null;
+  timestamp?: string | null;
+  value?: number | null;
+  severity?: string | null;
+  score?: number | null;
+  window_start?: string | null;
+  window_end?: string | null;
+  details: Record<string, unknown>;
+  interpretation?: string | null;
+  technical_summary?: string | null;
+};
+
+export type ExperimentResult = {
+  experiment_id: string;
+  dataset: {
+    name: string;
+    file_path: string;
+    rows: number;
+    columns: number;
+    timestamp_column: string;
+    value_column: string;
+    sampling_interval_seconds?: number | null;
+    start_time?: string | null;
+    end_time?: string | null;
+    min_value?: number | null;
+    max_value?: number | null;
+    missing_values: number;
+    duplicate_timestamps: number;
+    timestamps_sorted: boolean;
+  };
+  analyzer: {
+    name: string;
+    algorithm?: string | null;
+    model?: string | null;
+    parameters: Record<string, unknown>;
+  };
+  preprocessing: { normalization: string };
+  execution: {
+    status: string;
+    started_at?: string | null;
+    completed_at?: string | null;
+    execution_time_seconds?: number | null;
+  };
+  results: {
+    event_type: string;
+    event_count: number;
+    events: ExperimentEvent[];
+  };
+  metrics: {
+    precision?: number | null;
+    recall?: number | null;
+    f1_score?: number | null;
+  };
+  artifacts: {
+    raw_plot?: string | null;
+    result_plot?: string | null;
+    comparison_plot?: string | null;
+  };
+  observations: string[];
+  recommendation: {
+    title?: string | null;
+    summary?: string | null;
+    recommended_configuration?: string | null;
+    suitable_for: string[];
+    not_suitable_for: string[];
+    limitations: string[];
+  };
+  created_at: string;
+  plain_language_summary?: string | null;
+  event_summaries: string[];
+};
+
+export type ExperimentComparison = {
+  analyzer: string;
+  comparison_summary: string;
+  shared_event_count: number;
+  unique_event_count: number;
+  experiment_ids: string[];
+  items: Array<{ experiment_id: string; penalty?: number | null; event_count: number; summary?: string | null }>;
+};
+
+export type RouterDecision = {
+  analyzer: string;
+  display_name: string;
+  eligible: boolean;
+  eligibility_score: number;
+  suitability_score: number;
+  final_score: number;
+  recommendation: 'RECOMMENDED' | 'OPTIONAL' | 'NOT_RECOMMENDED' | 'REJECTED' | 'OVERRIDDEN' | string;
+  reasons: string[];
+  warnings: string[];
+  explanation: string;
+  parameters_tested: Record<string, unknown>;
+};
+
+export type RouterResponse = {
+  summary: string;
+  validation: { valid: boolean; status: string; reasons: string[]; warnings: string[] };
+  profile: Record<string, unknown>;
+  analyzers: RouterDecision[];
+  export_path?: string | null;
+};
+
 export type TimeseriesPoint = {
   timestamp: string;
   value: number;

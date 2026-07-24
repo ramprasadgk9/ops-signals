@@ -1,0 +1,26 @@
+dataset:
+  csv_path: "/Users/ramprasad/Documents/workspace/github/ops-signals/experiments/datasets/rds_cpu_utilization_cc0c53.csv"
+  timestamp_column: null
+  value_column: null
+  label_column: null
+  anomaly_start_column: null
+  anomaly_end_column: null
+
+normalization:
+  method: none
+
+ruptures:
+  algorithm: pelt
+  model: l2
+  penalty: 5
+  min_size: 10
+  jump: 1
+
+experiments:
+  penalties: [3, 5, 8, 10]
+  models: [l2, rbf, normal]
+  algorithms: [pelt, binseg, bottomup]
+
+output:
+  plots_dir: experiments/ruptures/plots
+  reports_dir: experiments/ruptures/reports

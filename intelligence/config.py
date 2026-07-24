@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -38,6 +38,8 @@ class AnalysisConfig:
     mode: str
     window: str
     analyzers: dict[str, AnalyzerConfig]
+    selection_mode: str = "all"
+    selected_analyzers: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -120,6 +122,8 @@ def load_config(config_path: str | Path) -> AppConfig:
             mode=raw["analysis"]["mode"],
             window=raw["analysis"]["window"],
             analyzers=analyzers,
+            selection_mode=raw["analysis"].get("selection_mode", "all"),
+            selected_analyzers=list(raw["analysis"].get("selected_analyzers", [])),
         ),
         output=OutputConfig(**raw["output"]),
         storage=StorageConfig(postgres=PostgresConfig(**raw["storage"]["postgres"])),

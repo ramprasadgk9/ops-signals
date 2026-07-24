@@ -9,6 +9,7 @@ It assumes you are new to Grafana plugins and want a predictable local path firs
 The local setup has three moving parts:
 
 - `Grafana` runs at `http://localhost:3000`.
+- `Prometheus` runs at `http://localhost:9090`.
 - `Ops Signals backend` runs at `http://localhost:8000`.
 - `Ops Signals plugin` is built into `frontend/dist` and mounted into Grafana by Docker Compose.
 
@@ -29,7 +30,7 @@ Grafana
         resolution, and operational memory
 ```
 
-For the current local flow, the plugin talks to the Ops Signals backend at:
+For the current local flow, Grafana queries Prometheus through its configured datasource. The plugin then sends normalized samples and nonsecret query metadata to the Ops Signals backend at:
 
 ```text
 http://localhost:8000
@@ -113,13 +114,19 @@ The important files are:
 From the repository root:
 
 ```bash
-docker compose up -d --force-recreate grafana
+docker compose up -d --force-recreate grafana prometheus mock-metrics
 ```
 
 Grafana runs at:
 
 ```text
 http://localhost:3000
+```
+
+Prometheus runs at:
+
+```text
+http://localhost:9090
 ```
 
 The Docker Compose setup mounts:
@@ -159,7 +166,53 @@ README.md
 img
 ```
 
-## 5. Open The Plugin
+## 5. Verify Local Prometheus Test Data
+
+This repository now includes a tiny synthetic metrics target for local testing.
+
+It exposes these Prometheus metrics:
+
+- `cpu_usage`
+- `request_latency_p95`
+- `error_rate`
+
+And it emits service label values like:
+
+- `sample-ec2-instance`
+- `checkout`
+- `payments`
+
+Verify the mock target directly:
+
+```bash
+curl http://localhost:9101/metrics
+```
+
+Verify Prometheus is scraping it:
+
+```bash
+curl "http://localhost:9090/api/v1/label/service/values"
+```
+
+Expected result:
+
+```text
+You should see sample-ec2-instance, checkout, and payments.
+```
+
+Verify one metric query:
+
+```bash
+curl "http://localhost:9090/api/v1/query?query=cpu_usage"
+```
+
+Expected result:
+
+```text
+You should get time series back for the local test services.
+```
+
+## 6. Open The Plugin
 
 Open Grafana:
 
@@ -187,31 +240,260 @@ Mac: Cmd + Shift + R
 Windows/Linux: Ctrl + Shift + R
 ```
 
-## 6. Select The Backend And Run Analysis
+## 7. Select The Backend And Run Analysis
 
 In the Ops Signals app toolbar:
 
-- `Data source`: choose `Prometheus`.
+- `Data source`: choose a configured Prometheus datasource from Grafana.
 - `Ops Signals backend`: choose `Local backend (:8000)`.
-- `Service`: choose a service returned by the backend.
-- `Metric`: choose a metric returned for that service.
-- `Time range`: use `Last 14 days` for now.
+- `Service`: choose or type a service label value discovered from Prometheus.
+- `Metric`: choose or type a Prometheus metric name.
+- `Mode`: use `Metric` for raw metric names, or `PromQL expression` for a full query.
+- `Service label`: use the label that identifies services in your Prometheus data, usually `service`, `service_name`, `job`, or `app`.
+- `Time range`: use the built-in quick presets like `Last 30m`, `Last 1h`, `Last 6h`, or enter `From` and `To` directly in the plugin.
 - Click `Run Analysis`.
 
 For the sample data path, a useful test is:
 
 ```text
+Data source: Prometheus
+Ops Signals backend: Local backend (:8000)
 Service: sample-ec2-instance
 Metric: cpu_usage
+Service label: service
 ```
 
 Expected result:
 
 ```text
-The page should show samples, signals, findings, a metric timeline, evidence, suggested questions, and investigation actions.
+Grafana should query Prometheus first. Then the page should show samples, signals, findings, a metric timeline, evidence, suggested questions, and investigation actions.
 ```
 
-## 7. Test The Investigation Flow
+## 8. Plugin Features And How To Use Them
+
+This section describes the current local plugin features, what they depend on, and what you should expect to see.
+
+### Toolbar And Run Analysis
+
+Purpose:
+
+- Choose the metric source, backend, service, metric, and time window.
+- Run one analysis pass from Prometheus into Ops Signals.
+
+Prerequisites:
+
+- Grafana is up on `http://localhost:3000`
+- Prometheus is up on `http://localhost:9090`
+- Ops Signals backend is up on `http://localhost:8000`
+- The selected Prometheus datasource is working inside Grafana
+
+How to use it:
+
+1. Open `http://localhost:3000/a/ops-signals-app/ops-signals`
+2. Set `Data source` to your Grafana Prometheus datasource
+3. Set `Ops Signals backend` to `Local backend (:8000)`
+4. Choose a `Service`
+5. Choose a `Metric`
+6. Pick `Last 30m` first for local testing
+7. Click `Run Analysis`
+
+What to expect:
+
+- The page will show a loading stage such as Prometheus query, normalization, and analyzer execution.
+- After success you should see sample count, signal count, findings, behavior findings, and a metric timeline.
+
+### Time Range Control
+
+Purpose:
+
+- Run the plugin independently from hidden Grafana header controls.
+
+How to use it:
+
+1. Click `Last 30m`, `Last 1h`, `Last 6h`, or `Last 24h`
+2. Or enter a local `From` and `To`
+3. Click `Apply custom range`
+
+What to expect:
+
+- `Run Analysis` stays disabled if `From` is later than `To`
+- The summary line updates to show the currently active range
+
+Local testing recommendation:
+
+- Start with `Last 30m`
+- Use a current window relative to `Friday, July 24, 2026`
+- Do not expect old dates like `July 23, 2026` to act like live data
+
+### Run Details And Analyzer Routing
+
+Purpose:
+
+- Explain what the backend ran and what the analyzer router recommended
+
+Prerequisites:
+
+- The backend must return analyzer routing metadata
+- `config/analyzers.yaml` controls selection mode such as `all`, `recommended_only`, or `manual_override`
+
+What to expect:
+
+- `Run details` shows run ID, datasource, service, query window, and status
+- It also shows:
+  - executed analyzers
+  - recommended analyzers
+  - optional analyzers
+  - not recommended analyzers
+  - rejected analyzers
+
+Interpretation:
+
+- `Recommended` means the router thinks the analyzer strongly fits this time series
+- `Optional` means the analyzer may help but is not the best first choice
+- `Rejected` means eligibility or data-shape checks failed
+
+### Findings, Evidence, And Timeline
+
+Purpose:
+
+- Show the main operational finding and the supporting signal windows
+
+How to use it:
+
+1. Review the main finding card
+2. Click `View Evidence`
+3. Inspect the metric timeline and evidence summary
+
+What to expect:
+
+- If analyzers emit signals, you should see at least one finding or signal window
+- If no analyzers emit a signal, the plugin shows a no-finding state and the routing summary still helps explain why
+
+### Ask Ops Signals
+
+Purpose:
+
+- Answer questions using run context, analyzer routing, saved cases, and indexed application documentation
+
+Prerequisites:
+
+- Backend assistant API is running
+- Case memory must be indexed if you want historical case retrieval
+
+How to use it:
+
+1. Click a quick prompt such as `Which analyzers ran?`
+2. Or type a custom question in `Ask anything about this run...`
+3. Click `Ask`
+
+What to expect:
+
+- Analyzer-routing questions are answered directly from the current run
+- Broader questions use the backend assistant and vector retrieval when available
+- If historical memory is weak or empty, the answer may fall back to application documentation
+
+Important note:
+
+- Similar-case answers are only meaningful when at least one prior case was created and published to memory
+
+### Create Case And Investigation Drawer
+
+Purpose:
+
+- Convert a finding into an operational case and capture investigation state
+
+Prerequisites:
+
+- At least one finding must exist in the current run
+
+How to use it:
+
+1. Click `Create Case`
+2. Review the drawer steps:
+   - `Finding`
+   - `Investigation`
+   - `Root Cause`
+   - `Resolution`
+   - `Publish Knowledge`
+3. Save notes, RCA, and resolution fields as you work
+
+What to expect:
+
+- Reopening the same finding should reopen the existing case instead of creating duplicates
+- The drawer should show saved notes, RCA fields, resolution text, and memory status
+
+### View All Cases
+
+Purpose:
+
+- Show recent saved investigations for the current service and metric
+
+Prerequisites:
+
+- At least one case has been created in the backend database
+
+How to use it:
+
+1. Click `View all cases`
+2. Review the `Recent Cases` drawer
+3. Click `Open case` on the one you want
+
+What to expect:
+
+- If cases exist, the drawer lists case ID, title, status, updated time, and knowledge state
+- If no cases exist, the drawer still opens and explains that no cases were found
+
+### Publish Knowledge
+
+Purpose:
+
+- Push the current case into operational memory for later retrieval by similar-case search
+
+Prerequisites:
+
+- A case exists
+- Qdrant or the configured vector store is available
+
+How to use it:
+
+1. Open a case drawer
+2. Go to `Publish Knowledge`
+3. Click `Republish knowledge`
+
+What to expect:
+
+- `memory_status` should move toward `indexed`
+- Future assistant questions can retrieve this case as historical evidence
+
+### Clear DB For Testing
+
+Purpose:
+
+- Reset local operational run data and case vector memory during development
+
+Prerequisites:
+
+- Testing only
+- You are okay deleting local analysis outputs and saved cases
+
+How to use it:
+
+1. Open `Run details`
+2. Click `Clear DB for testing`
+3. Confirm the browser prompt
+
+What to expect:
+
+- Analysis runs, normalized timeseries, signals, findings, cases, and question answers are deleted
+- Case vector memory is cleared
+- Application documentation memory is not cleared
+
+Warning:
+
+- This is destructive for local test data
+- Do not use it as a production workflow
+
+## 9. Test The Investigation Flow
 
 After analysis finishes:
 
@@ -231,7 +513,7 @@ Expected result:
 The drawer should update from backend responses and show the latest case status, notes, RCA, resolution, and memory state.
 ```
 
-## 8. Common Problems
+## 10. Common Problems
 
 ### Plugin Does Not Appear
 
@@ -241,7 +523,7 @@ Rebuild the plugin and recreate Grafana:
 cd frontend
 npm run build:grafana
 cd ..
-docker compose up -d --force-recreate grafana
+docker compose up -d --force-recreate grafana prometheus mock-metrics
 ```
 
 Then check:
@@ -306,7 +588,32 @@ The app route should be:
 http://localhost:3000/a/ops-signals-app/ops-signals
 ```
 
-## 9. Development Loop
+### View All Cases Does Nothing
+
+If the button appears clickable but nothing happens:
+
+1. Rebuild the plugin
+2. Recreate Grafana
+3. Hard refresh the browser
+4. Restart the backend so the `/api/cases` list endpoint is active
+
+Commands:
+
+```bash
+cd frontend
+npm run build:grafana
+cd ..
+docker compose up -d --force-recreate grafana
+uvicorn backend.app.main:app --reload --port 8000
+```
+
+Expected result:
+
+```text
+The button should open a Recent Cases drawer even if no cases exist.
+```
+
+## 11. Development Loop
 
 Use this loop after changing plugin frontend code:
 
@@ -319,10 +626,11 @@ docker compose up -d --force-recreate grafana
 
 Then hard refresh the browser.
 
-## 10. Current Local Limitations
+## 12. Current Local Limitations
 
 - The plugin is unsigned.
-- The time range selector currently shows `Last 14 days` in the app UI.
-- The current local plugin flow gets analysis data from the Ops Signals backend.
-- A more Grafana-native future step is to query Prometheus through Grafana and send those samples to the Ops Signals backend for analysis.
-
+- The plugin uses Grafana's frontend datasource APIs for Prometheus access.
+- The Ops Signals backend receives normalized metric samples and nonsecret query metadata.
+- The app still has a local backend selector for development environments.
+- Similar-case answers depend on having previously indexed cases.
+- Local mock Prometheus data is only useful after Prometheus has scraped enough fresh samples for the chosen time window.

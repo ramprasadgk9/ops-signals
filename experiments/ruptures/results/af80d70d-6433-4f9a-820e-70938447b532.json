@@ -1,0 +1,228 @@
+{
+  "experiment_id": "af80d70d-6433-4f9a-820e-70938447b532",
+  "dataset": {
+    "name": "rds_cpu_utilization_cc0c53",
+    "file_path": "/Users/ramprasad/Documents/workspace/github/ops-signals/experiments/datasets/rds_cpu_utilization_cc0c53.csv",
+    "rows": 4032,
+    "columns": 2,
+    "timestamp_column": "timestamp",
+    "value_column": "value",
+    "sampling_interval_seconds": 300,
+    "start_time": "2014-02-14T14:30:00+00:00",
+    "end_time": "2014-02-28T14:30:00+00:00",
+    "min_value": 5.19,
+    "max_value": 25.1033,
+    "missing_values": 0,
+    "duplicate_timestamps": 0,
+    "timestamps_sorted": true
+  },
+  "analyzer": {
+    "name": "ruptures",
+    "algorithm": "pelt",
+    "model": "l2",
+    "parameters": {
+      "penalty": 5,
+      "min_size": 10,
+      "jump": 1
+    }
+  },
+  "preprocessing": {
+    "normalization": "none"
+  },
+  "execution": {
+    "status": "completed",
+    "started_at": "2026-07-20T23:46:24.132796+00:00",
+    "completed_at": "2026-07-20T23:48:10.734557+00:00",
+    "execution_time_seconds": 21.6410218749661
+  },
+  "results": {
+    "event_type": "change_point",
+    "event_count": 7,
+    "events": [
+      {
+        "event_id": "73d30781-2d15-4200-ae46-38c19f6ff42b",
+        "event_type": "change_point",
+        "index": 1881,
+        "timestamp": "2014-02-21T03:15:00+00:00",
+        "value": 6.024,
+        "severity": "minor",
+        "score": null,
+        "window_start": "2014-02-21T02:25:00+00:00",
+        "window_end": "2014-02-21T04:00:00+00:00",
+        "details": {
+          "mean_before": 6.335,
+          "mean_after": 5.8702,
+          "absolute_change": -0.4648,
+          "percentage_change": -7.337
+        },
+        "interpretation": "Change Point detected. The metric moved from about 6.335 to 5.8702, a decrease of roughly 7.3%.",
+        "technical_summary": "index=1881, model=l2, algorithm=pelt, penalty=5"
+      },
+      {
+        "event_id": "9b749b1c-fd57-4927-9965-e082835b7de0",
+        "event_type": "change_point",
+        "index": 3080,
+        "timestamp": "2014-02-25T07:15:00+00:00",
+        "value": 25.1033,
+        "severity": "major",
+        "score": null,
+        "window_start": "2014-02-25T06:20:00+00:00",
+        "window_end": "2014-02-25T08:00:00+00:00",
+        "details": {
+          "mean_before": 5.981,
+          "mean_after": 16.4101,
+          "absolute_change": 10.4291,
+          "percentage_change": 174.3708
+        },
+        "interpretation": "Change Point detected. The metric moved from about 5.981 to 16.4101, an increase of roughly 174.4%.",
+        "technical_summary": "index=3080, model=l2, algorithm=pelt, penalty=5"
+      },
+      {
+        "event_id": "59362718-4bef-4d7b-8593-489e16a78d61",
+        "event_type": "change_point",
+        "index": 3090,
+        "timestamp": "2014-02-25T08:05:00+00:00",
+        "value": 15.0,
+        "severity": "noticeable",
+        "score": null,
+        "window_start": "2014-02-25T07:15:00+00:00",
+        "window_end": "2014-02-25T08:50:00+00:00",
+        "details": {
+          "mean_before": 16.4101,
+          "mean_after": 14.7597,
+          "absolute_change": -1.6505,
+          "percentage_change": -10.0576
+        },
+        "interpretation": "Change Point detected. The metric moved from about 16.4101 to 14.7597, a decrease of roughly 10.1%.",
+        "technical_summary": "index=3090, model=l2, algorithm=pelt, penalty=5"
+      },
+      {
+        "event_id": "5a4edf9c-4c0e-4b93-984e-4f18f8881c1b",
+        "event_type": "change_point",
+        "index": 3523,
+        "timestamp": "2014-02-26T20:10:00+00:00",
+        "value": 15.5567,
+        "severity": "minor",
+        "score": null,
+        "window_start": "2014-02-26T19:20:00+00:00",
+        "window_end": "2014-02-26T20:55:00+00:00",
+        "details": {
+          "mean_before": 14.2815,
+          "mean_after": 14.8967,
+          "absolute_change": 0.6152,
+          "percentage_change": 4.3074
+        },
+        "interpretation": "Change Point detected. The metric moved from about 14.2815 to 14.8967, an increase of roughly 4.3%.",
+        "technical_summary": "index=3523, model=l2, algorithm=pelt, penalty=5"
+      },
+      {
+        "event_id": "dfe544da-d56c-42b2-948c-91fa59b02a00",
+        "event_type": "change_point",
+        "index": 3644,
+        "timestamp": "2014-02-27T06:15:00+00:00",
+        "value": 13.8867,
+        "severity": "minor",
+        "score": null,
+        "window_start": "2014-02-27T05:25:00+00:00",
+        "window_end": "2014-02-27T07:00:00+00:00",
+        "details": {
+          "mean_before": 14.551,
+          "mean_after": 14.1107,
+          "absolute_change": -0.4403,
+          "percentage_change": -3.0262
+        },
+        "interpretation": "Change Point detected. The metric moved from about 14.551 to 14.1107, a decrease of roughly 3.0%.",
+        "technical_summary": "index=3644, model=l2, algorithm=pelt, penalty=5"
+      },
+      {
+        "event_id": "da206166-1373-4852-99c9-c8d971a2fcd2",
+        "event_type": "change_point",
+        "index": 3745,
+        "timestamp": "2014-02-27T14:40:00+00:00",
+        "value": 15.08,
+        "severity": "minor",
+        "score": null,
+        "window_start": "2014-02-27T13:50:00+00:00",
+        "window_end": "2014-02-27T15:25:00+00:00",
+        "details": {
+          "mean_before": 14.3478,
+          "mean_after": 14.5593,
+          "absolute_change": 0.2115,
+          "percentage_change": 1.474
+        },
+        "interpretation": "Change Point detected. The metric moved from about 14.3478 to 14.5593, an increase of roughly 1.5%.",
+        "technical_summary": "index=3745, model=l2, algorithm=pelt, penalty=5"
+      },
+      {
+        "event_id": "5d9b1753-dc5a-4100-86a6-d4cfff100b76",
+        "event_type": "change_point",
+        "index": 3886,
+        "timestamp": "2014-02-28T02:25:00+00:00",
+        "value": 13.9467,
+        "severity": "minor",
+        "score": null,
+        "window_start": "2014-02-28T01:35:00+00:00",
+        "window_end": "2014-02-28T03:10:00+00:00",
+        "details": {
+          "mean_before": 14.6603,
+          "mean_after": 13.9853,
+          "absolute_change": -0.675,
+          "percentage_change": -4.6043
+        },
+        "interpretation": "Change Point detected. The metric moved from about 14.6603 to 13.9853, a decrease of roughly 4.6%.",
+        "technical_summary": "index=3886, model=l2, algorithm=pelt, penalty=5"
+      }
+    ]
+  },
+  "metrics": {
+    "precision": null,
+    "recall": null,
+    "f1_score": null
+  },
+  "artifacts": {
+    "raw_plot": "experiments/ruptures/plots/rds_cpu_utilization_cc0c53_raw.png",
+    "result_plot": "experiments/ruptures/plots/rds_cpu_utilization_cc0c53_change_points.png",
+    "comparison_plot": "experiments/ruptures/plots/rds_cpu_utilization_cc0c53_comparison.png"
+  },
+  "observations": [
+    "Normalization strategy: none",
+    "Ruptures returned 7 internal change points.",
+    "Penalty increases usually reduce the number of detected change points and favor broader, more stable shifts.",
+    "Penalty decreases usually increase sensitivity, which can reveal smaller regime changes but also more false positives.",
+    "Use l2 when baseline mean shifts matter most, rbf when shape/nonlinear distribution changes matter, and normal when variance changes matter too.",
+    "Use PELT when you want a scalable penalized search, Binary Segmentation for quick iterative splits, and Bottom Up when you want merge-based segmentation over many small pieces."
+  ],
+  "recommendation": {
+    "title": "Baseline settings for CPU-style operational metrics",
+    "summary": "Start with PELT + l2 + moderate penalty and compare lower/higher penalties for sensitivity.",
+    "recommended_configuration": "- Dataset: rds_cpu_utilization_cc0c53\n- Algorithm: pelt\n- Model: l2\n- Penalty: 5\n- Suitable for: operational metrics with repeatable regime changes such as CPU, latency, request rate, memory, and network throughput\n- Not suitable for: highly irregular series, sparse event logs, or signals with severe missingness without preprocessing",
+    "suitable_for": [
+      "CPU",
+      "latency",
+      "request rate",
+      "memory",
+      "network throughput"
+    ],
+    "not_suitable_for": [
+      "irregular event logs",
+      "highly missing series",
+      "unvalidated sparse samples"
+    ],
+    "limitations": [
+      "No root-cause confirmation",
+      "Labels may be absent",
+      "Short windows can overfit"
+    ]
+  },
+  "created_at": "2026-07-20T23:46:24.132796+00:00",
+  "plain_language_summary": "The analyzer found 7 meaningful changes in rds_cpu_utilization_cc0c53. The most important change happened around 2014-02-21T03:15:00+00:00, when the metric decreased to a new operating level. Some of the later changes may represent related stages of the same operational event.",
+  "event_summaries": [
+    "Change Point detected. The metric moved from about 6.335 to 5.8702, a decrease of roughly 7.3%.",
+    "Change Point detected. The metric moved from about 5.981 to 16.4101, an increase of roughly 174.4%.",
+    "Change Point detected. The metric moved from about 16.4101 to 14.7597, a decrease of roughly 10.1%.",
+    "Change Point detected. The metric moved from about 14.2815 to 14.8967, an increase of roughly 4.3%.",
+    "Change Point detected. The metric moved from about 14.551 to 14.1107, a decrease of roughly 3.0%.",
+    "Change Point detected. The metric moved from about 14.3478 to 14.5593, an increase of roughly 1.5%.",
+    "Change Point detected. The metric moved from about 14.6603 to 13.9853, a decrease of roughly 4.6%."
+  ]
+}

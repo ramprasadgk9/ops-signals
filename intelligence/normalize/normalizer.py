@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from pandas.api.types import is_datetime64_any_dtype, is_object_dtype
 
 from intelligence.config import InputConfig
 
@@ -137,13 +138,18 @@ def _validate_required_columns(dataframe: pd.DataFrame) -> None:
 
 
 def _parse_timestamps(series: pd.Series, provider: str) -> pd.Series:
-    numeric = pd.to_numeric(series, errors="coerce")
-    if numeric.notna().all():
-        # Datadog exports are commonly epoch ms; fall back to seconds for smaller values.
-        unit = "ms" if float(numeric.abs().max()) > 1e11 else "s"
-        parsed = pd.to_datetime(numeric, unit=unit, utc=True, errors="coerce")
-    else:
+    if is_datetime64_any_dtype(series):
         parsed = pd.to_datetime(series, utc=True, errors="coerce")
+    elif is_object_dtype(series) and series.map(lambda value: hasattr(value, "isoformat")).all():
+        parsed = pd.to_datetime(series, utc=True, errors="coerce")
+    else:
+        numeric = pd.to_numeric(series, errors="coerce")
+        if numeric.notna().all():
+        # Datadog exports are commonly epoch ms; fall back to seconds for smaller values.
+            unit = "ms" if float(numeric.abs().max()) > 1e11 else "s"
+            parsed = pd.to_datetime(numeric, unit=unit, utc=True, errors="coerce")
+        else:
+            parsed = pd.to_datetime(series, utc=True, errors="coerce")
 
     invalid = parsed.isna()
     if invalid.any():

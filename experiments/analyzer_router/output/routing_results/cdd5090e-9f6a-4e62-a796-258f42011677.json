@@ -1,0 +1,423 @@
+{
+  "experiment_id": "cdd5090e-9f6a-4e62-a796-258f42011677",
+  "request": {
+    "csv_path": "/var/folders/4x/y1sgcbkd6w3flk8fby3xndyc0000gn/T/tmp8ye6agrh.csv",
+    "timestamp_column": "timestamp",
+    "value_column": "value",
+    "routing_mode": "automatic_with_override",
+    "selected_analyzers": []
+  },
+  "validation": {
+    "valid": true,
+    "status": "accepted",
+    "reasons": [],
+    "warnings": []
+  },
+  "profile": {
+    "original_sample_count": 4032,
+    "valid_sample_count": 4032,
+    "invalid_timestamp_count": 0,
+    "invalid_value_count": 0,
+    "missing_percentage": 0.0,
+    "duplicate_timestamp_count": 0,
+    "sampling_interval_seconds": 300,
+    "duration_seconds": 1209300,
+    "irregular_sampling_percentage": 0.0,
+    "interpolated_sample_count": 0,
+    "interpolated_percentage": 0.0,
+    "constant_value_percentage": 0.0248015873015873,
+    "sample_count": 4032,
+    "regular_sampling": true,
+    "mean": 18.98114206645747,
+    "stddev": 45.36854430860246,
+    "minimum": -21.998788838600007,
+    "maximum": 87.9583481277,
+    "variance": 2058.3048126816248,
+    "trend_slope": 0.0016084969314131526,
+    "trend_strength": 8.474184143908108e-05,
+    "seasonality_strength": 0.6836532448891631,
+    "spikiness": 1.0,
+    "shift_index": 0.07846532051301812,
+    "autocorrelation": 0.985715824435125,
+    "notes": [
+      "Seasonal structure was detected.",
+      "The signal contains noticeable spikes."
+    ]
+  },
+  "analyzers": [
+    {
+      "analyzer": "ruptures",
+      "display_name": "Ruptures",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.57,
+      "final_score": 0.57,
+      "recommendation": "OPTIONAL",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 30.",
+        "The series shows evidence of sustained baseline changes and enough samples for segment comparison."
+      ],
+      "warnings": [],
+      "explanation": "Ruptures is suitable because the data shows stronger evidence of sustained baseline change or regime shifts than of recurring motifs, with score 0.57.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "baseline_shift",
+          "regime_change",
+          "mixed",
+          "trend"
+        ],
+        "eligibility_rules": {
+          "min_samples": 30,
+          "requires_numeric": true
+        },
+        "suitability_rules": {
+          "prefer_regular_sampling": true,
+          "min_variance": 1e-09,
+          "min_shift_index": 0.12,
+          "bonus_shift_index": 0.22
+        }
+      }
+    },
+    {
+      "analyzer": "stumpy",
+      "display_name": "STUMPY",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.84,
+      "final_score": 0.84,
+      "recommendation": "RECOMMENDED",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 30.",
+        "Sampling is regular enough for this analyzer.",
+        "The series shows recurring structure or seasonality.",
+        "The series appears to repeat similar shapes or seasonal motifs."
+      ],
+      "warnings": [],
+      "explanation": "STUMPY is suitable because the series shows strong recurring structure or seasonality, with score 0.84.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "seasonal",
+          "motif",
+          "repeating_pattern"
+        ],
+        "eligibility_rules": {
+          "min_samples": 30,
+          "requires_regular_sampling": true
+        },
+        "suitability_rules": {
+          "prefer_high_seasonality": true,
+          "min_seasonality_strength": 0.42,
+          "bonus_seasonality_strength": 0.65
+        }
+      }
+    },
+    {
+      "analyzer": "prophet",
+      "display_name": "Prophet",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.86,
+      "final_score": 0.86,
+      "recommendation": "RECOMMENDED",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 60.",
+        "Sampling is regular enough for this analyzer.",
+        "The series has enough history for forecasting.",
+        "The series has enough history and a predictable structure for forecasting."
+      ],
+      "warnings": [],
+      "explanation": "Prophet is suitable because the series has enough history plus strong trend or seasonality evidence, with score 0.86.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "trend",
+          "seasonal",
+          "forecast"
+        ],
+        "eligibility_rules": {
+          "min_samples": 60,
+          "requires_timestamp": true,
+          "requires_regular_sampling": true
+        },
+        "suitability_rules": {
+          "prefer_regular_sampling": true,
+          "prefer_trend": true,
+          "min_trend_strength": 0.18,
+          "min_seasonality_strength": 0.32
+        }
+      }
+    },
+    {
+      "analyzer": "river",
+      "display_name": "River",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.61,
+      "final_score": 0.61,
+      "recommendation": "OPTIONAL",
+      "reasons": [
+        "The series meets the technical requirements.",
+        "The series is appropriate for online anomaly or drift detection."
+      ],
+      "warnings": [],
+      "explanation": "River is suitable because the series has enough irregularity or spike behavior to benefit from online anomaly handling, with score 0.61.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "online_anomaly",
+          "streaming",
+          "drift"
+        ],
+        "eligibility_rules": {
+          "requires_numeric": true
+        },
+        "suitability_rules": {
+          "prefer_online_use": true,
+          "min_irregular_sampling": 12.0,
+          "min_spikiness": 0.22
+        }
+      }
+    },
+    {
+      "analyzer": "kats",
+      "display_name": "Kats",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.48,
+      "final_score": 0.48,
+      "recommendation": "NOT_RECOMMENDED",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 30.",
+        "The series contains a mix of shift and seasonal behavior.",
+        "The series contains multiple behaviors that Kats can analyze through a flexible set of algorithms."
+      ],
+      "warnings": [],
+      "explanation": "Kats is suitable because the series shows a genuinely mixed profile rather than just a healthy regular series, with score 0.48.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "baseline_shift",
+          "forecast",
+          "anomaly",
+          "seasonal"
+        ],
+        "eligibility_rules": {
+          "min_samples": 30
+        },
+        "suitability_rules": {
+          "prefer_mixed_behavior": true,
+          "min_shift_index": 0.08,
+          "min_seasonality_strength": 0.2,
+          "max_constant_value_percentage": 90.0
+        }
+      }
+    },
+    {
+      "analyzer": "darts",
+      "display_name": "Darts",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.86,
+      "final_score": 0.86,
+      "recommendation": "RECOMMENDED",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 80.",
+        "Sampling is regular enough for this analyzer.",
+        "The series has enough seasonal structure for advanced forecasting.",
+        "The series has enough history and non-linear structure for advanced forecasting approaches."
+      ],
+      "warnings": [],
+      "explanation": "Darts is suitable because the series has enough history and recurring structure for richer forecasting approaches, with score 0.86.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "forecast",
+          "seasonal",
+          "trend",
+          "complex_pattern"
+        ],
+        "eligibility_rules": {
+          "min_samples": 80,
+          "requires_timestamp": true,
+          "requires_regular_sampling": true
+        },
+        "suitability_rules": {
+          "min_seasonality_strength": 0.45,
+          "min_trend_strength": 0.12,
+          "min_sample_count": 120
+        }
+      }
+    },
+    {
+      "analyzer": "alibi_detect",
+      "display_name": "Alibi Detect",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.62,
+      "final_score": 0.62,
+      "recommendation": "OPTIONAL",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 50.",
+        "The series shows drift-like movement or distribution change.",
+        "The series suggests drift or distribution movement that merits drift-oriented monitoring."
+      ],
+      "warnings": [],
+      "explanation": "Alibi Detect is suitable because the series shows drift-like movement or distribution changes, with score 0.62.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "drift",
+          "distribution_change",
+          "concept_drift"
+        ],
+        "eligibility_rules": {
+          "requires_numeric": true,
+          "min_samples": 50
+        },
+        "suitability_rules": {
+          "min_irregular_sampling": 5.0,
+          "min_shift_index": 0.05,
+          "min_spikiness": 0.1
+        }
+      }
+    },
+    {
+      "analyzer": "trend_regression",
+      "display_name": "Trend Regression",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.5,
+      "final_score": 0.5,
+      "recommendation": "NOT_RECOMMENDED",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 30.",
+        "The series contains a measurable directional movement that regression can summarize well."
+      ],
+      "warnings": [],
+      "explanation": "Trend Regression is suitable because the series shows a measurable directional trend, with score 0.50.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "trend",
+          "linear_movement",
+          "slow_change"
+        ],
+        "eligibility_rules": {
+          "requires_numeric": true,
+          "min_samples": 30
+        },
+        "suitability_rules": {
+          "min_trend_strength": 0.08,
+          "bonus_trend_strength": 0.18,
+          "prefer_regular_sampling": true
+        }
+      }
+    },
+    {
+      "analyzer": "adtk",
+      "display_name": "ADTK",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.78,
+      "final_score": 0.78,
+      "recommendation": "OPTIONAL",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 40.",
+        "The series contains spike or seasonal-contradiction signals.",
+        "The series is suitable for rule-based anomaly checks and seasonal contradiction detection."
+      ],
+      "warnings": [],
+      "explanation": "ADTK is suitable because the series contains spikes or rule-based anomaly cues, with score 0.78.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "spike",
+          "seasonal_anomaly",
+          "rule_based",
+          "outlier"
+        ],
+        "eligibility_rules": {
+          "requires_numeric": true,
+          "min_samples": 40
+        },
+        "suitability_rules": {
+          "min_spikiness": 0.18,
+          "min_seasonality_strength": 0.18,
+          "prefer_regular_sampling": true
+        }
+      }
+    },
+    {
+      "analyzer": "pyod",
+      "display_name": "PyOD",
+      "eligible": true,
+      "eligibility_score": 1.0,
+      "suitability_score": 0.74,
+      "final_score": 0.74,
+      "recommendation": "OPTIONAL",
+      "reasons": [
+        "Has 4032 valid samples, which meets the minimum of 50.",
+        "The series contains outlier-like variation worth scoring.",
+        "The series contains enough unusual variation to justify an outlier-centric view."
+      ],
+      "warnings": [],
+      "explanation": "PyOD is suitable because the series contains outlier-like variation, with score 0.74.",
+      "parameters_tested": {
+        "supported_profiles": [
+          "outlier",
+          "multivariate_outlier",
+          "anomaly"
+        ],
+        "eligibility_rules": {
+          "requires_numeric": true,
+          "min_samples": 50
+        },
+        "suitability_rules": {
+          "min_spikiness": 0.2,
+          "min_shift_index": 0.05,
+          "bonus_spikiness": 0.35
+        }
+      }
+    }
+  ],
+  "execution": {
+    "status": "completed",
+    "execution_time_seconds": 0.0189
+  },
+  "cleaned_preview": [
+    {
+      "timestamp": "2014-04-01 00:00:00+00:00",
+      "value": -21.0483826823
+    },
+    {
+      "timestamp": "2014-04-01 00:05:00+00:00",
+      "value": -20.2954768676
+    },
+    {
+      "timestamp": "2014-04-01 00:10:00+00:00",
+      "value": -18.1272294683
+    },
+    {
+      "timestamp": "2014-04-01 00:15:00+00:00",
+      "value": -20.1716653997
+    },
+    {
+      "timestamp": "2014-04-01 00:20:00+00:00",
+      "value": -21.223761612
+    },
+    {
+      "timestamp": "2014-04-01 00:25:00+00:00",
+      "value": -19.1044911334
+    },
+    {
+      "timestamp": "2014-04-01 00:30:00+00:00",
+      "value": -21.589446495900003
+    },
+    {
+      "timestamp": "2014-04-01 00:35:00+00:00",
+      "value": -18.9450416275
+    },
+    {
+      "timestamp": "2014-04-01 00:40:00+00:00",
+      "value": -18.3058925306
+    },
+    {
+      "timestamp": "2014-04-01 00:45:00+00:00",
+      "value": -18.6397572378
+    }
+  ],
+  "created_at": "2026-07-22T02:40:45.711783+00:00"
+}

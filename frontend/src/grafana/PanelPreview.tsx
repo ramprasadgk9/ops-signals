@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  askAssistantWithMemory,
   answerQuestion,
   createCaseFromFinding,
   getCase,
   indexCaseMemory,
+  listCases,
   listAvailableQuestions,
+  resetTestingOperationalData,
   updateCaseInvestigation,
   updateCaseRca,
   updateCaseResolution,
@@ -19,6 +22,7 @@ import type {
   GrafanaQuestion,
   GrafanaQuestionAnswer,
 } from './contracts';
+import type { AssistantChatResponse } from '../types';
 
 const steps = ['Finding', 'Investigation', 'Root Cause', 'Resolution', 'Publish Knowledge'] as const;
 type DrawerStep = typeof steps[number];
@@ -80,8 +84,242 @@ function metricStats(result: GrafanaAnalysisResult, selectedFinding: GrafanaAnal
     current,
     average,
     peak,
-    anomalyWindows: selectedFinding?.signal_ids.length ?? result.signals.length,
+    signalWindows: selectedFinding?.signal_ids.length ?? result.signals.length,
   };
+}
+
+function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
+  const routing = result.analyzerRouting ?? [];
+  const recommended = routing.filter((item) => item.recommendation === 'RECOMMENDED');
+  const optional = routing.filter((item) => item.recommendation === 'OPTIONAL');
+  const notRecommended = routing.filter((item) => item.recommendation === 'NOT_RECOMMENDED');
+  const rejected = routing.filter((item) => item.recommendation === 'REJECTED');
+  const executed = result.executedAnalyzers ?? [];
+
+  const renderList = (items: string[], tone: 'success' | 'warning' | 'danger' | 'neutral' = 'neutral') => (
+    <div style={styles.row}>
+      {items.length ? items.map((item) => <StatusPill key={item} tone={tone}>{humanize(item)}</StatusPill>) : <span style={styles.muted}>None</span>}
+    </div>
+  );
+
+  const labels = (items: typeof routing) => items.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`);
+  const rejectedDetails = rejected.slice(0, 5);
+
+  return (
+    <div style={{ ...styles.stack, marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(204, 204, 220, 0.14)' }}>
+      {routing.length === 0 ? (
+        <div style={styles.infoNote}>
+          Analyzer router metadata was not returned for this run. Restart the backend and refresh the Grafana plugin bundle to show recommended, optional, not recommended, and rejected analyzers.
+        </div>
+      ) : null}
+      <div style={styles.detailGrid}>
+        <span>Prometheus source</span><strong>{result.datasourceUid ? `${result.datasource} (${result.datasourceUid})` : result.datasource}</strong>
+        <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
+      </div>
+      <div style={styles.stack}>
+        <span style={styles.label}>Executed analyzers</span>
+        {renderList(executed)}
+      </div>
+      <div style={styles.stack}>
+        <span style={styles.label}>Recommended</span>
+        {renderList(labels(recommended), 'success')}
+      </div>
+      <div style={styles.stack}>
+        <span style={styles.label}>Optional</span>
+        {renderList(labels(optional), 'warning')}
+      </div>
+      <div style={styles.stack}>
+        <span style={styles.label}>Not recommended</span>
+        {renderList(labels(notRecommended))}
+      </div>
+      <div style={styles.stack}>
+        <span style={styles.label}>Rejected by eligibility checks</span>
+        {renderList(labels(rejected), 'danger')}
+      </div>
+      {rejectedDetails.length ? (
+        <div style={styles.stack}>
+          <span style={styles.label}>Why rejected</span>
+          {rejectedDetails.map((item) => (
+            <div key={item.analyzer_id} style={styles.infoNote}>
+              <strong>{item.display_name}</strong>: {[...(item.reasons ?? []), ...(item.warnings ?? [])].slice(0, 2).join(' ') || 'No rejection reason was returned.'}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function questionIdForPrompt(prompt: string) {
+  const normalized = prompt.toLowerCase();
+  if (normalized.includes('root cause') || normalized.includes('rca')) return 'baseline_changes';
+  if (normalized.includes('investigate') || normalized.includes('first') || normalized.includes('priority')) return 'investigation_priority';
+  if (normalized.includes('unusual') || normalized.includes('detected') || normalized.includes('happen')) return 'unusual_activity';
+  if (normalized.includes('trend') || normalized.includes('increase') || normalized.includes('decrease')) return 'long_term_trends';
+  if (normalized.includes('health') || normalized.includes('healthy')) return 'service_health';
+  if (normalized.includes('new') || normalized.includes('expected') || normalized.includes('normal')) return 'behavior_novelty';
+  return 'what_changed';
+}
+
+function isAnalyzerRoutingPrompt(prompt: string) {
+  const normalized = prompt.toLowerCase();
+  return (
+    normalized.includes('analyzer') ||
+    normalized.includes('recommended') ||
+    normalized.includes('optional') ||
+    normalized.includes('rejected') ||
+    normalized.includes('why did') ||
+    normalized.includes('why didn') ||
+    normalized.includes('which') && normalized.includes('ran') ||
+    ['ruptures', 'stumpy', 'prophet', 'river', 'kats', 'darts', 'alibi', 'trend regression', 'adtk', 'pyod'].some((name) => normalized.includes(name))
+  );
+}
+
+function analyzerNameFromPrompt(prompt: string) {
+  const normalized = prompt.toLowerCase();
+  const aliases = [
+    ['ruptures', 'ruptures'],
+    ['stumpy', 'stumpy'],
+    ['prophet', 'prophet'],
+    ['river', 'river'],
+    ['kats', 'kats'],
+    ['darts', 'darts'],
+    ['alibi', 'alibi_detect'],
+    ['trend regression', 'trend_regression'],
+    ['trend', 'trend_regression'],
+    ['adtk', 'adtk'],
+    ['pyod', 'pyod'],
+  ];
+  return aliases.find(([label]) => normalized.includes(label))?.[1] ?? null;
+}
+
+function localAssistantAnswer(
+  prompt: string,
+  result: GrafanaAnalysisResult,
+  finding: GrafanaAnalysisFinding | null,
+  signals: GrafanaAnalysisSignal[]
+): GrafanaQuestionAnswer {
+  const routing = result.analyzerRouting ?? [];
+  const recommended = routing.filter((item) => item.recommendation === 'RECOMMENDED');
+  const optional = routing.filter((item) => item.recommendation === 'OPTIONAL');
+  const rejected = routing.filter((item) => item.recommendation === 'REJECTED');
+  const executed = result.executedAnalyzers ?? [];
+  const stats = metricStats(result, finding);
+  const sampleCount = result.sampleCount ?? result.timeseries.length;
+  const rejectedReason = rejected[0] ? [...(rejected[0].reasons ?? []), ...(rejected[0].warnings ?? [])][0] : '';
+  const normalized = prompt.toLowerCase();
+  const requestedAnalyzer = analyzerNameFromPrompt(prompt);
+  const requestedDecision = requestedAnalyzer
+    ? routing.find((item) => item.analyzer_id === requestedAnalyzer || item.display_name.toLowerCase().includes(requestedAnalyzer.replace('_', ' ')))
+    : null;
+
+  let headline = 'Current investigation summary';
+  let answer = `${result.metric} for ${result.service} returned ${sampleCount.toLocaleString()} Prometheus samples. `;
+  if (finding) {
+    answer += `The top finding is "${finding.title}" with importance ${formatNumber(finding.importance_score)}. `;
+  } else {
+    answer += 'No operational finding was emitted for this run. ';
+  }
+
+  if (isAnalyzerRoutingPrompt(prompt)) {
+    headline = requestedDecision ? `${requestedDecision.display_name} routing explanation` : 'Analyzer routing summary';
+    answer += `Selection mode is ${humanize(result.analyzerSelectionMode ?? 'all')}. `;
+    if (requestedDecision) {
+      const concreteRan = executed.includes(requestedDecision.analyzer_id);
+      const mappedRan =
+        requestedDecision.analyzer_id === 'ruptures'
+          ? executed.some((item) => item === 'ruptures' || item === 'baseline_shift')
+          : requestedDecision.analyzer_id === 'trend_regression'
+            ? executed.includes('trend')
+            : requestedDecision.analyzer_id === 'adtk' || requestedDecision.analyzer_id === 'pyod'
+              ? executed.includes('anomaly_zscore')
+              : concreteRan;
+      const reasons = [...(requestedDecision.reasons ?? []), ...(requestedDecision.warnings ?? [])].slice(0, 3);
+      answer += `${requestedDecision.display_name} was ${requestedDecision.recommendation.toLowerCase().replaceAll('_', ' ')} with score ${requestedDecision.final_score.toFixed(2)}. `;
+      answer += mappedRan
+        ? `It ran because recommended-only mode allowed it or one of its mapped pipeline analyzers. `
+        : `It did not run because recommended-only mode only executes router decisions marked RECOMMENDED. `;
+      if (reasons.length) answer += `Reason: ${reasons.join(' ')}`;
+    } else {
+      answer += `Executed analyzers: ${executed.length ? executed.map(humanize).join(', ') : 'none'}. `;
+      answer += `Recommended: ${recommended.length ? recommended.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') : 'none'}. `;
+      answer += `Optional: ${optional.length ? optional.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') : 'none'}. `;
+      if (!executed.length && rejectedReason) answer += `The first rejection reason is: ${rejectedReason}`;
+    }
+  } else if (normalized.includes('root cause') || normalized.includes('rca')) {
+    headline = 'Likely root-cause direction';
+    answer += signals.length
+      ? `Start from the emitted signals: ${signals.slice(0, 3).map((signal) => `${humanize(signal.analyzer_id)} reported ${humanize(signal.severity)}`).join('; ')}.`
+      : 'No root cause can be claimed yet because no analyzer emitted a signal. Check sample count, router eligibility, and whether the selected window contains a visible change.';
+  } else if (normalized.includes('next') || normalized.includes('investigate') || normalized.includes('first')) {
+    headline = 'What to investigate first';
+    answer += signals.length
+      ? 'Start with the highest-confidence signal, then compare the selected time window with deployment, traffic, and infrastructure change events.'
+      : 'First confirm enough samples were collected, then rerun with a 15-30 minute window and inspect router eligibility reasons.';
+  } else {
+    answer += `Current value is ${formatNumber(stats.current)}, average is ${formatNumber(stats.average)}, and peak is ${formatNumber(stats.peak)}. `;
+    answer += recommended.length
+      ? `The router currently recommends ${recommended.map((item) => item.display_name).join(', ')}.`
+      : 'The router did not recommend an analyzer strongly enough for execution in recommended-only mode.';
+  }
+
+  return {
+    question_id: questionIdForPrompt(prompt),
+    headline,
+    answer,
+    status: 'answered_from_run_context',
+    priority: finding ? 'medium' : 'low',
+    confidence: signals.length || routing.length ? 0.74 : 0.5,
+    key_points: [
+      `${sampleCount.toLocaleString()} samples returned`,
+      `${signals.length} signals emitted`,
+      `${recommended.length} analyzers recommended`,
+      `${executed.length} analyzers executed`,
+    ],
+    evidence_signal_ids: signals.map((signal) => signal.id),
+  };
+}
+
+function assistantChatToQuestionAnswer(response: AssistantChatResponse): GrafanaQuestionAnswer {
+  return {
+    question_id: response.intent,
+    headline: response.intent === 'historical' ? 'Memory-backed answer' : 'Assistant answer',
+    answer: response.answer,
+    status: `assistant_${response.intent}`,
+    priority: response.sources.length ? 'medium' : 'low',
+    confidence: response.sources.length ? Math.min(0.95, Math.max(0.55, response.sources[0].score)) : 0.5,
+    key_points: response.sources.length
+      ? response.sources.slice(0, 4).map((source) => `${source.source_type}: ${source.title} (${source.score.toFixed(2)})`)
+      : response.limitations.slice(0, 3),
+    evidence_signal_ids: [],
+  };
+}
+
+function buildAssistantMemoryPrompt(
+  prompt: string,
+  result: GrafanaAnalysisResult,
+  finding: GrafanaAnalysisFinding | null,
+  signals: GrafanaAnalysisSignal[]
+) {
+  const routing = result.analyzerRouting ?? [];
+  return [
+    `User question: ${prompt}`,
+    "",
+    "Current Grafana run context:",
+    `analysis_run_id: ${result.runId}`,
+    `service: ${result.service}`,
+    `metric_name: ${result.metric}`,
+    `time_window: ${result.from} - ${result.to}`,
+    `sample_count: ${result.sampleCount ?? result.timeseries.length}`,
+    `selection_mode: ${result.analyzerSelectionMode ?? 'all'}`,
+    `executed_analyzers: ${(result.executedAnalyzers ?? []).join(', ') || 'none'}`,
+    `router_recommended: ${routing.filter((item) => item.recommendation === 'RECOMMENDED').map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') || 'none'}`,
+    `router_optional: ${routing.filter((item) => item.recommendation === 'OPTIONAL').map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') || 'none'}`,
+    `top_finding: ${finding ? `${finding.title} - ${finding.summary}` : 'none'}`,
+    `signals: ${signals.length ? signals.slice(0, 5).map((signal) => `${signal.analyzer_id}:${signal.severity}:${signal.summary}`).join(' | ') : 'none'}`,
+    "",
+    "Answer using current run evidence first. Include historical/vector memory context only when relevant.",
+  ].join("\n");
 }
 
 function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisResult; selectedFinding: GrafanaAnalysisFinding | null }) {
@@ -104,7 +342,7 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
     })
     .join(' ');
 
-  const anomalyCount = Math.min(selectedFinding?.signal_ids.length ?? 0, 16);
+  const signalCount = Math.min(selectedFinding?.signal_ids.length ?? 0, 16);
 
   return (
     <Card>
@@ -117,7 +355,7 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
           <div><span style={styles.label}>Current</span><strong>{formatNumber(stats.current)}</strong></div>
           <div><span style={styles.label}>Average</span><strong>{formatNumber(stats.average)}</strong></div>
           <div><span style={styles.label}>Peak</span><strong>{formatNumber(stats.peak)}</strong></div>
-          <div><span style={styles.label}>Anomaly windows</span><strong>{stats.anomalyWindows}</strong></div>
+          <div><span style={styles.label}>Signal windows</span><strong>{stats.signalWindows}</strong></div>
         </div>
         {points.length === 0 ? (
           <p style={{ ...styles.muted, margin: 0 }}>No time-series samples were returned for this run.</p>
@@ -128,8 +366,8 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
               const y = padding + line * ((height - padding * 2) / 3);
               return <line key={line} x1={padding} x2={width - padding} y1={y} y2={y} stroke="rgba(204, 204, 220, 0.16)" />;
             })}
-            {Array.from({ length: anomalyCount }).map((_, index) => {
-              const x = padding + ((index + 1) / (anomalyCount + 1)) * (width - padding * 2);
+            {Array.from({ length: signalCount }).map((_, index) => {
+              const x = padding + ((index + 1) / (signalCount + 1)) * (width - padding * 2);
               return <rect key={index} x={x - 7} y={padding} width={14} height={height - padding * 2} fill="rgba(242, 73, 92, 0.18)" />;
             })}
             <line x1={padding} x2={width - padding} y1={height - padding - 42} y2={height - padding - 42} stroke="rgba(204, 204, 220, 0.45)" strokeDasharray="6 6" />
@@ -141,7 +379,7 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
         <div style={styles.row}>
           <StatusPill>{result.metric}</StatusPill>
           <StatusPill>Baseline</StatusPill>
-          <StatusPill tone="danger">Anomaly window</StatusPill>
+          <StatusPill tone="danger">Signal window</StatusPill>
         </div>
         {points[0]?.timestamp?.startsWith('2014-') ? (
           <div style={styles.infoNote}>Sample dataset: February 14-28, 2014</div>
@@ -152,12 +390,14 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
 }
 
 function PrimaryFindingCard({
+  result,
   finding,
   onInvestigate,
   onCreateCase,
   onViewEvidence,
   isBusy,
 }: {
+  result: GrafanaAnalysisResult;
   finding: GrafanaAnalysisFinding | null;
   onInvestigate: () => void;
   onCreateCase: () => void;
@@ -165,10 +405,51 @@ function PrimaryFindingCard({
   isBusy: boolean;
 }) {
   if (!finding) {
+    const routing = result.analyzerRouting ?? [];
+    const recommended = routing.filter((item) => item.recommendation === 'RECOMMENDED');
+    const optional = routing.filter((item) => item.recommendation === 'OPTIONAL');
+    const notRecommended = routing.filter((item) => item.recommendation === 'NOT_RECOMMENDED');
+    const rejected = routing.filter((item) => item.recommendation === 'REJECTED');
+    const executed = result.executedAnalyzers ?? [];
+    const labels = (items: typeof routing) => items.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ');
+    const rejectionReasons = rejected
+      .slice(0, 4)
+      .map((item) => `${item.display_name}: ${[...(item.reasons ?? []), ...(item.warnings ?? [])].slice(0, 2).join(' ') || 'No rejection reason was returned.'}`);
     return (
       <Card>
-        <h2 style={{ marginTop: 0 }}>No finding selected</h2>
-        <p style={{ ...styles.muted, marginBottom: 0 }}>Run analysis or select a finding to begin an investigation.</p>
+        <div style={styles.stack}>
+          <div style={styles.rowBetween}>
+            <div>
+              <h2 style={{ margin: 0 }}>No operational finding detected</h2>
+              <p style={{ ...styles.muted, margin: '6px 0 0' }}>
+                Prometheus returned {result.sampleCount?.toLocaleString() ?? result.timeseries.length.toLocaleString()} samples for {result.metric}; the executed analyzers did not emit problem signals.
+              </p>
+            </div>
+            <StatusPill tone="success">{humanize(result.status).toUpperCase()}</StatusPill>
+          </div>
+          <div style={styles.detailGrid}>
+            <span>Prometheus datasource</span><strong>{result.datasourceUid ? `${result.datasource} (${result.datasourceUid})` : result.datasource}</strong>
+            <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
+            <span>Executed analyzers</span><strong>{executed.length ? executed.map(humanize).join(', ') : 'None'}</strong>
+            <span>Recommended</span><strong>{recommended.length ? labels(recommended) : 'None'}</strong>
+            <span>Optional</span><strong>{optional.length ? labels(optional) : 'None'}</strong>
+            <span>Not recommended</span><strong>{notRecommended.length ? labels(notRecommended) : 'None'}</strong>
+            <span>Rejected by eligibility checks</span><strong>{rejected.length ? labels(rejected) : 'None'}</strong>
+          </div>
+          {rejectionReasons.length ? (
+            <div style={styles.stack}>
+              <span style={styles.label}>Why analyzers did not run</span>
+              {rejectionReasons.map((reason) => (
+                <div key={reason} style={styles.infoNote}>{reason}</div>
+              ))}
+            </div>
+          ) : null}
+          {routing.length === 0 ? (
+            <div style={styles.infoNote}>
+              Analyzer router metadata was not returned for this run. Restart the backend and refresh Grafana to show the full testing-phase routing table.
+            </div>
+          ) : null}
+        </div>
       </Card>
     );
   }
@@ -197,6 +478,110 @@ function PrimaryFindingCard({
         </div>
       </div>
     </div>
+  );
+}
+
+function AskOpsSignalsCard({
+  result,
+  finding,
+  signals,
+  questions,
+  answer,
+  isBusy,
+  onAsk,
+}: {
+  result: GrafanaAnalysisResult;
+  finding: GrafanaAnalysisFinding | null;
+  signals: GrafanaAnalysisSignal[];
+  questions: GrafanaQuestion[];
+  answer: GrafanaQuestionAnswer | null;
+  isBusy: boolean;
+  onAsk: (prompt: string) => void;
+}) {
+  const [prompt, setPrompt] = useState('');
+  const suggestedPrompts = [
+    'Summarize this investigation',
+    'Why was this detected?',
+    'What is the root cause?',
+    'What should I investigate first?',
+    'Which analyzers ran?',
+  ];
+  const visibleQuestions = questions.slice(0, 2);
+  const ask = (nextPrompt: string) => {
+    const trimmed = nextPrompt.trim();
+    if (!trimmed) return;
+    onAsk(trimmed);
+    setPrompt('');
+  };
+
+  return (
+    <Card>
+      <div style={styles.stack}>
+        <div style={styles.rowBetween}>
+          <div>
+            <h3 style={{ margin: 0 }}>Ask Ops Signals</h3>
+            <p style={{ ...styles.muted, margin: '4px 0 0' }}>Grounded in this run, router decisions, signals, and case context.</p>
+          </div>
+          <StatusPill>Beta</StatusPill>
+        </div>
+        <div style={styles.infoNote}>
+          Ask about this {finding ? 'finding' : 'run'}, analyzer routing, evidence, or next investigation step.
+          <div style={{ ...styles.detailGrid, marginTop: 10 }}>
+            <span>Run</span><strong>{result.runId.slice(0, 8)}</strong>
+            <span>Signals</span><strong>{signals.length}</strong>
+            <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
+          </div>
+        </div>
+        <div style={styles.row}>
+          {suggestedPrompts.map((item) => (
+            <button key={item} type="button" style={{ ...styles.chip, background: 'transparent', color: 'inherit', cursor: isBusy ? 'not-allowed' : 'pointer' }} disabled={isBusy} onClick={() => ask(item)}>
+              {item}
+            </button>
+          ))}
+        </div>
+        {visibleQuestions.length ? (
+          <div style={styles.stack}>
+            <span style={styles.label}>Evidence-backed catalog questions</span>
+            {visibleQuestions.map((question) => (
+              <button key={question.id} type="button" style={styles.questionButton} disabled={isBusy || !question.available} onClick={() => ask(question.label)}>
+                <span>◌</span>
+                <span>{question.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div style={styles.row}>
+          <input
+            style={{ ...styles.input, flex: 1 }}
+            value={prompt}
+            placeholder="Ask anything about this run..."
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') ask(prompt);
+            }}
+          />
+          <button type="button" style={buttonStyle('primary', isBusy)} disabled={isBusy} onClick={() => ask(prompt)}>
+            {isBusy ? 'Asking...' : 'Ask'}
+          </button>
+        </div>
+        {answer ? (
+          <div style={styles.answerCard}>
+            <div style={styles.row}>
+              <StatusPill>{humanize(answer.status)}</StatusPill>
+              <StatusPill>Priority: {humanize(answer.priority)}</StatusPill>
+              <StatusPill>Confidence: {formatPercent(answer.confidence)}</StatusPill>
+            </div>
+            <h4 style={{ margin: '4px 0' }}>{answer.headline}</h4>
+            <p style={{ margin: 0 }}>{answer.answer}</p>
+            {answer.key_points.length ? (
+              <div style={styles.infoNote}>
+                Evidence: {answer.key_points.slice(0, 4).join(' | ')}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 
@@ -264,11 +649,11 @@ function EvidenceSummaryCard({
           <button type="button" style={buttonStyle()} onClick={onToggle}>{expanded ? 'Hide' : '⌄'}</button>
         </div>
         <div style={styles.evidenceHero}>
-          <strong>{finding?.signal_ids.length ?? signals.length} anomaly windows</strong>
+          <strong>{finding?.signal_ids.length ?? signals.length} signal windows</strong>
           <span style={styles.muted}>support this finding</span>
         </div>
         <div style={styles.detailGrid}>
-          <span>Earliest anomaly</span><strong>{earliest ? new Date(earliest).toLocaleString() : 'n/a'}</strong>
+          <span>Earliest signal</span><strong>{earliest ? new Date(earliest).toLocaleString() : 'n/a'}</strong>
           <span>Highest observed value</span><strong>{formatNumber(stats.peak)}</strong>
           <span>Baseline comparison</span><strong>Significantly different</strong>
           <span>Analyzer confidence</span><strong>{formatNumber(finding?.importance_score)}</strong>
@@ -283,7 +668,7 @@ function EvidenceSummaryCard({
             {signals.slice(0, 12).map((signal, index) => (
               <React.Fragment key={signal.id}>
                 <div>{index + 1}</div>
-                <div>{humanize(signal.signal_type)}</div>
+                <div>{humanize(signal.analyzer_id || signal.signal_type)}</div>
                 <div>{humanize(signal.severity)}</div>
                 <div>{formatNumber(signal.confidence ?? signal.importance_score)}</div>
               </React.Fragment>
@@ -295,12 +680,20 @@ function EvidenceSummaryCard({
   );
 }
 
-function RecentInvestigationsTable({ caseDetails, onOpen }: { caseDetails: GrafanaCase | null; onOpen: () => void }) {
+function RecentInvestigationsTable({
+  caseDetails,
+  onOpenCase,
+  onViewAllCases,
+}: {
+  caseDetails: GrafanaCase | null;
+  onOpenCase: () => void;
+  onViewAllCases: () => void;
+}) {
   return (
     <Card>
       <div style={styles.rowBetween}>
         <h3 style={{ margin: 0 }}>Recent investigations</h3>
-        <button type="button" style={buttonStyle()}>View all cases</button>
+        <button type="button" style={buttonStyle()} onClick={onViewAllCases}>View all cases</button>
       </div>
       <div style={styles.caseTable}>
         <div style={styles.tableHeader}>Case ID</div>
@@ -309,7 +702,7 @@ function RecentInvestigationsTable({ caseDetails, onOpen }: { caseDetails: Grafa
         <div style={styles.tableHeader}>Last updated</div>
         <div style={styles.tableHeader}>Knowledge state</div>
         {caseDetails ? (
-          <button type="button" style={styles.tableRowButton} onClick={onOpen}>#{caseDetails.id}</button>
+          <button type="button" style={styles.tableRowButton} onClick={onOpenCase}>#{caseDetails.id}</button>
         ) : <div style={styles.muted}>-</div>}
         <div>{caseDetails?.case_title ?? 'No case created yet'}</div>
         <div>{caseDetails ? <StatusPill tone={statusTone(caseDetails.case_status)}>{humanize(caseDetails.case_status)}</StatusPill> : '-'}</div>
@@ -317,6 +710,60 @@ function RecentInvestigationsTable({ caseDetails, onOpen }: { caseDetails: Grafa
         <div>{caseDetails ? <StatusPill tone={statusTone(caseDetails.memory_status)}>{memoryLabel(caseDetails.memory_status)}</StatusPill> : '-'}</div>
       </div>
     </Card>
+  );
+}
+
+function CasesDrawer({
+  open,
+  cases,
+  isLoading,
+  onClose,
+  onOpenCase,
+}: {
+  open: boolean;
+  cases: GrafanaCase[];
+  isLoading: boolean;
+  onClose: () => void;
+  onOpenCase: (caseItem: GrafanaCase) => void;
+}) {
+  if (!open) return null;
+  return (
+    <div style={styles.drawerBackdrop}>
+      <aside style={styles.drawer}>
+        <div style={styles.drawerHeader}>
+          <div>
+            <h2 style={{ margin: 0 }}>Recent Cases</h2>
+            <p style={{ ...styles.muted, margin: '4px 0 0' }}>Saved investigations for the current service and metric.</p>
+          </div>
+          <button type="button" style={buttonStyle()} onClick={onClose}>×</button>
+        </div>
+        <div style={styles.drawerBody}>
+          {isLoading ? (
+            <p style={styles.muted}>Loading cases...</p>
+          ) : cases.length === 0 ? (
+            <p style={styles.muted}>No cases were found for this service and metric yet.</p>
+          ) : (
+            <div style={styles.stack}>
+              {cases.map((caseItem) => (
+                <div key={caseItem.id} style={styles.answerCard}>
+                  <div style={styles.rowBetween}>
+                    <strong>#{caseItem.id} {caseItem.case_title}</strong>
+                    <StatusPill tone={statusTone(caseItem.case_status)}>{humanize(caseItem.case_status)}</StatusPill>
+                  </div>
+                  <div style={{ ...styles.detailGrid, marginTop: 10 }}>
+                    <span>Updated</span><strong>{formatDate(caseItem.updated_at)}</strong>
+                    <span>Knowledge</span><strong>{memoryLabel(caseItem.memory_status)}</strong>
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <button type="button" style={buttonStyle('primary')} onClick={() => onOpenCase(caseItem)}>Open case</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -357,6 +804,9 @@ function InvestigationDrawer({
   const [rootCauseConfidence, setRootCauseConfidence] = useState('0.6');
   const [rootCauseVerified, setRootCauseVerified] = useState(false);
   const [outcomeStatus, setOutcomeStatus] = useState('pending');
+  const [learningOutcomeStatus, setLearningOutcomeStatus] = useState('');
+  const [rootCauseCategory, setRootCauseCategory] = useState('');
+  const [resolutionSummary, setResolutionSummary] = useState('');
   const [outcomeSummary, setOutcomeSummary] = useState('');
   const [correctiveAction, setCorrectiveAction] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -370,6 +820,9 @@ function InvestigationDrawer({
     setRootCauseConfidence(String(caseDetails.root_cause_confidence ?? 0.6));
     setRootCauseVerified(caseDetails.root_cause_verified);
     setOutcomeStatus(caseDetails.outcome_status || 'pending');
+    setLearningOutcomeStatus('');
+    setRootCauseCategory('');
+    setResolutionSummary('');
     setOutcomeSummary(caseDetails.outcome_summary ?? '');
     setCorrectiveAction(caseDetails.corrective_action ?? '');
   }, [caseDetails]);
@@ -403,6 +856,9 @@ function InvestigationDrawer({
           outcome_status: outcomeStatus,
           outcome_summary: outcomeSummary.trim() || null,
           corrective_action: correctiveAction.trim() || null,
+          learning_outcome_status: learningOutcomeStatus || null,
+          root_cause_category: rootCauseCategory.trim() || null,
+          resolution_summary: resolutionSummary.trim() || outcomeSummary.trim() || null,
         });
       } else if (activeStep === 'Publish Knowledge') {
         await indexCaseMemory(backendUrl, caseId);
@@ -542,8 +998,23 @@ function InvestigationDrawer({
                   <option value="won_t_fix">Won't fix</option>
                 </select>
               </Field>
+              <Field label="Did the original finding help explain the issue?">
+                <select style={styles.input} value={learningOutcomeStatus} onChange={(event) => setLearningOutcomeStatus(event.target.value)}>
+                  <option value="">Select when resolving or closing</option>
+                  <option value="confirmed">Yes, it was confirmed</option>
+                  <option value="partially_confirmed">Partially</option>
+                  <option value="rejected">No, it was incorrect</option>
+                  <option value="inconclusive">Could not determine</option>
+                </select>
+              </Field>
               <Field label="Outcome summary">
                 <textarea style={{ ...styles.input, minHeight: 96 }} value={outcomeSummary} onChange={(event) => setOutcomeSummary(event.target.value)} />
+              </Field>
+              <Field label="Root cause category">
+                <input style={styles.input} value={rootCauseCategory} placeholder="deployment_change, capacity, dependency, unknown" onChange={(event) => setRootCauseCategory(event.target.value)} />
+              </Field>
+              <Field label="Resolution summary">
+                <textarea style={{ ...styles.input, minHeight: 96 }} value={resolutionSummary} onChange={(event) => setResolutionSummary(event.target.value)} />
               </Field>
               <Field label="Corrective action">
                 <textarea style={{ ...styles.input, minHeight: 96 }} value={correctiveAction} onChange={(event) => setCorrectiveAction(event.target.value)} />
@@ -585,8 +1056,14 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
   const [questionAnswer, setQuestionAnswer] = useState<GrafanaQuestionAnswer | null>(null);
   const [caseResult, setCaseResult] = useState<GrafanaCaseCreateResponse | null>(null);
   const [caseDetails, setCaseDetails] = useState<GrafanaCase | null>(null);
+  const [caseList, setCaseList] = useState<GrafanaCase[]>([]);
+  const [casesDrawerOpen, setCasesDrawerOpen] = useState(false);
+  const [isLoadingCases, setIsLoadingCases] = useState(false);
   const [workflowError, setWorkflowError] = useState('');
   const [isBusy, setIsBusy] = useState(false);
+  const [assistantBusy, setAssistantBusy] = useState(false);
+  const [assistantConversationId, setAssistantConversationId] = useState<string | null>(null);
+  const [isResettingTestData, setIsResettingTestData] = useState(false);
   const [evidenceExpanded, setEvidenceExpanded] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -604,8 +1081,11 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
     setQuestionAnswer(null);
     setCaseResult(null);
     setCaseDetails(null);
+    setCaseList([]);
     setWorkflowError('');
+    setAssistantConversationId(null);
     setDrawerOpen(false);
+    setCasesDrawerOpen(false);
   }, [result?.runId, sortedFindings]);
 
   useEffect(() => {
@@ -644,6 +1124,89 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
     }
   };
 
+  const askAssistant = async (prompt: string) => {
+    if (!result) return;
+    setWorkflowError('');
+    setAssistantBusy(true);
+    try {
+      if (isAnalyzerRoutingPrompt(prompt)) {
+        setQuestionAnswer(localAssistantAnswer(prompt, result, selectedFinding, linkedSignals.length ? linkedSignals : result.signals));
+        return;
+      }
+      const memoryAnswer = await askAssistantWithMemory(backendUrl, {
+        message: buildAssistantMemoryPrompt(prompt, result, selectedFinding, linkedSignals.length ? linkedSignals : result.signals),
+        caseId: caseDetails?.id ?? null,
+        conversationId: assistantConversationId,
+      });
+      setAssistantConversationId(memoryAnswer.conversation_id);
+      setQuestionAnswer(assistantChatToQuestionAnswer(memoryAnswer));
+      return;
+    } catch {
+      try {
+      const questionId = questionIdForPrompt(prompt);
+      const backendAnswer = await answerQuestion(backendUrl, {
+        questionId,
+        service: result.service,
+        metric: result.metric,
+        analysisRunId: result.runId,
+      });
+      const hasUsefulAnswer = backendAnswer.status !== 'unknown' && backendAnswer.confidence > 0;
+      setQuestionAnswer(
+        hasUsefulAnswer
+          ? backendAnswer
+          : localAssistantAnswer(prompt, result, selectedFinding, linkedSignals.length ? linkedSignals : result.signals)
+      );
+      } catch {
+      setQuestionAnswer(localAssistantAnswer(prompt, result, selectedFinding, linkedSignals.length ? linkedSignals : result.signals));
+      }
+    } finally {
+      setAssistantBusy(false);
+    }
+  };
+
+  const clearTestingData = async () => {
+    const confirmed = window.confirm(
+      'Testing only: clear Ops Signals runs, timeseries, signals, findings, cases, question answers, and case vector memory? This cannot be undone.'
+    );
+    if (!confirmed) return;
+    setIsResettingTestData(true);
+    setWorkflowError('');
+    try {
+      const reset = await resetTestingOperationalData(backendUrl);
+      const deleted = Object.entries(reset.deleted_rows)
+        .map(([table, count]) => `${table}: ${count}`)
+        .join(', ');
+      setWorkflowError(`Testing data reset complete. Deleted ${deleted}. Vector memory: ${String(reset.vector_memory.status ?? 'unknown')}.`);
+      setQuestionAnswer(null);
+      setCaseResult(null);
+      setCaseDetails(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setWorkflowError(`Testing reset failed. ${message}`);
+    } finally {
+      setIsResettingTestData(false);
+    }
+  };
+
+  const openCases = async () => {
+    if (!result) return;
+    setCasesDrawerOpen(true);
+    setIsLoadingCases(true);
+    setWorkflowError('');
+    try {
+      const cases = await listCases(backendUrl, {
+        service: result.service,
+        metricName: result.metric,
+        limit: 25,
+      });
+      setCaseList(cases);
+    } catch {
+      setWorkflowError('Could not load recent cases.');
+    } finally {
+      setIsLoadingCases(false);
+    }
+  };
+
   if (!result) {
     return (
       <Card>
@@ -672,9 +1235,17 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
             <div style={{ ...styles.detailGrid, marginTop: 12 }}>
               <span>Run ID</span><strong>{result.runId}</strong>
               <span>Data source</span><strong>{result.datasource}</strong>
+              <span>Datasource UID</span><strong>{result.datasourceUid ?? 'n/a'}</strong>
               <span>Service</span><strong>{result.service}</strong>
               <span>Query window</span><strong>{result.from || result.to ? `${result.from} - ${result.to}` : 'Backend selected run window'}</strong>
               <span>Status</span><strong>{humanize(result.status)}</strong>
+            </div>
+            <AnalyzerRoutingSummary result={result} />
+            <div style={{ ...styles.infoNote, marginTop: 12 }}>
+              <button type="button" style={buttonStyle('danger', isResettingTestData)} disabled={isResettingTestData} onClick={clearTestingData}>
+                {isResettingTestData ? 'Clearing test data...' : 'Clear DB for testing'}
+              </button>
+              <div style={{ marginTop: 6 }}>Testing only: clears analysis outputs and case vector memory, not configuration or app documentation.</div>
             </div>
           </details>
         </div>
@@ -683,6 +1254,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
       <div style={styles.contentGrid}>
         <main style={styles.stack}>
           <PrimaryFindingCard
+            result={result}
             finding={selectedFinding}
             isBusy={isBusy}
             onInvestigate={() => setDrawerOpen(true)}
@@ -710,30 +1282,14 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
             </Card>
           ) : null}
           <MetricTimeline result={result} selectedFinding={selectedFinding} />
-          <RecentInvestigationsTable caseDetails={caseDetails} onOpen={() => setDrawerOpen(true)} />
+          <RecentInvestigationsTable
+            caseDetails={caseDetails}
+            onOpenCase={() => setDrawerOpen(true)}
+            onViewAllCases={openCases}
+          />
         </main>
 
         <aside style={styles.stack}>
-          <SuggestedQuestionsCard
-            questions={questions}
-            answer={questionAnswer}
-            onAsk={async (question) => {
-              setWorkflowError('');
-              setQuestionAnswer(null);
-              try {
-                setQuestionAnswer(
-                  await answerQuestion(backendUrl, {
-                    questionId: question.id,
-                    service: result.service,
-                    metric: result.metric,
-                    analysisRunId: result.runId,
-                  })
-                );
-              } catch {
-                setWorkflowError('Could not answer the selected investigation question.');
-              }
-            }}
-          />
           <EvidenceSummaryCard
             result={result}
             finding={selectedFinding}
@@ -748,6 +1304,15 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
               <span>Finding category</span><strong>{humanize(selectedFinding?.category)}</strong>
             </div>
           </Card>
+          <AskOpsSignalsCard
+            result={result}
+            finding={selectedFinding}
+            signals={linkedSignals.length ? linkedSignals : result.signals}
+            questions={questions}
+            answer={questionAnswer}
+            isBusy={assistantBusy}
+            onAsk={askAssistant}
+          />
         </aside>
       </div>
 
@@ -761,6 +1326,23 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
         onClose={() => setDrawerOpen(false)}
         onCaseChange={setCaseDetails}
         onError={setWorkflowError}
+      />
+      <CasesDrawer
+        open={casesDrawerOpen}
+        cases={caseList}
+        isLoading={isLoadingCases}
+        onClose={() => setCasesDrawerOpen(false)}
+        onOpenCase={(caseItem) => {
+          setCaseDetails(caseItem);
+          setCaseResult({
+            case_id: caseItem.id,
+            finding_id: caseItem.finding_id,
+            case_status: caseItem.case_status,
+            memory_status: caseItem.memory_status,
+          });
+          setCasesDrawerOpen(false);
+          setDrawerOpen(true);
+        }}
       />
     </div>
   );

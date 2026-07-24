@@ -56,6 +56,9 @@ class ProphetAnalyzer(Analyzer):
         signals: list[OperationalSignal] = []
         for _, group in dataframe.groupby(["metric_name", "service", "env"], dropna=False):
             ordered = group.sort_values("timestamp").reset_index(drop=True)
+            ordered = ordered.copy()
+            ordered["value"] = pd.to_numeric(ordered["value"], errors="coerce")
+            ordered = ordered.dropna(subset=["value"])
             if len(ordered) < 8:
                 continue
 
@@ -98,7 +101,11 @@ class ProphetAnalyzer(Analyzer):
 
     def _forecast(self, ordered: pd.DataFrame) -> dict[str, float] | None:
         values = ordered["value"].to_numpy(dtype=float)
+        if not np.isfinite(values).all():
+            return None
         actual_value = float(values[-1])
+        if not np.isfinite(actual_value):
+            return None
         if _Prophet is not None:
             try:  # pragma: no cover - optional dependency
                 frame = pd.DataFrame(
@@ -107,11 +114,16 @@ class ProphetAnalyzer(Analyzer):
                         "y": values,
                     }
                 )
+                frame = frame.dropna(subset=["ds", "y"])
+                if len(frame) < 8:
+                    return None
                 model = _Prophet(changepoint_prior_scale=self.config.changepoint_prior_scale)
                 model.fit(frame)
                 future = model.make_future_dataframe(periods=self.config.horizon_points, freq="infer")
                 forecast = model.predict(future)
                 predicted = float(forecast["yhat"].iloc[-1])
+                if not np.isfinite(predicted):
+                    return None
                 residual = actual_value - predicted
                 relative_error = abs(residual) / max(abs(predicted), 1e-9)
                 return {"forecast_value": predicted, "actual_value": actual_value, "residual": residual, "relative_error": relative_error}
@@ -121,6 +133,8 @@ class ProphetAnalyzer(Analyzer):
         x = np.arange(len(values), dtype=float)
         slope, intercept = np.polyfit(x, values, 1)
         forecast_value = float(intercept + slope * (len(values) - 1 + self.config.horizon_points))
+        if not np.isfinite(forecast_value):
+            return None
         residual = actual_value - forecast_value
         relative_error = abs(residual) / max(abs(forecast_value), 1e-9)
         return {"forecast_value": forecast_value, "actual_value": actual_value, "residual": residual, "relative_error": relative_error}

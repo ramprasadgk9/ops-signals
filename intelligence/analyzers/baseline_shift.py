@@ -34,6 +34,9 @@ class BaselineShiftAnalyzer(Analyzer):
         signals: list[OperationalSignal] = []
         for _, group in dataframe.groupby(["metric_name", "service", "env"], dropna=False):
             ordered = group.sort_values("timestamp").reset_index(drop=True)
+            ordered = ordered.copy()
+            ordered["value"] = pd.to_numeric(ordered["value"], errors="coerce")
+            ordered = ordered.dropna(subset=["value"])
             if len(ordered) < 4:
                 continue
             midpoint = len(ordered) // 2
@@ -41,9 +44,13 @@ class BaselineShiftAnalyzer(Analyzer):
             second_half = ordered.iloc[midpoint:]
             first_mean = float(first_half["value"].mean())
             second_mean = float(second_half["value"].mean())
+            if not math.isfinite(first_mean) or not math.isfinite(second_mean):
+                continue
             if math.isclose(first_mean, 0.0, abs_tol=1e-9):
                 continue
             percent_change = ((second_mean - first_mean) / abs(first_mean)) * 100.0
+            if not math.isfinite(percent_change):
+                continue
             if abs(percent_change) < self.threshold_percent:
                 continue
             magnitude = abs(percent_change)

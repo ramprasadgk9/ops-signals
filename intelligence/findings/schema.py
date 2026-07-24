@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
+from intelligence.signals.schema import _sanitize_json
+
 
 @dataclass(slots=True)
 class OperationalFinding:
@@ -22,7 +24,7 @@ class OperationalFinding:
     created_at: datetime | None = None
 
     def to_record(self) -> dict[str, Any]:
-        payload = asdict(self)
+        payload = _sanitize_json(asdict(self))
         if payload.get("id") is None:
             payload.pop("id", None)
         if payload.get("created_at") is None:

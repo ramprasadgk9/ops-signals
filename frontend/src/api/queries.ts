@@ -12,6 +12,9 @@ import type {
   Finding,
   MetricAnalyzerRecommendation,
   MetricSample,
+  ExperimentComparison,
+  ExperimentResult,
+  RouterResponse,
   AssistantChatRequest,
   AssistantChatResponse,
   MemoryChatRequest,
@@ -113,6 +116,14 @@ export const api = {
     postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload),
   memoryChat: (payload: MemoryChatRequest) =>
     postJson<MemoryChatRequest, MemoryChatResponse>('/api/memory/chat', payload),
+  experiments: () => getJson<ExperimentResult[]>('/api/experiments'),
+  experiment: (experimentId: string) => getJson<ExperimentResult>(`/api/experiments/${experimentId}`),
+  experimentCompare: (experimentIds: string[]) => {
+    const params = new URLSearchParams();
+    experimentIds.forEach((id) => params.append('experiment_ids', id));
+    return getJson<ExperimentComparison>(`/api/experiments/compare?${params.toString()}`);
+  },
+  analyzerRouterRoute: (payload: FormData) => postForm<RouterResponse>('/api/experiment-analyzer-router/route', payload),
   
   timeseries: (service: string, metric: string, runId: string) =>
     getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),

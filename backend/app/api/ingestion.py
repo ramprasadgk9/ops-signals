@@ -4,13 +4,21 @@ import copy
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.models.api_schema import CsvRunOut, CsvValidationOut, ValidationFindingOut, ValidationSignalOut
+from backend.app.models.api_schema import (
+    CsvRunOut,
+    CsvValidationOut,
+    PrometheusAnalysisRequest,
+    PrometheusRunOut,
+    ValidationFindingOut,
+    ValidationSignalOut,
+)
 from backend.app.models.db import get_db
-from backend.app.models.entities import FindingEntity
+from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
 from intelligence.config import load_config
 from intelligence.pipeline import SignalPipeline
 from intelligence.adapters.csv_adapter import CSVAdapter
@@ -81,6 +89,117 @@ def _load_app_config(provider: str = "prometheus") -> object:
     if provider_file.exists():
         return load_config(provider_file)
     return load_config(_repo_root() / "config" / "config.yaml")
+
+
+@router.post("/prometheus-run", response_model=PrometheusRunOut)
+async def run_prometheus_analysis(
+    payload: PrometheusAnalysisRequest,
+    db: Session = Depends(get_db),
+) -> PrometheusRunOut:
+    if payload.provider.lower() != "prometheus":
+        raise HTTPException(status_code=400, detail="provider must be prometheus")
+    if not payload.samples:
+        raise HTTPException(status_code=400, detail="samples are required")
+    if payload.sample_count != len(payload.samples):
+        raise HTTPException(status_code=400, detail="sample_count must match samples length")
+    if payload.series_count < 1:
+        raise HTTPException(status_code=400, detail="series_count must be at least 1")
+
+    max_series = payload.max_series or 20
+    max_samples_per_series = payload.max_samples_per_series or 10000
+    if payload.series_count > max_series:
+        raise HTTPException(status_code=400, detail=f"series_count {payload.series_count} exceeds max_series {max_series}")
+    if payload.sample_count > payload.series_count * max_samples_per_series:
+        raise HTTPException(status_code=400, detail=f"sample_count {payload.sample_count} exceeds configured limit")
+
+    records: list[dict[str, object]] = []
+    for sample in payload.samples:
+        labels = sample.labels or {}
+        records.append(
+            {
+                "timestamp": sample.timestamp,
+                "metric_name": sample.metric_name or payload.metric_name,
+                "value": sample.value,
+                "service": sample.service or payload.service,
+                "source": "prometheus",
+                "host": labels.get("instance"),
+                "namespace": labels.get("namespace"),
+                "pod": labels.get("pod"),
+                "env": labels.get("env") or labels.get("environment"),
+                "series_id": sample.series_id,
+                **{f"label_{key}": value for key, value in labels.items() if isinstance(key, str) and isinstance(value, str)},
+            }
+        )
+
+    try:
+        config = copy.deepcopy(_load_app_config("prometheus"))
+        config.input.source_type = "prometheus"
+        config.input.provider = "prometheus"
+        config.input.interval = f"{max(int(payload.step_seconds / 60), 1)}m"
+        config.input.service = payload.service
+        config.input.metric_name = payload.metric_name
+        config.input.timestamp_column = "timestamp"
+        config.input.value_column = "value"
+        config.input.metric_column = "metric_name"
+        config.input.required_columns = ["timestamp", "metric_name", "value"]
+        config.input.provider_mappings = {}
+
+        config.output.save_normalized_data = True
+        config.output.save_signals = True
+        config.output.save_question_answers = True
+        config.output.save_embeddings = False
+        config.embeddings.enabled = False
+
+        result = SignalPipeline(config).run_dataframe(
+            pd.DataFrame.from_records(records),
+            run_metadata={
+                "datasource_uid": payload.datasource_uid,
+                "datasource_name": payload.datasource_name,
+                "promql": payload.promql,
+                "from": payload.from_time.isoformat(),
+                "to": payload.to_time.isoformat(),
+                "step_seconds": payload.step_seconds,
+                "series_count": payload.series_count,
+                "sample_count": payload.sample_count,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"analysis failed: {exc}") from exc
+
+    findings_count = db.execute(
+        select(func.count(FindingEntity.id)).where(FindingEntity.analysis_run_id == result.analysis_run_id)
+    ).scalar() or 0
+    signal_count = db.execute(
+        select(func.count(SignalEntity.id)).where(SignalEntity.analysis_run_id == result.analysis_run_id)
+    ).scalar() or 0
+    behavior_count = db.execute(
+        select(func.count(BehaviorFindingEntity.id)).where(BehaviorFindingEntity.analysis_run_id == result.analysis_run_id)
+    ).scalar() or 0
+
+    return PrometheusRunOut(
+        analysis_run_id=result.analysis_run_id,
+        provider="prometheus",
+        source_type="prometheus",
+        datasource_uid=payload.datasource_uid,
+        datasource_name=payload.datasource_name,
+        service=payload.service,
+        metric_name=payload.metric_name,
+        promql=payload.promql,
+        from_time=payload.from_time,
+        to_time=payload.to_time,
+        step_seconds=payload.step_seconds,
+        sample_count=payload.sample_count,
+        series_count=payload.series_count,
+        findings_count=int(findings_count),
+        signal_count=int(signal_count),
+        behavior_findings_count=int(behavior_count),
+        warnings=payload.warnings,
+        analyzer_selection_mode=config.analysis.selection_mode,
+        analyzer_routing=result.analyzer_routing,
+        executed_analyzers=result.executed_analyzers,
+    )
 
 
 @router.post("/csv-run", response_model=CsvRunOut)

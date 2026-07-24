@@ -1,0 +1,20 @@
+csv_path: experiments/datasets/rds_cpu_utilization_cc0c53.csv
+timestamp_column: timestamp
+value_column: value
+routing_mode: automatic_with_override
+selected_analyzers: []
+registry_path: experiments/analyzer_router/analyzer_registry.yaml
+data_validation:
+  hard_minimum_samples: 30
+  missing_values:
+    warning_percentage: 5
+    low_quality_percentage: 15
+    reject_percentage: 30
+  irregular_sampling:
+    tolerance_percentage: 10
+    warning_percentage: 15
+    reject_percentage: 40
+  interpolation:
+    enabled: true
+    maximum_gap_points: 5
+    maximum_interpolated_percentage: 20
