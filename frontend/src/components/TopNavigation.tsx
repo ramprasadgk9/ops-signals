@@ -1,137 +1,103 @@
-import { AppBar, Box, Button, Toolbar, Typography } from '@mui/material';
-import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
-import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
-import StarOutlineRoundedIcon from '@mui/icons-material/StarOutlineRounded';
-import PsychologyAltRoundedIcon from '@mui/icons-material/PsychologyAltRounded';
-import AutoGraphRoundedIcon from '@mui/icons-material/AutoGraphRounded';
-import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
-import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
-import RocketLaunchRoundedIcon from '@mui/icons-material/RocketLaunchRounded';
-import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import { AppBar, Box, IconButton, InputBase, Toolbar, Typography } from '@mui/material';
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
-import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { useColorMode } from '../theme/ThemeProviderWithMode';
 
 export function TopNavigation() {
   const { mode, toggle } = useColorMode();
-  const location = useLocation();
-
-  const isActive = (path: string) => location.pathname === path;
-
-  const navButtonSx = {
-    borderRadius: 999,
-    px: 1.4,
-    gap: 0.75,
-    textTransform: 'none',
-    fontWeight: 600,
-  };
 
   return (
-    <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: 'blur(12px)' }}>
-      <Toolbar sx={{ display: 'flex', justifyContent: 'space-between' }}>
-        <Typography variant="h5" component={RouterLink} to="/" sx={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>
-          Ops Intelligence
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Button 
-            component={RouterLink} 
-            to="/"
-            variant={isActive('/') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<DashboardRoundedIcon />}
-            sx={navButtonSx}
+    <AppBar
+      position="sticky"
+      color="transparent"
+      elevation={0}
+      sx={{
+        backdropFilter: 'blur(16px)',
+        borderBottom: '1px solid rgba(15, 23, 42, 0.08)',
+        background: 'rgba(255,255,255,0.82)',
+      }}
+    >
+      <Toolbar sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, minHeight: 76 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box sx={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, #ef4444, #fb7185)', display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 800 }}>OS</Box>
+            <Typography variant="h6" sx={{ fontWeight: 800 }}>
+              Ops Signals
+            </Typography>
+          </Box>
+          <IconButton size="small" sx={{ ml: 1 }}>
+            <MenuRoundedIcon />
+          </IconButton>
+          <Typography variant="body2" color="text.secondary">
+            Analyses
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            /
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            cpu_usage - 7/24/2026
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              px: 1.5,
+              py: 0.75,
+              borderRadius: 999,
+              border: '1px solid rgba(15, 23, 42, 0.08)',
+              background: '#fff',
+              minWidth: 260,
+            }}
           >
-            Overview
-          </Button>
-          <Button 
-            component={RouterLink} 
-            to="/history"
-            variant={isActive('/history') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<HistoryRoundedIcon />}
-            sx={navButtonSx}
+            <SearchRoundedIcon fontSize="small" color="action" />
+            <InputBase placeholder="Search..." sx={{ flex: 1, fontSize: 14 }} />
+            <Typography variant="caption" sx={{ px: 0.75, py: 0.25, borderRadius: 1, background: 'rgba(15,23,42,0.05)' }}>
+              ⌘K
+            </Typography>
+          </Box>
+          <IconButton size="small">
+            <NotificationsNoneRoundedIcon />
+          </IconButton>
+          <Box
+            sx={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              display: 'grid',
+              placeItems: 'center',
+              bgcolor: 'error.main',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+              position: 'relative',
+            }}
           >
-            History
-          </Button>
-          <Button 
-            component={RouterLink} 
-            to="/capabilities"
-            variant={isActive('/capabilities') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<StarOutlineRoundedIcon />}
-            sx={navButtonSx}
+            3
+          </Box>
+          <IconButton size="small" onClick={toggle}>
+            {mode === 'light' ? <DarkModeRoundedIcon /> : <LightModeRoundedIcon />}
+          </IconButton>
+          <Box
+            sx={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              display: 'grid',
+              placeItems: 'center',
+              background: 'linear-gradient(135deg, #93c5fd, #60a5fa)',
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: 14,
+            }}
           >
-            Capabilities
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/behavior-intelligence"
-            variant={isActive('/behavior-intelligence') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<PsychologyAltRoundedIcon />}
-            sx={navButtonSx}
-          >
-            Behavior
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/analyzer-recommendation"
-            variant={isActive('/analyzer-recommendation') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<AutoGraphRoundedIcon />}
-            sx={navButtonSx}
-          >
-            Analyzer Rec
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/assistant"
-            variant={isActive('/assistant') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<ChatRoundedIcon />}
-            sx={navButtonSx}
-          >
-            Assistant
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/validate-data"
-            variant={isActive('/validate-data') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<FactCheckRoundedIcon />}
-            sx={navButtonSx}
-          >
-            Dry-Run
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/experiments"
-            variant={isActive('/experiments') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<RocketLaunchRoundedIcon />}
-            sx={navButtonSx}
-          >
-            Experiments
-          </Button>
-          <Button 
-            component={RouterLink} 
-            to="/settings"
-            variant={isActive('/settings') ? 'contained' : 'text'}
-            size="small"
-            startIcon={<SettingsRoundedIcon />}
-            sx={navButtonSx}
-          >
-            Settings
-          </Button>
-          <Button
-            onClick={toggle}
-            size="small"
-            startIcon={mode === 'light' ? <DarkModeRoundedIcon /> : <LightModeRoundedIcon />}
-            sx={navButtonSx}
-          >
-            {mode === 'light' ? 'Dark' : 'Light'}
-          </Button>
+            RG
+          </Box>
         </Box>
       </Toolbar>
     </AppBar>

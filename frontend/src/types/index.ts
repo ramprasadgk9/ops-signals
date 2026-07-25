@@ -144,6 +144,29 @@ export type AnalysisRun = {
   end_time: string;
   sample_count: number;
   status: string;
+  router_version?: string | null;
+  feature_extractor_version?: string | null;
+  analyzer_registry_version?: string | null;
+  series_profile_json?: Record<string, unknown> | null;
+  router_decisions_json?: Array<{
+    analyzer_id?: string;
+    analyzer?: string;
+    display_name?: string;
+    eligible?: boolean;
+    eligibility_score?: number;
+    suitability_score?: number;
+    final_score?: number;
+    recommendation?: 'RECOMMENDED' | 'OPTIONAL' | 'NOT_RECOMMENDED' | 'REJECTED' | 'OVERRIDDEN' | string;
+    reasons?: string[];
+    warnings?: string[];
+    explanation?: string;
+    parameters_tested?: Record<string, unknown>;
+  }> | null;
+  executed_analyzers_json?: Array<{
+    router_analyzer_id?: string;
+    pipeline_analyzer_id?: string;
+  }> | null;
+  generated_findings_json?: Array<Record<string, unknown>> | null;
   created_at: string;
 };
 
