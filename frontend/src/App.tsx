@@ -1,11 +1,8 @@
-import { PluginPage } from '@grafana/runtime';
-import { OpsSignalsPlugin } from './plugin/OpsSignalsPlugin';
+import { StandaloneApp } from './StandaloneApp';
 
 function App() {
   return (
-    <PluginPage>
-      <OpsSignalsPlugin />
-    </PluginPage>
+    <StandaloneApp />
   );
 }
 
