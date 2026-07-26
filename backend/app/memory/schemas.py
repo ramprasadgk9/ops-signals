@@ -38,6 +38,20 @@ class MemoryHealthResponse(BaseModel):
     dimension: int
 
 
+class MemoryStatsResponse(BaseModel):
+    """Authoritative memory counts from operational case metadata."""
+
+    generated_at: datetime
+    enabled: bool
+    status: str
+    indexed_cases: int
+    not_indexed_cases: int
+    stale_cases: int
+    error_cases: int
+    total_cases: int
+    source: str = "ops_operational_cases.memory_status"
+
+
 class SimilarCaseMatch(BaseModel):
     """A single similar case match from the similarity search."""
 
