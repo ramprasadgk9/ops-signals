@@ -26,8 +26,9 @@ const defaultTarget: GrafanaQueryTarget = {
 };
 
 const backendOptions = [
-  { label: 'Local backend (:8000)', value: 'http://localhost:8000' },
-  { label: 'Host backend from Docker', value: 'http://host.docker.internal:8000' },
+  { label: 'Grafana stack backend (:8002)', value: 'http://localhost:8002' },
+  { label: 'Standalone app backend (:8001)', value: 'http://localhost:8001' },
+  { label: 'Host backend from Docker (:8002)', value: 'http://host.docker.internal:8002' },
 ];
 
 const timePresets = [
@@ -38,9 +39,10 @@ const timePresets = [
 ];
 
 export function PluginApp(_props: unknown) {
+  const defaultBackendUrl = import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL ?? 'http://localhost:8002';
   const [target, setTarget] = useState<GrafanaQueryTarget>(defaultTarget);
   const [result, setResult] = useState<GrafanaAnalysisResult | null>(null);
-  const [backendUrl, setBackendUrl] = useState('http://localhost:8000');
+  const [backendUrl, setBackendUrl] = useState(defaultBackendUrl);
   const [prometheusDatasources, setPrometheusDatasources] = useState<PrometheusDatasourceRef[]>([]);
   const [selectedPrometheusUid, setSelectedPrometheusUid] = useState('');
   const [serviceLabel, setServiceLabel] = useState('service');

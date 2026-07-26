@@ -130,15 +130,81 @@ Canonical CSV
 
 ## Quick Start
 
+### Scripts
+
+| Script | What it does | When to use it | Ports |
+| --- | --- | --- | --- |
+| `./scripts/setup.sh` | Installs Python and frontend deps, starts Postgres and Qdrant, and initializes the database. | First-time setup or after a clean checkout. | Postgres `5432`, Qdrant `6333` |
+| `./scripts/run_all.sh` | Starts the standalone backend and frontend for the app. | Daily local development outside Grafana. | Backend `8001`, frontend `5174` |
+| `./scripts/run_grafana_stack.sh` | Builds the Grafana plugin, starts Grafana, Prometheus, mock metrics, and the plugin backend. | Testing the Grafana plugin experience. | Grafana `3000`, Prometheus `9090`, backend `8002` |
+| `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
+| `MCP_MODE=mcp-write ./scripts/test_mcp.sh` | Verifies the write-enabled MCP tool list. | Confirming write-capable tools are exposed. | None; stdio only |
+
+### Local Development
+
+Use this path for the standalone app:
+
 ```bash
-docker compose up -d postgres qdrant
-python -m intelligence.cli init-db --config config.yaml
-python -m intelligence.cli run --config config.yaml
-uvicorn backend.app.main:app --reload --port 8000
-cd frontend
-npm install
-npm run dev
+./scripts/setup.sh
+./scripts/run_all.sh
 ```
+
+The normal app dev server now uses:
+
+- backend: `8001`
+- frontend: `5174`
+
+`3000` is reserved for Grafana.
+
+### Grafana / Plugin
+
+Use this path for the Grafana plugin experience:
+
+```bash
+./scripts/run_grafana_stack.sh
+```
+
+That script builds the plugin bundle, starts Grafana on `3000`, Prometheus on `9090`, mock metrics, and the backend on `8002`.
+
+`8002` is reserved for the Grafana/plugin backend.
+
+### MCP
+
+Use this path to test the MCP server directly:
+
+```bash
+./scripts/test_mcp.sh
+MCP_MODE=mcp-write ./scripts/test_mcp.sh
+```
+
+The test script launches the stdio server and verifies `initialize` plus `tools/list`.
+
+If you want to run the MCP server directly:
+
+```bash
+./.venv/bin/python -m intelligence.cli mcp
+./.venv/bin/python -m intelligence.cli mcp-write
+```
+
+## MCP Server
+
+The MCP server runs over stdio from the existing CLI.
+
+Example MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "ops-signals": {
+      "command": "python",
+      "args": ["-m", "intelligence.cli", "mcp"],
+      "cwd": "/Users/ramprasad/Documents/workspace/github/ops-signals"
+    }
+  }
+}
+```
+
+Use `mcp-write` instead of `mcp` if the client should be allowed to call case update and memory indexing tools.
 
 ## Canonical CSV Input
 

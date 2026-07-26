@@ -58,6 +58,15 @@ fi
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/pip" install -r requirements.txt
 
+if [[ -f "$ROOT_DIR/frontend/package.json" ]]; then
+  if command -v npm >/dev/null 2>&1; then
+    (cd "$ROOT_DIR/frontend" && npm install)
+  else
+    echo "npm is required to install frontend dependencies"
+    exit 1
+  fi
+fi
+
 docker compose up -d postgres qdrant
 
 echo "Waiting for postgres to become ready..."

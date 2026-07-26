@@ -16,21 +16,26 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = subparsers.add_parser("init-db", help="Initialize PostgreSQL tables")
     init_parser.add_argument("--config", required=True, help="Path to config.yaml")
 
+    subparsers.add_parser("mcp", help="Run the Ops Signals MCP server over stdio in read-only mode")
+    subparsers.add_parser("mcp-write", help="Run the Ops Signals MCP server over stdio with write tools enabled")
+
     return parser
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    config = load_config(args.config)
-    pipeline = SignalPipeline(config)
 
     if args.command == "init-db":
+        config = load_config(args.config)
+        pipeline = SignalPipeline(config)
         pipeline.init_db()
         print("Database initialized.")
         return
 
     if args.command == "run":
+        config = load_config(args.config)
+        pipeline = SignalPipeline(config)
         result = pipeline.run()
         report = result.report
         print("Operational Intelligence Report")
@@ -48,6 +53,19 @@ def main() -> None:
         print("Top findings:")
         for finding in result.findings:
             print(f"- [{finding.importance_score}] {finding.title}")
+        return
+
+    if args.command == "mcp":
+        from backend.app.mcp_server import main as run_mcp_server
+
+        run_mcp_server(read_only_only=True)
+        return
+
+    if args.command == "mcp-write":
+        from backend.app.mcp_server import main as run_mcp_server
+
+        run_mcp_server(read_only_only=False)
+        return
 
 
 if __name__ == "__main__":
