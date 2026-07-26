@@ -26,10 +26,20 @@ class AssistantSource(BaseModel):
     summary: str | None = None
 
 
+class AssistantEvidenceGroup(BaseModel):
+    source_type: str
+    label: str
+    count: int
+    sources: list[AssistantSource] = Field(default_factory=list)
+
+
 class AssistantChatResponse(BaseModel):
     conversation_id: UUID
     intent: str
+    routes: list[str] = Field(default_factory=list)
+    knowledge_used: list[str] = Field(default_factory=list)
     answer: str
     limitations: list[str]
     suggested_questions: list[str]
     sources: list[AssistantSource]
+    evidence_groups: list[AssistantEvidenceGroup] = Field(default_factory=list)

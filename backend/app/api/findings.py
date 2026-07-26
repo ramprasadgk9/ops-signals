@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,6 +12,7 @@ from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
+Window = Literal["24h", "7d"]
 
 
 def _to_finding_out(finding: FindingEntity) -> FindingOut:
@@ -36,6 +40,7 @@ def list_findings(
     health_status: str | None = None,
     category: str | None = None,
     analysis_run_id: str | None = Query(default=None),
+    window: Window | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[FindingOut]:
     query = select(FindingEntity)
@@ -49,6 +54,10 @@ def list_findings(
         query = query.where(FindingEntity.category == category)
     if analysis_run_id:
         query = query.where(FindingEntity.analysis_run_id == analysis_run_id)
+    if window:
+        now = datetime.now(timezone.utc)
+        start_at = now - (timedelta(days=7) if window == "7d" else timedelta(hours=24))
+        query = query.where(FindingEntity.created_at >= start_at)
     rows = db.execute(query.order_by(FindingEntity.importance_score.desc())).scalars().all()
     return [_to_finding_out(row) for row in rows]
 

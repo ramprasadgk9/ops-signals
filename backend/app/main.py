@@ -21,8 +21,11 @@ from backend.app.api.capabilities import router as capabilities_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.findings import router as findings_router
 from backend.app.api.ingestion import router as ingestion_router
+from backend.app.api.direct_prometheus import analysis_router as direct_prometheus_analysis_router
+from backend.app.api.direct_prometheus import router as direct_prometheus_router
 from backend.app.api.learning_outcomes import router as learning_outcomes_router
 from backend.app.api.memory import router as memory_router
+from backend.app.api.overview import router as overview_router
 from backend.app.api.questions import router as questions_router
 from backend.app.api.services import router as services_router
 from backend.app.api.signals import router as signals_router
@@ -226,6 +229,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     
     # Register routers
     app.include_router(services_router)
+    app.include_router(overview_router)
     app.include_router(analysis_runs_router)
     app.include_router(behavior_definitions_router)
     app.include_router(behavior_evaluations_router)
@@ -239,6 +243,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(analyzer_router)
     app.include_router(experiments_router)
     app.include_router(ingestion_router)
+    app.include_router(direct_prometheus_router)
+    app.include_router(direct_prometheus_analysis_router)
     app.include_router(learning_outcomes_router)
     app.include_router(assistant_router)
     app.include_router(mcp_router)

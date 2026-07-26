@@ -135,7 +135,7 @@ Canonical CSV
 | Script | What it does | When to use it | Ports |
 | --- | --- | --- | --- |
 | `./scripts/setup.sh` | Installs Python and frontend deps, starts Postgres and Qdrant, and initializes the database. | First-time setup or after a clean checkout. | Postgres `5432`, Qdrant `6333` |
-| `./scripts/run_all.sh` | Starts the standalone backend and frontend for the app. | Daily local development outside Grafana. | Backend `8001`, frontend `5174` |
+| `./scripts/run_all.sh` | Starts the standalone backend, frontend, Postgres, Qdrant, Prometheus, and mock metrics for the app. | Daily local development outside Grafana. | Backend `8001`, frontend `5174`, Prometheus `9090` |
 | `./scripts/run_grafana_stack.sh` | Builds the Grafana plugin, starts Grafana, Prometheus, mock metrics, and the plugin backend. | Testing the Grafana plugin experience. | Grafana `3000`, Prometheus `9090`, backend `8002` |
 | `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
 | `MCP_MODE=mcp-write ./scripts/test_mcp.sh` | Verifies the write-enabled MCP tool list. | Confirming write-capable tools are exposed. | None; stdio only |
@@ -153,6 +153,7 @@ The normal app dev server now uses:
 
 - backend: `8001`
 - frontend: `5174`
+- Prometheus: `9090`
 
 `3000` is reserved for Grafana.
 
@@ -258,6 +259,9 @@ memory:
 - Qdrant stores embeddings and retrieval metadata for semantic lookup.
 - PostgreSQL is the system of record.
 - Qdrant is the semantic retrieval index.
+
+See [Standalone Overview API](docs/17-standalone-overview-api.md) for the Overview summary and memory statistics endpoint contracts.
+See [Standalone Prometheus Analysis](docs/18-standalone-prometheus-analysis.md) for the direct Prometheus query flow and how it differs from Grafana datasource-based analysis.
 
 ## Screenshots
 

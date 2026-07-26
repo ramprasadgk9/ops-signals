@@ -8,8 +8,6 @@ type Props = {
 };
 
 export function QuestionCard({ question, onOpen, compact = false }: Props) {
-  const confidence = question.confidence ?? 85; // Default confidence for display
-  
   return (
     <Card
       sx={{
@@ -27,7 +25,7 @@ export function QuestionCard({ question, onOpen, compact = false }: Props) {
           <Typography variant={compact ? 'body2' : 'h6'} sx={{ fontWeight: 600 }}>
             {question.label}
           </Typography>
-          <Chip size="small" label={`${confidence}%`} variant="outlined" />
+          {typeof question.confidence === 'number' ? <Chip size="small" label={`${question.confidence}%`} variant="outlined" /> : null}
         </Stack>
         {!compact ? (
           <>

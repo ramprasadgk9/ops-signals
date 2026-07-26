@@ -29,7 +29,7 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-docker compose up -d postgres qdrant
+docker compose up -d postgres qdrant prometheus mock-metrics
 
 echo "Waiting for postgres to become ready..."
 for attempt in {1..30}; do
@@ -56,13 +56,26 @@ for attempt in {1..60}; do
   sleep 2
 done
 
+echo "Waiting for prometheus to become ready..."
+for attempt in {1..60}; do
+  if curl -fsS http://localhost:9090/-/ready >/dev/null 2>&1; then
+    break
+  fi
+  if [[ "$attempt" -eq 60 ]]; then
+    echo "prometheus did not become ready in time"
+    echo "Try: docker compose logs prometheus"
+    exit 1
+  fi
+  sleep 2
+done
+
 "$VENV_DIR/bin/python" -m intelligence.cli init-db --config config.yaml
 
 api_log="${ROOT_DIR}/.tmp_ops_signals_api.log"
 ui_log="${ROOT_DIR}/.tmp_ops_signals_ui.log"
 
 echo "Starting backend API on :${BACKEND_PORT}..."
-BACKEND_PORT="$BACKEND_PORT" "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --port "$BACKEND_PORT" >"$api_log" 2>&1 &
+OPS_SIGNALS_PROMETHEUS_URL="${OPS_SIGNALS_PROMETHEUS_URL:-http://localhost:9090}" BACKEND_PORT="$BACKEND_PORT" "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --port "$BACKEND_PORT" >"$api_log" 2>&1 &
 api_pid=$!
 
 echo "Starting frontend on :${FRONTEND_PORT}..."
