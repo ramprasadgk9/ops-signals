@@ -9,6 +9,7 @@ export function ConfigEditor({
   options: OpsSignalsDataSourceOptions;
   onChange: (next: OpsSignalsDataSourceOptions) => void;
 }) {
+  const defaultBackendUrl = import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL ?? 'http://localhost:8002';
   return (
     <div style={styles.stack}>
       <h2 style={{ margin: 0 }}>Datasource Settings</h2>
@@ -18,7 +19,7 @@ export function ConfigEditor({
             style={styles.input}
             value={options.url}
             onChange={(event) => onChange({ ...options, url: event.target.value })}
-            placeholder="http://localhost:8000"
+            placeholder={defaultBackendUrl}
           />
         </Field>
         <Field label="Default Service">

@@ -23,10 +23,11 @@ const defaultTarget: GrafanaQueryTarget = {
 };
 
 export function OpsSignalsDataSource() {
+  const defaultBackendUrl = import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL ?? 'http://localhost:8002';
   const [target, setTarget] = useState<GrafanaQueryTarget>(defaultTarget);
   const [result, setResult] = useState<GrafanaAnalysisResult | null>(null);
   const [options, setOptions] = useState<OpsSignalsDataSourceOptions>({
-    url: 'http://localhost:8000',
+    url: defaultBackendUrl,
     defaultService: '',
   });
   const [query, setQuery] = useState<OpsSignalsQuery>({

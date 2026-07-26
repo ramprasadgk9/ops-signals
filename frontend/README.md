@@ -42,4 +42,5 @@ For beginner-friendly build, install, verify, and test steps, read:
 ## Notes
 
 - The Grafana app route and local app shell use the same Ops Signals workspace component
-- The plugin talks to the local backend at `http://localhost:8000` by default
+- The plugin talks to the Grafana-stack backend at `http://localhost:8002` by default when built through `scripts/run_grafana_stack.sh`
+- The standalone app uses `http://localhost:8001`
