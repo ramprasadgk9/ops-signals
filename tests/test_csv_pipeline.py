@@ -12,6 +12,7 @@ class InMemoryStore:
         self.saved_signals = []
         self.saved_findings = []
         self.initialized = False
+        self.learning_snapshot = None
 
     def init_db(self) -> None:
         self.initialized = True
@@ -33,6 +34,9 @@ class InMemoryStore:
 
     def create_analysis_run(self, payload) -> None:
         self.analysis_run = payload
+
+    def update_analysis_run_learning_snapshot(self, analysis_run_id, snapshot) -> None:
+        self.learning_snapshot = (analysis_run_id, snapshot)
 
     def save_capabilities(self, capabilities) -> None:
         self.capabilities = capabilities

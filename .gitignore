@@ -44,6 +44,9 @@ logs/
 *.swp
 *.swo
 
+# Local UI reference images
+web-ui-images/
+
 # Local databases and runtime data
 postgres_data/
 qdrant_data/

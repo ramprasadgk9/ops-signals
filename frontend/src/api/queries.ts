@@ -20,15 +20,24 @@ import type {
   MemoryChatRequest,
   MemoryChatResponse,
   CsvValidationResult,
+  DirectPrometheusAnalysisRequest,
+  DirectPrometheusAnalysisResponse,
   OperationalCase,
+  PrometheusConnectionsResponse,
+  PrometheusConnectionTestResponse,
+  PrometheusLabelValuesResponse,
+  PrometheusPreviewResponse,
   Question,
   QuestionAnswer,
   Signal,
   TimeseriesPoint,
+  OverviewSummaryResponse,
+  MemoryStatsResponse,
 } from '../types';
 
 export const api = {
   health: () => getJson<{ status: string }>('/api/health'),
+  overviewSummary: (window: '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
   services: () => getJson<string[]>('/api/services'),
   metrics: (service: string) => getJson<string[]>(`/api/services/${service}/metrics`),
   analysisRuns: () => getJson<AnalysisRun[]>('/api/analysis-runs'),
@@ -60,14 +69,16 @@ export const api = {
   signals: (service: string, metric: string, runId: string) =>
     getJson<Signal[]>(`/api/signals?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
   signalDetail: (signalId: string) => getJson<Signal>(`/api/signals/${signalId}`),
-  findings: (service?: string, metric?: string, runId?: string) => {
+  findings: (service?: string, metric?: string, runId?: string, window?: '24h' | '7d') => {
     const params = new URLSearchParams();
     if (service) params.append('service', service);
     if (metric) params.append('metric_name', metric);
     if (runId) params.append('analysis_run_id', runId);
+    if (window) params.append('window', window);
     const queryString = params.toString();
     return getJson<Finding[]>(`/api/findings${queryString ? `?${queryString}` : ''}`);
   },
+  cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   createCase: (findingId: number) =>
     postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {}),
   getCase: (caseId: number) => getJson<OperationalCase>(`/api/cases/${caseId}`),
@@ -100,6 +111,7 @@ export const api = {
     getJson<{ enabled: boolean; provider: string; status: string; collection: string }>(
       '/api/memory/health'
     ),
+  memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
   metricAnalyzerSamples: () => getJson<MetricSample[]>('/api/metric-analyzer-recommendations/metrics'),
   metricAnalyzerEvaluate: (service: string, metricName: string, analysisRunId?: string | null) =>
     postJson<
@@ -129,4 +141,15 @@ export const api = {
     getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
   runCsvUpload: (payload: FormData) => postForm<CsvRunResult>('/api/ingestion/csv-run', payload),
   runCsvValidation: (payload: FormData) => postForm<CsvValidationResult>('/api/ingestion/csv-validate', payload),
+  prometheusConnections: () => getJson<PrometheusConnectionsResponse>('/api/prometheus/connections'),
+  prometheusLabelValues: (label: string, connectionId = 'default') =>
+    getJson<PrometheusLabelValuesResponse>(
+      `/api/prometheus/label-values?label=${encodeURIComponent(label)}&connection_id=${encodeURIComponent(connectionId)}`
+    ),
+  testPrometheusConnection: (connectionId: string) =>
+    postJson<{ connection_id: string }, PrometheusConnectionTestResponse>('/api/prometheus/test-connection', { connection_id: connectionId }),
+  previewPrometheus: (payload: { connection_id: string; query: string; start: string; end: string; step: string }) =>
+    postJson<typeof payload, PrometheusPreviewResponse>('/api/prometheus/preview', payload),
+  runPrometheusAnalysis: (payload: DirectPrometheusAnalysisRequest) =>
+    postJson<DirectPrometheusAnalysisRequest, DirectPrometheusAnalysisResponse>('/api/analysis/prometheus', payload),
 };

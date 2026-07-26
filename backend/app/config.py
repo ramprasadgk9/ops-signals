@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -100,6 +99,70 @@ class MemoryConfig(BaseModel):
 
 class AppAIConfig(BaseModel):
     ai: AIConfig = Field(default_factory=AIConfig)
+
+
+class PrometheusConnectionConfig(BaseModel):
+    id: str = "default"
+    name: str = "Default Prometheus"
+    base_url: str | None = None
+    bearer_token: str | None = None
+    username: str | None = None
+    password: str | None = None
+    verify_tls: bool = True
+    timeout_seconds: float = 30.0
+    headers: dict[str, str] = Field(default_factory=dict)
+    max_window_days: int = 30
+    max_series: int = 20
+    max_samples_per_series: int = 10000
+    max_total_samples: int = 100000
+    min_step_seconds: int = 1
+    max_step_seconds: int = 86400
+
+    @field_validator("base_url")
+    @classmethod
+    def base_url_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            return None
+        return value.rstrip("/") if value else None
+
+
+def _parse_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_headers(value: str | None) -> dict[str, str]:
+    if not value:
+        return {}
+    headers: dict[str, str] = {}
+    for item in value.split(","):
+        if ":" not in item:
+            continue
+        key, header_value = item.split(":", 1)
+        key = key.strip()
+        header_value = header_value.strip()
+        if key and header_value:
+            headers[key] = header_value
+    return headers
+
+
+def get_prometheus_config() -> PrometheusConnectionConfig:
+    return PrometheusConnectionConfig(
+        base_url=os.getenv("OPS_SIGNALS_PROMETHEUS_URL"),
+        bearer_token=os.getenv("OPS_SIGNALS_PROMETHEUS_BEARER_TOKEN") or None,
+        username=os.getenv("OPS_SIGNALS_PROMETHEUS_USERNAME") or None,
+        password=os.getenv("OPS_SIGNALS_PROMETHEUS_PASSWORD") or None,
+        verify_tls=_parse_bool(os.getenv("OPS_SIGNALS_PROMETHEUS_VERIFY_TLS"), True),
+        timeout_seconds=float(os.getenv("OPS_SIGNALS_PROMETHEUS_TIMEOUT_SECONDS", "30")),
+        headers=_parse_headers(os.getenv("OPS_SIGNALS_PROMETHEUS_HEADERS")),
+        max_window_days=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_WINDOW_DAYS", "30")),
+        max_series=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_SERIES", "20")),
+        max_samples_per_series=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_SAMPLES_PER_SERIES", "10000")),
+        max_total_samples=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_TOTAL_SAMPLES", "100000")),
+        min_step_seconds=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MIN_STEP_SECONDS", "1")),
+        max_step_seconds=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_STEP_SECONDS", "86400")),
+    )
 
 
 def get_settings() -> Settings:

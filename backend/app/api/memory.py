@@ -1,17 +1,19 @@
 """Memory management API endpoints for operational cases."""
 
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.app.config import MemoryConfig
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.schemas import (
     MemoryHealthResponse,
+    MemoryStatsResponse,
     MemoryChatRequest,
     MemoryChatResponse,
     MemoryChatSource,
@@ -429,4 +431,39 @@ async def get_memory_health(
         collection=config.vector_store.collection_name,
         embedding_model=config.embedding.model,
         dimension=config.embedding.dimension,
+    )
+
+
+@router.get("/memory/stats", response_model=MemoryStatsResponse)
+async def get_memory_stats(
+    db: Session = Depends(get_db),
+    store: VectorStore | None = Depends(get_vector_store),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> MemoryStatsResponse:
+    """Return authoritative operational-memory counts from case metadata."""
+    rows = db.execute(
+        select(OperationalCaseEntity.memory_status, func.count()).group_by(OperationalCaseEntity.memory_status)
+    ).all()
+    counts = {str(memory_status): int(count) for memory_status, count in rows}
+
+    if not config or not config.enabled:
+        enabled = False
+        status = "disabled"
+    elif not store:
+        enabled = True
+        status = "initializing"
+    else:
+        health = store.health()
+        status = str(health.get("status", "unknown"))
+        enabled = True
+
+    return MemoryStatsResponse(
+        generated_at=datetime.now(timezone.utc),
+        enabled=enabled,
+        status=status,
+        indexed_cases=counts.get("indexed", 0),
+        not_indexed_cases=counts.get("not_indexed", 0),
+        stale_cases=counts.get("stale", 0),
+        error_cases=counts.get("error", 0),
+        total_cases=sum(counts.values()),
     )

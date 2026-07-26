@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import AnalysisRunEntity, NormalizedPoint, SignalEntity
+from backend.app.models.entities import AnalysisRunEntity, FindingEntity, NormalizedPoint, SignalEntity
 
 
 def test_available_questions_and_answer_api() -> None:
@@ -71,5 +71,54 @@ def test_available_questions_and_answer_api() -> None:
             },
         )
         assert ares.status_code == 200
-        assert ares.json()['question_id'] == 'what_changed'
-        assert 'headline' in ares.json()
+    assert ares.json()['question_id'] == 'what_changed'
+    assert 'headline' in ares.json()
+
+
+def test_findings_window_filter_matches_overview_window() -> None:
+    app = create_app('sqlite+pysqlite:///:memory:')
+    now = datetime.utcnow()
+    with TestClient(app) as client:
+        session_local = get_session_local()
+        with session_local() as db:
+            db.add_all(
+                [
+                    FindingEntity(
+                        id=1,
+                        analysis_run_id='run-recent',
+                        service='checkout',
+                        metric_name='cpu_usage',
+                        title='Recent finding',
+                        summary='recent',
+                        category='behavior_change',
+                        health_status='critical',
+                        importance_score=0.9,
+                        investigation_priority=1,
+                        signal_ids=[],
+                        comparison_json={},
+                        created_at=now - timedelta(hours=2),
+                    ),
+                    FindingEntity(
+                        id=2,
+                        analysis_run_id='run-old',
+                        service='checkout',
+                        metric_name='cpu_usage',
+                        title='Old finding',
+                        summary='old',
+                        category='trend',
+                        health_status='low',
+                        importance_score=0.8,
+                        investigation_priority=3,
+                        signal_ids=[],
+                        comparison_json={},
+                        created_at=now - timedelta(days=3),
+                    ),
+                ]
+            )
+            db.commit()
+
+        res = client.get('/api/findings', params={'window': '24h'})
+
+    assert res.status_code == 200
+    payload = res.json()
+    assert [item['title'] for item in payload] == ['Recent finding']
