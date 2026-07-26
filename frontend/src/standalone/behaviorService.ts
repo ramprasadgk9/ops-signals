@@ -1,0 +1,63 @@
+import type { BehaviorDefinition, BehaviorFinding } from '../types';
+
+export type BehaviorSummary = {
+  activeBehaviors: number;
+  totalSignals: number;
+  affectedServices: number;
+  confidenceAverage: number | null;
+};
+
+export type BehaviorRow = {
+  id: number;
+  title: string;
+  pattern: string;
+  severity: string;
+  confidencePercent: number;
+  impactedServices: string;
+  detectedAt: string;
+  status: 'active';
+  evidence: string[];
+  summary: string;
+};
+
+export type BehaviorRuleRow = {
+  id: string;
+  title: string;
+  description: string;
+  version: number;
+  status: 'active' | 'disabled';
+};
+
+export function buildBehaviorSummary(findings: BehaviorFinding[]): BehaviorSummary {
+  return {
+    activeBehaviors: findings.length,
+    totalSignals: findings.reduce((total, item) => total + (item.evidence_json?.length ?? 0), 0),
+    affectedServices: new Set(findings.map((item) => item.service).filter(Boolean)).size,
+    confidenceAverage: findings.length ? Math.round((findings.reduce((total, item) => total + item.confidence, 0) / findings.length) * 100) : null,
+  };
+}
+
+export function toBehaviorRows(findings: BehaviorFinding[]): BehaviorRow[] {
+  return findings.map((finding) => ({
+    id: finding.id,
+    title: finding.title,
+    pattern: finding.category || 'unknown',
+    severity: finding.severity,
+    confidencePercent: Math.round(finding.confidence * 100),
+    impactedServices: finding.service ?? 'unavailable',
+    detectedAt: finding.created_at,
+    status: 'active',
+    evidence: finding.evidence_json ?? [],
+    summary: finding.summary,
+  }));
+}
+
+export function toBehaviorRuleRows(definitions: BehaviorDefinition[]): BehaviorRuleRow[] {
+  return definitions.map((definition) => ({
+    id: definition.id,
+    title: definition.title,
+    description: definition.description,
+    version: definition.version,
+    status: definition.enabled ? 'active' : 'disabled',
+  }));
+}

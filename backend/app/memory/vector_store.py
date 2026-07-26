@@ -164,19 +164,25 @@ class QdrantVectorStore(VectorStore):
         """Get Qdrant health status."""
         try:
             response = self.client.get_collections()
-            collection = None
-            for coll in response.collections:
-                if coll.name == self.collection_name:
-                    collection = coll
-                    break
+            collection_exists = any(coll.name == self.collection_name for coll in response.collections)
+
+            if not collection_exists:
+                return {
+                    "status": "unhealthy",
+                    "collection": self.collection_name,
+                    "reason": f"Collection {self.collection_name} not found",
+                }
+
+            collection_info = self.client.get_collection(self.collection_name)
             
             return {
                 "status": "healthy",
                 "collection": self.collection_name,
-                "points_count": collection.points_count if collection else 0,
+                "points_count": collection_info.points_count,
             }
         except Exception as e:
             return {
                 "status": "unhealthy",
+                "collection": self.collection_name,
                 "error": str(e),
             }

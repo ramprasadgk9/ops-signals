@@ -133,6 +133,125 @@ export type OperationalCase = {
   resolved_at?: string;
 };
 
+export type SeverityTrendPoint = {
+  timestamp: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+export type CategoryBreakdown = {
+  category: string;
+  count: number;
+};
+
+export type OverviewSummaryResponse = {
+  generated_at: string;
+  window: '24h' | '7d';
+  active_findings: number;
+  open_cases: number;
+  behavior_changes: number;
+  impacted_services: number;
+  memory_items: number;
+  severity_trend: SeverityTrendPoint[];
+  category_breakdown: CategoryBreakdown[];
+};
+
+export type MemoryStatsResponse = {
+  generated_at: string;
+  enabled: boolean;
+  status: string;
+  indexed_cases: number;
+  not_indexed_cases: number;
+  stale_cases: number;
+  error_cases: number;
+  total_cases: number;
+  source: string;
+};
+
+export type PrometheusConnection = {
+  id: string;
+  name: string;
+  base_url?: string | null;
+  configured: boolean;
+};
+
+export type PrometheusConnectionsResponse = {
+  connections: PrometheusConnection[];
+};
+
+export type PrometheusLabelValuesResponse = {
+  connection_id: string;
+  label: string;
+  values: string[];
+};
+
+export type PrometheusConnectionTestResponse = {
+  available: boolean;
+  version?: string | null;
+  latency_ms?: number | null;
+  message: string;
+};
+
+export type PrometheusPreviewSeries = {
+  labels: Record<string, string>;
+  samples: Array<{ timestamp: string; value: number }>;
+};
+
+export type PrometheusPreviewResponse = {
+  query: string;
+  start: string;
+  end: string;
+  step: string;
+  step_seconds: number;
+  series_count: number;
+  sample_count: number;
+  series: PrometheusPreviewSeries[];
+  warnings: string[];
+};
+
+export type DirectPrometheusAnalysisRequest = {
+  connection_id: string;
+  query: string;
+  service: string;
+  metric: string;
+  start: string;
+  end: string;
+  step: string;
+  analyzer?: string | null;
+  execution_mode: 'persist';
+};
+
+export type DirectPrometheusAnalysisResponse = {
+  analysis_run_id: string;
+  provider: string;
+  source_type: string;
+  connection_id: string;
+  connection_name: string;
+  service: string;
+  metric_name: string;
+  query: string;
+  requested_start: string;
+  requested_end: string;
+  actual_start?: string | null;
+  actual_end?: string | null;
+  step: string;
+  step_seconds: number;
+  sample_count: number;
+  series_count: number;
+  findings_count: number;
+  signal_count: number;
+  behavior_findings_count: number;
+  warnings: string[];
+  analyzer_selection_mode: string;
+  analyzer_routing: Array<Record<string, unknown>>;
+  executed_analyzers: string[];
+  series: PrometheusPreviewSeries[];
+  signals: Signal[];
+  findings: Finding[];
+};
+
 export type AnalysisRun = {
   id: string;
   source_type: string;
@@ -488,11 +607,21 @@ export type AssistantSource = {
   summary?: string | null;
 };
 
+export type AssistantEvidenceGroup = {
+  source_type: string;
+  label: string;
+  count: number;
+  sources: AssistantSource[];
+};
+
 export type AssistantChatResponse = {
   conversation_id: string;
   intent: string;
+  routes?: string[];
+  knowledge_used?: string[];
   answer: string;
   limitations: string[];
   suggested_questions: string[];
   sources: AssistantSource[];
+  evidence_groups?: AssistantEvidenceGroup[];
 };

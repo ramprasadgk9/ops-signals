@@ -29,6 +29,9 @@ import PlayCircleRoundedIcon from '@mui/icons-material/PlayCircleRounded';
 import BuildRoundedIcon from '@mui/icons-material/BuildRounded';
 import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded';
 import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUncheckedRounded';
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
@@ -70,6 +73,10 @@ function statusLabel(value: string): string {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function workflowState(label: string, done: boolean, active: boolean) {
+  return { label, done, active };
 }
 
 export function CaseDetailsPage() {
@@ -241,6 +248,29 @@ export function CaseDetailsPage() {
     { label: 'Category', value: categoryLabel },
     { label: 'Service', value: finding.service ?? 'n/a' },
   ];
+  const workflowItems = [
+    workflowState('Finding reviewed', true, tabValue === 0),
+    workflowState('Evidence checked', matchedSignals.length > 0 || signalIds.length > 0, tabValue === 1),
+    workflowState('Investigation notes', caseData.investigation_notes.length > 0 || caseData.investigation_status === 'completed', tabValue === 2),
+    workflowState('Root cause saved', Boolean(caseData.root_cause_summary) || ['identified', 'confirmed'].includes(caseData.root_cause_status), tabValue === 3),
+    workflowState('Resolution recorded', Boolean(caseData.outcome_summary || caseData.corrective_action) || caseData.outcome_status === 'resolved', tabValue === 4),
+    workflowState('Knowledge published', caseData.memory_status === 'indexed', tabValue === 5),
+  ];
+  const nextIncompleteIndex = workflowItems.findIndex((item) => !item.done);
+  const nextWorkflowIndex = nextIncompleteIndex === -1 ? 5 : nextIncompleteIndex;
+  const nextActionText = nextWorkflowIndex === 0
+    ? 'Review the finding summary and evidence.'
+    : nextWorkflowIndex === 1
+      ? 'Open Evidence and inspect the supporting signals.'
+      : nextWorkflowIndex === 2
+        ? 'Add an investigation note with what you checked.'
+        : nextWorkflowIndex === 3
+          ? 'Document the root cause, confidence, and whether it is verified.'
+            : nextWorkflowIndex === 4
+              ? 'Record the outcome and corrective action.'
+              : nextWorkflowIndex === 5
+                ? 'Publish this case to operational memory for future matching.'
+                : 'Review similar cases for recurring patterns.';
 
   return (
     <Box sx={{ pb: 4 }}>
@@ -416,16 +446,48 @@ export function CaseDetailsPage() {
           </Grid>
         </Grid>
 
-        <Box>
-          <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)} variant="scrollable" scrollButtons="auto">
-            <Tab label="Overview" id="case-tab-0" aria-controls="case-tabpanel-0" />
-            <Tab label="Evidence" id="case-tab-1" aria-controls="case-tabpanel-1" />
-            <Tab label="Investigation" id="case-tab-2" aria-controls="case-tabpanel-2" />
-            <Tab label="Root Cause" id="case-tab-3" aria-controls="case-tabpanel-3" />
-            <Tab label="Resolution" id="case-tab-4" aria-controls="case-tabpanel-4" />
-            <Tab label="Similar Cases" id="case-tab-5" aria-controls="case-tabpanel-5" />
-          </Tabs>
-        </Box>
+        <Card variant="outlined">
+          <CardContent sx={{ py: 2 }}>
+            <Stack spacing={2}>
+              <Stack direction={{ xs: 'column', lg: 'row' }} justifyContent="space-between" spacing={2}>
+                <Box>
+                  <Typography variant="overline" color="text.secondary">Workflow Status</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 700 }}>{nextActionText}</Typography>
+                </Box>
+                <Button
+                  variant="contained"
+                  endIcon={<ArrowForwardRoundedIcon />}
+                  onClick={() => setTabValue(nextWorkflowIndex)}
+                  sx={{ alignSelf: { xs: 'stretch', lg: 'center' } }}
+                >
+                  {nextWorkflowIndex >= workflowItems.length ? 'Review Similar Cases' : `Go to ${workflowItems[nextWorkflowIndex].label}`}
+                </Button>
+              </Stack>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {workflowItems.map((item, index) => (
+                  <Chip
+                    key={item.label}
+                    icon={item.done ? <CheckCircleRoundedIcon /> : <RadioButtonUncheckedRoundedIcon />}
+                    label={`${index + 1}. ${item.label}`}
+                    color={item.done ? 'success' : item.active ? 'primary' : 'default'}
+                    variant={item.done || item.active ? 'filled' : 'outlined'}
+                    onClick={() => setTabValue(index)}
+                    sx={{ fontWeight: 700 }}
+                  />
+                ))}
+              </Stack>
+              <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)} variant="scrollable" scrollButtons="auto">
+                <Tab label="Overview" id="case-tab-0" aria-controls="case-tabpanel-0" />
+                <Tab label="Evidence" id="case-tab-1" aria-controls="case-tabpanel-1" />
+                <Tab label="Investigation" id="case-tab-2" aria-controls="case-tabpanel-2" />
+                <Tab label="Root Cause" id="case-tab-3" aria-controls="case-tabpanel-3" />
+                <Tab label="Resolution" id="case-tab-4" aria-controls="case-tabpanel-4" />
+                <Tab label="Publish Knowledge" id="case-tab-5" aria-controls="case-tabpanel-5" />
+                <Tab label="Similar Cases" id="case-tab-6" aria-controls="case-tabpanel-6" />
+              </Tabs>
+            </Stack>
+          </CardContent>
+        </Card>
 
         <TabPanel value={tabValue} index={0}>
           <Grid container spacing={2}>
@@ -597,57 +659,94 @@ export function CaseDetailsPage() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={3}>
-          <Card
-            variant="outlined"
-            sx={{
-              borderColor: rcaStatus === 'investigating' || rcaStatus === 'identified' ? 'success.light' : 'divider',
-              boxShadow: rcaStatus === 'investigating' || rcaStatus === 'identified' ? '0 0 0 1px rgba(46, 125, 50, 0.12)' : 'none',
-            }}
-          >
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2 }}>
-                Root Cause
-              </Typography>
-              <Stack spacing={2}>
-                <FormControl fullWidth>
-                  <InputLabel>Status</InputLabel>
-                  <Select value={rcaStatus} onChange={(e) => setRcaStatus(e.target.value)} label="Status">
-                    <MenuItem value="unknown">Unknown</MenuItem>
-                    <MenuItem value="investigating">Investigating</MenuItem>
-                    <MenuItem value="identified">Identified</MenuItem>
-                    <MenuItem value="confirmed">Confirmed</MenuItem>
-                  </Select>
-                </FormControl>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, lg: 8 }}>
+              <Card
+                variant="outlined"
+                sx={{
+                  borderColor: rcaStatus === 'investigating' || rcaStatus === 'identified' ? 'success.light' : 'divider',
+                  boxShadow: rcaStatus === 'investigating' || rcaStatus === 'identified' ? '0 0 0 1px rgba(46, 125, 50, 0.12)' : 'none',
+                }}
+              >
+                <CardContent>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5} sx={{ mb: 2 }}>
+                    <Box>
+                      <Typography variant="h6">Root Cause</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Step 4 of 5. Save this before moving to Resolution.
+                      </Typography>
+                    </Box>
+                    <Chip
+                      label={workflowItems[3].done ? 'Completed' : tabValue === 3 ? 'Current step' : 'Not completed'}
+                      color={workflowItems[3].done ? 'success' : 'primary'}
+                      variant={workflowItems[3].done ? 'filled' : 'outlined'}
+                    />
+                  </Stack>
+                  <Stack spacing={2}>
+                    <FormControl fullWidth>
+                      <InputLabel>Status</InputLabel>
+                      <Select value={rcaStatus} onChange={(e) => setRcaStatus(e.target.value)} label="Status">
+                        <MenuItem value="unknown">Unknown</MenuItem>
+                        <MenuItem value="investigating">Investigating</MenuItem>
+                        <MenuItem value="identified">Identified</MenuItem>
+                        <MenuItem value="confirmed">Confirmed</MenuItem>
+                      </Select>
+                    </FormControl>
 
-                <TextField
-                  label="Root cause summary"
-                  multiline
-                  rows={4}
-                  value={rcaSummary}
-                  onChange={(e) => setRcaSummary(e.target.value)}
-                  placeholder="Summarize the root cause in plain language."
-                />
+                    <TextField
+                      label="Root cause summary"
+                      multiline
+                      rows={4}
+                      value={rcaSummary}
+                      onChange={(e) => setRcaSummary(e.target.value)}
+                      placeholder="Example: traffic spike caused CPU saturation after the checkout deployment increased request volume."
+                      helperText="Write the operational reason, not just the metric symptom."
+                    />
 
-                <TextField
-                  label="Confidence (0-1)"
-                  type="number"
-                  inputProps={{ step: 0.01, min: 0, max: 1 }}
-                  value={rcaConfidence}
-                  onChange={(e) => setRcaConfidence(e.target.value)}
-                />
+                    <TextField
+                      label="Confidence (0-1)"
+                      type="number"
+                      inputProps={{ step: 0.01, min: 0, max: 1 }}
+                      value={rcaConfidence}
+                      onChange={(e) => setRcaConfidence(e.target.value)}
+                      helperText="Use 0.5 for a hypothesis, 0.8+ when evidence strongly supports it."
+                    />
 
-                <FormControlLabel
-                  control={<Checkbox checked={rcaVerified} onChange={(e) => setRcaVerified(e.target.checked)} />}
-                  label="Verified"
-                />
+                    <FormControlLabel
+                      control={<Checkbox checked={rcaVerified} onChange={(e) => setRcaVerified(e.target.checked)} />}
+                      label="Verified by investigation evidence"
+                    />
 
-                <Button variant="contained" onClick={() => updateRCAMutation.mutate()} disabled={updateRCAMutation.isPending}>
-                  {updateRCAMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-                  Save Root Cause
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                      <Button variant="contained" onClick={() => updateRCAMutation.mutate()} disabled={updateRCAMutation.isPending}>
+                        {updateRCAMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+                        Save Root Cause
+                      </Button>
+                      <Button variant="outlined" onClick={() => setTabValue(4)} endIcon={<ArrowForwardRoundedIcon />}>
+                        Next: Resolution
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 4 }}>
+              <Card variant="outlined" sx={{ height: '100%' }}>
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>What To Do Here</Typography>
+                  <Stack spacing={1.5}>
+                    <WorkflowHint done={rcaStatus !== 'unknown'} text="Choose whether the RCA is investigating, identified, or confirmed." />
+                    <WorkflowHint done={Boolean(rcaSummary.trim())} text="Summarize the cause in one clear sentence." />
+                    <WorkflowHint done={Boolean(rcaConfidence)} text="Set confidence so future readers know how certain this is." />
+                    <WorkflowHint done={rcaVerified} text="Mark verified only after evidence supports the cause." />
+                  </Stack>
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    After saving, record the fix or outcome in Resolution.
+                  </Alert>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
         </TabPanel>
 
         <TabPanel value={tabValue} index={4}>
@@ -689,16 +788,99 @@ export function CaseDetailsPage() {
                   onChange={(e) => setCorrectiveAction(e.target.value)}
                 />
 
-                <Button variant="contained" onClick={() => updateResolutionMutation.mutate()} disabled={updateResolutionMutation.isPending}>
-                  {updateResolutionMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-                  Save Resolution
-                </Button>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <Button variant="contained" onClick={() => updateResolutionMutation.mutate()} disabled={updateResolutionMutation.isPending}>
+                    {updateResolutionMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+                    Save Resolution
+                  </Button>
+                  <Button variant="outlined" onClick={() => setTabValue(5)} endIcon={<ArrowForwardRoundedIcon />}>
+                    Next: Publish Knowledge
+                  </Button>
+                </Stack>
               </Stack>
             </CardContent>
           </Card>
         </TabPanel>
 
         <TabPanel value={tabValue} index={5}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, lg: 8 }}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5} sx={{ mb: 2 }}>
+                    <Box>
+                      <Typography variant="h6">Publish Knowledge</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Final step. Index this case into Operational Memory so future similar cases can retrieve it.
+                      </Typography>
+                    </Box>
+                    <Chip
+                      label={statusLabel(caseData.memory_status)}
+                      color={caseData.memory_status === 'indexed' ? 'success' : caseData.memory_status === 'failed' ? 'error' : 'default'}
+                    />
+                  </Stack>
+
+                  <Stack spacing={2}>
+                    <Alert severity={caseData.memory_status === 'indexed' ? 'success' : 'info'}>
+                      {caseData.memory_status === 'indexed'
+                        ? 'This case is already published to Operational Memory.'
+                        : caseData.memory_status === 'stale'
+                          ? 'This case was changed after indexing. Publish again to refresh memory.'
+                          : 'Resolution does not automatically publish to vector memory. Use this action when the case is ready to become reusable knowledge.'}
+                    </Alert>
+                    <Grid container spacing={2}>
+                      <Grid size={{ xs: 12, md: 4 }}>
+                        <Box sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                          <Typography variant="caption" color="text.secondary">Root Cause</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{caseData.root_cause_summary ? 'Captured' : 'Missing'}</Typography>
+                        </Box>
+                      </Grid>
+                      <Grid size={{ xs: 12, md: 4 }}>
+                        <Box sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                          <Typography variant="caption" color="text.secondary">Resolution</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{caseData.outcome_summary || caseData.corrective_action ? 'Captured' : 'Missing'}</Typography>
+                        </Box>
+                      </Grid>
+                      <Grid size={{ xs: 12, md: 4 }}>
+                        <Box sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
+                          <Typography variant="caption" color="text.secondary">Memory</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{statusLabel(caseData.memory_status)}</Typography>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                      <Button
+                        variant="contained"
+                        onClick={() => indexMemoryMutation.mutate()}
+                        disabled={indexMemoryMutation.isPending || caseData.memory_status === 'indexed'}
+                      >
+                        {indexMemoryMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+                        {caseData.memory_status === 'indexed' ? 'Published' : caseData.memory_status === 'stale' ? 'Refresh Knowledge' : 'Publish Knowledge'}
+                      </Button>
+                      <Button variant="outlined" onClick={() => setTabValue(6)} endIcon={<ArrowForwardRoundedIcon />}>
+                        Next: Similar Cases
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 4 }}>
+              <Card variant="outlined" sx={{ height: '100%' }}>
+                <CardContent>
+                  <Typography variant="h6" sx={{ mb: 2 }}>Publish Checklist</Typography>
+                  <Stack spacing={1.5}>
+                    <WorkflowHint done={Boolean(caseData.root_cause_summary)} text="Root cause has been captured." />
+                    <WorkflowHint done={Boolean(caseData.outcome_summary || caseData.corrective_action)} text="Resolution or corrective action has been recorded." />
+                    <WorkflowHint done={caseData.memory_status === 'indexed'} text="Case is indexed in Operational Memory." />
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={6}>
           <SimilarCasesList caseId={parseInt(caseId || '0')} />
         </TabPanel>
 
@@ -752,6 +934,21 @@ function SimilarCasesList({ caseId }: { caseId: number }) {
           </CardContent>
         </Card>
       ))}
+    </Stack>
+  );
+}
+
+function WorkflowHint({ done, text }: { done: boolean; text: string }) {
+  return (
+    <Stack direction="row" spacing={1.2} alignItems="flex-start">
+      {done ? (
+        <CheckCircleRoundedIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
+      ) : (
+        <RadioButtonUncheckedRoundedIcon color="disabled" fontSize="small" sx={{ mt: 0.2 }} />
+      )}
+      <Typography variant="body2" color={done ? 'text.primary' : 'text.secondary'}>
+        {text}
+      </Typography>
     </Stack>
   );
 }
