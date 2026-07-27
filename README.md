@@ -16,6 +16,33 @@ Upload a metric time series, let the analyzers explain what changed, promote imp
 - A reusable memory layer for similar cases and prior context
 - An open, self-hostable workflow instead of a closed black box
 
+## Product Preview
+
+Ops Signals is available through a standalone operational intelligence workspace and a Grafana plugin.
+
+**[View the complete screenshot gallery](docs/screenshots.md)**
+
+### Standalone Operational Intelligence Workspace
+
+![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
+
+### Analyze Prometheus Data Directly
+
+![Direct Prometheus Analysis](docs/screenshots/images/web/03-new-analysis-prometheus.png)
+
+### Investigate and Preserve Operational Knowledge
+
+![Case Investigation](docs/screenshots/images/web/05-case-details.png)
+
+### Run Analysis Inside Grafana
+
+![Grafana Analysis Results](docs/screenshots/images/grafana-plugin/02-metrics-analysis.png)
+
+### Two ways to use Ops Signals
+
+- **Standalone Web UI:** Supports CSV upload, direct Prometheus analysis, findings, cases, behavior intelligence, operational memory, and assistant retrieval.
+- **Grafana Plugin:** Supports metric analysis within an existing Grafana and Prometheus environment using the active Grafana time range.
+
 ## Problem
 
 Raw time-series points are noisy, high-volume, and hard to reason about directly. Detector outputs alone can tell you that something changed, but not what it means, how severe it is, or how it relates to prior incidents.

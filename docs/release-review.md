@@ -3,7 +3,7 @@
 This document is an implementation-first review of the repository as it exists now,
 after the standalone Operational Intelligence UI revamp, direct Prometheus analysis
 integration, overview summary endpoints, memory statistics endpoint, assistant
-routing improvements, and Qdrant health fix.
+routing improvements, Qdrant health fix, and screenshot gallery documentation.
 
 It is intentionally strict: if a capability is only described in documentation but
 not confirmed in code, it is not treated as complete.
@@ -22,7 +22,7 @@ retrievable operational memory.
 
 ### Overall assessment
 
-- Open-source release readiness: 7.5 / 10
+- Open-source release readiness: 7.8 / 10
 - Production readiness: 3.5 / 10
 
 ### Why this score
@@ -41,7 +41,7 @@ retrievable operational memory.
 - The test suite is materially better than before, but still lacks browser E2E
   coverage, Grafana integration automation, and benchmark/golden-output tests.
 - First-time-user documentation is decent, but still needs a guided tour with
-  expected outputs and screenshots generated from a stable demo run.
+  expected outputs from one stable demo run.
 
 ## What the Project Solves
 
@@ -239,7 +239,7 @@ repair or audit workflow.
 | Feature | Status | Evidence | Why it is not complete |
 | --- | --- | --- | --- |
 | Autonomous remediation | Missing | `README.md` explicitly says it does not perform autonomous remediation | There is no remediation engine |
-| Stable screenshot gallery | Missing | `web-ui-images/` is intentionally gitignored; README has no committed gallery | Reference screenshots exist locally but are not tracked as public docs |
+| Stable screenshot gallery | Complete | `docs/screenshots.md`, `docs/screenshots/images/web/`, `docs/screenshots/images/grafana-plugin/` | Screenshots are now documented; keeping them current is a release maintenance task |
 | Stronger memory workflows | Partial / evolving | `README.md`, `backend/app/api/memory.py`, `frontend/src/pages/OperationalMemoryPage.tsx` | The flow is useful, but lacks reconciliation, repair, and admin operations |
 | Richer retrieval filters and comparison views | Planned | `README.md` roadmap, `docs/10-roadmap.md` | Not yet implemented as a polished feature |
 | More analyzer coverage | Planned | `README.md` roadmap | Current analyzer set is useful but limited |
@@ -388,10 +388,10 @@ The API surface is broad and real.
 - Release process doc exists.
 - Diagrams exist.
 - Standalone Overview and Prometheus direct-analysis API docs exist.
+- A screenshot gallery now covers the standalone Web UI and Grafana plugin.
 
 ### Gaps
 
-- No committed screenshot gallery.
 - No concise first-time-user tour with expected outputs from one canonical sample run.
 - Some docs sound more mature than the implementation actually is.
 - The repo would benefit from a clearer distinction between:
@@ -441,7 +441,7 @@ good first analysis looks like.
 
 - No autonomous remediation
 - Limited UI onboarding
-- No committed screenshot/story assets
+- Screenshot/story assets exist, but they still need an explicit first-run narrative
 - Some heuristic logic where a strict state machine would be better
 - Some optional dependency fallbacks that can alter behavior
 - No browser E2E or release smoke workflow that exercises the full UI path
