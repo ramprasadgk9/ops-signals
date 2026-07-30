@@ -1,0 +1,14 @@
+{
+  "signals": [
+    {
+      "type": "baseline_shift",
+      "severity": "medium",
+      "confidence_min": 0.60
+    }
+  ],
+  "findings": [
+    {
+      "type": "behavior_change"
+    }
+  ]
+}

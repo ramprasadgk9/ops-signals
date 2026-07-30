@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -122,3 +123,30 @@ def test_findings_window_filter_matches_overview_window() -> None:
     assert res.status_code == 200
     payload = res.json()
     assert [item['title'] for item in payload] == ['Recent finding']
+
+
+def test_csv_validation_uses_router_pipeline() -> None:
+    app = create_app('sqlite+pysqlite:///:memory:')
+    dataset_path = Path(__file__).resolve().parents[2] / 'benchmark' / 'scenarios' / 'cpu_pure_baseline_shift_v1' / 'dataset.csv'
+
+    with TestClient(app) as client:
+        with dataset_path.open('rb') as handle:
+            res = client.post(
+                '/api/ingestion/csv-validate',
+                data={
+                    'provider': 'prometheus',
+                    'analyzer_id': 'all',
+                    'service': 'benchmark-cpu',
+                    'metric_name': 'cpu.usage_user',
+                    'interval': '5m',
+                },
+                files={'file': ('dataset.csv', handle, 'text/csv')},
+            )
+
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload['analyzer_id'] == 'router'
+    assert payload['analyzer_selection_mode'] == 'recommended_only'
+    assert payload['analyzer_routing']
+    assert payload['executed_analyzers']
+    assert any(decision['analyzer_id'] == 'ruptures' for decision in payload['analyzer_routing'])

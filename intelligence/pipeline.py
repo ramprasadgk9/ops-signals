@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pandas as pd
 
-from experiments.analyzer_router.router import UniversalTimeSeriesRouter
+from backend.app.services.timeseries_routing_service import TimeSeriesRoutingService
 from intelligence.adapters.csv_adapter import CSVAdapter
 from intelligence.analyzers import (
     BaselineShiftAnalyzer,
@@ -207,9 +207,7 @@ class SignalPipeline:
         if normalized.empty:
             return [], {}, None
         try:
-            router = UniversalTimeSeriesRouter()
-            _, profile, _ = router.profile_dataframe(normalized, "timestamp", "value")
-            decisions = router.recommend_analyzers_for_profile(profile)
+            result = TimeSeriesRoutingService().route_normalized(normalized)
         except Exception as exc:
             logger.exception("Analyzer router failed during pipeline routing")
             return [
@@ -225,22 +223,7 @@ class SignalPipeline:
                     "warnings": [str(exc)],
                 }
             ], {}, None
-        return [
-            {
-                "analyzer_id": decision.analyzer,
-                "display_name": decision.display_name,
-                "eligible": decision.eligible,
-                "eligibility_score": decision.eligibility_score,
-                "suitability_score": decision.suitability_score,
-                "recommendation": decision.recommendation,
-                "final_score": decision.final_score,
-                "reasons": decision.reasons,
-                "warnings": decision.warnings,
-                "explanation": decision.explanation,
-                "parameters_tested": decision.parameters_tested,
-            }
-            for decision in decisions
-        ], asdict(profile), router.registry.registry_version
+        return result.analyzer_routing, result.profile, result.registry_version
 
     def _allowed_pipeline_analyzers(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
         mode = (self.config.analysis.selection_mode or "all").lower().strip()

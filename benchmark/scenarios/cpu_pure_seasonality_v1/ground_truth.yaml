@@ -1,0 +1,49 @@
+scenario:
+  id: cpu_pure_seasonality_v1
+  name: Pure CPU Seasonality
+  description: >
+    Deterministic CPU series with a repeated daily operational motif and no
+    trend, persistent shift, or isolated spikes.
+
+dataset:
+  source: generated
+  scenario_dataset: benchmark/scenarios/cpu_pure_seasonality_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_behavior:
+  dominant:
+    - seasonal
+    - repeating_pattern
+
+expected_router:
+  required_recommended:
+    - stumpy
+  allowed_optional:
+    - prophet
+    - kats
+    - darts
+  forbidden_recommended:
+    - ruptures
+    - river
+    - alibi_detect
+    - trend_regression
+    - adtk
+    - pyod
+  required_detected_profiles:
+    - seasonal
+    - repeating_pattern
+  forbidden_detected_profiles:
+    - baseline_shift
+    - regime_change
+    - trend
+    - spike
+    - mixed
+
+validation:
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true
+
+notes:
+  - Darts is allowed as optional because the current registry treats seasonal forecast capability as behavior-compatible.

@@ -1,0 +1,53 @@
+scenario:
+  id: cpu_mixed_behavior_v1
+  name: Mixed CPU Behavior
+  description: >
+    CPU series combining recurring seasonality, a gradual trend, and one
+    moderate persistent baseline shift.
+
+dataset:
+  source: generated
+  scenario_dataset: benchmark/scenarios/cpu_mixed_behavior_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_behavior:
+  dominant:
+    - seasonal
+    - repeating_pattern
+    - trend
+    - baseline_shift
+    - regime_change
+    - mixed
+
+expected_router:
+  required_recommended:
+    - kats
+  allowed_optional:
+    - ruptures
+    - prophet
+    - darts
+    - stumpy
+    - trend_regression
+    - alibi_detect
+  forbidden_recommended:
+    - pyod
+    - adtk
+    - river
+  required_detected_profiles:
+    - seasonal
+    - repeating_pattern
+    - trend
+    - baseline_shift
+    - regime_change
+    - mixed
+  forbidden_detected_profiles:
+    - spike
+
+validation:
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true
+
+notes:
+  - Kats is required, but this scenario intentionally allows multiple recommended analyzers because the behavior is mixed.

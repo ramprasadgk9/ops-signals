@@ -55,6 +55,13 @@ class SeriesProfile:
     spikiness: float
     shift_index: float
     autocorrelation: float | None = None
+    trend_fit_r2: float = 0.0
+    trend_abruptness_ratio: float = 0.0
+    seasonality_dominant_lag: int | None = None
+    seasonality_peak_strength: float = 0.0
+    transient_spike_count: int = 0
+    persistent_jump_count: int = 0
+    detected_profiles: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -70,6 +77,7 @@ class AnalyzerDecision:
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     explanation: str = ""
+    routing_reason: str = ""
     parameters_tested: dict[str, Any] = field(default_factory=dict)
 
 

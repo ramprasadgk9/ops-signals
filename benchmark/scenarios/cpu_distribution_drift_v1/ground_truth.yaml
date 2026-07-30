@@ -1,0 +1,44 @@
+scenario:
+  id: cpu_distribution_drift_v1
+  name: CPU Distribution Drift
+  description: >
+    CPU series with gradual mean and variance drift but no single abrupt
+    change point, periodicity, or isolated spike pattern.
+
+dataset:
+  source: generated
+  scenario_dataset: benchmark/scenarios/cpu_distribution_drift_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_behavior:
+  dominant:
+    - distribution_drift
+
+expected_router:
+  required_recommended:
+    - alibi_detect
+  allowed_optional:
+    - river
+    - kats
+  forbidden_recommended:
+    - ruptures
+    - stumpy
+    - prophet
+    - trend_regression
+    - pyod
+  required_detected_profiles:
+    - distribution_drift
+  forbidden_detected_profiles:
+    - baseline_shift
+    - regime_change
+    - seasonal
+    - spike
+
+validation:
+  router:
+    expected_status: GAP
+    gap_reason: Router does not yet extract distribution_drift/drift profiles, so Alibi Detect cannot be uniquely validated from this batch CSV.
+
+notes:
+  - This scenario is intentionally committed as a capability gap rather than mapped to baseline_shift.

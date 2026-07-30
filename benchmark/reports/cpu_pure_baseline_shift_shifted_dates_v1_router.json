@@ -1,0 +1,979 @@
+{
+  "actual": {
+    "not_recommended": [
+      "stumpy",
+      "prophet",
+      "river",
+      "darts",
+      "trend_regression",
+      "adtk",
+      "pyod"
+    ],
+    "optional": [
+      "kats",
+      "alibi_detect"
+    ],
+    "recommended": [
+      "ruptures"
+    ]
+  },
+  "actual_details": {
+    "not_recommended": [
+      {
+        "analyzer": "stumpy",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "STUMPY",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "STUMPY is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.42.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "repeating_pattern",
+            "seasonal"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 30,
+            "requires_regular_sampling": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.08,
+              "equals": true,
+              "metric": "regular_sampling"
+            },
+            {
+              "add": 0.04,
+              "gte": 60,
+              "metric": "sample_count"
+            }
+          ],
+          "profile_match": false,
+          "scoring_rules": {
+            "base": 0.3,
+            "rules": [
+              {
+                "add": 0.2,
+                "gte": 0.42,
+                "metric": "seasonality_strength"
+              },
+              {
+                "add": 0.22,
+                "gte": 0.65,
+                "metric": "seasonality_strength"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.8,
+                "metric": "seasonality_strength"
+              },
+              {
+                "add": 0.08,
+                "equals": true,
+                "metric": "regular_sampling"
+              },
+              {
+                "add": 0.04,
+                "gte": 60,
+                "metric": "sample_count"
+              }
+            ]
+          },
+          "suitability_explanation": "STUMPY is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.42.",
+          "suitability_rules": {
+            "prefer_high_seasonality": true
+          },
+          "supported_profiles": [
+            "seasonal",
+            "motif",
+            "repeating_pattern"
+          ]
+        },
+        "reason": "STUMPY is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.42.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 30.",
+          "Sampling is regular enough for this analyzer.",
+          "No supported behavioral profile matched the detected profiles: baseline_shift, regime_change.",
+          "The series appears to repeat similar shapes or seasonal motifs."
+        ],
+        "routing_reason": "STUMPY is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.42.",
+        "score": 0.42,
+        "suitability_score": 0.42,
+        "warnings": []
+      },
+      {
+        "analyzer": "prophet",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "Prophet",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "Prophet is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "seasonal",
+            "trend"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 60,
+            "requires_regular_sampling": true,
+            "requires_timestamp": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.16,
+              "gte": 60,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.08,
+              "gte": 120,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.18,
+              "equals": true,
+              "metric": "regular_sampling"
+            }
+          ],
+          "profile_match": false,
+          "scoring_rules": {
+            "base": 0.28,
+            "rules": [
+              {
+                "add": 0.16,
+                "gte": 60,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.08,
+                "gte": 120,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.18,
+                "equals": true,
+                "metric": "regular_sampling"
+              },
+              {
+                "add": 0.16,
+                "gte": 0.18,
+                "metric": "trend_strength"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.35,
+                "metric": "trend_strength"
+              },
+              {
+                "add": 0.1,
+                "gte": 0.32,
+                "metric": "seasonality_strength"
+              },
+              {
+                "add": 0.06,
+                "gte": 0.55,
+                "metric": "seasonality_strength"
+              }
+            ]
+          },
+          "suitability_explanation": "Prophet is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+          "suitability_rules": {
+            "prefer_regular_sampling": true,
+            "prefer_trend": true
+          },
+          "supported_profiles": [
+            "trend",
+            "seasonal",
+            "forecast"
+          ]
+        },
+        "reason": "Prophet is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 60.",
+          "Sampling is regular enough for this analyzer.",
+          "No supported behavioral profile matched the detected profiles: baseline_shift, regime_change.",
+          "The series has enough history and a predictable structure for forecasting."
+        ],
+        "routing_reason": "Prophet is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+        "score": 0.54,
+        "suitability_score": 0.54,
+        "warnings": []
+      },
+      {
+        "analyzer": "river",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "River",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "River received score 0.35.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "requires_numeric": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [],
+          "profile_match": true,
+          "scoring_rules": {
+            "base": 0.35,
+            "rules": [
+              {
+                "add": 0.18,
+                "gte": 12,
+                "metric": "irregular_sampling_percentage"
+              },
+              {
+                "add": 0.12,
+                "gte": 25,
+                "metric": "irregular_sampling_percentage"
+              },
+              {
+                "add": 0.18,
+                "gte": 0.22,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.4,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.1,
+                "equals": false,
+                "metric": "regular_sampling"
+              }
+            ]
+          },
+          "suitability_explanation": "River received score 0.35.",
+          "suitability_rules": {
+            "prefer_online_use": true
+          },
+          "supported_profiles": [
+            "online_anomaly",
+            "streaming",
+            "drift"
+          ]
+        },
+        "reason": "River received score 0.35.",
+        "reasons": [
+          "The series meets the technical requirements.",
+          "No behavioral profile restriction is configured for this analyzer.",
+          "The series is appropriate for online anomaly or drift detection."
+        ],
+        "routing_reason": "River received score 0.35.",
+        "score": 0.35,
+        "suitability_score": 0.35,
+        "warnings": []
+      },
+      {
+        "analyzer": "darts",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "Darts",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "Darts is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "seasonal",
+            "trend"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 80,
+            "requires_regular_sampling": true,
+            "requires_timestamp": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.16,
+              "gte": 80,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.08,
+              "gte": 120,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.18,
+              "equals": true,
+              "metric": "regular_sampling"
+            }
+          ],
+          "profile_match": false,
+          "scoring_rules": {
+            "base": 0.24,
+            "rules": [
+              {
+                "add": 0.16,
+                "gte": 80,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.08,
+                "gte": 120,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.18,
+                "equals": true,
+                "metric": "regular_sampling"
+              },
+              {
+                "add": 0.2,
+                "gte": 0.45,
+                "metric": "seasonality_strength"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.12,
+                "metric": "trend_strength"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.7,
+                "metric": "seasonality_strength"
+              }
+            ]
+          },
+          "suitability_explanation": "Darts is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+          "suitability_rules": {},
+          "supported_profiles": [
+            "forecast",
+            "seasonal",
+            "trend",
+            "complex_pattern"
+          ]
+        },
+        "reason": "Darts is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 80.",
+          "Sampling is regular enough for this analyzer.",
+          "No supported behavioral profile matched the detected profiles: baseline_shift, regime_change.",
+          "The series has enough history and non-linear structure for advanced forecasting approaches."
+        ],
+        "routing_reason": "Darts is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.54.",
+        "score": 0.54,
+        "suitability_score": 0.54,
+        "warnings": []
+      },
+      {
+        "analyzer": "trend_regression",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "Trend Regression",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "Trend Regression is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "trend"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 30,
+            "requires_numeric": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.12,
+              "gte": 30,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.12,
+              "equals": true,
+              "metric": "regular_sampling"
+            },
+            {
+              "add": -0.08,
+              "gte": 0.05,
+              "metric": "shift_index"
+            }
+          ],
+          "profile_match": false,
+          "scoring_rules": {
+            "base": 0.34,
+            "rules": [
+              {
+                "add": 0.12,
+                "gte": 30,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.12,
+                "equals": true,
+                "metric": "regular_sampling"
+              },
+              {
+                "add": 0.18,
+                "gte": 0.08,
+                "metric": "trend_strength"
+              },
+              {
+                "add": 0.12,
+                "gte": 0.18,
+                "metric": "trend_strength"
+              },
+              {
+                "add": 0.0,
+                "lt": 0.05,
+                "metric": "shift_index"
+              },
+              {
+                "add": -0.08,
+                "gte": 0.05,
+                "metric": "shift_index"
+              }
+            ]
+          },
+          "suitability_explanation": "Trend Regression is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+          "suitability_rules": {},
+          "supported_profiles": [
+            "trend",
+            "linear_movement",
+            "slow_change"
+          ]
+        },
+        "reason": "Trend Regression is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 30.",
+          "No supported behavioral profile matched the detected profiles: baseline_shift, regime_change.",
+          "The series contains a measurable directional movement that regression can summarize well."
+        ],
+        "routing_reason": "Trend Regression is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+        "score": 0.5,
+        "suitability_score": 0.5,
+        "warnings": []
+      },
+      {
+        "analyzer": "adtk",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "ADTK",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "ADTK is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.52.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "outlier",
+            "spike"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 40,
+            "requires_numeric": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.1,
+              "gte": 40,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.08,
+              "equals": true,
+              "metric": "regular_sampling"
+            },
+            {
+              "add": 0.06,
+              "gte": 0.08,
+              "metric": "shift_index"
+            }
+          ],
+          "profile_match": false,
+          "scoring_rules": {
+            "base": 0.28,
+            "rules": [
+              {
+                "add": 0.1,
+                "gte": 40,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.08,
+                "equals": true,
+                "metric": "regular_sampling"
+              },
+              {
+                "add": 0.18,
+                "gte": 0.18,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.16,
+                "gte": 0.6,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.14,
+                "gte": 0.18,
+                "metric": "seasonality_strength"
+              },
+              {
+                "add": 0.06,
+                "gte": 0.08,
+                "metric": "shift_index"
+              }
+            ]
+          },
+          "suitability_explanation": "ADTK is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.52.",
+          "suitability_rules": {},
+          "supported_profiles": [
+            "spike",
+            "seasonal_anomaly",
+            "rule_based",
+            "outlier"
+          ]
+        },
+        "reason": "ADTK is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.52.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 40.",
+          "No supported behavioral profile matched the detected profiles: baseline_shift, regime_change.",
+          "The series is suitable for rule-based anomaly checks and seasonal contradiction detection."
+        ],
+        "routing_reason": "ADTK is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.52.",
+        "score": 0.52,
+        "suitability_score": 0.52,
+        "warnings": []
+      },
+      {
+        "analyzer": "pyod",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "PyOD",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "PyOD is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "anomaly",
+            "outlier"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 50,
+            "requires_numeric": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.12,
+              "gte": 50,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.12,
+              "gte": 0.05,
+              "metric": "shift_index"
+            }
+          ],
+          "profile_match": false,
+          "scoring_rules": {
+            "base": 0.26,
+            "rules": [
+              {
+                "add": 0.12,
+                "gte": 50,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.16,
+                "gte": 0.2,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.12,
+                "gte": 0.05,
+                "metric": "shift_index"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.35,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.16,
+                "gte": 0.6,
+                "metric": "spikiness"
+              }
+            ]
+          },
+          "suitability_explanation": "PyOD is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+          "suitability_rules": {},
+          "supported_profiles": [
+            "outlier",
+            "multivariate_outlier",
+            "anomaly"
+          ]
+        },
+        "reason": "PyOD is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 50.",
+          "No supported behavioral profile matched the detected profiles: baseline_shift, regime_change.",
+          "The series contains enough unusual variation to justify an outlier-centric view."
+        ],
+        "routing_reason": "PyOD is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
+        "score": 0.5,
+        "suitability_score": 0.5,
+        "warnings": []
+      }
+    ],
+    "optional": [
+      {
+        "analyzer": "kats",
+        "category": "OPTIONAL",
+        "display_name": "Kats",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "Kats matched the detected baseline_shift profiles, with final score 0.60.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "anomaly",
+            "baseline_shift",
+            "seasonal"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 30
+          },
+          "matched_profiles": [
+            "baseline_shift"
+          ],
+          "matched_scoring_rules": [
+            {
+              "add": 0.14,
+              "gte": 0.08,
+              "metric": "shift_index"
+            },
+            {
+              "add": 0.08,
+              "gte": 40,
+              "metric": "sample_count"
+            }
+          ],
+          "profile_match": true,
+          "scoring_rules": {
+            "base": 0.28,
+            "rules": [
+              {
+                "add": 0.14,
+                "gte": 0.08,
+                "metric": "shift_index"
+              },
+              {
+                "add": 0.12,
+                "gte": 0.2,
+                "metric": "seasonality_strength"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.12,
+                "metric": "trend_strength"
+              },
+              {
+                "add": 0.08,
+                "gte": 40,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.14,
+                "gte": 2,
+                "metric": "behavior_mix"
+              },
+              {
+                "add": 0.08,
+                "gte": 3,
+                "metric": "behavior_mix"
+              }
+            ]
+          },
+          "suitability_explanation": "Kats matched the detected baseline_shift profiles, with final score 0.60.",
+          "suitability_rules": {
+            "prefer_mixed_behavior": true
+          },
+          "supported_profiles": [
+            "baseline_shift",
+            "forecast",
+            "anomaly",
+            "seasonal"
+          ]
+        },
+        "reason": "Kats matched the detected baseline_shift profiles, with final score 0.60.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 30.",
+          "Matched detected profiles: baseline_shift.",
+          "The series contains multiple behaviors that Kats can analyze through a flexible set of algorithms."
+        ],
+        "routing_reason": "Kats matched the detected baseline_shift profiles, with final score 0.60.",
+        "score": 0.6,
+        "suitability_score": 0.6,
+        "warnings": []
+      },
+      {
+        "analyzer": "alibi_detect",
+        "category": "OPTIONAL",
+        "display_name": "Alibi Detect",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "Alibi Detect received score 0.58.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 50,
+            "requires_numeric": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.18,
+              "gte": 0.05,
+              "metric": "shift_index"
+            },
+            {
+              "add": 0.08,
+              "gte": 0.15,
+              "metric": "shift_index"
+            }
+          ],
+          "profile_match": true,
+          "scoring_rules": {
+            "base": 0.32,
+            "rules": [
+              {
+                "add": 0.04,
+                "gte": 5,
+                "metric": "missing_percentage"
+              },
+              {
+                "add": 0.12,
+                "gte": 5,
+                "metric": "irregular_sampling_percentage"
+              },
+              {
+                "add": 0.18,
+                "gte": 0.05,
+                "metric": "shift_index"
+              },
+              {
+                "add": 0.12,
+                "gte": 0.1,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.15,
+                "metric": "shift_index"
+              }
+            ]
+          },
+          "suitability_explanation": "Alibi Detect received score 0.58.",
+          "suitability_rules": {},
+          "supported_profiles": [
+            "drift",
+            "distribution_change",
+            "concept_drift"
+          ]
+        },
+        "reason": "Alibi Detect received score 0.58.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 50.",
+          "No behavioral profile restriction is configured for this analyzer.",
+          "The series suggests drift or distribution movement that merits drift-oriented monitoring."
+        ],
+        "routing_reason": "Alibi Detect received score 0.58.",
+        "score": 0.58,
+        "suitability_score": 0.58,
+        "warnings": []
+      }
+    ],
+    "recommended": [
+      {
+        "analyzer": "ruptures",
+        "category": "RECOMMENDED",
+        "display_name": "Ruptures",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "Ruptures matched the detected baseline_shift and regime_change profiles, with final score 1.00.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "baseline_shift",
+            "mixed",
+            "regime_change",
+            "trend"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "eligibility_rules": {
+            "min_samples": 30,
+            "requires_numeric": true
+          },
+          "matched_profiles": [
+            "baseline_shift",
+            "regime_change"
+          ],
+          "matched_scoring_rules": [
+            {
+              "add": 0.18,
+              "gte": 0.12,
+              "metric": "shift_index"
+            },
+            {
+              "add": 0.22,
+              "gte": 0.22,
+              "metric": "shift_index"
+            },
+            {
+              "add": 0.08,
+              "equals": true,
+              "metric": "regular_sampling"
+            }
+          ],
+          "profile_match": true,
+          "scoring_rules": {
+            "base": 0.45,
+            "rules": [
+              {
+                "add": 0.18,
+                "gte": 0.12,
+                "metric": "shift_index"
+              },
+              {
+                "add": 0.22,
+                "gte": 0.22,
+                "metric": "shift_index"
+              },
+              {
+                "add": 0.08,
+                "gte": 0.32,
+                "metric": "shift_index"
+              },
+              {
+                "add": 0.08,
+                "equals": true,
+                "metric": "regular_sampling"
+              },
+              {
+                "add": 0.04,
+                "gt": 0.35,
+                "metric": "spikiness"
+              }
+            ]
+          },
+          "suitability_explanation": "Ruptures matched the detected baseline_shift and regime_change profiles, with final score 1.00.",
+          "suitability_rules": {
+            "min_variance": 1e-09,
+            "prefer_regular_sampling": true
+          },
+          "supported_profiles": [
+            "baseline_shift",
+            "regime_change",
+            "mixed",
+            "trend"
+          ]
+        },
+        "reason": "Ruptures matched the detected baseline_shift and regime_change profiles, with final score 1.00.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 30.",
+          "Matched detected profiles: baseline_shift, regime_change.",
+          "The series shows evidence of sustained baseline changes and enough samples for segment comparison."
+        ],
+        "routing_reason": "Ruptures matched the detected baseline_shift and regime_change profiles, with final score 1.00.",
+        "score": 1.0,
+        "suitability_score": 1.0,
+        "warnings": []
+      }
+    ]
+  },
+  "checks": {
+    "forbidden_detected_profiles_absent": true,
+    "forbidden_recommended_absent": true,
+    "required_analyzers_eligible": true,
+    "required_detected_profiles_present": true,
+    "required_recommended_present": true
+  },
+  "documented_gap": null,
+  "execution_error": null,
+  "forbidden_detected_profiles": [],
+  "incorrectly_recommended": [],
+  "missing_detected_profiles": [],
+  "missing_required": [],
+  "profile": {
+    "autocorrelation": 0.9956162165604693,
+    "constant_value_percentage": 0.0496031746031746,
+    "detected_profiles": [
+      "baseline_shift",
+      "regime_change"
+    ],
+    "duplicate_timestamp_count": 0,
+    "duration_seconds": 604500,
+    "interpolated_percentage": 0.0,
+    "interpolated_sample_count": 0,
+    "invalid_timestamp_count": 0,
+    "invalid_value_count": 0,
+    "irregular_sampling_percentage": 0.0,
+    "maximum": 50.9992,
+    "mean": 40.01277043650794,
+    "minimum": 29.0008,
+    "missing_percentage": 0.0,
+    "notes": [
+      "Evidence of baseline shift was detected."
+    ],
+    "original_sample_count": 2016,
+    "persistent_jump_count": 1,
+    "regular_sampling": true,
+    "sample_count": 2016,
+    "sampling_interval_seconds": 300,
+    "seasonality_dominant_lag": 249,
+    "seasonality_peak_strength": 0.07382010452470768,
+    "seasonality_strength": 0.0,
+    "shift_index": 0.2496473534065655,
+    "spikiness": 0.0,
+    "stddev": 10.005414363117977,
+    "transient_spike_count": 0,
+    "trend_abruptness_ratio": 0.9717775980657081,
+    "trend_fit_r2": 0.7575314135298451,
+    "trend_slope": 0.014888686211659126,
+    "trend_strength": 0.009136725857478196,
+    "valid_sample_count": 2016,
+    "variance": 100.1083165776875
+  },
+  "required_ineligible": [],
+  "scenario_id": "cpu_pure_baseline_shift_shifted_dates_v1",
+  "status": "PASS",
+  "unexpected_optional": []
+}

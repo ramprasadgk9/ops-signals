@@ -1,0 +1,44 @@
+scenario:
+  id: cpu_linear_trend_v1
+  name: Pure CPU Linear Trend
+  description: >
+    Deterministic CPU series with a smooth linear increase and no abrupt
+    transition, seasonal component, or isolated spikes.
+
+dataset:
+  source: generated
+  scenario_dataset: benchmark/scenarios/cpu_linear_trend_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_behavior:
+  dominant:
+    - trend
+
+expected_router:
+  required_recommended:
+    - trend_regression
+  allowed_optional:
+    - prophet
+    - darts
+  forbidden_recommended:
+    - ruptures
+    - stumpy
+    - river
+    - alibi_detect
+    - adtk
+    - pyod
+  required_detected_profiles:
+    - trend
+  forbidden_detected_profiles:
+    - baseline_shift
+    - regime_change
+    - seasonal
+    - repeating_pattern
+    - spike
+    - mixed
+
+validation:
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true

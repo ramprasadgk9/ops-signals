@@ -1,0 +1,46 @@
+scenario:
+  id: cpu_isolated_spikes_v1
+  name: Isolated CPU Spikes
+  description: >
+    Deterministic CPU series with a stable baseline and isolated one-point
+    anomalies that return immediately to the prior level.
+
+dataset:
+  source: generated
+  scenario_dataset: benchmark/scenarios/cpu_isolated_spikes_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_behavior:
+  dominant:
+    - spike
+    - anomaly
+    - outlier
+
+expected_router:
+  required_recommended:
+    - pyod
+  allowed_optional:
+    - adtk
+    - alibi_detect
+  forbidden_recommended:
+    - ruptures
+    - stumpy
+    - prophet
+    - darts
+    - trend_regression
+    - kats
+  required_detected_profiles:
+    - spike
+    - anomaly
+    - outlier
+  forbidden_detected_profiles:
+    - baseline_shift
+    - regime_change
+    - seasonal
+    - trend
+
+validation:
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true

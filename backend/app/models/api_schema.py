@@ -156,6 +156,9 @@ class CsvValidationOut(BaseModel):
     normalized_preview: list[dict]
     signals: list[ValidationSignalOut]
     findings: list[ValidationFindingOut]
+    analyzer_selection_mode: str = "all"
+    analyzer_routing: list[dict] = Field(default_factory=list)
+    executed_analyzers: list[str] = Field(default_factory=list)
 
 
 class FindingOut(BaseModel):

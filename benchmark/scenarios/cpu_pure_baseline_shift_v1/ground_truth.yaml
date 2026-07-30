@@ -1,0 +1,76 @@
+scenario:
+  id: cpu_pure_baseline_shift_v1
+  name: Pure CPU Baseline Shift
+  description: >
+    Synthetic low-seasonality CPU series with one abrupt and sustained
+    baseline increase.
+
+dataset:
+  source: benchmark/normalized/healthy_cpu_7d.csv
+  scenario_dataset: benchmark/scenarios/cpu_pure_baseline_shift_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_event:
+  type: baseline_shift
+  direction: increase
+  timestamp: "2016-01-04T12:00:00Z"
+  tolerance_before: 30m
+  tolerance_after: 30m
+  minimum_magnitude: 15
+
+expected_analyzers:
+  recommended:
+    - ruptures
+
+  optional:
+    - trend_regression
+    - adtk
+
+  not_recommended:
+    - stumpy
+    - prophet
+
+expected_router:
+  required_recommended:
+    - ruptures
+
+  allowed_optional:
+    - trend_regression
+    - adtk
+    - river
+
+  forbidden_recommended:
+    - stumpy
+    - prophet
+  required_detected_profiles:
+    - baseline_shift
+    - regime_change
+  forbidden_detected_profiles:
+    - seasonal
+    - repeating_pattern
+    - trend
+    - spike
+    - mixed
+
+expected_signals:
+  - type: baseline_shift
+
+expected_findings:
+  - type: behavior_change
+
+validation:
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true
+
+  signals:
+    require_all: true
+
+  findings:
+    require_all: true
+
+notes:
+  - This scenario intentionally suppresses seasonality and motif structure.
+  - The primary purpose is to validate Ruptures router recommendation.
+  - The original TSBS timestamps and metadata are preserved.

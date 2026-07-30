@@ -1,0 +1,74 @@
+scenario:
+  id: cpu_pure_baseline_shift_shifted_dates_v1
+  name: Pure CPU Baseline Shift With Shifted Dates
+  description: >
+    Copy of cpu_pure_baseline_shift_v1 with timestamps shifted to 2026
+    while preserving values, order, interval, and metadata. This scenario
+    validates that routing depends on time-series behavior rather than the
+    absolute calendar dates.
+
+dataset:
+  source: benchmark/scenarios/cpu_pure_baseline_shift_v1/dataset.csv
+  scenario_dataset: benchmark/scenarios/cpu_pure_baseline_shift_shifted_dates_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_event:
+  type: baseline_shift
+  direction: increase
+  timestamp: "2026-01-04T12:00:00Z"
+  tolerance_before: 30m
+  tolerance_after: 30m
+  minimum_magnitude: 15
+
+expected_router:
+  required_recommended:
+    - ruptures
+
+  allowed_optional:
+    - kats
+    - alibi_detect
+
+  forbidden_recommended:
+    - stumpy
+    - prophet
+    - river
+    - darts
+    - trend_regression
+    - adtk
+    - pyod
+  required_detected_profiles:
+    - baseline_shift
+    - regime_change
+  forbidden_detected_profiles:
+    - seasonal
+    - repeating_pattern
+    - trend
+    - spike
+    - mixed
+
+expected_signals:
+  - type: baseline_shift
+
+expected_findings:
+  - type: behavior_change
+
+validation:
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true
+
+  signals:
+    require_all: true
+
+  findings:
+    require_all: true
+
+notes:
+  - The expected dominant behavior is a persistent upward baseline shift.
+  - Ruptures is required because it is the specialized change-point analyzer for this scenario.
+  - Kats is allowed as optional because it supports baseline-shift analysis but is broader than Ruptures.
+  - Alibi Detect is allowed as optional because it may provide secondary drift or distribution-change analysis.
+  - STUMPY, Prophet, River, Darts, Trend Regression, ADTK, and PyOD must not be recommended for this pure baseline-shift scenario.
+  - Values are unchanged from cpu_pure_baseline_shift_v1.
+  - Absolute timestamp dates must not change router recommendations.
