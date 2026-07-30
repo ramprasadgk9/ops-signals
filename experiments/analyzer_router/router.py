@@ -15,6 +15,21 @@ from .feature_extractor import extract_series_profile
 from .models import AnalyzerDecision, AnalyzerRoutingRequest, AnalyzerRoutingResult, RoutingMode
 
 
+BEHAVIORAL_PROFILES = {
+    "baseline_shift",
+    "regime_change",
+    "seasonal",
+    "repeating_pattern",
+    "trend",
+    "spike",
+    "anomaly",
+    "outlier",
+    "mixed",
+}
+PROFILE_MATCH_BONUS = 0.10
+PROFILE_MISMATCH_CAP = 0.54
+
+
 class UniversalTimeSeriesRouter:
     def __init__(
         self,
@@ -53,41 +68,7 @@ class UniversalTimeSeriesRouter:
             return AnalyzerRoutingResult(request=request, validation=validation, profile=profile, analyzers=[], summary="Routing rejected.")
 
         profile.notes.extend(self._profile_notes(profile))
-        decisions = []
-        for capability in self.registry.analyzers():
-            eligibility = evaluate_eligibility(capability, profile)
-            suitability = self._suitability_score(capability, profile) if eligibility.eligible else 0.0
-            final_score = round(min(1.0, eligibility.eligibility_score * suitability), 4) if eligibility.eligible else 0.0
-            recommendation = self._recommendation(final_score, eligibility.eligible)
-            reasons = list(eligibility.reasons)
-            warnings = list(eligibility.warnings)
-            if eligibility.eligible:
-                reasons.extend(self._suitability_reasons(capability, profile))
-                if capability.explanation_templates.get("selected"):
-                    reasons.append(capability.explanation_templates["selected"])
-            else:
-                if capability.explanation_templates.get("excluded"):
-                    warnings.append(capability.explanation_templates["excluded"])
-            decisions.append(
-                AnalyzerDecision(
-                    analyzer=capability.analyzer,
-                    display_name=capability.display_name,
-                    eligible=eligibility.eligible,
-                    eligibility_score=round(eligibility.eligibility_score, 4),
-                    suitability_score=round(suitability, 4),
-                    final_score=final_score,
-                    recommendation=recommendation,
-                    reasons=reasons,
-                    warnings=warnings,
-                    explanation=self._explain(capability, profile, eligibility.eligible, final_score),
-                    parameters_tested={
-                        "supported_profiles": capability.supported_profiles,
-                        "eligibility_rules": capability.eligibility_rules,
-                        "suitability_rules": capability.suitability_rules,
-                        "scoring_rules": capability.scoring_rules,
-                    },
-                )
-            )
+        decisions = [self._build_decision(capability, profile) for capability in self.registry.analyzers()]
 
         decisions = self._apply_routing_mode(decisions, request.routing_mode, request.selected_analyzers)
         export_path = self._write_result(request, profile, validation, decisions, cleaned, start)
@@ -125,6 +106,12 @@ class UniversalTimeSeriesRouter:
         for rule in rules.get("rules", []):
             if self._rule_matches(rule, profile):
                 score += float(rule.get("add", 0.0) or 0.0)
+        profile_match, _ = self._profile_match(capability, profile)
+        behavioral_supported = self._behavioral_supported_profiles(capability)
+        if profile_match and behavioral_supported:
+            score += PROFILE_MATCH_BONUS
+        elif behavioral_supported:
+            score = min(score, PROFILE_MISMATCH_CAP)
         return float(max(0.0, min(1.0, score)))
 
     def _suitability_reasons(self, capability, profile) -> list[str]:
@@ -133,6 +120,49 @@ class UniversalTimeSeriesRouter:
             if self._rule_matches(rule, profile) and rule.get("reason"):
                 reasons.append(str(rule["reason"]))
         return reasons
+
+    def _matched_scoring_rules(self, capability, profile) -> list[dict]:
+        matches = []
+        for rule in (capability.scoring_rules or {}).get("rules", []):
+            if self._rule_matches(rule, profile):
+                matches.append(dict(rule))
+        return matches
+
+    def _profile_match(self, capability, profile) -> tuple[bool, set[str]]:
+        behavioral_supported = self._behavioral_supported_profiles(capability)
+        if not behavioral_supported:
+            return True, set()
+        detected = {
+            str(item).strip().lower()
+            for item in getattr(profile, "detected_profiles", [])
+            if str(item).strip().lower() in BEHAVIORAL_PROFILES
+        }
+        matched = behavioral_supported.intersection(detected)
+        return bool(matched), matched
+
+    def _behavioral_supported_profiles(self, capability) -> set[str]:
+        return {
+            str(item).strip().lower()
+            for item in getattr(capability, "supported_profiles", [])
+            if str(item).strip().lower() in BEHAVIORAL_PROFILES
+        }
+
+    def _profile_match_reason(self, capability, profile) -> str:
+        profile_match, matched_profiles = self._profile_match(capability, profile)
+        behavioral_supported = self._behavioral_supported_profiles(capability)
+        detected = sorted(
+            {
+                str(item).strip().lower()
+                for item in getattr(profile, "detected_profiles", [])
+                if str(item).strip().lower() in BEHAVIORAL_PROFILES
+            }
+        )
+        if not behavioral_supported:
+            return "No behavioral profile restriction is configured for this analyzer."
+        if profile_match:
+            return f"Matched detected profiles: {', '.join(sorted(matched_profiles))}."
+        detected_text = ", ".join(detected) if detected else "none"
+        return f"No supported behavioral profile matched the detected profiles: {detected_text}."
 
     def _recommendation(self, final_score: float, eligible: bool) -> str:
         if not eligible:
@@ -143,14 +173,29 @@ class UniversalTimeSeriesRouter:
             return "OPTIONAL"
         return "NOT_RECOMMENDED"
 
-    def _explain(self, capability, profile, eligible: bool, score: float) -> str:
-        analyzer = capability.analyzer
+    def _explain(self, capability, profile, eligible: bool, score: float, eligibility_reasons: list[str] | None = None) -> str:
         if not eligible:
-            return f"{capability.display_name} was excluded because the series did not meet technical requirements."
-        template = capability.explanation_templates.get("selected")
-        if template:
-            return f"{capability.display_name} is suitable because {template[0].lower() + template[1:] if template else template}, with score {score:.2f}."
+            reason = eligibility_reasons[0] if eligibility_reasons else "the series did not meet technical requirements"
+            return f"{capability.display_name} was excluded because {reason[0].lower() + reason[1:] if reason else reason}"
+        profile_match, matched_profiles = self._profile_match(capability, profile)
+        behavioral_supported = self._behavioral_supported_profiles(capability)
+        if profile_match and matched_profiles:
+            return (
+                f"{capability.display_name} matched the detected {self._format_profile_list(sorted(matched_profiles))} profiles, "
+                f"with final score {score:.2f}."
+            )
+        if behavioral_supported:
+            return (
+                f"{capability.display_name} is technically eligible, but its supported behavioral profiles did not "
+                f"match the detected series behavior. Final score {score:.2f}."
+            )
         return f"{capability.display_name} received score {score:.2f}."
+
+    def _routing_reason(self, capability, profile, eligible: bool, score: float, eligibility_reasons: list[str] | None = None) -> str:
+        if not eligible:
+            reason = eligibility_reasons[0] if eligibility_reasons else "technical eligibility checks failed"
+            return f"{capability.display_name} was rejected because {reason[0].lower() + reason[1:] if reason else reason}"
+        return self._explain(capability, profile, eligible, score, eligibility_reasons)
 
     def _rule_matches(self, rule: dict, profile) -> bool:
         metric = rule.get("metric")
@@ -172,6 +217,11 @@ class UniversalTimeSeriesRouter:
         return True
 
     def _profile_metric(self, profile, metric: str):
+        if metric == "shift_index":
+            detected = {str(item).strip().lower() for item in getattr(profile, "detected_profiles", [])}
+            if "baseline_shift" not in detected and "regime_change" not in detected:
+                return 0.0
+            return getattr(profile, metric, None)
         if metric == "behavior_mix":
             return int(
                 sum(
@@ -187,42 +237,60 @@ class UniversalTimeSeriesRouter:
         return getattr(profile, metric, None)
 
     def recommend_analyzers_for_profile(self, profile) -> list[AnalyzerDecision]:
-        decisions = []
-        for capability in self.registry.analyzers():
-            eligibility = evaluate_eligibility(capability, profile)
-            suitability = self._suitability_score(capability, profile) if eligibility.eligible else 0.0
-            final_score = round(min(1.0, eligibility.eligibility_score * suitability), 4) if eligibility.eligible else 0.0
-            recommendation = self._recommendation(final_score, eligibility.eligible)
-            reasons = list(eligibility.reasons)
-            warnings = list(eligibility.warnings)
-            if eligibility.eligible:
-                reasons.extend(self._suitability_reasons(capability, profile))
-                if capability.explanation_templates.get("selected"):
-                    reasons.append(capability.explanation_templates["selected"])
-            else:
-                if capability.explanation_templates.get("excluded"):
-                    warnings.append(capability.explanation_templates["excluded"])
-            decisions.append(
-                AnalyzerDecision(
-                    analyzer=capability.analyzer,
-                    display_name=capability.display_name,
-                    eligible=eligibility.eligible,
-                    eligibility_score=round(eligibility.eligibility_score, 4),
-                    suitability_score=round(suitability, 4),
-                    final_score=final_score,
-                    recommendation=recommendation,
-                    reasons=reasons,
-                    warnings=warnings,
-                    explanation=self._explain(capability, profile, eligibility.eligible, final_score),
-                    parameters_tested={
-                        "supported_profiles": capability.supported_profiles,
-                        "eligibility_rules": capability.eligibility_rules,
-                        "suitability_rules": capability.suitability_rules,
-                        "scoring_rules": capability.scoring_rules,
-                    },
-                )
-            )
-        return decisions
+        return [self._build_decision(capability, profile) for capability in self.registry.analyzers()]
+
+    def _build_decision(self, capability, profile) -> AnalyzerDecision:
+        eligibility = evaluate_eligibility(capability, profile)
+        suitability = self._suitability_score(capability, profile) if eligibility.eligible else 0.0
+        final_score = round(min(1.0, eligibility.eligibility_score * suitability), 4) if eligibility.eligible else 0.0
+        recommendation = self._recommendation(final_score, eligibility.eligible)
+        profile_match, matched_profiles = self._profile_match(capability, profile)
+        behavioral_supported = self._behavioral_supported_profiles(capability)
+        reasons = list(eligibility.reasons)
+        warnings = list(eligibility.warnings)
+        if eligibility.eligible:
+            profile_reason = self._profile_match_reason(capability, profile)
+            reasons.append(profile_reason)
+            reasons.extend(self._suitability_reasons(capability, profile))
+            if capability.explanation_templates.get("selected"):
+                reasons.append(capability.explanation_templates["selected"])
+        else:
+            if capability.explanation_templates.get("excluded"):
+                warnings.append(capability.explanation_templates["excluded"])
+        routing_reason = self._routing_reason(capability, profile, eligibility.eligible, final_score, eligibility.reasons)
+        return AnalyzerDecision(
+            analyzer=capability.analyzer,
+            display_name=capability.display_name,
+            eligible=eligibility.eligible,
+            eligibility_score=round(eligibility.eligibility_score, 4),
+            suitability_score=round(suitability, 4),
+            final_score=final_score,
+            recommendation=recommendation,
+            reasons=reasons,
+            warnings=warnings,
+            explanation=self._explain(capability, profile, eligibility.eligible, final_score, eligibility.reasons),
+            routing_reason=routing_reason,
+            parameters_tested={
+                "supported_profiles": capability.supported_profiles,
+                "eligibility_rules": capability.eligibility_rules,
+                "suitability_rules": capability.suitability_rules,
+                "scoring_rules": capability.scoring_rules,
+                "detected_profiles": list(getattr(profile, "detected_profiles", [])),
+                "matched_profiles": sorted(matched_profiles),
+                "profile_match": profile_match,
+                "behavioral_supported_profiles": sorted(behavioral_supported),
+                "matched_scoring_rules": self._matched_scoring_rules(capability, profile),
+                "suitability_explanation": routing_reason,
+            },
+        )
+
+    @staticmethod
+    def _format_profile_list(profiles: list[str]) -> str:
+        if len(profiles) <= 1:
+            return profiles[0] if profiles else "none"
+        if len(profiles) == 2:
+            return f"{profiles[0]} and {profiles[1]}"
+        return f"{', '.join(profiles[:-1])}, and {profiles[-1]}"
 
     def _profile_notes(self, profile) -> list[str]:
         notes = []

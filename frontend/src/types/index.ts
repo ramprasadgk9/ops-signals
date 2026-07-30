@@ -451,6 +451,21 @@ export type CsvValidationResult = {
   normalized_preview: Array<Record<string, unknown>>;
   signals: ValidationSignal[];
   findings: ValidationFinding[];
+  analyzer_selection_mode?: string;
+  analyzer_routing?: Array<Record<string, unknown>>;
+  executed_analyzers?: string[];
+};
+
+export type CsvAnalyzerRoutingDecision = {
+  analyzer_id?: string;
+  display_name?: string;
+  recommendation?: string;
+  final_score?: number;
+  eligible?: boolean;
+  explanation?: string;
+  routing_reason?: string;
+  reasons?: string[];
+  warnings?: string[];
 };
 
 export type MetricSample = {

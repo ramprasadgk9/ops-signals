@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import copy
-from pathlib import Path
-
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -23,16 +20,12 @@ from backend.app.models.prometheus import (
     PrometheusQueryRequest,
 )
 from backend.app.services.prometheus_service import PrometheusQueryService, configured_connection
-from intelligence.config import load_config
+from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from intelligence.pipeline import SignalPipeline
 
 
 router = APIRouter(prefix="/api/prometheus", tags=["prometheus"])
 analysis_router = APIRouter(prefix="/api/analysis", tags=["analysis"])
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
 
 
 def get_prometheus_query_service(
@@ -129,27 +122,17 @@ def run_direct_prometheus_analysis(
         )
 
     try:
-        pipeline_config = copy.deepcopy(load_config(_repo_root() / "config" / "providers" / "prometheus.yaml"))
+        pipeline_config = build_csv_routing_config(
+            provider="prometheus",
+            service=payload.service,
+            metric_name=payload.metric,
+            interval=f"{max(int(preview.step_seconds / 60), 1)}m" if preview.step_seconds >= 60 else f"{preview.step_seconds}s",
+            analyzer_id=payload.analyzer or "all",
+            preview=False,
+        )
         pipeline_config.input.source_type = "prometheus"
-        pipeline_config.input.provider = "prometheus"
-        pipeline_config.input.interval = f"{max(int(preview.step_seconds / 60), 1)}m" if preview.step_seconds >= 60 else f"{preview.step_seconds}s"
-        pipeline_config.input.service = payload.service
-        pipeline_config.input.metric_name = payload.metric
-        pipeline_config.input.timestamp_column = "timestamp"
-        pipeline_config.input.value_column = "value"
-        pipeline_config.input.metric_column = "metric_name"
         pipeline_config.input.required_columns = ["timestamp", "metric_name", "value"]
         pipeline_config.input.provider_mappings = {}
-        pipeline_config.output.save_normalized_data = True
-        pipeline_config.output.save_signals = True
-        pipeline_config.output.save_question_answers = True
-        pipeline_config.output.save_embeddings = False
-        pipeline_config.embeddings.enabled = False
-        if payload.analyzer:
-            if payload.analyzer not in pipeline_config.analysis.analyzers:
-                raise HTTPException(status_code=400, detail=f"analyzer '{payload.analyzer}' is not configured")
-            pipeline_config.analysis.selection_mode = "manual_override"
-            pipeline_config.analysis.selected_analyzers = [payload.analyzer]
 
         result = SignalPipeline(pipeline_config).run_dataframe(
             pd.DataFrame.from_records(records),

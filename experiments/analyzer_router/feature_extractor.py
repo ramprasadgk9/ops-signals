@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
-from statistics import mean, pstdev, pvariance
-
 import numpy as np
 import pandas as pd
 
@@ -108,13 +104,22 @@ def _profile(df: pd.DataFrame, timestamp_column: str | None, value_column: str, 
     constant_value_percentage = float(np.mean(values == values.iloc[0]) * 100.0) if len(values) else 0.0
     x = np.arange(len(values), dtype=float)
     y = values.to_numpy(dtype=float)
-    slope = float(np.polyfit(x, y, 1)[0]) if len(values) >= 2 else 0.0
-    fitted_delta = abs(slope * max(len(values) - 1, 1))
-    trend_strength = min(1.0, fitted_delta / (abs(float(np.mean(y))) + 1e-9)) if len(values) else 0.0
-    seasonality_strength = _seasonality_strength(y)
-    spikiness = _spikiness(y)
     shift_index = _shift_index(y)
+    slope = float(np.polyfit(x, y, 1)[0]) if len(values) >= 2 else 0.0
+    trend_strength, trend_fit_r2, trend_abruptness_ratio = _trend_strength(y, shift_index)
+    seasonality_strength, seasonality_dominant_lag, seasonality_peak_strength = _seasonality_strength(y)
+    spikiness, transient_spike_count, persistent_jump_count = _spikiness(y)
+    if seasonality_strength >= 0.42 and trend_strength < 0.28:
+        trend_strength = 0.0
     autocorrelation = _autocorrelation(y)
+    detected_profiles = _detect_profiles(
+        shift_index=shift_index,
+        seasonality_strength=seasonality_strength,
+        trend_strength=trend_strength,
+        spikiness=spikiness,
+        trend_abruptness_ratio=trend_abruptness_ratio,
+        persistent_jump_count=persistent_jump_count,
+    )
 
     return SeriesProfile(
         original_sample_count=len(df),
@@ -142,32 +147,217 @@ def _profile(df: pd.DataFrame, timestamp_column: str | None, value_column: str, 
         spikiness=spikiness,
         shift_index=shift_index,
         autocorrelation=autocorrelation,
+        trend_fit_r2=trend_fit_r2,
+        trend_abruptness_ratio=trend_abruptness_ratio,
+        seasonality_dominant_lag=seasonality_dominant_lag,
+        seasonality_peak_strength=seasonality_peak_strength,
+        transient_spike_count=transient_spike_count,
+        persistent_jump_count=persistent_jump_count,
+        detected_profiles=detected_profiles,
         notes=[],
     )
 
 
-def _seasonality_strength(values: np.ndarray) -> float:
+def _detect_profiles(
+    *,
+    shift_index: float,
+    seasonality_strength: float,
+    trend_strength: float,
+    spikiness: float,
+    trend_abruptness_ratio: float,
+    persistent_jump_count: int,
+) -> list[str]:
+    profiles: set[str] = set()
+    active_groups: set[str] = set()
+    sustained_jump = persistent_jump_count > 0 or trend_abruptness_ratio >= 0.45
+
+    if shift_index >= 0.12 and sustained_jump:
+        profiles.add("baseline_shift")
+        active_groups.add("baseline")
+    if shift_index >= 0.22 and sustained_jump:
+        profiles.add("regime_change")
+        active_groups.add("baseline")
+    if seasonality_strength >= 0.42:
+        profiles.update({"seasonal", "repeating_pattern"})
+        active_groups.add("seasonal")
+    if trend_strength >= 0.18:
+        profiles.add("trend")
+        active_groups.add("trend")
+    if spikiness >= 0.22:
+        profiles.update({"anomaly", "outlier", "spike"})
+        active_groups.add("spike")
+
+    if len(active_groups) >= 2:
+        profiles.add("mixed")
+
+    return sorted(profiles)
+
+
+def _trend_strength(values: np.ndarray, shift_index: float) -> tuple[float, float, float]:
+    if len(values) < 16:
+        return 0.0, 0.0, 0.0
+
+    window_count = min(12, max(8, len(values) // 24))
+    windows = [window for window in np.array_split(values, window_count) if len(window)]
+    if len(windows) < 4:
+        return 0.0, 0.0, 0.0
+
+    means = np.array([float(np.mean(window)) for window in windows], dtype=float)
+    x = np.arange(len(means), dtype=float)
+    slope, intercept = np.polyfit(x, means, 1)
+    fitted = slope * x + intercept
+    total_variance = float(np.sum((means - float(np.mean(means))) ** 2))
+    residual_variance = float(np.sum((means - fitted) ** 2))
+    r2 = 0.0 if total_variance <= 1e-12 else max(0.0, min(1.0, 1.0 - (residual_variance / total_variance)))
+
+    changes = np.diff(means)
+    abs_changes = np.abs(changes)
+    total_change = float(np.sum(abs_changes))
+    if total_change <= 1e-12:
+        return 0.0, r2, 0.0
+
+    positive = float(np.sum(changes[changes > 0]))
+    negative = float(abs(np.sum(changes[changes < 0])))
+    directional_consistency = max(positive, negative) / total_change
+    abruptness_ratio = float(np.max(abs_changes) / total_change)
+    endpoint_delta = abs(float(means[-1] - means[0]))
+    magnitude = min(1.0, endpoint_delta / (abs(float(np.mean(means))) + 1e-9))
+    continuity = max(0.0, 1.0 - abruptness_ratio)
+    strength = r2 * directional_consistency * continuity * magnitude
+    continuous_strength = 0.0
+
+    if len(changes) >= 4:
+        dominant_change_index = int(np.argmax(abs_changes))
+        continuous_changes = np.delete(changes, dominant_change_index)
+        continuous_abs_changes = np.abs(continuous_changes)
+        continuous_total = float(np.sum(continuous_abs_changes))
+        if continuous_total > 1e-12:
+            continuous_positive = float(np.sum(continuous_changes[continuous_changes > 0]))
+            continuous_negative = float(abs(np.sum(continuous_changes[continuous_changes < 0])))
+            continuous_direction = max(continuous_positive, continuous_negative) / continuous_total
+            continuous_magnitude = min(1.0, continuous_total / (abs(float(np.mean(means))) + 1e-9))
+            continuous_strength = continuous_direction * continuous_magnitude
+
+    if shift_index >= 0.12 and abruptness_ratio >= 0.55:
+        strength *= 0.2
+    strength = max(strength, continuous_strength)
+
+    return float(max(0.0, min(1.0, strength))), float(r2), abruptness_ratio
+
+
+def _seasonality_strength(values: np.ndarray) -> tuple[float, int | None, float]:
+    if len(values) < 24:
+        return 0.0, None, 0.0
+
+    detrended = _remove_linear_trend(values)
+    differenced = np.diff(detrended)
+    if len(differenced) < 12 or float(np.std(differenced, ddof=0)) <= 1e-12:
+        return 0.0, None, 0.0
+
+    centered = differenced - float(np.mean(differenced))
+    max_lag = min(len(centered) // 3, 400)
+    if max_lag < 4:
+        return 0.0, None, 0.0
+
+    correlations: dict[int, float] = {}
+    for lag in range(2, max_lag + 1):
+        left = centered[:-lag]
+        right = centered[lag:]
+        if len(left) < 4 or float(np.std(left, ddof=0)) <= 1e-12 or float(np.std(right, ddof=0)) <= 1e-12:
+            continue
+        corr = float(np.corrcoef(left, right)[0, 1])
+        if np.isfinite(corr):
+            correlations[lag] = max(0.0, corr)
+
+    if not correlations:
+        return 0.0, None, 0.0
+
+    best_lag, best_corr = max(correlations.items(), key=lambda item: item[1])
+    if best_corr < 0.35:
+        return 0.0, best_lag, best_corr
+
+    neighbor_values = [
+        corr
+        for lag, corr in correlations.items()
+        if lag != best_lag and abs(lag - best_lag) <= 3
+    ]
+    neighbor_mean = float(np.mean(neighbor_values)) if neighbor_values else 0.0
+    prominence = max(0.0, best_corr - neighbor_mean)
+
+    harmonic_scores = []
+    for multiple in (2, 3):
+        harmonic = best_lag * multiple
+        if harmonic <= max_lag:
+            harmonic_scores.append(correlations.get(harmonic, 0.0))
+    harmonic_support = max(harmonic_scores) if harmonic_scores else best_corr
+    cycles = len(values) / max(best_lag, 1)
+    cycle_factor = min(1.0, cycles / 3.0)
+
+    broad_high_ratio = float(np.mean(np.array(list(correlations.values())) > best_corr * 0.8))
+    if broad_high_ratio > 0.25 and prominence < 0.08:
+        return 0.0, best_lag, best_corr
+
+    strength = best_corr * max(prominence / 0.1, 0.0) * max(harmonic_support, 0.5) * cycle_factor
+    return float(max(0.0, min(1.0, strength))), best_lag, best_corr
+
+
+def _spikiness(values: np.ndarray) -> tuple[float, int, int]:
     if len(values) < 8:
-        return 0.0
-    lag = max(2, min(24, len(values) // 4))
-    if len(values) <= lag:
-        return 0.0
-    corr = np.corrcoef(values[:-lag], values[lag:])[0, 1]
-    if np.isnan(corr):
-        return 0.0
-    return float(max(0.0, min(1.0, abs(corr))))
+        return 0.0, 0, 0
+
+    diffs = np.diff(values)
+    abs_diffs = np.abs(diffs)
+    median_diff = float(np.median(abs_diffs))
+    mad = float(np.median(np.abs(abs_diffs - median_diff)))
+    threshold = max(
+        median_diff + (10.0 * mad),
+        float(np.std(diffs, ddof=0)) * 6.0,
+        float(np.std(values, ddof=0)) * 0.08,
+        1e-9,
+    )
+    if mad <= 1e-12 and float(np.std(abs_diffs, ddof=0)) <= 1e-12:
+        return 0.0, 0, 0
+    candidate_indexes = np.where(abs_diffs > threshold)[0]
+    if not len(candidate_indexes):
+        return 0.0, 0, 0
+
+    transient_count = 0
+    persistent_count = 0
+    baseline_window = max(5, min(24, len(values) // 40))
+    return_tolerance = max(mad * 6.0, median_diff * 3.0, float(np.std(values, ddof=0)) * 0.05, 1e-9)
+
+    for index in candidate_indexes:
+        before_start = max(0, index - baseline_window + 1)
+        before = values[before_start : index + 1]
+        after_end = min(len(values), index + 1 + baseline_window)
+        after = values[index + 1 : after_end]
+        if len(before) < 3 or len(after) < 3:
+            continue
+        before_level = float(np.median(before))
+        after_level = float(np.median(after))
+        jump = float(values[index + 1] - values[index])
+        reversed_quickly = False
+        for next_index in range(index + 1, min(len(diffs), index + 1 + baseline_window)):
+            if abs(float(diffs[next_index])) >= threshold and np.sign(diffs[next_index]) == -np.sign(jump):
+                post_reversal = values[next_index + 1 : min(len(values), next_index + 1 + baseline_window)]
+                if len(post_reversal) and abs(float(np.median(post_reversal)) - before_level) <= return_tolerance:
+                    reversed_quickly = True
+                    break
+        if reversed_quickly or abs(after_level - before_level) <= return_tolerance:
+            transient_count += 1
+        else:
+            persistent_count += 1
+
+    score = min(1.0, transient_count / 3.0)
+    return float(score), int(transient_count), int(persistent_count)
 
 
-def _spikiness(values: np.ndarray) -> float:
-    if len(values) < 3:
-        return 0.0
-    diffs = np.abs(np.diff(values))
-    if not len(diffs):
-        return 0.0
-    median = float(np.median(diffs))
-    if median == 0:
-        return 0.0
-    return float(min(1.0, np.max(diffs) / (median * 5.0)))
+def _remove_linear_trend(values: np.ndarray) -> np.ndarray:
+    if len(values) < 2:
+        return values.astype(float)
+    x = np.arange(len(values), dtype=float)
+    slope, intercept = np.polyfit(x, values.astype(float), 1)
+    return values.astype(float) - ((slope * x) + intercept)
 
 
 def _shift_index(values: np.ndarray) -> float:
@@ -220,4 +410,11 @@ def _empty_profile() -> SeriesProfile:
         spikiness=0.0,
         shift_index=0.0,
         autocorrelation=None,
+        trend_fit_r2=0.0,
+        trend_abruptness_ratio=0.0,
+        seasonality_dominant_lag=None,
+        seasonality_peak_strength=0.0,
+        transient_spike_count=0,
+        persistent_jump_count=0,
+        detected_profiles=[],
     )

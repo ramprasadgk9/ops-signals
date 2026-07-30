@@ -77,10 +77,19 @@ Example direct analysis request:
 }
 ```
 
+Use `"analyzer": "all"` or `"analyzer": null` to let the analyzer router choose
+recommended analyzers. Supplying a concrete analyzer ID enables manual override
+for that analyzer.
+
 Time windows are resolved to explicit UTC `start` and `end` timestamps by the UI
 before the backend queries Prometheus. The backend validates that `start < end`,
 the requested window is within configured bounds, and the requested step will not
 exceed sample limits.
+
+The analyzer router requires at least 30 valid samples. For a `5m` step, use a
+window of at least 3 hours; `6h` or `24h` is recommended for the lab scenarios.
+The standalone UI estimates sample count and disables `Run Analysis` when the
+selected range is too short.
 
 For the first release, analysis requires a single returned series. If Prometheus
 returns multiple series, refine the label filters before running analysis.
@@ -124,3 +133,9 @@ Prometheus endpoints do not replace or modify this contract.
 | `query returned N series` | Add label filters or use a more specific PromQL query. |
 | `no samples` | The query worked, but no samples exist in the selected time range. |
 | `non-numeric sample value` | The query did not return numeric range-vector values suitable for analyzers. |
+| `Needs at least 30 valid samples` | Increase the time window or reduce the step. |
+| `0 signals and 0 findings` | Analysis ran, but no executed analyzer crossed its signal threshold. Check router decisions and executed analyzers in the UI. |
+
+Lab service labels use hyphens, for example `ruptures-lab`, `trend-lab`, and
+`spike-lab`. A query such as `cpu_usage{service="ruptures_lab"}` will not match
+the lab data if Prometheus labels use `ruptures-lab`.

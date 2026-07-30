@@ -1,0 +1,97 @@
+scenario:
+  id: cpu_baseline_shift_v1
+  name: CPU Baseline Shift
+  description: >
+    Healthy TSBS CPU dataset with a sustained +15 CPU increase
+    introduced at the midpoint of the time series.
+
+dataset:
+  source: benchmark/normalized/healthy_cpu_7d.csv
+  scenario_dataset: benchmark/scenarios/cpu_baseline_shift_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_event:
+  type: baseline_shift
+  direction: increase
+  timestamp: "2016-01-04T12:00:00Z"
+  tolerance_before: 30m
+  tolerance_after: 30m
+  minimum_magnitude: 10
+
+#
+# Scenario expectation
+#
+expected_analyzers:
+  recommended:
+    - ruptures
+
+  optional:
+    - prophet
+
+  not_recommended:
+    - stumpy
+    - river
+
+#
+# Router benchmark
+#
+expected_router:
+
+  #
+  # These MUST appear as RECOMMENDED
+  #
+  required_recommended:
+    - ruptures
+
+  #
+  # These may appear as OPTIONAL
+  # or may be absent.
+  #
+  allowed_optional:
+    - prophet
+    - river
+
+  #
+  # These must never appear as RECOMMENDED
+  #
+  forbidden_recommended:
+    - stumpy
+
+#
+# Expected signal(s)
+#
+expected_signals:
+  - type: baseline_shift
+    severity: medium
+
+#
+# Expected finding(s)
+#
+expected_findings:
+  - type: behavior_change
+
+#
+# Benchmark validation rules
+#
+validation:
+
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true
+
+  signals:
+    require_all: true
+
+  findings:
+    require_all: true
+
+#
+# Notes
+#
+notes:
+  - Router should recognize this as a sustained baseline change.
+  - Ruptures is the primary analyzer expected for this scenario.
+  - Prophet may be suggested because sufficient historical data exists.
+  - STUMPY should not be recommended because no repeating motifs exist.
+  - River may be optional depending on routing thresholds but is not required.

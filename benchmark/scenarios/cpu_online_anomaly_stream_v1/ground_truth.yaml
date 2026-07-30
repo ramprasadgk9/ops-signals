@@ -1,0 +1,44 @@
+scenario:
+  id: cpu_online_anomaly_stream_v1
+  name: Online CPU Anomaly Stream
+  description: >
+    Sequential CPU series where the local baseline and anomaly rate evolve over
+    time, intended to represent online anomaly monitoring needs.
+
+dataset:
+  source: generated
+  scenario_dataset: benchmark/scenarios/cpu_online_anomaly_stream_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_behavior:
+  dominant:
+    - online_anomaly
+    - changing_local_baseline
+    - changing_anomaly_rate
+
+expected_router:
+  required_recommended:
+    - river
+  allowed_optional:
+    - alibi_detect
+    - pyod
+    - adtk
+  forbidden_recommended:
+    - ruptures
+    - stumpy
+    - prophet
+    - darts
+    - trend_regression
+  required_detected_profiles:
+    - spike
+    - anomaly
+    - outlier
+
+validation:
+  router:
+    expected_status: GAP
+    gap_reason: Router input does not yet support execution_mode=streaming or online update requirements, so River cannot be required from batch values alone.
+
+notes:
+  - The current router may recommend batch anomaly or seasonal analyzers because it only observes the static time-series values.

@@ -40,13 +40,14 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
 import { panelSx, ui } from '../standalone/theme';
-import type { DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
+import type { CsvAnalyzerRoutingDecision, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
 
 type Provider = 'generic' | 'prometheus' | 'datadog';
 type Mode = 'csv' | 'prometheus';
 type TimePreset = '1h' | '6h' | '24h' | '3d' | '7d' | 'custom';
 
 const ANALYZER_OPTIONS = [
+  { id: 'all', label: 'All (Router)' },
   { id: 'ruptures', label: 'Ruptures' },
   { id: 'stumpy', label: 'STUMPY' },
   { id: 'prophet', label: 'Prophet' },
@@ -71,6 +72,7 @@ const LAB_SCENARIOS = [
   { label: 'Seasonal', service: 'forecast-lab', metric: 'ops_signal_lab_value', analyzer: 'prophet' },
   { label: 'Mixed', service: 'mixed-lab', metric: 'ops_signal_lab_value', analyzer: 'baseline_shift' },
 ];
+const LAB_SERVICE_NAMES = new Set(LAB_SCENARIOS.map((scenario) => scenario.service));
 
 function isoForDatetimeLocal(value: Date) {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
@@ -82,6 +84,15 @@ function rangeForPreset(preset: TimePreset) {
   const end = new Date();
   const start = new Date(end.getTime() - (selected?.ms ?? 24 * 60 * 60 * 1000));
   return { start, end };
+}
+
+function parseStepMs(value: string) {
+  const match = value.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)([smhd]?)$/);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2] || 's';
+  const multipliers: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  return amount * multipliers[unit];
 }
 
 function buildPromql(metric: string, service: string) {
@@ -127,16 +138,71 @@ function SummaryRow({ icon, label, value }: { icon: ReactNode; label: string; va
   );
 }
 
+function routerBucketLabel(decision: CsvAnalyzerRoutingDecision) {
+  const recommendation = String(decision.recommendation ?? '').toUpperCase();
+  if (recommendation === 'RECOMMENDED') return 'Recommended';
+  if (recommendation === 'OPTIONAL') return 'Optional';
+  if (recommendation === 'REJECTED') return 'Rejected';
+  return 'Not Recommended';
+}
+
+function RouterDecisionPanel({ decisions }: { decisions: CsvAnalyzerRoutingDecision[] }) {
+  const buckets = ['Recommended', 'Optional', 'Not Recommended', 'Rejected'];
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Stack spacing={2}>
+          <Typography variant="h6">Router Decisions</Typography>
+          {decisions.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">No router decisions returned yet.</Typography>
+          ) : (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(4, 1fr)' }, gap: 2 }}>
+              {buckets.map((bucket) => {
+                const items = decisions.filter((decision) => routerBucketLabel(decision) === bucket);
+                return (
+                  <Card key={bucket} variant="outlined" sx={{ p: 1.5 }}>
+                    <Stack spacing={1}>
+                      <Typography sx={{ fontSize: 13, fontWeight: 900 }}>{bucket}</Typography>
+                      {items.length === 0 ? (
+                        <Typography variant="caption" color="text.secondary">None</Typography>
+                      ) : items.map((decision) => {
+                        const displayReason = decision.routing_reason ?? decision.explanation ?? decision.reasons?.[0];
+                        return (
+                          <Box key={`${bucket}-${decision.analyzer_id ?? decision.display_name}`} sx={{ borderTop: `1px solid ${ui.border}`, pt: 1 }}>
+                            <Stack direction="row" spacing={0.8} flexWrap="wrap" alignItems="center">
+                              <Chip size="small" label={decision.analyzer_id ?? decision.display_name ?? 'unknown'} />
+                              <Chip size="small" variant="outlined" label={`score ${typeof decision.final_score === 'number' ? decision.final_score.toFixed(2) : 'n/a'}`} />
+                              <Chip size="small" variant="outlined" label={decision.eligible ? 'eligible' : 'ineligible'} />
+                            </Stack>
+                            {displayReason ? (
+                              <Typography sx={{ color: ui.muted, fontSize: 12, mt: 0.8 }}>{displayReason}</Typography>
+                            ) : null}
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  </Card>
+                );
+              })}
+            </Box>
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ValidateDataPage() {
   const [mode, setMode] = useState<Mode>('csv');
   const [provider, setProvider] = useState<Provider>('prometheus');
-  const [analyzerId, setAnalyzerId] = useState('ruptures');
+  const [analyzerId, setAnalyzerId] = useState('all');
   const [service, setService] = useState('ruptures-lab');
   const [metricName, setMetricName] = useState('ops_signal_lab_value');
   const [interval, setInterval] = useState('5m');
   const [file, setFile] = useState<File | null>(null);
   const [resultSignals, setResultSignals] = useState<ValidationSignal[]>([]);
   const [resultFindings, setResultFindings] = useState<ValidationFinding[]>([]);
+  const [routerDecisions, setRouterDecisions] = useState<CsvAnalyzerRoutingDecision[]>([]);
   const [previewRows, setPreviewRows] = useState<Array<Record<string, unknown>>>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -187,6 +253,14 @@ export function ValidateDataPage() {
 
   const effectiveQuery = queryMode === 'simple' ? buildPromql(metricName, service) : promQuery;
   const rangeValid = selectedRange.start instanceof Date && selectedRange.end instanceof Date && !Number.isNaN(selectedRange.start.getTime()) && !Number.isNaN(selectedRange.end.getTime()) && selectedRange.start < selectedRange.end;
+  const suggestedLabService = service.replace(/_/g, '-');
+  const likelyLabServiceTypo = service.includes('_') && LAB_SERVICE_NAMES.has(suggestedLabService);
+  const estimatedSamples = useMemo(() => {
+    const stepMs = parseStepMs(step);
+    if (!rangeValid || !stepMs || stepMs <= 0) return null;
+    return Math.floor((selectedRange.end.getTime() - selectedRange.start.getTime()) / stepMs) + 1;
+  }, [rangeValid, selectedRange.end, selectedRange.start, step]);
+  const belowRouterMinimum = typeof estimatedSamples === 'number' && estimatedSamples < 30;
 
   const csvMutation = useMutation({
     mutationFn: async () => {
@@ -202,9 +276,12 @@ export function ValidateDataPage() {
     },
     onSuccess: (result) => {
       setError(null);
-      setMessage(`Preview generated for ${result.analyzer_id} with ${result.sample_count} samples.`);
+      const modeLabel = result.analyzer_selection_mode === 'manual_override' ? 'manual analyzer override' : 'router';
+      const executed = result.executed_analyzers?.length ? ` Executed: ${result.executed_analyzers.join(', ')}.` : '';
+      setMessage(`Preview generated via ${modeLabel} with ${result.sample_count} samples.${executed}`);
       setResultSignals(result.signals);
       setResultFindings(result.findings);
+      setRouterDecisions((result.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]);
       setPreviewRows(result.normalized_preview);
     },
     onError: (err: unknown) => {
@@ -460,13 +537,25 @@ export function ValidateDataPage() {
 
                 <Box sx={{ px: 1.4, py: 1.1, borderRadius: '8px', bgcolor: '#ecfeff', color: '#0f766e', fontSize: 13, fontWeight: 750 }}>
                   Request range: {rangeValid ? `${selectedRange.start.toISOString()} -> ${selectedRange.end.toISOString()} (${step} step)` : 'Start must be before end.'}
+                  {typeof estimatedSamples === 'number' ? ` Estimated samples: ${estimatedSamples}.` : ''}
                 </Box>
+
+                {belowRouterMinimum ? (
+                  <Alert severity="warning">
+                    Router requires at least 30 samples. Increase the time window or reduce the step before running analysis.
+                  </Alert>
+                ) : null}
+                {likelyLabServiceTypo ? (
+                  <Alert severity="warning">
+                    Did you mean <strong>{suggestedLabService}</strong>? Lab service labels use hyphens, not underscores.
+                  </Alert>
+                ) : null}
 
                 <Stack direction="row" spacing={1.5}>
                   <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: '#b6d5dd', color: '#0f766e', textTransform: 'none', fontWeight: 850 }}>
                     {previewMutation.isPending ? <CircularProgress size={20} /> : 'Preview Data'}
                   </Button>
-                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
+                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || belowRouterMinimum || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
                     {runPrometheusMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Run Analysis'}
                   </Button>
                 </Stack>
@@ -620,6 +709,14 @@ export function ValidateDataPage() {
 	                </Box>
 	              </Box>
 
+	              <RouterDecisionPanel decisions={(promResult.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]} />
+
+	              {promResult.signal_count === 0 ? (
+	                <Alert severity="info">
+	                  No signals crossed analyzer thresholds for this Prometheus window. Executed analyzers: {promResult.executed_analyzers.length ? promResult.executed_analyzers.join(', ') : 'none'}.
+	                </Alert>
+	              ) : null}
+
 	              {promResult.findings.length > 1 || promResult.signals.length > 1 ? (
 	                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 2 }}>
 	                  <Box>
@@ -669,6 +766,7 @@ export function ValidateDataPage() {
 
       {mode === 'csv' ? (
         <>
+          <RouterDecisionPanel decisions={routerDecisions} />
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Signals</Typography>{resultSignals.length === 0 ? <Typography variant="body2" color="text.secondary">No signals returned yet.</Typography> : resultSignals.map((signal) => <Card key={signal.signal_id} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={signal.signal_type} size="small" /><Chip label={signal.severity} size="small" /><Chip label={signal.analyzer_id} size="small" /></Stack><Typography variant="subtitle1">{signal.summary}</Typography><Typography variant="body2" color="text.secondary">{signal.metric_name} · {signal.service ?? 'n/a'} · confidence {signal.confidence.toFixed(2)}</Typography></Stack></Card>)}</Stack></CardContent></Card>
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">No findings returned yet.</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={finding.health_status} size="small" /><Chip label={finding.category} size="small" /></Stack><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography><Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
         </>

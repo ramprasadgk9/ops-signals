@@ -1,0 +1,49 @@
+scenario:
+  id: cpu_complex_forecast_v1
+  name: Complex CPU Forecast
+  description: >
+    Nonlinear growth with multiple recurring components and no abrupt baseline
+    shift, intended to validate Darts-compatible complex forecast behavior.
+
+dataset:
+  source: generated
+  scenario_dataset: benchmark/scenarios/cpu_complex_forecast_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_behavior:
+  dominant:
+    - nonlinear_trend
+    - seasonal
+    - repeating_pattern
+
+expected_router:
+  required_recommended:
+    - darts
+  allowed_optional:
+    - prophet
+    - kats
+    - stumpy
+    - trend_regression
+    - ruptures
+  forbidden_recommended:
+    - pyod
+    - adtk
+    - river
+    - alibi_detect
+  required_detected_profiles:
+    - seasonal
+    - repeating_pattern
+    - trend
+  forbidden_detected_profiles:
+    - baseline_shift
+    - regime_change
+    - spike
+
+validation:
+  router:
+    require_all_recommended: true
+    fail_on_forbidden_recommended: true
+
+notes:
+  - Prophet is expected to overlap because the current router has no explicit complex-forecasting task field.
