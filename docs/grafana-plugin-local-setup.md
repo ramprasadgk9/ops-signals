@@ -175,12 +175,18 @@ It exposes these Prometheus metrics:
 - `cpu_usage`
 - `request_latency_p95`
 - `error_rate`
+- `ops_signals_test_cpu_usage`
 
 And it emits service label values like:
 
 - `sample-ec2-instance`
 - `checkout`
 - `payments`
+- `test-ruptures-abrupt-regime-shift`
+- `test-trend-smooth-linear-increase`
+- `test-stumpy-repeating-motif`
+- `test-pyod-adtk-isolated-spikes`
+- `test-kats-mixed-behavior`
 
 Verify the mock target directly:
 
@@ -197,7 +203,7 @@ curl "http://localhost:9090/api/v1/label/service/values"
 Expected result:
 
 ```text
-You should see sample-ec2-instance, checkout, and payments.
+You should see sample-ec2-instance, checkout, payments, and the test-* replay services.
 ```
 
 Verify one metric query:
@@ -210,6 +216,18 @@ Expected result:
 
 ```text
 You should get time series back for the local test services.
+```
+
+Verify the replayed manual-test metric:
+
+```bash
+curl "http://localhost:9090/api/v1/query?query=ops_signals_test_cpu_usage"
+```
+
+Expected result:
+
+```text
+You should get one series per CSV file in sample_data/ops_signals_test_series.
 ```
 
 ## 6. Open The Plugin
@@ -258,9 +276,11 @@ For the sample data path, a useful test is:
 ```text
 Data source: Prometheus
 Ops Signals backend: Local backend (:8000)
-Service: sample-ec2-instance
-Metric: cpu_usage
+Service: test-ruptures-abrupt-regime-shift
+Metric: ops_signals_test_cpu_usage
 Service label: service
+Mode: Metric
+Time range: Last 30m
 ```
 
 Expected result:
@@ -268,6 +288,24 @@ Expected result:
 ```text
 Grafana should query Prometheus first. Then the page should show samples, signals, findings, a metric timeline, evidence, suggested questions, and investigation actions.
 ```
+
+For the five replayed CSV datasets, use these values:
+
+- `Metric`: `ops_signals_test_cpu_usage`
+- `Service label`: `service`
+- `Mode`: `Metric`
+- `Service`: `test-ruptures-abrupt-regime-shift`
+- `Service`: `test-trend-smooth-linear-increase`
+- `Service`: `test-stumpy-repeating-motif`
+- `Service`: `test-pyod-adtk-isolated-spikes`
+- `Service`: `test-kats-mixed-behavior`
+
+Timing guidance:
+
+- wait for about `30 minutes` of live Prometheus scraping before judging a full run
+- use `Last 30m` to capture one complete replay of a 120-point CSV
+- use `Last 10m` to `Last 15m` if you only want a partial warm-up check
+- avoid absolute timestamps from `July 30, 2026` in the plugin because Prometheus stores these datasets at scrape time, not at their original CSV times
 
 ## 8. Plugin Features And How To Use Them
 
@@ -322,8 +360,8 @@ What to expect:
 Local testing recommendation:
 
 - Start with `Last 30m`
-- Use a current window relative to `Friday, July 24, 2026`
-- Do not expect old dates like `July 23, 2026` to act like live data
+- Use a current live window relative to `Thursday, July 30, 2026`
+- Do not expect older absolute dates to act like live replayed data
 
 ### Run Details And Analyzer Routing
 

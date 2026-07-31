@@ -1,12 +1,45 @@
 from __future__ import annotations
 
+import csv
 import math
 from itertools import count
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 
 SCRAPE_BUCKET_SECONDS = 15.0
 _SCRAPE_COUNTER = count()
+TEST_SERIES_DIR = Path(__file__).resolve().parents[1] / "sample_data" / "ops_signals_test_series"
+
+
+def _load_test_series() -> list[dict[str, object]]:
+    datasets: list[dict[str, object]] = []
+    for csv_path in sorted(TEST_SERIES_DIR.glob("*.csv")):
+        values: list[float] = []
+        with csv_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                raw_value = row.get("cpu_usage")
+                if not raw_value:
+                    continue
+                values.append(float(raw_value))
+        if not values:
+            continue
+        scenario = csv_path.stem.split("_", 1)[1] if "_" in csv_path.stem else csv_path.stem
+        datasets.append(
+            {
+                "path": csv_path.name,
+                "service": f"test-{scenario.replace('_', '-')}",
+                "instance": f"{csv_path.stem}-01",
+                "env": "local",
+                "scenario": scenario,
+                "values": values,
+            }
+        )
+    return datasets
+
+
+TEST_SERIES_DATASETS = _load_test_series()
 
 
 def _next_bucket() -> int:
@@ -155,6 +188,8 @@ def _metric_lines() -> str:
         "# TYPE error_rate gauge",
         "# HELP ops_signal_lab_value Synthetic analyzer-router lab signal with purpose-built behavior",
         "# TYPE ops_signal_lab_value gauge",
+        "# HELP ops_signals_test_cpu_usage Replayed CSV-backed CPU usage for manual Ops Signals plugin testing",
+        "# TYPE ops_signals_test_cpu_usage gauge",
     ]
 
     for index, item in enumerate(services):
@@ -177,6 +212,22 @@ def _metric_lines() -> str:
         if "profile" in item:
             lab_labels = f'{labels},profile="{profile}"'
             lines.append(f"ops_signal_lab_value{{{lab_labels}}} {cpu_usage:.5f}")
+
+    for dataset in TEST_SERIES_DATASETS:
+        values = dataset["values"]
+        assert isinstance(values, list)
+        sample_index = bucket % len(values)
+        value = values[sample_index]
+        labels = (
+            f'service="{dataset["service"]}",'
+            f'instance="{dataset["instance"]}",'
+            f'env="{dataset["env"]}",'
+            f'scenario="{dataset["scenario"]}",'
+            f'source_file="{dataset["path"]}",'
+            f'sample_interval="5m",'
+            f'replay_scrape_interval="{int(SCRAPE_BUCKET_SECONDS)}s"'
+        )
+        lines.append(f"ops_signals_test_cpu_usage{{{labels}}} {value:.5f}")
 
     return "\n".join(lines) + "\n"
 
