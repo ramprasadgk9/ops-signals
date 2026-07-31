@@ -95,11 +95,15 @@ def compare_windows(points: pd.DataFrame, signals: Iterable[object] | None = Non
     new_behavior = abs(change_percent) >= 25.0 or anomaly_count_difference > 0 or abs(trend_difference) >= 10.0
 
     summary = (
-        "CPU behaviour differs significantly from the previous day." if new_behavior else "Current behaviour is broadly consistent with the previous window."
+        "Current-window behaviour differs significantly between the first and second half of the selected time window."
+        if new_behavior
+        else "Current behaviour is broadly consistent between the first and second half of the selected time window."
     )
 
     return {
         "new_behavior": bool(new_behavior),
+        "comparison_type": "selected_window_split",
+        "comparison_label": "first half vs second half of selected time window",
         "change_percent": round(float(change_percent), 4),
         "summary": summary,
         "current_mean": round(current_mean, 4),

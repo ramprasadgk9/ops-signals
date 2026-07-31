@@ -117,6 +117,7 @@ class PrometheusRunOut(BaseModel):
     analyzer_selection_mode: str = "all"
     analyzer_routing: list[dict] = Field(default_factory=list)
     executed_analyzers: list[str] = Field(default_factory=list)
+    analyzer_executions: list[dict] = Field(default_factory=list)
 
 
 class ValidationFindingOut(BaseModel):
@@ -159,6 +160,7 @@ class CsvValidationOut(BaseModel):
     analyzer_selection_mode: str = "all"
     analyzer_routing: list[dict] = Field(default_factory=list)
     executed_analyzers: list[str] = Field(default_factory=list)
+    analyzer_executions: list[dict] = Field(default_factory=list)
 
 
 class FindingOut(BaseModel):

@@ -124,7 +124,7 @@ export function OpsSignalsDataSource() {
         </Alert>
       )}
 
-      <PanelPreview result={result} />
+      <PanelPreview result={result} backendUrl={options.url || defaultBackendUrl} />
     </Box>
   );
 }
