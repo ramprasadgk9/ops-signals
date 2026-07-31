@@ -56,6 +56,15 @@ function formatDate(value?: string | null) {
   return new Date(value).toLocaleString();
 }
 
+function formatAxisTimestamp(value?: string | null, spanMs?: number) {
+  if (!value) return 'n/a';
+  const date = new Date(value);
+  if (spanMs != null && spanMs <= 6 * 60 * 60 * 1000) {
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  return date.toLocaleString([], { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function buttonStyle(variant: 'primary' | 'secondary' | 'danger' = 'secondary', disabled = false): React.CSSProperties {
   const base = variant === 'primary' ? styles.button : { ...styles.button, background: 'transparent', border: '1px solid rgba(204, 204, 220, 0.28)' };
   const danger = variant === 'danger' ? { ...base, borderColor: 'rgba(242, 73, 92, 0.55)', color: '#ff8f99' } : base;
@@ -88,13 +97,24 @@ function metricStats(result: GrafanaAnalysisResult, selectedFinding: GrafanaAnal
   };
 }
 
+function signalsForFinding(result: GrafanaAnalysisResult, selectedFinding: GrafanaAnalysisFinding | null) {
+  if (!selectedFinding?.signal_ids.length) return result.signals;
+  const ids = new Set(selectedFinding.signal_ids);
+  return result.signals.filter((signal) => ids.has(signal.id));
+}
+
 function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
   const routing = result.analyzerRouting ?? [];
   const recommended = routing.filter((item) => item.recommendation === 'RECOMMENDED');
   const optional = routing.filter((item) => item.recommendation === 'OPTIONAL');
   const notRecommended = routing.filter((item) => item.recommendation === 'NOT_RECOMMENDED');
   const rejected = routing.filter((item) => item.recommendation === 'REJECTED');
-  const executed = result.executedAnalyzers ?? [];
+  const executions = result.analyzerExecutions ?? [];
+  const executed = executions.length
+    ? executions
+        .filter((item) => item.execution_status === 'completed')
+        .map((item) => item.display_name ?? item.router_analyzer_id)
+    : result.executedAnalyzers ?? [];
 
   const renderList = (items: string[], tone: 'success' | 'warning' | 'danger' | 'neutral' = 'neutral') => (
     <div style={styles.row}>
@@ -120,6 +140,17 @@ function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
         <span style={styles.label}>Executed analyzers</span>
         {renderList(executed)}
       </div>
+      {executions.length ? (
+        <div style={styles.stack}>
+          <span style={styles.label}>Execution status</span>
+          {executions.map((item) => (
+            <div key={item.router_analyzer_id} style={styles.infoNote}>
+              <strong>{item.display_name ?? humanize(item.router_analyzer_id)}</strong>: {humanize(item.recommendation)} · {item.selected ? 'selected' : 'not selected'} · {humanize(item.execution_status)}
+              {item.execution_reason ? ` · ${item.execution_reason}` : ''}
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div style={styles.stack}>
         <span style={styles.label}>Recommended</span>
         {renderList(labels(recommended), 'success')}
@@ -235,7 +266,7 @@ function localAssistantAnswer(
               ? executed.includes('anomaly_zscore')
               : concreteRan;
       const reasons = [...(requestedDecision.reasons ?? []), ...(requestedDecision.warnings ?? [])].slice(0, 3);
-      answer += `${requestedDecision.display_name} was ${requestedDecision.recommendation.toLowerCase().replaceAll('_', ' ')} with score ${requestedDecision.final_score.toFixed(2)}. `;
+      answer += `${requestedDecision.display_name} was ${requestedDecision.recommendation.toLowerCase().replace(/_/g, ' ')} with score ${requestedDecision.final_score.toFixed(2)}. `;
       answer += mappedRan
         ? `It ran because recommended-only mode allowed it or one of its mapped pipeline analyzers. `
         : `It did not run because recommended-only mode only executes router decisions marked RECOMMENDED. `;
@@ -333,6 +364,11 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
   const max = values.length ? Math.max(...values) : 1;
   const range = max - min || 1;
   const stats = metricStats(result, selectedFinding);
+  const findingSignals = signalsForFinding(result, selectedFinding).filter((signal) => signal.start_time && signal.end_time);
+  const firstTs = points[0] ? new Date(points[0].timestamp).getTime() : 0;
+  const lastTs = points[points.length - 1] ? new Date(points[points.length - 1].timestamp).getTime() : firstTs;
+  const spanMs = Math.max(1, lastTs - firstTs);
+  const averageY = height - padding - (((stats.average ?? min) - min) / range) * (height - padding * 2);
 
   const path = sampledPoints
     .map((point, index) => {
@@ -341,8 +377,6 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(' ');
-
-  const signalCount = Math.min(selectedFinding?.signal_ids.length ?? 0, 16);
 
   return (
     <Card>
@@ -366,19 +400,27 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
               const y = padding + line * ((height - padding * 2) / 3);
               return <line key={line} x1={padding} x2={width - padding} y1={y} y2={y} stroke="rgba(204, 204, 220, 0.16)" />;
             })}
-            {Array.from({ length: signalCount }).map((_, index) => {
-              const x = padding + ((index + 1) / (signalCount + 1)) * (width - padding * 2);
-              return <rect key={index} x={x - 7} y={padding} width={14} height={height - padding * 2} fill="rgba(242, 73, 92, 0.18)" />;
+            {findingSignals.slice(0, 16).map((signal) => {
+              const start = new Date(signal.start_time as string).getTime();
+              const end = new Date(signal.end_time as string).getTime();
+              const x1 = padding + ((Math.max(firstTs, start) - firstTs) / spanMs) * (width - padding * 2);
+              const x2 = padding + ((Math.min(lastTs, end) - firstTs) / spanMs) * (width - padding * 2);
+              const rectWidth = Math.max(4, x2 - x1);
+              return (
+                <rect key={signal.id} x={x1} y={padding} width={rectWidth} height={height - padding * 2} fill="rgba(242, 73, 92, 0.18)">
+                  <title>{`${humanize(signal.analyzer_id)} ${humanize(signal.signal_type)} · ${formatDate(signal.start_time)} - ${formatDate(signal.end_time)} · confidence ${formatNumber(signal.confidence ?? signal.importance_score)}`}</title>
+                </rect>
+              );
             })}
-            <line x1={padding} x2={width - padding} y1={height - padding - 42} y2={height - padding - 42} stroke="rgba(204, 204, 220, 0.45)" strokeDasharray="6 6" />
+            <line x1={padding} x2={width - padding} y1={averageY} y2={averageY} stroke="rgba(204, 204, 220, 0.45)" strokeDasharray="6 6" />
             <path d={path} fill="none" stroke="#5794f2" strokeWidth="3" />
-            <text x={padding} y={height - 10} fill="rgba(204, 204, 220, 0.72)" fontSize="12">{new Date(points[0].timestamp).toLocaleDateString()}</text>
-            <text x={width - padding} y={height - 10} fill="rgba(204, 204, 220, 0.72)" fontSize="12" textAnchor="end">{new Date(points[points.length - 1].timestamp).toLocaleDateString()}</text>
+            <text x={padding} y={height - 10} fill="rgba(204, 204, 220, 0.72)" fontSize="12">{formatAxisTimestamp(points[0].timestamp, spanMs)}</text>
+            <text x={width - padding} y={height - 10} fill="rgba(204, 204, 220, 0.72)" fontSize="12" textAnchor="end">{formatAxisTimestamp(points[points.length - 1].timestamp, spanMs)}</text>
           </svg>
         )}
         <div style={styles.row}>
-          <StatusPill>{result.metric}</StatusPill>
-          <StatusPill>Baseline</StatusPill>
+          <StatusPill>Observed {result.metric}</StatusPill>
+          <StatusPill>Current-window average</StatusPill>
           <StatusPill tone="danger">Signal window</StatusPill>
         </div>
         {points[0]?.timestamp?.startsWith('2014-') ? (
@@ -640,7 +682,12 @@ function EvidenceSummaryCard({
   onToggle: () => void;
 }) {
   const stats = metricStats(result, finding);
-  const earliest = result.timeseries[0]?.timestamp;
+  const findingSignals = signalsForFinding(result, finding);
+  const datedSignals = findingSignals.filter((signal) => signal.start_time);
+  const earliest = datedSignals
+    .map((signal) => signal.start_time as string)
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0];
+  const comparisonType = finding?.comparison_json?.comparison_label ?? 'selected time window';
   return (
     <Card>
       <div style={styles.stack}>
@@ -655,8 +702,8 @@ function EvidenceSummaryCard({
         <div style={styles.detailGrid}>
           <span>Earliest signal</span><strong>{earliest ? new Date(earliest).toLocaleString() : 'n/a'}</strong>
           <span>Highest observed value</span><strong>{formatNumber(stats.peak)}</strong>
-          <span>Baseline comparison</span><strong>Significantly different</strong>
-          <span>Analyzer confidence</span><strong>{formatNumber(finding?.importance_score)}</strong>
+          <span>Reference comparison</span><strong>{String(comparisonType)}</strong>
+          <span>Analyzer confidence</span><strong>{formatNumber(findingSignals[0]?.confidence ?? finding?.importance_score)}</strong>
         </div>
         <button type="button" style={buttonStyle()} onClick={onToggle}>View all {finding?.signal_ids.length ?? signals.length} signals</button>
         {expanded ? (
@@ -665,9 +712,9 @@ function EvidenceSummaryCard({
             <div style={styles.tableHeader}>Analyzer</div>
             <div style={styles.tableHeader}>Severity</div>
             <div style={styles.tableHeader}>Confidence</div>
-            {signals.slice(0, 12).map((signal, index) => (
+            {findingSignals.slice(0, 12).map((signal) => (
               <React.Fragment key={signal.id}>
-                <div>{index + 1}</div>
+                <div>{signal.start_time ? `${formatAxisTimestamp(signal.start_time)} - ${formatAxisTimestamp(signal.end_time)}` : signal.id.slice(0, 8)}</div>
                 <div>{humanize(signal.analyzer_id || signal.signal_type)}</div>
                 <div>{humanize(signal.severity)}</div>
                 <div>{formatNumber(signal.confidence ?? signal.importance_score)}</div>

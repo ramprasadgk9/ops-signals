@@ -20,6 +20,9 @@ function toGrafanaSignal(signal: Signal): GrafanaAnalysisSignal {
     severity: signal.severity,
     confidence: signal.confidence,
     importance_score: signal.importance_score,
+    start_time: signal.start_time,
+    end_time: signal.end_time,
+    evidence: signal.evidence,
   };
 }
 
@@ -31,7 +34,9 @@ function toGrafanaFinding(finding: Finding): GrafanaAnalysisFinding {
     category: finding.category,
     health_status: finding.health_status,
     importance_score: finding.importance_score,
+    investigation_priority: finding.investigation_priority,
     signal_ids: finding.signal_ids,
+    comparison_json: finding.comparison_json,
   };
 }
 
@@ -124,5 +129,22 @@ export function buildMockAnalysis(target: GrafanaQueryTarget, runs: AnalysisRun[
     signals: [signal],
     findings: [finding],
     behaviorFindings: [behaviorFinding],
+    timeseries: [
+      {
+        timestamp: target.timeRange.from || new Date().toISOString(),
+        value: 0.42,
+        service: target.service,
+        metric_name: target.metric,
+        analysis_run_id: runId,
+      },
+      {
+        timestamp: target.timeRange.to || new Date().toISOString(),
+        value: 0.74,
+        service: target.service,
+        metric_name: target.metric,
+        analysis_run_id: runId,
+      },
+    ],
+    analysisRuns: runs,
   };
 }

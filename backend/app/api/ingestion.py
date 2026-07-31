@@ -170,6 +170,7 @@ async def run_prometheus_analysis(
         analyzer_selection_mode=config.analysis.selection_mode,
         analyzer_routing=result.analyzer_routing,
         executed_analyzers=result.executed_analyzers,
+        analyzer_executions=result.analyzer_executions,
     )
 
 
@@ -328,6 +329,7 @@ async def validate_csv_analysis(
             analyzer_selection_mode=config.analysis.selection_mode,
             analyzer_routing=result.analyzer_routing,
             executed_analyzers=result.executed_analyzers,
+            analyzer_executions=result.analyzer_executions,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

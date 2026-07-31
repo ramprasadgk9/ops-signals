@@ -20,6 +20,9 @@ export type GrafanaAnalysisSignal = {
   severity?: string;
   confidence?: number;
   importance_score: number;
+  start_time?: string;
+  end_time?: string;
+  evidence?: Record<string, unknown>;
 };
 
 export type GrafanaAnalyzerRoutingDecision = {
@@ -41,6 +44,18 @@ export type GrafanaAnalysisFinding = {
   importance_score: number;
   investigation_priority: number;
   signal_ids: string[];
+  comparison_json?: Record<string, unknown>;
+};
+
+export type GrafanaAnalyzerExecution = {
+  router_analyzer_id: string;
+  display_name?: string;
+  recommendation?: string;
+  selected?: boolean;
+  pipeline_analyzer_ids?: string[];
+  executed_pipeline_analyzer_ids?: string[];
+  execution_status: string;
+  execution_reason?: string | null;
 };
 
 export type GrafanaBehaviorFinding = {
@@ -75,6 +90,7 @@ export type GrafanaAnalysisResult = {
   analyzerSelectionMode?: string;
   analyzerRouting?: GrafanaAnalyzerRoutingDecision[];
   executedAnalyzers?: string[];
+  analyzerExecutions?: GrafanaAnalyzerExecution[];
 };
 
 export type GrafanaQuestion = {

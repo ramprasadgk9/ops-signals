@@ -69,3 +69,41 @@ def test_csv_pipeline_generates_operational_signals() -> None:
     assert "trend" in signal_types
     assert len(result.findings) == 1
     assert result.report.answers["what_changed_yesterday"]
+
+
+def test_findings_do_not_claim_previous_day_without_comparison_data() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    config = load_config(project_root / "config.yaml")
+    store = InMemoryStore()
+    pipeline = SignalPipeline(config=config, store=store, embedder=StubEmbedder())
+
+    result = pipeline.run()
+
+    finding = result.findings[0]
+    assert "yesterday" not in finding.title.lower()
+    assert "previous day" not in finding.summary.lower()
+    assert finding.comparison_json["comparison_type"] == "selected_window_split"
+
+
+def test_pipeline_records_recommended_analyzers_that_are_skipped() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    config = load_config(project_root / "config.yaml")
+    store = InMemoryStore()
+    pipeline = SignalPipeline(config=config, store=store, embedder=StubEmbedder())
+
+    snapshots = pipeline._executed_analyzer_snapshots(
+        [
+            {"analyzer_id": "trend_regression", "display_name": "Trend Regression", "recommendation": "RECOMMENDED"},
+            {"analyzer_id": "kats", "display_name": "Kats", "recommendation": "RECOMMENDED"},
+            {"analyzer_id": "adtk", "display_name": "ADTK", "recommendation": "REJECTED"},
+        ],
+        ["trend"],
+    )
+
+    by_id = {item["router_analyzer_id"]: item for item in snapshots}
+    assert by_id["trend_regression"]["execution_status"] == "completed"
+    assert by_id["trend_regression"]["executed_pipeline_analyzer_ids"] == ["trend"]
+    assert by_id["kats"]["selected"] is True
+    assert by_id["kats"]["execution_status"] == "skipped"
+    assert "No enabled pipeline analyzer" in by_id["kats"]["execution_reason"]
+    assert by_id["adtk"]["selected"] is False

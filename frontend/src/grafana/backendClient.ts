@@ -1,6 +1,7 @@
 import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, Signal, TimeseriesPoint } from '../types';
 import type {
   GrafanaAnalyzerRoutingDecision,
+  GrafanaAnalyzerExecution,
   GrafanaAnalysisFinding,
   GrafanaAnalysisResult,
   GrafanaAnalysisSignal,
@@ -35,6 +36,7 @@ export type BackendPluginAnalysis = {
   analyzerSelectionMode?: string;
   analyzerRouting?: GrafanaAnalyzerRoutingDecision[];
   executedAnalyzers?: string[];
+  analyzerExecutions?: GrafanaAnalyzerExecution[];
 };
 
 function normalizeBaseUrl(baseUrl: string) {
@@ -122,6 +124,9 @@ function toGrafanaSignal(signal: Signal): GrafanaAnalysisSignal {
     severity: signal.severity,
     confidence: signal.confidence ?? undefined,
     importance_score: signal.importance_score,
+    start_time: signal.start_time,
+    end_time: signal.end_time,
+    evidence: signal.evidence ?? {},
   };
 }
 
@@ -135,6 +140,7 @@ function toGrafanaFinding(finding: Finding): GrafanaAnalysisFinding {
     importance_score: finding.importance_score,
     investigation_priority: finding.investigation_priority,
     signal_ids: finding.signal_ids ?? [],
+    comparison_json: finding.comparison_json ?? {},
   };
 }
 
@@ -250,6 +256,7 @@ export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
     analyzer_selection_mode?: string;
     analyzer_routing?: GrafanaAnalyzerRoutingDecision[];
     executed_analyzers?: string[];
+    analyzer_executions?: GrafanaAnalyzerExecution[];
   }>(baseUrl, '/api/ingestion/prometheus-run', {
     provider: 'prometheus',
     datasource_uid: target.datasourceUid,
@@ -319,6 +326,7 @@ export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
     analyzerSelectionMode: run.analyzer_selection_mode,
     analyzerRouting: run.analyzer_routing ?? [],
     executedAnalyzers: run.executed_analyzers ?? [],
+    analyzerExecutions: run.analyzer_executions ?? [],
   };
 }
 
