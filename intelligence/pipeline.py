@@ -47,6 +47,7 @@ class PipelineResult:
     analysis_run_id: str
     analyzer_routing: list[dict[str, object]]
     executed_analyzers: list[str]
+    analyzer_executions: list[dict[str, object]]
 
 
 class SignalPipeline:
@@ -118,7 +119,7 @@ class SignalPipeline:
             embeddings = self._build_embeddings(signals)
             self.store.save_signals(scored_signals, embeddings)
 
-        aggregation_result = FindingAggregator().aggregate(scored_signals, normalized)
+        aggregation_result = FindingAggregator().aggregate(scored_signals, normalized, series_profile=series_profile)
         findings = aggregation_result.findings
         
         # Set analysis_run_id on findings before saving
@@ -145,6 +146,7 @@ class SignalPipeline:
             analysis_run_id=analysis_run_id,
             analyzer_routing=analyzer_routing,
             executed_analyzers=executed_analyzers,
+            analyzer_executions=executed_analyzer_snapshots,
         )
 
     def _load_input(self) -> pd.DataFrame:
@@ -241,15 +243,7 @@ class SignalPipeline:
         elif mode != "recommended_only":
             return None
 
-        router_to_pipeline = {
-            "ruptures": {"ruptures", "baseline_shift"},
-            "stumpy": {"stumpy"},
-            "prophet": {"prophet"},
-            "darts": {"prophet"},
-            "trend_regression": {"trend"},
-            "adtk": {"anomaly_zscore"},
-            "pyod": {"anomaly_zscore"},
-        }
+        router_to_pipeline = self._router_to_pipeline_analyzers()
         allowed: set[str] = set()
         for analyzer_id in recommended_router_ids:
             allowed.update(router_to_pipeline.get(analyzer_id, {analyzer_id}))
@@ -259,7 +253,8 @@ class SignalPipeline:
         self,
         analyzer_routing: list[dict[str, object]],
         executed_analyzers: list[str],
-    ) -> list[dict[str, str]]:
+    ) -> list[dict[str, object]]:
+        router_to_pipeline = self._router_to_pipeline_analyzers()
         reverse_mapping = {
             "ruptures": "ruptures",
             "baseline_shift": "ruptures",
@@ -268,24 +263,64 @@ class SignalPipeline:
             "trend": "trend_regression",
             "anomaly_zscore": "adtk",
         }
-        recommended_router_ids = {
-            str(decision.get("analyzer_id"))
-            for decision in analyzer_routing
-            if str(decision.get("recommendation")) == "RECOMMENDED"
-        }
+        executed_set = set(executed_analyzers)
         snapshots = []
-        for analyzer_id in executed_analyzers:
-            router_analyzer_id = reverse_mapping.get(analyzer_id, analyzer_id)
-            if router_analyzer_id not in recommended_router_ids:
-                router_analyzer_id = analyzer_id
+        routed_ids = {str(decision.get("analyzer_id")) for decision in analyzer_routing}
+        for decision in analyzer_routing:
+            router_analyzer_id = str(decision.get("analyzer_id"))
+            pipeline_ids = sorted(router_to_pipeline.get(router_analyzer_id, {router_analyzer_id}))
+            matching_executed = [pipeline_id for pipeline_id in pipeline_ids if pipeline_id in executed_set]
+            recommended = str(decision.get("recommendation")) == "RECOMMENDED"
+            selected = bool(recommended and pipeline_ids)
+            status = "completed" if matching_executed else "skipped"
+            reason = None
+            if not recommended:
+                selected = False
+                status = "skipped"
+                reason = f"Router decision was {decision.get('recommendation')}."
+            elif not matching_executed:
+                reason = "No enabled pipeline analyzer is available for this recommended router analyzer."
             snapshots.append(
                 {
                     "router_analyzer_id": router_analyzer_id,
-                    "pipeline_analyzer_id": analyzer_id,
+                    "display_name": decision.get("display_name") or router_analyzer_id,
+                    "recommendation": decision.get("recommendation"),
+                    "selected": selected,
+                    "pipeline_analyzer_ids": pipeline_ids,
+                    "executed_pipeline_analyzer_ids": matching_executed,
+                    "execution_status": status,
+                    "execution_reason": reason,
+                }
+            )
+        for analyzer_id in executed_analyzers:
+            router_analyzer_id = reverse_mapping.get(analyzer_id, analyzer_id)
+            if router_analyzer_id in routed_ids:
+                continue
+            snapshots.append(
+                {
+                    "router_analyzer_id": router_analyzer_id,
+                    "display_name": router_analyzer_id,
+                    "recommendation": "UNROUTED",
+                    "selected": True,
+                    "pipeline_analyzer_ids": [analyzer_id],
+                    "executed_pipeline_analyzer_ids": [analyzer_id],
                     "execution_status": "completed",
+                    "execution_reason": None,
                 }
             )
         return snapshots
+
+    @staticmethod
+    def _router_to_pipeline_analyzers() -> dict[str, set[str]]:
+        return {
+            "ruptures": {"ruptures", "baseline_shift"},
+            "stumpy": {"stumpy"},
+            "prophet": {"prophet"},
+            "darts": {"prophet"},
+            "trend_regression": {"trend"},
+            "adtk": {"anomaly_zscore"},
+            "pyod": {"anomaly_zscore"},
+        }
 
     @staticmethod
     def _should_run_analyzer(analyzer_id: str, allowed: set[str] | None) -> bool:

@@ -19,7 +19,12 @@ class FindingAggregationResult:
 
 
 class FindingAggregator:
-    def aggregate(self, signals: Iterable[OperationalSignal], points: pd.DataFrame) -> FindingAggregationResult:
+    def aggregate(
+        self,
+        signals: Iterable[OperationalSignal],
+        points: pd.DataFrame,
+        series_profile: dict[str, object] | None = None,
+    ) -> FindingAggregationResult:
         signal_list = list(signals)
         if not signal_list:
             return FindingAggregationResult(findings=[], comparison_json={})
@@ -43,8 +48,8 @@ class FindingAggregator:
             health_status = self._health_status(importance)
             investigation_priority = self._investigation_priority(importance)
             category = self._category(grouped_signals)
-            title = self._title(metric_name, grouped_signals, comparison_json)
-            summary = self._summary(metric_name, grouped_signals, comparison_json)
+            title = self._title(metric_name, grouped_signals, comparison_json, series_profile)
+            summary = self._summary(metric_name, grouped_signals, comparison_json, series_profile)
             findings.append(
                 OperationalFinding(
                     service=service,
@@ -65,7 +70,7 @@ class FindingAggregator:
 
     def _category(self, signals: list[OperationalSignal]) -> str:
         counts = Counter(signal.signal_type for signal in signals)
-        if counts.get("baseline_shift", 0) or counts.get("trend", 0):
+        if counts.get("ruptures", 0) or counts.get("baseline_shift", 0) or counts.get("trend", 0):
             return "behavior_change"
         if counts.get("anomaly", 0):
             return "unusual_activity"
@@ -85,29 +90,61 @@ class FindingAggregator:
             return 2
         return 3
 
-    def _title(self, metric_name: str, signals: list[OperationalSignal], comparison_json: dict[str, object]) -> str:
-        if comparison_json.get("new_behavior"):
-            return f"{metric_name} behaviour changed significantly yesterday."
+    def _title(
+        self,
+        metric_name: str,
+        signals: list[OperationalSignal],
+        comparison_json: dict[str, object],
+        series_profile: dict[str, object] | None = None,
+    ) -> str:
         signal_types = {signal.signal_type for signal in signals}
+        if self._has_structural_change(signals, series_profile):
+            return f"{metric_name} experienced a persistent baseline shift during the selected time window."
         if "baseline_shift" in signal_types:
             return f"{metric_name} moved to a new baseline."
+        if {"anomaly", "spike", "outlier"}.intersection(signal_types):
+            return f"{metric_name} has unusual activity in the selected time window."
         if "trend" in signal_types:
             return f"{metric_name} is trending in one direction."
+        if {"forecast", "seasonality", "seasonal"}.intersection(signal_types):
+            return f"{metric_name} shows predictable recurring or forecastable behaviour."
+        if comparison_json.get("new_behavior"):
+            return f"{metric_name} behaviour changed significantly during the selected time window."
         return f"{metric_name} has unusual behaviour."
 
-    def _summary(self, metric_name: str, signals: list[OperationalSignal], comparison_json: dict[str, object]) -> str:
+    def _summary(
+        self,
+        metric_name: str,
+        signals: list[OperationalSignal],
+        comparison_json: dict[str, object],
+        series_profile: dict[str, object] | None = None,
+    ) -> str:
         signal_types = {signal.signal_type for signal in signals}
+        ruptures = next((signal for signal in signals if signal.signal_type == "ruptures"), None)
         baseline = next((signal for signal in signals if signal.signal_type == "baseline_shift"), None)
         trend = next((signal for signal in signals if signal.signal_type == "trend"), None)
-        anomaly_count = sum(1 for signal in signals if signal.signal_type == "anomaly")
+        anomaly = next((signal for signal in signals if signal.signal_type in {"anomaly", "spike", "outlier"}), None)
+        forecast_signals = [signal for signal in signals if signal.signal_type in {"forecast", "seasonality", "seasonal"}]
+        anomaly_count = sum(1 for signal in signals if signal.signal_type in {"anomaly", "spike", "outlier"})
+
+        if ruptures is not None and self._has_structural_change(signals, series_profile):
+            return self._structural_change_summary(ruptures, baseline, trend, comparison_json)
 
         parts: list[str] = []
         if baseline is not None:
-            parts.append(f"baseline increased {abs(float(baseline.evidence.get('percent_change', 0.0))):.1f}%")
-        if trend is not None:
+            parts.append(self._baseline_summary(baseline))
+            if trend is not None:
+                parts.append(self._secondary_trend_summary(trend))
+        elif anomaly is not None:
+            parts.append(anomaly.summary)
+            if trend is not None:
+                parts.append(self._secondary_trend_summary(trend))
+        if trend is not None and baseline is None and anomaly is None:
             parts.append(f"{trend.summary.lower()}")
         if anomaly_count:
             parts.append(f"{anomaly_count} anomaly window(s) detected")
+        for forecast_signal in forecast_signals:
+            parts.append(forecast_signal.summary)
 
         if comparison_json.get("summary"):
             parts.append(str(comparison_json["summary"]))
@@ -115,3 +152,82 @@ class FindingAggregator:
         if not parts:
             return f"Operational behaviour for {metric_name} changed across the batch window."
         return "; ".join(parts).capitalize()
+
+    def _has_structural_change(self, signals: list[OperationalSignal], series_profile: dict[str, object] | None) -> bool:
+        if not any(signal.signal_type == "ruptures" for signal in signals):
+            return False
+        profiles = {
+            str(item).strip().lower()
+            for item in (series_profile or {}).get("detected_profiles", [])
+            if str(item).strip()
+        }
+        if profiles:
+            return bool({"baseline_shift", "regime_change"}.intersection(profiles))
+        return any(signal.signal_type == "baseline_shift" for signal in signals)
+
+    def _structural_change_summary(
+        self,
+        ruptures: OperationalSignal,
+        baseline: OperationalSignal | None,
+        trend: OperationalSignal | None,
+        comparison_json: dict[str, object],
+    ) -> str:
+        evidence = ruptures.evidence
+        sample = evidence.get("change_point_index")
+        left_mean = self._optional_float(evidence.get("left_mean"))
+        right_mean = self._optional_float(evidence.get("right_mean"))
+        percent_change = self._optional_float(evidence.get("percent_change"))
+
+        if sample is not None and left_mean is not None and right_mean is not None and percent_change is not None:
+            primary = (
+                f"A structural change was detected around sample {sample}, where the average value "
+                f"{self._direction_word(percent_change)} from {left_mean:.4f} to {right_mean:.4f}, "
+                f"a change of {abs(percent_change):.1f}%."
+            )
+        else:
+            primary = ruptures.summary
+
+        parts = [primary]
+        if baseline is not None:
+            baseline_change = self._optional_float(baseline.evidence.get("percent_change"))
+            if percent_change is not None:
+                parts.append("A first-half/second-half baseline shift supports this structural finding.")
+            elif baseline_change is not None:
+                parts.append(self._baseline_summary(baseline))
+        if comparison_json.get("summary"):
+            parts.append(str(comparison_json["summary"]))
+        if trend is not None:
+            parts.append(
+                f"Trend Regression observed an overall {self._trend_direction(trend)} direction, "
+                "but the dominant behavior is an abrupt regime change."
+            )
+        return " ".join(parts)
+
+    def _baseline_summary(self, baseline: OperationalSignal) -> str:
+        percent_change = self._optional_float(baseline.evidence.get("percent_change"))
+        if percent_change is None:
+            return baseline.summary
+        return f"Baseline {self._direction_word(percent_change)} {abs(percent_change):.1f}%"
+
+    def _secondary_trend_summary(self, trend: OperationalSignal) -> str:
+        return f"Trend Regression observed an overall {self._trend_direction(trend)} direction as secondary context"
+
+    def _trend_direction(self, trend: OperationalSignal) -> str:
+        slope = self._optional_float(trend.evidence.get("slope"))
+        if slope is not None:
+            return "upward" if slope >= 0 else "downward"
+        summary = trend.summary.lower()
+        if "downward" in summary:
+            return "downward"
+        return "upward"
+
+    @staticmethod
+    def _direction_word(percent_change: float) -> str:
+        return "increased" if percent_change >= 0 else "decreased"
+
+    @staticmethod
+    def _optional_float(value: object) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
