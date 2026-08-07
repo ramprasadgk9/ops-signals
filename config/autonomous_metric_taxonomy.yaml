@@ -1,0 +1,105 @@
+performance:
+  description: "Latency, throughput, request rate, processing time"
+  concepts:
+    latency:
+      description: "Request and operation latency"
+    throughput:
+      description: "Processed operations or data per unit time"
+    request_rate:
+      description: "Incoming or completed requests per unit time"
+    processing_duration:
+      description: "Execution or processing duration"
+
+capacity:
+  description: "CPU, memory, disk, saturation"
+  concepts:
+    cpu:
+      description: "CPU consumption or utilization"
+    memory:
+      description: "Memory usage, availability, working set"
+    disk:
+      description: "Disk usage, free space, I/O"
+    saturation:
+      description: "Resource saturation or pressure"
+    queue_depth:
+      description: "Queued work representing resource pressure"
+
+availability:
+  description: "Errors, success rate, health and uptime"
+  concepts:
+    health:
+      description: "Up/down or probe health"
+    uptime:
+      description: "Service or process uptime"
+    error_rate:
+      description: "Errors per unit time"
+    success_rate:
+      description: "Successful operations ratio"
+    failed_requests:
+      description: "Failed request or operation count"
+
+reliability:
+  description: "Retries, timeouts, exceptions, restarts"
+  concepts:
+    timeout:
+      description: "Timeout events or timeout rate"
+    retry:
+      description: "Retry events or retry rate"
+    exception:
+      description: "Exception events"
+    restart:
+      description: "Process or workload restarts"
+    failed_operation:
+      description: "Failed non-request operation"
+
+infrastructure:
+  description: "Node, container, filesystem, network, volume and host load"
+  concepts:
+    node:
+      description: "Node-level metrics"
+    container:
+      description: "Container-level metrics"
+    filesystem:
+      description: "Filesystem capacity or I/O"
+    network:
+      description: "Network throughput or errors"
+    volume:
+      description: "Persistent volume health or usage"
+    host_load:
+      description: "Host load or pressure"
+
+messaging:
+  description: "Queue depth, lag, publish/consume rates and failed messages"
+  concepts:
+    consumer_lag:
+      description: "Consumer lag or backlog"
+    queue_depth:
+      description: "Queued messages or work"
+    publish_rate:
+      description: "Published messages per unit time"
+    consume_rate:
+      description: "Consumed messages per unit time"
+    failed_messages:
+      description: "Failed message processing events"
+
+kubernetes:
+  description: "Pod, deployment and container state"
+  concepts:
+    pod_restart:
+      description: "Pod or container restarts"
+    deployment_availability:
+      description: "Desired versus available deployment replicas"
+    pending_pod:
+      description: "Pods stuck pending"
+    container_waiting:
+      description: "Containers waiting or crash-looping"
+    replica_mismatch:
+      description: "Replica mismatch"
+    oom_kill:
+      description: "OOM kill events"
+
+custom:
+  description: "Organization-specific metric intent"
+  concepts:
+    custom:
+      description: "Explicit or pattern-based custom metric"

@@ -1,6 +1,9 @@
 import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, Signal, TimeseriesPoint } from '../types';
 import type {
   GrafanaAnalyzerRoutingDecision,
+  AutonomousPreviewRequest,
+  AutonomousPreviewResponse,
+  AutonomousRunResponse,
   GrafanaAnalyzerExecution,
   GrafanaAnalysisFinding,
   GrafanaAnalysisResult,
@@ -109,6 +112,40 @@ export async function listMetrics(baseUrl: string, service: string) {
 
 export async function listAnalysisRuns(baseUrl: string) {
   return fetchJson<AnalysisRun[]>(baseUrl, '/api/analysis-runs');
+}
+
+export async function listFindings(baseUrl: string, params?: {
+  window?: '24h' | '7d';
+  service?: string;
+  metricName?: string;
+}) {
+  const search = new URLSearchParams();
+  if (params?.window) search.set('window', params.window);
+  if (params?.service) search.set('service', params.service);
+  if (params?.metricName) search.set('metric_name', params.metricName);
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson<Finding[]>(baseUrl, `/api/findings${suffix}`);
+}
+
+export async function previewAutonomousPlan(baseUrl: string, payload: AutonomousPreviewRequest) {
+  return postJson<AutonomousPreviewResponse>(baseUrl, '/api/autonomous/preview', payload);
+}
+
+export async function runAutonomousPlanOnce(baseUrl: string, payload: AutonomousPreviewRequest) {
+  return postJson<AutonomousRunResponse>(baseUrl, '/api/autonomous/run-once', { ...payload, dry_run: false });
+}
+
+export async function listAutonomousScopeOptions(baseUrl: string, labels: {
+  serviceLabel: string;
+  namespaceLabel: string;
+  environmentLabel: string;
+}) {
+  const params = new URLSearchParams({
+    service_label: labels.serviceLabel,
+    namespace_label: labels.namespaceLabel,
+    environment_label: labels.environmentLabel,
+  });
+  return fetchJson<{ services: string[]; namespaces: string[]; environments: string[] }>(baseUrl, `/api/autonomous/scope-options?${params.toString()}`);
 }
 
 function pickLatestRun(runs: AnalysisRun[], service: string, metric: string) {
