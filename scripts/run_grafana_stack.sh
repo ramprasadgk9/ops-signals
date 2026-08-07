@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="${ROOT_DIR}/.venv"
 BACKEND_PORT="${BACKEND_PORT:-8002}"
 PLUGIN_BACKEND_URL="${PLUGIN_BACKEND_URL:-http://localhost:${BACKEND_PORT}}"
+OPS_SIGNALS_PROMETHEUS_URL="${OPS_SIGNALS_PROMETHEUS_URL:-http://localhost:9090}"
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   echo ".venv is missing. Run scripts/setup.sh first."
@@ -77,7 +78,7 @@ done
 api_log="${ROOT_DIR}/.tmp_ops_signals_api.log"
 
 echo "Starting backend API on :${BACKEND_PORT}..."
-BACKEND_PORT="$BACKEND_PORT" "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --port "$BACKEND_PORT" >"$api_log" 2>&1 &
+BACKEND_PORT="$BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --port "$BACKEND_PORT" >"$api_log" 2>&1 &
 api_pid=$!
 
 cleanup() {
@@ -89,6 +90,7 @@ echo "Backend log: $api_log"
 echo "Grafana:     http://localhost:3000"
 echo "Prometheus:   http://localhost:9090"
 echo "Backend:      http://localhost:${BACKEND_PORT}"
+echo "Backend Prometheus metadata URL: ${OPS_SIGNALS_PROMETHEUS_URL}"
 echo "Plugin backend default: ${PLUGIN_BACKEND_URL}"
 echo "MCP server:   ./.venv/bin/python -m intelligence.cli mcp"
 echo "MCP write:    ./.venv/bin/python -m intelligence.cli mcp-write"

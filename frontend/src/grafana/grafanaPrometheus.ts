@@ -39,6 +39,10 @@ export async function discoverServiceValues(datasourceUid: string, serviceLabel:
   return metricFindQuery(datasourceUid, `label_values({__name__=~".+"}, ${serviceLabel})`);
 }
 
+export async function discoverLabelValues(datasourceUid: string, labelName: string) {
+  return metricFindQuery(datasourceUid, `label_values({__name__=~".+"}, ${labelName})`);
+}
+
 export async function discoverMetricNames(datasourceUid: string) {
   return metricFindQuery(datasourceUid, 'label_values(__name__)');
 }

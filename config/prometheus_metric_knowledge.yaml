@@ -1,0 +1,206 @@
+exclude:
+  exact:
+    - prometheus_build_info
+  suffixes:
+    - "_info"
+    - "_created"
+  patterns:
+    - ".*build.*info.*"
+    - ".*version.*info.*"
+  reasons:
+    metadata_metric: "Static metadata metric"
+    created_timestamp: "Creation timestamp is not an operational signal"
+
+exact_metrics:
+  up:
+    categories: [availability]
+    concepts: [health]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: min
+      group_by: [service]
+    confidence: 1.0
+
+  probe_success:
+    categories: [availability]
+    concepts: [health]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: min
+      group_by: [service]
+    confidence: 1.0
+
+  cpu_usage:
+    categories: [capacity]
+    concepts: [cpu]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: avg
+      group_by: [service]
+    confidence: 0.95
+
+  memory_usage:
+    categories: [capacity]
+    concepts: [memory]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: avg
+      group_by: [service]
+    confidence: 0.95
+
+  error_rate:
+    categories: [availability]
+    concepts: [error_rate]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: avg
+      group_by: [service]
+    confidence: 0.95
+
+  request_latency_p95:
+    categories: [performance]
+    concepts: [latency]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: avg
+      group_by: [service]
+    confidence: 0.95
+
+  container_memory_working_set_bytes:
+    categories: [capacity, infrastructure]
+    concepts: [memory, container]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: avg
+      group_by: [service]
+    confidence: 1.0
+
+  process_resident_memory_bytes:
+    categories: [capacity]
+    concepts: [memory]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: avg
+      group_by: [service]
+    confidence: 1.0
+
+  container_cpu_usage_seconds_total:
+    categories: [capacity, infrastructure]
+    concepts: [cpu, container]
+    metric_type: counter
+    query:
+      transformation: rate
+      range: 5m
+      aggregation: sum
+      group_by: [service]
+    confidence: 1.0
+
+  process_cpu_seconds_total:
+    categories: [capacity]
+    concepts: [cpu]
+    metric_type: counter
+    query:
+      transformation: rate
+      range: 5m
+      aggregation: sum
+      group_by: [service]
+    confidence: 1.0
+
+  node_filesystem_avail_bytes:
+    categories: [capacity, infrastructure]
+    concepts: [disk, filesystem]
+    metric_type: gauge
+    query:
+      transformation: raw
+      aggregation: min
+      group_by: [service]
+    confidence: 1.0
+
+patterns:
+  - pattern: ".*request.*duration.*"
+    categories: [performance]
+    concepts: [latency, processing_duration]
+    metric_type_hint: histogram_or_summary
+    query:
+      transformation: histogram_quantile_if_bucket_else_raw
+      range: 5m
+      quantile: 0.95
+      aggregation: service_level
+      group_by: [service]
+    confidence: 0.85
+
+  - pattern: ".*latency.*"
+    categories: [performance]
+    concepts: [latency]
+    query:
+      transformation: raw
+      aggregation: avg
+      group_by: [service]
+    confidence: 0.80
+
+  - pattern: ".*requests_total$"
+    categories: [performance]
+    concepts: [request_rate, throughput]
+    metric_type_hint: counter
+    query:
+      transformation: rate
+      range: 5m
+      aggregation: sum
+      group_by: [service]
+    confidence: 0.80
+
+  - pattern: ".*error.*"
+    categories: [availability]
+    concepts: [error_rate, failed_requests]
+    query:
+      transformation: rate_if_counter_else_raw
+      range: 5m
+      aggregation: sum
+      group_by: [service]
+    confidence: 0.75
+
+  - pattern: ".*timeout.*"
+    categories: [reliability]
+    concepts: [timeout]
+    query:
+      transformation: rate_if_counter_else_raw
+      range: 5m
+      aggregation: sum
+      group_by: [service]
+    confidence: 0.75
+
+  - pattern: ".*retry.*"
+    categories: [reliability]
+    concepts: [retry]
+    query:
+      transformation: rate_if_counter_else_raw
+      range: 5m
+      aggregation: sum
+      group_by: [service]
+    confidence: 0.75
+
+  - pattern: ".*kafka.*lag.*"
+    categories: [messaging]
+    concepts: [consumer_lag]
+    query:
+      transformation: raw
+      aggregation: max
+      group_by: [service]
+    confidence: 0.90
+
+  - pattern: "kube_.*"
+    categories: [kubernetes]
+    concepts: [deployment_availability]
+    query:
+      transformation: raw
+      aggregation: service_level
+      group_by: [namespace, service]
+    confidence: 0.70

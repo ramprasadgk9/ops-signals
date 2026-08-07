@@ -7,11 +7,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
 
+from backend.app.autonomous.schemas import DiscoveredMetric
 from backend.app.config import PrometheusConnectionConfig
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
 
@@ -97,6 +98,96 @@ class PrometheusQueryService:
         if not isinstance(values, list):
             raise HTTPException(status_code=502, detail="Prometheus label response is malformed")
         return sorted(str(value) for value in values if value is not None)
+
+    def discover_metric_metadata(
+        self,
+        *,
+        service_label: str = "service",
+        namespace_label: str = "namespace",
+        environment_label: str = "env",
+        limit: int = 5000,
+    ) -> list[DiscoveredMetric]:
+        if not self.config.base_url:
+            raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
+        metric_names = self.label_values("__name__")[: max(1, min(limit, 5000))]
+        if not metric_names:
+            return []
+
+        metadata_by_name = self.metric_metadata(metric_names)
+        series_rows = self.series_metadata(metric_names, limit=max(1, min(limit, 5000)))
+        if not series_rows:
+            return [
+                DiscoveredMetric(
+                    metric_name=name,
+                    labels={"__name__": name},
+                    metric_type=metadata_by_name.get(name),
+                    source="prometheus",
+                    cardinality_estimate=1,
+                )
+                for name in metric_names
+            ]
+
+        discovered: list[DiscoveredMetric] = []
+        for labels in series_rows:
+            metric_name = labels.get("__name__")
+            if not metric_name:
+                continue
+            service = labels.get(service_label)
+            namespace = labels.get(namespace_label)
+            environment = labels.get(environment_label) or labels.get("environment")
+            discovered.append(
+                DiscoveredMetric(
+                    metric_name=metric_name,
+                    labels=labels,
+                    service=service,
+                    namespace=namespace,
+                    environment=environment,
+                    services=[service] if service else [],
+                    namespaces=[namespace] if namespace else [],
+                    environments=[environment] if environment else [],
+                    metric_type=metadata_by_name.get(metric_name),
+                    source="prometheus",
+                    estimated_series_count=1,
+                    cardinality_estimate=1,
+                )
+            )
+        return discovered
+
+    def metric_metadata(self, metric_names: list[str]) -> dict[str, str | None]:
+        metadata: dict[str, str | None] = {}
+        try:
+            payload = self._get_json("/api/v1/metadata", {})
+        except HTTPException:
+            return metadata
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return metadata
+        wanted = set(metric_names)
+        for metric_name, entries in data.items():
+            if metric_name not in wanted or not isinstance(entries, list) or not entries:
+                continue
+            first = entries[0]
+            metadata[str(metric_name)] = str(first.get("type")) if isinstance(first, dict) and first.get("type") else None
+        return metadata
+
+    def series_metadata(self, metric_names: list[str], limit: int = 5000) -> list[dict[str, str]]:
+        if not metric_names:
+            return []
+        rows: list[dict[str, str]] = []
+        chunk_size = 80
+        for start in range(0, len(metric_names), chunk_size):
+            chunk = metric_names[start : start + chunk_size]
+            matchers = [f'{{__name__="{name}"}}' for name in chunk]
+            query_string = "&".join(("match[]=" + quote(matcher, safe="")) for matcher in matchers)
+            payload = self._get_json(f"/api/v1/series?{query_string}", {})
+            data = payload.get("data")
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict):
+                        rows.append({str(key): str(value) for key, value in item.items()})
+                    if len(rows) >= limit:
+                        return rows
+        return rows
 
     def preview(self, query: str, start: datetime, end: datetime, step: str) -> PrometheusPreviewOut:
         if not self.config.base_url:
