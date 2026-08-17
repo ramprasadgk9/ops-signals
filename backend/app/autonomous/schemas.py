@@ -287,13 +287,18 @@ class AutonomousRunRequest(AutonomousPreviewRequest):
 
 
 class AutonomousJobRunResult(BaseModel):
+    job_id: str | None = None
     metric_name: str
     service: str | None = None
+    namespace: str | None = None
     category: MonitoringCategory | None = None
     concept: MetricConcept | None = None
     promql: str
     status: Literal["completed", "skipped", "failed"]
+    skip_reason_code: str | None = None
+    skip_reason: str | None = None
     analysis_run_id: str | None = None
+    duration_ms: int | None = None
     sample_count: int = 0
     series_count: int = 0
     signal_count: int = 0
@@ -304,11 +309,13 @@ class AutonomousJobRunResult(BaseModel):
 
 
 class AutonomousRunResponse(BaseModel):
+    policy_run_id: str | None = None
     status: Literal["completed", "partial", "failed", "dry_run"]
     planned_jobs: int
     executed_jobs: int
     skipped_jobs: int
     failed_jobs: int
+    summary: dict[str, Any] = Field(default_factory=dict)
     analysis_window: str
     requested_start: datetime
     requested_end: datetime

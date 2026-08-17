@@ -34,6 +34,7 @@ import type {
   OverviewSummaryResponse,
   MemoryStatsResponse,
 } from '../types';
+import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 
 export const api = {
   health: () => getJson<{ status: string }>('/api/health'),
@@ -79,6 +80,8 @@ export const api = {
     return getJson<Finding[]>(`/api/findings${queryString ? `?${queryString}` : ''}`);
   },
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
+  autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
+  autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),
   createCase: (findingId: number) =>
     postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {}),
   getCase: (caseId: number) => getJson<OperationalCase>(`/api/cases/${caseId}`),

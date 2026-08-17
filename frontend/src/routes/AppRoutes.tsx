@@ -4,6 +4,7 @@ import { CapabilitiesPage } from '../pages/CapabilitiesPage';
 import { FindingsPage } from '../pages/FindingsPage';
 import { HistoryPage } from '../pages/HistoryPage';
 import { OverviewPage } from '../pages/OverviewPage';
+import { AutonomousMonitoringPage } from '../pages/AutonomousMonitoringPage';
 import { QuestionAnswerPage } from '../pages/QuestionAnswerPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SignalDetailPage } from '../pages/SignalDetailPage';
@@ -22,6 +23,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<OverviewPage />} />
+      <Route path="/autonomous-monitoring" element={<AutonomousMonitoringPage />} />
       <Route path="/investigations" element={<InvestigationsPage />} />
       <Route path="/cases" element={<CasesPage />} />
       <Route path="/cases/:caseId" element={<CaseDetailsPage />} />

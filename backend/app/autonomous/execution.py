@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
+from uuid import uuid4
 
 import pandas as pd
 from fastapi import HTTPException
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
+from backend.app.autonomous.repository import AutonomousJobRepository, AutonomousPolicyRunRepository, utc_now
 from backend.app.autonomous.schemas import AutonomousJobRunResult, AutonomousPreviewResponse, AutonomousRunResponse, MetricPlanItem
 from backend.app.config import PrometheusConnectionConfig
-from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
+from backend.app.models.entities import AutonomousMetricJobEntity
 from backend.app.services.prometheus_service import PrometheusQueryService, configured_connection
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
-from intelligence.pipeline import SignalPipeline
 
 
 def execute_autonomous_plan_once(
@@ -29,41 +31,90 @@ def execute_autonomous_plan_once(
     end = datetime.now(timezone.utc)
     start = end - _parse_duration(analysis_window)
     planned_items = [item for item in preview.items if item.planned]
+    skipped_items = [item for item in preview.items if not item.planned]
     warnings = list(preview.warnings)
+    run_repo = AutonomousPolicyRunRepository(db)
+    job_repo = AutonomousJobRepository(db)
+    policy_snapshot = _policy_snapshot(preview, analysis_window=analysis_window, step=step, dry_run=dry_run)
+    policy_run = run_repo.create_run(
+        policy_id=None,
+        trigger="test" if dry_run else "run_once",
+        policy_snapshot=policy_snapshot,
+        metrics_discovered=preview.metrics_discovered,
+        metrics_selected=preview.metrics_selected,
+        jobs_planned=len(planned_items),
+    )
+    run_repo.mark_running(policy_run.id)
+    jobs_by_metric = _create_jobs(
+        job_repo,
+        policy_run_id=policy_run.id,
+        items=preview.items,
+        datasource=policy_snapshot["datasource"],
+        analysis_window=analysis_window,
+    )
 
     if not planned_items:
         warnings.append("No planned autonomous jobs were available to execute.")
 
     if dry_run:
+        results = []
+        for item in planned_items:
+            job = jobs_by_metric[id(item)]
+            job_repo.mark_skipped(job.id, reason_code="dry_run", reason_detail="Dry run only; no analysis was executed.")
+            results.append(
+                AutonomousJobRunResult(
+                    job_id=job.id,
+                    metric_name=item.metric_name,
+                    service=item.service,
+                    namespace=item.namespace,
+                    category=item.category,
+                    concept=item.concept,
+                    promql=item.promql,
+                    status="skipped",
+                    skip_reason_code="dry_run",
+                    skip_reason="Dry run only; no analysis was executed.",
+                    warnings=["Dry run only; no analysis was executed."],
+                )
+            )
+        for item in skipped_items:
+            job = jobs_by_metric[id(item)]
+            code = _skip_reason_code(item)
+            job_repo.mark_skipped(job.id, reason_code=code, reason_detail=item.exclusion_reason)
+        run_repo.mark_completed(
+            policy_run.id,
+            status="completed",
+            jobs_completed=0,
+            jobs_skipped=len(preview.items),
+            jobs_failed=0,
+            findings_created=0,
+        )
         return AutonomousRunResponse(
+            policy_run_id=policy_run.id,
             status="dry_run",
             planned_jobs=len(planned_items),
             executed_jobs=0,
             skipped_jobs=len(planned_items),
             failed_jobs=0,
+            summary=_summary(preview, len(planned_items), 0, len(preview.items), 0, 0, policy_run.started_at, utc_now()),
             analysis_window=analysis_window,
             requested_start=start,
             requested_end=end,
             step=step,
             preview=preview,
             warnings=warnings,
-            results=[
-                AutonomousJobRunResult(
-                    metric_name=item.metric_name,
-                    service=item.service,
-                    category=item.category,
-                    concept=item.concept,
-                    promql=item.promql,
-                    status="skipped",
-                    warnings=["Dry run only; no analysis was executed."],
-                )
-                for item in planned_items
-            ],
+            results=results,
         )
+
+    for item in skipped_items:
+        job = jobs_by_metric[id(item)]
+        code = _skip_reason_code(item)
+        job_repo.mark_skipped(job.id, reason_code=code, reason_detail=item.exclusion_reason)
 
     results = [
         _execute_plan_item(
             item=item,
+            job=jobs_by_metric[id(item)],
+            job_repo=job_repo,
             prometheus=prometheus,
             db=db,
             config=config,
@@ -75,14 +126,27 @@ def execute_autonomous_plan_once(
     ]
     executed = sum(1 for result in results if result.status == "completed")
     failed = sum(1 for result in results if result.status == "failed")
-    skipped = sum(1 for result in results if result.status == "skipped")
+    skipped = len(skipped_items) + sum(1 for result in results if result.status == "skipped")
     status = "completed" if executed and not failed else "partial" if executed else "failed"
+    findings_created = sum(result.findings_count + result.behavior_findings_count for result in results)
+    error_summary = "; ".join(result.error for result in results if result.error) or None
+    completed_run = run_repo.mark_completed(
+        policy_run.id,
+        status=status,
+        jobs_completed=executed,
+        jobs_skipped=skipped,
+        jobs_failed=failed,
+        findings_created=findings_created,
+        error_summary=error_summary,
+    )
     return AutonomousRunResponse(
+        policy_run_id=policy_run.id,
         status=status,
         planned_jobs=len(planned_items),
         executed_jobs=executed,
         skipped_jobs=skipped,
         failed_jobs=failed,
+        summary=_summary(preview, len(planned_items), executed, skipped, failed, findings_created, completed_run.started_at, completed_run.completed_at),
         analysis_window=analysis_window,
         requested_start=start,
         requested_end=end,
@@ -96,6 +160,8 @@ def execute_autonomous_plan_once(
 def _execute_plan_item(
     *,
     item: MetricPlanItem,
+    job: AutonomousMetricJobEntity,
+    job_repo: AutonomousJobRepository,
     prometheus: PrometheusQueryService,
     db: Session,
     config: PrometheusConnectionConfig,
@@ -104,13 +170,15 @@ def _execute_plan_item(
     step: str,
 ) -> AutonomousJobRunResult:
     if not item.promql:
-        return _failed(item, "Planned job did not include PromQL.")
+        return _failed(item, "Planned job did not include PromQL.", job=job, job_repo=job_repo, error_type="invalid_query_plan")
+    started = perf_counter()
+    job_repo.mark_running(job.id)
     try:
         preview = prometheus.preview(item.promql, start, end, step)
         if preview.sample_count == 0:
-            return _failed(item, "Prometheus returned no samples for the planned query.", warnings=preview.warnings)
+            return _failed(item, "Prometheus returned no samples for the planned query.", warnings=preview.warnings, job=job, job_repo=job_repo, error_type="query_returned_empty", started=started)
         if preview.series_count != 1:
-            return _failed(item, f"Planned query returned {preview.series_count} series; expected exactly one.", warnings=preview.warnings)
+            return _failed(item, f"Planned query returned {preview.series_count} series; expected exactly one.", warnings=preview.warnings, job=job, job_repo=job_repo, error_type="invalid_query_plan", started=started)
 
         series = preview.series[0]
         labels = series.labels
@@ -144,7 +212,7 @@ def _execute_plan_item(
         pipeline_config.input.required_columns = ["timestamp", "metric_name", "value"]
         pipeline_config.input.provider_mappings = {}
 
-        result = SignalPipeline(pipeline_config).run_dataframe(
+        result = MetricAnalysisExecutor(pipeline_config).execute_dataframe(
             pd.DataFrame.from_records(records),
             run_metadata={
                 "trigger": "autonomous_run_once",
@@ -160,44 +228,164 @@ def _execute_plan_item(
                 "concept": item.concept.value if item.concept else None,
                 "selection_reason": item.selection_reason,
             },
+            db=db,
         )
-        findings_count = db.execute(select(func.count(FindingEntity.id)).where(FindingEntity.analysis_run_id == result.analysis_run_id)).scalar() or 0
-        signal_count = db.execute(select(func.count(SignalEntity.id)).where(SignalEntity.analysis_run_id == result.analysis_run_id)).scalar() or 0
-        behavior_count = db.execute(select(func.count(BehaviorFindingEntity.id)).where(BehaviorFindingEntity.analysis_run_id == result.analysis_run_id)).scalar() or 0
+        duration_ms = _duration_ms(started)
+        job_repo.mark_completed(job.id, analysis_run_id=result.analysis_run_id, duration_ms=duration_ms)
         return AutonomousJobRunResult(
+            job_id=job.id,
             metric_name=item.metric_name,
             service=service,
+            namespace=item.namespace,
             category=item.category,
             concept=item.concept,
             promql=item.promql,
             status="completed",
             analysis_run_id=result.analysis_run_id,
+            duration_ms=duration_ms,
             sample_count=preview.sample_count,
             series_count=preview.series_count,
-            signal_count=int(signal_count),
-            findings_count=int(findings_count),
-            behavior_findings_count=int(behavior_count),
+            signal_count=result.signal_count,
+            findings_count=result.findings_count,
+            behavior_findings_count=result.behavior_findings_count,
             warnings=preview.warnings,
         )
     except HTTPException as exc:
-        return _failed(item, str(exc.detail))
+        return _failed(item, str(exc.detail), job=job, job_repo=job_repo, error_type=type(exc).__name__, started=started)
     except ValueError as exc:
-        return _failed(item, str(exc))
+        return _failed(item, str(exc), job=job, job_repo=job_repo, error_type=type(exc).__name__, started=started)
     except Exception as exc:  # pragma: no cover
-        return _failed(item, f"analysis failed: {exc}")
+        return _failed(item, f"analysis failed: {exc}", job=job, job_repo=job_repo, error_type=type(exc).__name__, started=started)
 
 
-def _failed(item: MetricPlanItem, error: str, warnings: list[str] | None = None) -> AutonomousJobRunResult:
+def _failed(
+    item: MetricPlanItem,
+    error: str,
+    warnings: list[str] | None = None,
+    *,
+    job: AutonomousMetricJobEntity | None = None,
+    job_repo: AutonomousJobRepository | None = None,
+    error_type: str = "analysis_failed",
+    started: float | None = None,
+) -> AutonomousJobRunResult:
+    duration_ms = _duration_ms(started) if started is not None else None
+    if job is not None and job_repo is not None:
+        job_repo.mark_failed(job.id, error_type=error_type, error_message=error, duration_ms=duration_ms, error_code=error_type)
     return AutonomousJobRunResult(
+        job_id=job.id if job is not None else None,
         metric_name=item.metric_name,
         service=item.service,
+        namespace=item.namespace,
         category=item.category,
         concept=item.concept,
         promql=item.promql,
         status="failed",
+        duration_ms=duration_ms,
         error=error,
         warnings=warnings or [],
     )
+
+
+def _create_jobs(
+    job_repo: AutonomousJobRepository,
+    *,
+    policy_run_id: str,
+    items: list[MetricPlanItem],
+    datasource: str,
+    analysis_window: str,
+) -> dict[int, AutonomousMetricJobEntity]:
+    now = utc_now()
+    jobs = [
+        AutonomousMetricJobEntity(
+            id=uuid4().hex,
+            policy_run_id=policy_run_id,
+            status="planned" if item.planned else "screened_out",
+            datasource=datasource,
+            environment=item.environment,
+            namespace=item.namespace,
+            service=item.service,
+            metric_name=item.metric_name,
+            logical_metric_name=item.metric_name,
+            category=item.category.value if item.category else None,
+            concept=item.concept.value if item.concept else None,
+            promql=item.promql,
+            analysis_window=analysis_window,
+            aggregation_strategy=item.aggregation_strategy or item.aggregation,
+            transformation=item.transformation,
+            classification_confidence=item.confidence,
+            selection_reason=item.selection_reason,
+            skip_reason_code=_skip_reason_code(item) if not item.planned else None,
+            skip_reason_detail=item.exclusion_reason if not item.planned else None,
+            created_at=now,
+            updated_at=now,
+        )
+        for item in items
+    ]
+    persisted = job_repo.create_jobs(jobs)
+    return {id(item): job for item, job in zip(items, persisted, strict=True)}
+
+
+def _policy_snapshot(preview: AutonomousPreviewResponse, *, analysis_window: str, step: str, dry_run: bool) -> dict:
+    return {
+        "datasource": "prometheus",
+        "backend": "grafana-stack",
+        "scope_summary": preview.scope_summary,
+        "monitoring_summary": preview.monitoring_summary,
+        "execution_policy": {"analysis_window": analysis_window, "interval": step, "dry_run": dry_run},
+        "metrics_discovered": preview.metrics_discovered,
+        "metrics_selected": preview.metrics_selected,
+        "planned_jobs": preview.planned_jobs,
+        "budget_limited_jobs": preview.budget_limited_jobs,
+        "warnings": preview.warnings,
+    }
+
+
+def _skip_reason_code(item: MetricPlanItem) -> str:
+    reason = (item.exclusion_reason or "").lower()
+    if reason == "duplicate_lower_rank":
+        return "higher_ranked_metric_selected"
+    if "budget" in reason:
+        return "budget_limit"
+    if "label" in reason:
+        return "missing_required_label"
+    if "unsupported" in reason or "metadata" in reason or "timestamp" in reason:
+        return "unsupported_metric_type"
+    if not item.category:
+        return "category_not_selected"
+    return "screened_unchanged" if reason == "screened_unchanged" else "category_not_selected"
+
+
+def _duration_ms(started: float) -> int:
+    return max(int((perf_counter() - started) * 1000), 0)
+
+
+def _summary(
+    preview: AutonomousPreviewResponse,
+    planned: int,
+    completed: int,
+    skipped: int,
+    failed: int,
+    findings: int,
+    started_at: datetime | None,
+    completed_at: datetime | None,
+) -> dict:
+    duration_ms = None
+    if started_at and completed_at:
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        if completed_at.tzinfo is None:
+            completed_at = completed_at.replace(tzinfo=timezone.utc)
+        duration_ms = max(int((completed_at - started_at).total_seconds() * 1000), 0)
+    return {
+        "metrics_discovered": preview.metrics_discovered,
+        "metrics_selected": preview.metrics_selected,
+        "jobs_planned": planned,
+        "jobs_completed": completed,
+        "jobs_skipped": skipped,
+        "jobs_failed": failed,
+        "findings_created": findings,
+        "duration_ms": duration_ms,
+    }
 
 
 def _parse_duration(value: str) -> timedelta:

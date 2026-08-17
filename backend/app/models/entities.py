@@ -115,6 +115,90 @@ class AnalysisRunEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AutonomousPolicyEntity(Base):
+    __tablename__ = "autonomous_policies"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    datasource: Mapped[str] = mapped_column(String(64), nullable=False)
+    backend: Mapped[str] = mapped_column(String(128), nullable=False)
+    scope_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    monitoring_categories_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    execution_policy_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AutonomousPolicyRunEntity(Base):
+    __tablename__ = "autonomous_policy_runs"
+    __table_args__ = (
+        Index("idx_autonomous_policy_runs_policy_id", "policy_id"),
+        Index("idx_autonomous_policy_runs_status", "status"),
+        Index("idx_autonomous_policy_runs_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    policy_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("autonomous_policies.id", ondelete="SET NULL"), nullable=True)
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="planned")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    policy_snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    metrics_discovered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    metrics_selected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    jobs_planned: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    jobs_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    jobs_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    jobs_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    findings_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AutonomousMetricJobEntity(Base):
+    __tablename__ = "autonomous_analysis_jobs"
+    __table_args__ = (
+        Index("idx_autonomous_jobs_policy_run_id", "policy_run_id"),
+        Index("idx_autonomous_jobs_status", "status"),
+        Index("idx_autonomous_jobs_analysis_run_id", "analysis_run_id"),
+        Index("idx_autonomous_jobs_service", "service"),
+        Index("idx_autonomous_jobs_metric_name", "metric_name"),
+        Index("idx_autonomous_jobs_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    policy_run_id: Mapped[str] = mapped_column(String(64), ForeignKey("autonomous_policy_runs.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="planned")
+    datasource: Mapped[str] = mapped_column(String(64), nullable=False)
+    environment: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    namespace: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    service: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    logical_metric_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    concept: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    promql: Mapped[str | None] = mapped_column(Text, nullable=True)
+    analysis_window: Mapped[str] = mapped_column(String(32), nullable=False)
+    aggregation_strategy: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    transformation: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    classification_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    selection_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    skip_reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    skip_reason_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    analysis_run_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("analysis_runs.id", ondelete="SET NULL"), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class FindingEntity(Base):
     __tablename__ = "ops_operational_findings"
 

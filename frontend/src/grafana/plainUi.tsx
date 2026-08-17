@@ -77,7 +77,7 @@ export function Card({ children }: PropsWithChildren) {
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label>
+    <label style={{ display: 'block', minWidth: 0 }}>
       <span style={styles.label}>{label}</span>
       {children}
     </label>
