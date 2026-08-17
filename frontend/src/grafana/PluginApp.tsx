@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { listAnalysisRuns, listAutonomousScopeOptions, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis } from './backendClient';
+import { createCaseFromFinding, getCase, listAnalysisRuns, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -14,9 +14,10 @@ import { PanelPreview } from './PanelPreview';
 import { Card, Field, styles } from './plainUi';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
-import type { AutonomousPlanItem, AutonomousPreviewResponse, AutonomousRunResponse, GrafanaAnalysisResult, GrafanaCase, GrafanaQueryTarget, MonitoringCategory } from './contracts';
-import type { AnalysisRun, Finding } from '../types';
+import type { AutonomousPlanItem, AutonomousPreviewResponse, AutonomousRunResponse, GrafanaAnalysisResult, GrafanaCase, GrafanaCaseCreateResponse, GrafanaQueryTarget, MonitoringCategory } from './contracts';
+import type { AnalysisRun, BehaviorFinding, Finding } from '../types';
 import { buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
+import { buildAutonomousDashboardData, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
 
 const defaultTarget: GrafanaQueryTarget = {
   datasource: 'Prometheus',
@@ -42,6 +43,15 @@ const timePresets = [
 ];
 
 type PluginMode = 'interactive' | 'autonomous';
+type AutonomousUiStage = 'configure' | 'preview_loading' | 'preview_ready' | 'preview_error' | 'running' | 'run_complete' | 'run_error' | 'overview_loading' | 'overview_ready' | 'overview_empty' | 'overview_error';
+
+type OverviewEndpointError = {
+  component: string;
+  apiFunction: string;
+  endpoint: string;
+  url: string;
+  message: string;
+};
 
 const monitorCategories = [
   { id: 'performance', title: 'Performance', detail: 'Latency, throughput, request rate' },
@@ -76,8 +86,11 @@ export function PluginApp(_props: unknown) {
   const [isRunning, setIsRunning] = useState(false);
   const [overviewRuns, setOverviewRuns] = useState<AnalysisRun[]>([]);
   const [overviewFindings, setOverviewFindings] = useState<Finding[]>([]);
+  const [overviewBehaviorFindings, setOverviewBehaviorFindings] = useState<BehaviorFinding[]>([]);
   const [overviewCases, setOverviewCases] = useState<GrafanaCase[]>([]);
+  const [overviewPolicyRuns, setOverviewPolicyRuns] = useState<AutonomousPolicyRun[]>([]);
   const [overviewError, setOverviewError] = useState('');
+  const [overviewEndpointErrors, setOverviewEndpointErrors] = useState<OverviewEndpointError[]>([]);
   const [isLoadingOverview, setIsLoadingOverview] = useState(false);
   const [autonomousEnvironment, setAutonomousEnvironment] = useState('production');
   const [autonomousAllServices, setAutonomousAllServices] = useState(true);
@@ -90,16 +103,22 @@ export function PluginApp(_props: unknown) {
   const [customExplicitMetrics, setCustomExplicitMetrics] = useState('');
   const [customIncludePatterns, setCustomIncludePatterns] = useState('');
   const [customExcludePatterns, setCustomExcludePatterns] = useState('.*_info$,.*_created$');
-  const [executionInterval, setExecutionInterval] = useState('10m');
+  const executionInterval = '10m';
   const [analysisWindow, setAnalysisWindow] = useState('24h');
-  const [maxMetricsPerRun, setMaxMetricsPerRun] = useState(500);
-  const [maxParallelJobs, setMaxParallelJobs] = useState(20);
+  const [maxMetricsPerRun, setMaxMetricsPerRun] = useState('500');
+  const [maxParallelJobs, setMaxParallelJobs] = useState('20');
   const [previewResult, setPreviewResult] = useState<AutonomousPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [autonomousRunResult, setAutonomousRunResult] = useState<AutonomousRunResponse | null>(null);
   const [autonomousRunError, setAutonomousRunError] = useState('');
   const [isAutonomousRunning, setIsAutonomousRunning] = useState(false);
+  const [autonomousInvestigationFinding, setAutonomousInvestigationFinding] = useState<Finding | null>(null);
+  const [autonomousInvestigationMode, setAutonomousInvestigationMode] = useState<'investigate' | 'evidence'>('investigate');
+  const [autonomousCaseResult, setAutonomousCaseResult] = useState<GrafanaCaseCreateResponse | null>(null);
+  const [autonomousCaseDetails, setAutonomousCaseDetails] = useState<GrafanaCase | null>(null);
+  const [autonomousCaseError, setAutonomousCaseError] = useState('');
+  const [isCreatingAutonomousCase, setIsCreatingAutonomousCase] = useState(false);
 
   useEffect(() => {
     try {
@@ -160,20 +179,44 @@ export function PluginApp(_props: unknown) {
   async function refreshAutonomousOverview(active = true) {
     setIsLoadingOverview(true);
     setOverviewError('');
+    setOverviewEndpointErrors([]);
+    const overviewRequests = [
+      { component: 'Discovery & Selection / Execution History', apiFunction: 'listAnalysisRuns', endpoint: '/api/analysis-runs', run: () => listAnalysisRuns(backendUrl) },
+      { component: 'Top Findings / Behavior Distribution', apiFunction: 'listFindings', endpoint: '/api/findings?window=24h', run: () => listFindings(backendUrl, { window: '24h' }) },
+      { component: 'Behavior Findings', apiFunction: 'listBehaviorFindings', endpoint: '/api/behavior-evaluations', run: () => listBehaviorFindings(backendUrl) },
+      { component: 'Recent Cases', apiFunction: 'listCases', endpoint: '/api/cases?limit=10', run: () => listCases(backendUrl, { limit: 10 }) },
+      { component: 'Autonomous run metadata', apiFunction: 'listAutonomousPolicyRuns', endpoint: '/api/autonomous/policy-runs?limit=25', run: () => listAutonomousPolicyRuns(backendUrl, 25) },
+    ] as const;
     try {
-      const [runs, findings, cases] = await Promise.all([
-      listAnalysisRuns(backendUrl),
-      listFindings(backendUrl, { window: '24h' }),
-      listCases(backendUrl, { limit: 10 }),
-      ]);
+      const results = await Promise.allSettled(overviewRequests.map((request) => request.run()));
       if (!active) return;
-      setOverviewRuns(runs);
-      setOverviewFindings(findings);
-      setOverviewCases(cases);
-    } catch (overviewLoadError) {
+
+      const errors: OverviewEndpointError[] = [];
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') return;
+        const request = overviewRequests[index];
+        errors.push({
+          component: request.component,
+          apiFunction: request.apiFunction,
+          endpoint: request.endpoint,
+          url: `${backendUrl.replace(/\/+$/, '')}${request.endpoint}`,
+          message: result.reason instanceof Error ? result.reason.message : 'Request failed.',
+        });
+      });
+
+      if (results[0].status === 'fulfilled') setOverviewRuns(results[0].value as AnalysisRun[]);
+      if (results[1].status === 'fulfilled') setOverviewFindings(results[1].value as Finding[]);
+      if (results[2].status === 'fulfilled') setOverviewBehaviorFindings(results[2].value as BehaviorFinding[]);
+      if (results[3].status === 'fulfilled') setOverviewCases(results[3].value as GrafanaCase[]);
+      if (results[4].status === 'fulfilled') setOverviewPolicyRuns(results[4].value as AutonomousPolicyRun[]);
+
+      if (errors.length) {
+        setOverviewEndpointErrors(errors);
+        setOverviewError('Autonomous monitoring summary could not be loaded.');
+      }
+    } catch {
       if (!active) return;
-      const message = overviewLoadError instanceof Error ? overviewLoadError.message : 'Autonomous overview unavailable.';
-      setOverviewError(message);
+      setOverviewError('Autonomous monitoring summary could not be loaded.');
     } finally {
       if (active) setIsLoadingOverview(false);
     }
@@ -351,9 +394,12 @@ export function PluginApp(_props: unknown) {
           namespaces={namespaces}
           runs={overviewRuns}
           findings={overviewFindings}
+          behaviorFindings={overviewBehaviorFindings}
           cases={overviewCases}
+          policyRuns={overviewPolicyRuns}
           isLoading={isLoadingOverview}
           error={overviewError}
+          endpointErrors={overviewEndpointErrors}
           environment={autonomousEnvironment}
           setEnvironment={setAutonomousEnvironment}
           allServices={autonomousAllServices}
@@ -378,8 +424,6 @@ export function PluginApp(_props: unknown) {
           setCustomIncludePatterns={setCustomIncludePatterns}
           customExcludePatterns={customExcludePatterns}
           setCustomExcludePatterns={setCustomExcludePatterns}
-          executionInterval={executionInterval}
-          setExecutionInterval={setExecutionInterval}
           analysisWindow={analysisWindow}
           setAnalysisWindow={setAnalysisWindow}
           maxMetricsPerRun={maxMetricsPerRun}
@@ -392,6 +436,60 @@ export function PluginApp(_props: unknown) {
           runResult={autonomousRunResult}
           runError={autonomousRunError}
           isRunningOnce={isAutonomousRunning}
+          investigationFinding={autonomousInvestigationFinding}
+          investigationMode={autonomousInvestigationMode}
+          caseResult={autonomousCaseResult}
+          caseDetails={autonomousCaseDetails}
+          caseError={autonomousCaseError}
+          isCreatingCase={isCreatingAutonomousCase}
+          onRetryOverview={() => refreshAutonomousOverview(true)}
+          onBackToConfigure={() => {
+            setPreviewResult(null);
+            setPreviewError('');
+            setAutonomousRunError('');
+            setAutonomousInvestigationFinding(null);
+            setAutonomousCaseResult(null);
+            setAutonomousCaseDetails(null);
+            setAutonomousCaseError('');
+          }}
+          onInvestigateInteractive={(finding) => {
+            setTarget((current) => ({
+              ...current,
+              service: finding.service || current.service,
+              metric: finding.metric_name || current.metric,
+            }));
+            setActiveMode('interactive');
+            setAutonomousInvestigationFinding(null);
+          }}
+          onOpenInvestigation={(finding, mode) => {
+            setAutonomousInvestigationFinding(finding);
+            setAutonomousInvestigationMode(mode);
+            setAutonomousCaseError('');
+          }}
+          onCloseInvestigation={() => {
+            setAutonomousInvestigationFinding(null);
+            setAutonomousCaseError('');
+          }}
+          onCreateCase={async (finding) => {
+            if (!finding.id) {
+              setAutonomousCaseError('A persisted finding id is required before a case can be created.');
+              return;
+            }
+            setIsCreatingAutonomousCase(true);
+            setAutonomousCaseError('');
+            try {
+              const createdCase = await createCaseFromFinding(backendUrl, finding.id);
+              setAutonomousCaseResult(createdCase);
+              setAutonomousCaseDetails(await getCase(backendUrl, createdCase.case_id));
+              setAutonomousInvestigationFinding(finding);
+              setAutonomousInvestigationMode('investigate');
+              await refreshAutonomousOverview(true);
+            } catch {
+              setAutonomousCaseError('Could not create an investigation case for this finding.');
+            } finally {
+              setIsCreatingAutonomousCase(false);
+            }
+          }}
           onPreview={async () => {
             if (!selectedCategories.length) {
               setPreviewError('Select at least one monitoring category.');
@@ -399,6 +497,12 @@ export function PluginApp(_props: unknown) {
             }
             setIsPreviewing(true);
             setPreviewError('');
+            setAutonomousRunResult(null);
+            setAutonomousRunError('');
+            setAutonomousInvestigationFinding(null);
+            setAutonomousCaseResult(null);
+            setAutonomousCaseDetails(null);
+            setAutonomousCaseError('');
             try {
               const response = await previewAutonomousPlan(backendUrl, buildAutonomousPreviewRequest({
                 backend: 'grafana-stack',
@@ -420,9 +524,8 @@ export function PluginApp(_props: unknown) {
                 customExcludePatterns,
               }));
               setPreviewResult(response);
-            } catch (previewLoadError) {
-              const message = previewLoadError instanceof Error ? previewLoadError.message : 'Preview failed.';
-              setPreviewError(message);
+            } catch {
+              setPreviewError('Metric plan could not be loaded. Check that the selected backend is reachable, reduce the scope if needed, then try again.');
             } finally {
               setIsPreviewing(false);
             }
@@ -457,9 +560,8 @@ export function PluginApp(_props: unknown) {
               setAutonomousRunResult(response);
               setPreviewResult(response.preview);
               await refreshAutonomousOverview(true);
-            } catch (runLoadError) {
-              const message = runLoadError instanceof Error ? runLoadError.message : 'Autonomous analysis failed.';
-              setAutonomousRunError(message);
+            } catch {
+              setAutonomousRunError('Autonomous analysis could not be completed. Check the backend connection and selected metric plan, then try again.');
             } finally {
               setIsAutonomousRunning(false);
             }
@@ -483,7 +585,7 @@ function ModeTabs({ activeMode, onChange }: { activeMode: PluginMode; onChange: 
       <ModeTab
         active={activeMode === 'autonomous'}
         title="Autonomous Analysis"
-        subtitle="Continuously monitor many metrics"
+        subtitle="Analyze many metrics automatically"
         tone="#3fcf8e"
         onClick={() => onChange('autonomous')}
       />
@@ -663,9 +765,12 @@ function AutonomousAnalysisView({
   namespaces,
   runs,
   findings,
+  behaviorFindings,
   cases,
+  policyRuns,
   isLoading,
   error,
+  endpointErrors,
   environment,
   setEnvironment,
   allServices,
@@ -690,8 +795,6 @@ function AutonomousAnalysisView({
   setCustomIncludePatterns,
   customExcludePatterns,
   setCustomExcludePatterns,
-  executionInterval,
-  setExecutionInterval,
   analysisWindow,
   setAnalysisWindow,
   maxMetricsPerRun,
@@ -704,6 +807,18 @@ function AutonomousAnalysisView({
   runResult,
   runError,
   isRunningOnce,
+  investigationFinding,
+  investigationMode,
+  caseResult,
+  caseDetails,
+  caseError,
+  isCreatingCase,
+  onRetryOverview,
+  onBackToConfigure,
+  onInvestigateInteractive,
+  onOpenInvestigation,
+  onCloseInvestigation,
+  onCreateCase,
   onPreview,
   onRunOnce,
 }: {
@@ -716,9 +831,12 @@ function AutonomousAnalysisView({
   namespaces: string[];
   runs: AnalysisRun[];
   findings: Finding[];
+  behaviorFindings: BehaviorFinding[];
   cases: GrafanaCase[];
+  policyRuns: AutonomousPolicyRun[];
   isLoading: boolean;
   error: string;
+  endpointErrors: OverviewEndpointError[];
   environment: string;
   setEnvironment: (value: string) => void;
   allServices: boolean;
@@ -743,42 +861,88 @@ function AutonomousAnalysisView({
   setCustomIncludePatterns: (value: string) => void;
   customExcludePatterns: string;
   setCustomExcludePatterns: (value: string) => void;
-  executionInterval: string;
-  setExecutionInterval: (value: string) => void;
   analysisWindow: string;
   setAnalysisWindow: (value: string) => void;
-  maxMetricsPerRun: number;
-  setMaxMetricsPerRun: (value: number) => void;
-  maxParallelJobs: number;
-  setMaxParallelJobs: (value: number) => void;
+  maxMetricsPerRun: string;
+  setMaxMetricsPerRun: (value: string) => void;
+  maxParallelJobs: string;
+  setMaxParallelJobs: (value: string) => void;
   previewResult: AutonomousPreviewResponse | null;
   previewError: string;
   isPreviewing: boolean;
   runResult: AutonomousRunResponse | null;
   runError: string;
   isRunningOnce: boolean;
+  investigationFinding: Finding | null;
+  investigationMode: 'investigate' | 'evidence';
+  caseResult: GrafanaCaseCreateResponse | null;
+  caseDetails: GrafanaCase | null;
+  caseError: string;
+  isCreatingCase: boolean;
+  onRetryOverview: () => void;
+  onBackToConfigure: () => void;
+  onInvestigateInteractive: (finding: Finding) => void;
+  onOpenInvestigation: (finding: Finding, mode: 'investigate' | 'evidence') => void;
+  onCloseInvestigation: () => void;
+  onCreateCase: (finding: Finding) => Promise<void>;
   onPreview: () => Promise<void>;
   onRunOnce: () => Promise<void>;
 }) {
-  const discoveredMetricCount = new Set(runs.map((run) => `${run.service}:${run.metric_name}`)).size;
-  const analyzedCount = runs.length;
-  const skippedCount = Math.max(discoveredMetricCount - analyzedCount, 0);
-  const openCaseCount = cases.filter((caseItem) => !['resolved', 'closed', 'completed'].includes(caseItem.case_status.toLowerCase())).length;
-  const recentRuns = runs.slice(0, 5);
-  const recentFindings = findings.slice(0, 5);
-  const recentCases = cases.slice(0, 5);
   const [previewStatusFilter, setPreviewStatusFilter] = useState<'all' | 'planned' | 'excluded'>('all');
   const [previewCategoryFilter, setPreviewCategoryFilter] = useState<string>('all');
   const [previewConceptFilter, setPreviewConceptFilter] = useState<string>('all');
   const [expandedPreviewMetric, setExpandedPreviewMetric] = useState<string | null>(null);
-  const findingTypes = findings.reduce<Record<string, number>>((acc, finding) => {
-    const key = finding.category || finding.health_status || 'unknown';
-    acc[key] = (acc[key] ?? 0) + 1;
-    return acc;
-  }, {});
+  const dashboardData = buildAutonomousDashboardData({
+    findings,
+    cases,
+    analysisRuns: runs,
+    behaviorFindings,
+    policyRuns,
+    previewResult,
+    runResult,
+    findingHref: () => '#top-findings',
+    caseHref: (caseItem) => `#case-${caseItem.id}`,
+  });
   const previewRows = filterPreviewRows(previewResult?.items ?? [], previewStatusFilter, previewCategoryFilter, previewConceptFilter);
   const canPreview = Boolean(selectedPrometheusUid && backendUrl && selectedCategories.length);
   const canRunOnce = Boolean(previewResult?.planned_jobs && !isRunningOnce);
+  const hasCompletedAutonomousRun = Boolean(
+    runResult?.status === 'completed' ||
+    runResult?.status === 'partial'
+  );
+  const hasFailedAutonomousRun = Boolean(
+    runResult?.status === 'failed'
+  );
+  const hasOverviewData = Boolean(
+    findings.length ||
+    cases.length ||
+    runs.length ||
+    policyRuns.length ||
+    runResult?.executed_jobs ||
+    runResult?.planned_jobs
+  );
+  const overviewStage: AutonomousUiStage = isLoading
+    ? 'overview_loading'
+    : error
+      ? 'overview_error'
+      : hasOverviewData
+        ? 'overview_ready'
+        : 'overview_empty';
+  const uiStage: AutonomousUiStage = isRunningOnce
+    ? 'running'
+    : isPreviewing
+      ? 'preview_loading'
+      : previewError
+        ? 'preview_error'
+        : runError || hasFailedAutonomousRun
+            ? 'run_error'
+            : hasCompletedAutonomousRun
+              ? overviewStage
+              : previewResult
+                ? 'preview_ready'
+                : 'configure';
+  const dashboardState = uiStage === 'overview_loading' ? 'loading' : uiStage === 'overview_error' ? 'error' : 'ready';
+  const showConfigure = ['configure', 'preview_loading', 'preview_ready', 'preview_error', 'run_error'].includes(uiStage);
   const toggleCategory = (category: MonitoringCategory) => {
     if (selectedCategories.includes(category)) {
       setSelectedCategories(selectedCategories.filter((item) => item !== category));
@@ -790,13 +954,16 @@ function AutonomousAnalysisView({
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
+      {showConfigure ? (
       <Card>
         <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
-            <h2 style={{ margin: 0, color: '#3fcf8e' }}>Autonomous Analysis</h2>
-            <p style={{ ...styles.muted, margin: '5px 0 0' }}>Define what to monitor and run the planned metrics once. Continuous scheduling is still intentionally separate.</p>
+            <h2 style={{ margin: 0, color: '#3fcf8e' }}>Configure</h2>
+            <p style={{ ...styles.muted, margin: '5px 0 0' }}>
+              Configure the monitoring scope, preview the planned metrics, then execute one autonomous analysis run.
+            </p>
           </div>
-          <span style={{ ...styles.chip, color: '#3fcf8e' }}>Run once enabled</span>
+          <span style={{ ...styles.chip, color: '#3fcf8e' }}>Run once</span>
         </div>
         <div style={{ ...styles.toolbar, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
           <Field label="Data source">
@@ -832,7 +999,7 @@ function AutonomousAnalysisView({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.35fr) minmax(320px, 1fr) minmax(220px, 0.35fr)', gap: 14, marginTop: 16 }}>
           <div style={panelStyle('#73bf69')}>
-            <h3 style={sectionTitleStyle}>Analysis scope</h3>
+            <h3 style={sectionTitleStyle}>1. Analysis Scope</h3>
             <Field label="Environment">
               <select style={styles.input} value={environment} onChange={(event) => setEnvironment(event.target.value)}>
                 <option value="production">Production</option>
@@ -880,7 +1047,7 @@ function AutonomousAnalysisView({
           </div>
 
           <div style={panelStyle('#3fcf8e')}>
-            <h3 style={sectionTitleStyle}>What do you want to monitor?</h3>
+            <h3 style={sectionTitleStyle}>2. Monitoring Categories</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
               {monitorCategories.map((item, index) => (
                 <button key={item.id} type="button" onClick={() => toggleCategory(item.id)} style={{ border: `1px solid ${selectedCategories.includes(item.id) ? 'rgba(63, 207, 142, 0.65)' : 'rgba(204, 204, 220, 0.18)'}`, borderRadius: 8, padding: 12, background: selectedCategories.includes(item.id) ? 'rgba(63, 207, 142, 0.1)' : 'rgba(204, 204, 220, 0.04)', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
@@ -909,14 +1076,12 @@ function AutonomousAnalysisView({
           </div>
 
           <div style={panelStyle('#5794f2')}>
-            <h3 style={sectionTitleStyle}>Execution</h3>
-            <Field label="Every">
-              <select style={styles.input} value={executionInterval} onChange={(event) => setExecutionInterval(event.target.value)}>
-                <option value="5m">5 minutes</option>
-                <option value="10m">10 minutes</option>
-                <option value="30m">30 minutes</option>
-                <option value="1h">1 hour</option>
-              </select>
+            <h3 style={sectionTitleStyle}>3. Execution Limits</h3>
+            <Field label="Mode">
+              <input style={{ ...styles.input, ...styles.inputReadOnly }} value="Run once" readOnly />
+            </Field>
+            <Field label="Recurring scheduling">
+              <input style={{ ...styles.input, ...styles.inputReadOnly }} value="Coming soon" readOnly />
             </Field>
             <Field label="Analysis window">
               <select style={styles.input} value={analysisWindow} onChange={(event) => setAnalysisWindow(event.target.value)}>
@@ -926,89 +1091,73 @@ function AutonomousAnalysisView({
               </select>
             </Field>
             <Field label="Max metrics per run">
-              <input style={styles.input} type="number" value={maxMetricsPerRun} min={1} max={5000} onChange={(event) => setMaxMetricsPerRun(Number(event.target.value))} />
+              <input style={styles.input} type="number" value={maxMetricsPerRun} min={1} max={5000} onChange={(event) => setMaxMetricsPerRun(event.target.value)} />
             </Field>
             <Field label="Max parallel jobs">
-              <input style={styles.input} type="number" value={maxParallelJobs} min={1} max={200} onChange={(event) => setMaxParallelJobs(Number(event.target.value))} />
+              <input style={styles.input} type="number" value={maxParallelJobs} min={1} max={200} onChange={(event) => setMaxParallelJobs(event.target.value)} />
             </Field>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(220px, 1fr)', gap: 12, marginTop: 16 }}>
+        <div style={{ marginTop: 16 }}>
           <button type="button" style={canPreview && !isPreviewing ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={!canPreview || isPreviewing} onClick={onPreview}>
             {isPreviewing ? 'Building preview...' : 'Preview metric plan'}
           </button>
-          <button type="button" style={canRunOnce ? { ...styles.button, background: 'linear-gradient(135deg, #3fcf8e, #197a4d)' } : { ...styles.button, ...styles.buttonDisabled, background: 'rgba(63, 207, 142, 0.2)' }} disabled={!canRunOnce} onClick={onRunOnce}>
-            {isRunningOnce ? 'Running planned jobs...' : 'Run autonomous analysis once'}
-          </button>
         </div>
-        <div style={styles.helperText}>Preview first, then run the planned jobs once. Repeating scheduler execution can be enabled after this path is validated.</div>
-        {previewError && <div style={{ ...styles.alert, marginTop: 12 }}>{previewError}</div>}
-        {runError && <div style={{ ...styles.alert, marginTop: 12 }}>{runError}</div>}
+        <div style={styles.helperText}>Preview first, then run the planned jobs once. Recurring scheduling is coming soon.</div>
       </Card>
+      ) : null}
 
-      <AutonomousRunPanel result={runResult} />
+      {uiStage === 'preview_loading' ? <PreviewLoadingPanel /> : null}
+      {uiStage === 'preview_error' ? <PreviewErrorPanel onRetry={onPreview} onBack={onBackToConfigure} /> : null}
+      {uiStage === 'preview_ready' ? (
+        <PreviewPlanPanel
+          result={previewResult}
+          rows={previewRows}
+          canRunOnce={canRunOnce}
+          isRunningOnce={isRunningOnce}
+          onRunOnce={onRunOnce}
+          onBack={onBackToConfigure}
+          statusFilter={previewStatusFilter}
+          setStatusFilter={setPreviewStatusFilter}
+          categoryFilter={previewCategoryFilter}
+          setCategoryFilter={setPreviewCategoryFilter}
+          conceptFilter={previewConceptFilter}
+          setConceptFilter={setPreviewConceptFilter}
+          expandedMetric={expandedPreviewMetric}
+          setExpandedMetric={setExpandedPreviewMetric}
+        />
+      ) : null}
+      {uiStage === 'running' ? <AutonomousRunningPanel plannedJobs={previewResult?.planned_jobs ?? runResult?.planned_jobs ?? null} /> : null}
+      {uiStage === 'run_error' ? <RunErrorPanel result={runResult} onRetry={onRunOnce} onBack={onBackToConfigure} /> : null}
+      {runResult && ['overview_loading', 'overview_ready', 'overview_empty'].includes(uiStage) ? <AutonomousRunPanel result={runResult} /> : null}
 
-      <PreviewPlanPanel
-        result={previewResult}
-        rows={previewRows}
-        statusFilter={previewStatusFilter}
-        setStatusFilter={setPreviewStatusFilter}
-        categoryFilter={previewCategoryFilter}
-        setCategoryFilter={setPreviewCategoryFilter}
-        conceptFilter={previewConceptFilter}
-        setConceptFilter={setPreviewConceptFilter}
-        expandedMetric={expandedPreviewMetric}
-        setExpandedMetric={setExpandedPreviewMetric}
-      />
-
-      <Card>
-        <div style={styles.rowBetween}>
-          <div>
-            <h2 style={{ margin: 0 }}>Autonomous Monitoring Overview</h2>
-            <p style={{ ...styles.muted, margin: '5px 0 0' }}>Backfilled from existing analysis runs, findings, and cases APIs.</p>
-          </div>
-          <span style={{ ...styles.chip, color: isLoading ? '#ffb357' : '#3fcf8e' }}>{isLoading ? 'Loading overview' : 'Existing APIs'}</span>
-        </div>
-        {error && <div style={{ ...styles.alert, marginTop: 12 }}>{error}</div>}
-        <div style={{ ...styles.compactStats, marginTop: 16 }}>
-          <Kpi label="Metrics discovered" value={discoveredMetricCount} />
-          <Kpi label="Analyzed" value={analyzedCount} tone="#3fcf8e" />
-          <Kpi label="Skipped" value={skippedCount} />
-          <Kpi label="Findings" value={findings.length} tone="#ffb357" />
-          <Kpi label="Open cases" value={openCaseCount} tone="#b877d9" />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 0.45fr)', gap: 16, marginTop: 16 }}>
-          <div style={panelStyle('#ffb357')}>
-            <h3 style={sectionTitleStyle}>Recent findings</h3>
-            {recentFindings.length ? recentFindings.map((finding) => (
-              <OverviewRow key={finding.id ?? finding.title} title={`${finding.service ?? 'unknown'} - ${finding.title}`} meta={`${finding.metric_name} · ${finding.health_status}`} tone={finding.health_status === 'critical' ? '#f2495c' : '#ffb357'} />
-            )) : <p style={styles.muted}>No findings returned for the last 24h.</p>}
-          </div>
-          <div style={panelStyle('#73bf69')}>
-            <h3 style={sectionTitleStyle}>Findings by type</h3>
-            {Object.entries(findingTypes).length ? Object.entries(findingTypes).map(([type, count]) => (
-              <OverviewRow key={type} title={humanize(type)} meta={`${count} finding${count === 1 ? '' : 's'}`} tone="#73bf69" />
-            )) : <p style={styles.muted}>No finding types available.</p>}
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16, marginTop: 16 }}>
-          <div style={panelStyle('#5794f2')}>
-            <h3 style={sectionTitleStyle}>Execution history</h3>
-            {recentRuns.length ? recentRuns.map((run) => (
-              <OverviewRow key={run.id} title={`${run.service} / ${run.metric_name}`} meta={`${run.sample_count} samples · ${run.status}`} tone="#5794f2" />
-            )) : <p style={styles.muted}>No analysis runs returned yet.</p>}
-          </div>
-          <div style={panelStyle('#b877d9')}>
-            <h3 style={sectionTitleStyle}>Recent cases</h3>
-            {recentCases.length ? recentCases.map((caseItem) => (
-              <OverviewRow key={caseItem.id} title={`Case #${caseItem.id} - ${caseItem.case_title}`} meta={`${caseItem.case_status} · ${caseItem.investigation_status}`} tone="#b877d9" />
-            )) : <p style={styles.muted}>No cases returned yet.</p>}
-          </div>
-        </div>
-      </Card>
+      {['overview_loading', 'overview_ready', 'overview_empty', 'overview_error'].includes(uiStage) ? (
+        <GrafanaAutonomousOverview
+          data={dashboardData}
+          findings={findings}
+          state={dashboardState}
+          endpointErrors={endpointErrors}
+          onRetry={onRetryOverview}
+          investigationFinding={investigationFinding}
+          investigationMode={investigationMode}
+          caseResult={caseResult}
+          caseDetails={caseDetails}
+          caseError={caseError}
+          isCreatingCase={isCreatingCase}
+          onOpenInvestigation={onOpenInvestigation}
+          onInvestigateInteractive={onInvestigateInteractive}
+          onCloseInvestigation={onCloseInvestigation}
+          onCreateCase={onCreateCase}
+          context={{
+            sourceLabel: selectedPrometheusUid ? `Prometheus / ${selectedPrometheusUid}` : 'Prometheus / Grafana datasource',
+            datasource: selectedPrometheusUid || 'Prometheus',
+            policy: selectedCategories.length ? selectedCategories.map(humanize).join(', ') : 'Current monitoring policy',
+            timeWindow: analysisWindow,
+            environment,
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1020,6 +1169,587 @@ function Kpi({ label, value, tone = '#d8d9da' }: { label: string; value: number;
       <div style={{ ...styles.helperText, marginTop: 2 }}>{label}</div>
     </div>
   );
+}
+
+function DashboardKpi({ label, value, detail, tone = '#d8d9da' }: { label: string; value: number | null; detail: string; tone?: string }) {
+  return (
+    <div style={{ border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 14, background: 'rgba(17, 18, 23, 0.55)' }}>
+      <div style={{ color: tone, fontSize: 24, fontWeight: 900 }}>{value === null ? '—' : value.toLocaleString()}</div>
+      <div style={{ fontWeight: 800, marginTop: 6 }}>{label}</div>
+      <div style={styles.helperText}>{detail}</div>
+    </div>
+  );
+}
+
+function GrafanaAutonomousOverview({
+  data,
+  findings,
+  state,
+  context,
+  endpointErrors,
+  onRetry,
+  investigationFinding,
+  investigationMode,
+  caseResult,
+  caseDetails,
+  caseError,
+  isCreatingCase,
+  onOpenInvestigation,
+  onInvestigateInteractive,
+  onCloseInvestigation,
+  onCreateCase,
+}: {
+  data: AutonomousDashboardData;
+  findings: Finding[];
+  state: 'loading' | 'error' | 'ready';
+  context: {
+    sourceLabel?: string | null;
+    datasource?: string | null;
+    policy?: string | null;
+    timeWindow?: string | null;
+    environment?: string | null;
+  };
+  endpointErrors: OverviewEndpointError[];
+  onRetry: () => void;
+  investigationFinding: Finding | null;
+  investigationMode: 'investigate' | 'evidence';
+  caseResult: GrafanaCaseCreateResponse | null;
+  caseDetails: GrafanaCase | null;
+  caseError: string;
+  isCreatingCase: boolean;
+  onOpenInvestigation: (finding: Finding, mode: 'investigate' | 'evidence') => void;
+  onInvestigateInteractive: (finding: Finding) => void;
+  onCloseInvestigation: () => void;
+  onCreateCase: (finding: Finding) => Promise<void>;
+}) {
+  if (state === 'loading') {
+    return (
+      <Card>
+        <div style={styles.emptyHero}>
+          <div>
+            <h2 style={{ margin: 0 }}>Loading autonomous monitoring overview...</h2>
+            <p style={styles.muted}>Refreshing run metadata, findings, behavior summaries, history, and cases.</p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (state === 'error') {
+    return (
+      <Card>
+        <div style={styles.emptyHero}>
+          <div>
+            <h2 style={{ margin: 0 }}>Autonomous monitoring summary could not be loaded.</h2>
+            <p style={styles.muted}>Check the selected backend URL and retry.</p>
+            {endpointErrors.length ? (
+              <div style={{ ...styles.stack, textAlign: 'left', marginTop: 16 }}>
+                {endpointErrors.map((item) => (
+                  <div key={`${item.apiFunction}:${item.endpoint}`} style={panelStyle('#f2495c')}>
+                    <strong>{item.component}</strong>
+                    <div style={styles.helperText}>{item.apiFunction} → {item.endpoint}</div>
+                    <div style={styles.helperText}>{item.url}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <button type="button" style={{ ...styles.button, marginTop: 16 }} onClick={onRetry}>
+              Retry
+            </button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  const servicePriorities = buildServicePriorities(data.topFindings);
+  const primaryService = servicePriorities[0] ?? null;
+  const topFinding = data.topFindings[0] ?? null;
+  const topRawFinding = topFinding ? matchingFinding(findings, topFinding) : null;
+  const hasFindings = data.topFindings.length > 0;
+  const disabledActionStyle = {
+    ...styles.buttonDisabled,
+    border: '1px solid rgba(204, 204, 220, 0.14)',
+    opacity: 0.72,
+  };
+  const headline = primaryService
+    ? primaryService.symptoms.length > 1
+      ? `Likely incident candidate: ${primaryService.service}`
+      : `Important finding detected: ${primaryService.service}`
+    : 'No important findings detected';
+  const summaryText = primaryService
+    ? primaryService.symptoms.length > 1
+      ? `${primaryService.service} shows ${primaryService.symptoms.length} related symptoms across ${primaryService.metrics.length} metric${primaryService.metrics.length === 1 ? '' : 's'}. Primary concern: ${primaryService.metrics[0]} ${primaryService.symptoms[0].behavior.toLowerCase()}.`
+      : `${primaryService.service} / ${primaryService.metrics[0]} shows ${primaryService.symptoms[0].behavior.toLowerCase()} in the selected window.`
+    : `${formatNullableCount(data.summary.executed)} metric${data.summary.executed === 1 ? '' : 's'} executed with no current-run findings.`;
+  const nextStep = primaryService
+    ? primaryService.symptoms.length > 1
+      ? `Investigate ${primaryService.service} as one incident candidate and attach the related symptoms to a single case.`
+      : `Investigate ${primaryService.service} / ${primaryService.metrics[0]} and create a case if it affects service health.`
+    : 'No immediate investigation is recommended from this run. Review skipped or failed jobs if coverage looks too narrow.';
+
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={styles.rowBetween}>
+        <div>
+          <div style={{ ...styles.helperText, marginTop: 0 }}>Overview / Autonomous Monitoring</div>
+          <h2 style={{ margin: '4px 0 0' }}>Autonomous Monitoring Overview</h2>
+          <p style={{ ...styles.muted, margin: '5px 0 0' }}>Current run result with historical executions shown separately.</p>
+        </div>
+        <div style={{ ...styles.row, justifyContent: 'flex-end' }}>
+          <span style={styles.chip}>Source: {context.sourceLabel || context.datasource || 'Prometheus'}</span>
+          <span style={styles.chip}>Policy: {context.policy || 'Current monitoring policy'}</span>
+          <span style={styles.chip}>Window: {context.timeWindow || '24h'}</span>
+          {context.environment ? <span style={styles.chip}>Environment: {context.environment}</span> : null}
+        </div>
+      </div>
+
+      <div style={panelStyle(hasFindings ? '#b877d9' : '#3fcf8e')}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 0.85fr)', gap: 18, alignItems: 'stretch' }}>
+          <div style={{ display: 'grid', gap: 14 }}>
+            <div style={styles.row}>
+              <span style={{ display: 'grid', placeItems: 'center', width: 40, height: 40, borderRadius: 999, border: `1px solid ${hasFindings ? '#b877d9' : '#3fcf8e'}`, color: hasFindings ? '#b877d9' : '#3fcf8e', fontSize: 22 }}>△</span>
+              <div>
+                <h3 style={{ margin: 0 }}>{headline}</h3>
+                <p style={{ ...styles.muted, margin: '6px 0 0' }}>{summaryText}</p>
+              </div>
+            </div>
+            <div style={styles.row}>
+              <span title="Importance combines analyzer confidence, severity, signal count, and observed change size. Higher values should be reviewed first." style={styles.chip}>Highest importance {topFinding ? topFinding.importance.toFixed(2) : '—'} <InfoTip /></span>
+              <span title="Symptoms are analyzer findings such as baseline shifts, spikes, trends, or anomalies. They are observations, not root cause." style={styles.chip}>{data.summary.findingsGenerated} symptom{data.summary.findingsGenerated === 1 ? '' : 's'} <InfoTip /></span>
+              <span title="Affected metrics are unique metrics involved in the current-run findings." style={styles.chip}>{primaryService?.metrics.length ?? 0} metric{primaryService?.metrics.length === 1 ? '' : 's'} affected <InfoTip /></span>
+              <span title="First observed is taken from finding comparison data or creation time." style={styles.chip}>First observed {formatCompactDate(topFinding?.firstObserved)} <InfoTip /></span>
+            </div>
+            <div>
+              <strong>Recommended next step</strong>
+              <p style={{ ...styles.muted, margin: '6px 0 0' }}>{nextStep}</p>
+            </div>
+            <div style={styles.row}>
+              <button
+                type="button"
+                style={{ ...styles.button, background: hasFindings ? '#b877d9' : 'rgba(204, 204, 220, 0.18)', ...(topRawFinding ? {} : disabledActionStyle) }}
+                disabled={!topRawFinding}
+                title={topRawFinding ? 'Open this service and metric in Interactive Analysis.' : 'No current-run finding is available to investigate.'}
+                onClick={() => topRawFinding && onInvestigateInteractive(topRawFinding)}
+              >
+                Investigate
+              </button>
+              <button
+                type="button"
+                style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.12)', border: '1px solid rgba(204, 204, 220, 0.22)', ...(topRawFinding ? {} : disabledActionStyle) }}
+                disabled={!topRawFinding || isCreatingCase}
+                title={topRawFinding ? 'Create an investigation case from this finding.' : 'A finding must exist before a case can be created.'}
+                onClick={() => topRawFinding && onCreateCase(topRawFinding)}
+              >
+                {isCreatingCase ? 'Creating...' : 'Create service case'}
+              </button>
+              <button
+                type="button"
+                style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.08)', border: '1px solid rgba(204, 204, 220, 0.18)', ...(topRawFinding ? {} : disabledActionStyle) }}
+                disabled={!topRawFinding}
+                title={topRawFinding ? 'Open finding summary and signal evidence references.' : 'No current-run evidence is available.'}
+                onClick={() => topRawFinding && onOpenInvestigation(topRawFinding, 'evidence')}
+              >
+                View evidence
+              </button>
+            </div>
+            {caseResult ? <p style={{ ...styles.helperText, color: '#3fcf8e', margin: 0 }}>Case #{caseResult.case_id} created from finding #{caseResult.finding_id}.</p> : null}
+            {caseError ? <p style={{ ...styles.helperText, color: '#ff7381', margin: 0 }}>{caseError}</p> : null}
+          </div>
+          <div style={{ borderLeft: '1px solid rgba(204, 204, 220, 0.12)', paddingLeft: 18 }}>
+            <h3 style={sectionTitleStyle}>Related Symptoms <InfoTip title="Related symptoms are current-run findings grouped under the highest-priority service." /></h3>
+            {primaryService ? (
+              <div style={styles.stack}>
+                {primaryService.symptoms.slice(0, 3).map((finding, index) => (
+                  <div key={`${finding.metric}:${finding.behavior}:${index}`} style={{ display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr) 54px 92px', gap: 10, alignItems: 'center', borderBottom: '1px solid rgba(204, 204, 220, 0.1)', paddingBottom: 10 }}>
+                    <span style={{ display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: 999, background: index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e', color: '#fff', fontWeight: 800 }}>{index + 1}</span>
+                    <div>
+                      <strong>{finding.metric}</strong>
+                      <div style={styles.row}><BehaviorPill label={finding.behavior} />{finding.observedChange ? <span style={styles.helperText}>{finding.observedChange}</span> : null}</div>
+                    </div>
+                    <strong style={{ color: index === 0 ? '#b877d9' : '#5794f2' }}>{finding.importance.toFixed(2)}</strong>
+                    <MiniSparkline tone={index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e'} />
+                  </div>
+                ))}
+              </div>
+            ) : <p style={styles.muted}>No symptoms were detected in this run.</p>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(280px, 0.65fr)', gap: 12 }}>
+        <div style={panelStyle('#3fcf8e')}>
+          <h3 style={sectionTitleStyle}>Current Run Discovery & Selection</h3>
+          <div style={styles.compactStats}>
+            <DashboardKpi label="Metrics discovered" value={data.summary.metricsDiscovered} detail="From policy data" tone="#3fcf8e" />
+            <DashboardKpi label="Metrics selected" value={data.summary.candidatesSelected} detail="Selected by monitoring policy" tone="#3fcf8e" />
+            <DashboardKpi label="Findings" value={data.summary.findingsGenerated} detail="Generated" tone="#ffb357" />
+            <DashboardKpi label="Cases" value={data.summary.casesOpen} detail="Created / open" tone="#b877d9" />
+          </div>
+        </div>
+        <div style={panelStyle('#5794f2')}>
+          <h3 style={sectionTitleStyle}>Current Run Execution Summary</h3>
+          <div style={styles.compactStats}>
+            <DashboardKpi label="Executed" value={data.summary.executed} detail="Metrics" tone="#5794f2" />
+            <DashboardKpi label="Skipped" value={data.summary.skipped} detail="Policy / filters" tone="#ffb357" />
+            <DashboardKpi label="Failed" value={data.summary.failed} detail="Errors" tone="#f2495c" />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.65fr)', gap: 12 }}>
+        <div id="top-findings" style={panelStyle('#ffb357')}>
+          <div style={styles.rowBetween}>
+            <h3 style={sectionTitleStyle}>Service Priorities <InfoTip title="Services are ranked by their highest-importance current-run symptom. Multiple symptoms on one service are grouped to avoid creating duplicate incident candidates." /></h3>
+            <span style={styles.helperText}>{servicePriorities.length} service{servicePriorities.length === 1 ? '' : 's'} shown</span>
+          </div>
+          {servicePriorities.length ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr 1fr 1fr 1fr', gap: '10px 14px', fontSize: 12, overflowX: 'auto', alignItems: 'center' }}>
+              {['Service', 'Symptoms', 'Metrics affected', 'Highest importance', 'Recommended action'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
+              {servicePriorities.slice(0, 5).map((service, index) => (
+                <React.Fragment key={service.service}>
+                  <div style={{ borderLeft: `4px solid ${index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e'}`, paddingLeft: 10 }}>
+                    <strong>{service.service}</strong>
+                    <div style={styles.helperText}>{service.symptoms.length > 1 ? 'Likely incident candidate' : 'Single symptom'}</div>
+                  </div>
+                  <div style={styles.row}>{service.behaviors.slice(0, 3).map((behavior) => <BehaviorPill key={behavior} label={behavior} />)}</div>
+                  <div><strong>{service.metrics.length}</strong><div style={styles.helperText}>{service.metrics.slice(0, 3).join(', ')}</div></div>
+                  <ImportanceBar value={service.highestImportance} />
+                  <button
+                    type="button"
+                    style={styles.tableRowButton}
+                    onClick={() => {
+                      const finding = matchingFinding(findings, service.symptoms[0]);
+                      if (finding) onInvestigateInteractive(finding);
+                    }}
+                  >
+                    Investigate {service.service}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+          ) : <p style={styles.muted}>No services need investigation from the current run.</p>}
+        </div>
+
+        <div style={panelStyle('#ffb357')}>
+          <h3 style={sectionTitleStyle}>Observed Changes <InfoTip title="Observed changes are analyzer-detected metric patterns, such as spikes or baseline shifts. They are not root cause." /></h3>
+          {data.behaviorDistribution.length ? (
+            <BehaviorDonut items={data.behaviorDistribution} total={data.summary.findingsGenerated} />
+          ) : <p style={styles.muted}>No behavior findings were generated.</p>}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.85fr) minmax(280px, 1fr) minmax(260px, 0.85fr)', gap: 12 }}>
+        <div style={panelStyle('#3fcf8e')}>
+          <h3 style={sectionTitleStyle}>What Was Analyzed <InfoTip title="Shows how many discovered metrics were selected by the monitoring policy and how many were excluded." /></h3>
+          <MetricSelectionFunnel selection={data.selection} />
+        </div>
+        <div style={panelStyle('#5794f2')}>
+          <h3 style={sectionTitleStyle}>Run History <InfoTip title="Recent autonomous runs. Failures here may indicate overly broad scope or queries returning multiple series." /></h3>
+          {data.executionRows.length ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr 0.8fr', gap: '9px 12px', fontSize: 12, alignItems: 'center' }}>
+              {['Scope', 'Status', 'Completed'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
+              {data.executionRows.slice(0, 6).map((row) => (
+                <React.Fragment key={row.id}>
+                  <div>
+                    <strong>{row.current ? 'Current run' : row.scope}</strong>
+                    <div style={styles.helperText}>{row.current ? row.scope : row.metrics}</div>
+                    {row.errorSummary ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{row.errorSummary}</div> : null}
+                  </div>
+                  <StatusBadge status={row.status} />
+                  <div>{formatCompactDate(row.completed)}</div>
+                </React.Fragment>
+              ))}
+            </div>
+          ) : <p style={styles.muted}>No execution history returned yet.</p>}
+        </div>
+        <div style={panelStyle('#b877d9')}>
+          <h3 style={sectionTitleStyle}>{data.casesScope === 'current_run' ? 'Cases Created From This Run' : 'Recent Cases from History'} <InfoTip title="Cases are investigation records. Current-run cases are linked to findings generated by this run." /></h3>
+          {data.recentCases.length ? (
+            <div style={styles.stack}>
+              {data.recentCases.slice(0, 5).map((caseItem) => (
+                <div key={caseItem.id} style={styles.rowBetween}>
+                  <div style={{ minWidth: 0 }}>
+                    <a style={{ ...styles.tableRowButton, fontWeight: 700 }} href={caseItem.href}>{caseItem.title}</a>
+                    <div style={styles.helperText}>{caseItem.status}</div>
+                  </div>
+                  <div style={styles.helperText}>{formatCompactDate(caseItem.updatedAt)}</div>
+                </div>
+              ))}
+            </div>
+          ) : <p style={styles.muted}>No cases were created for the current run.</p>}
+        </div>
+      </div>
+      {investigationFinding ? (
+        <AutonomousInvestigationPanel
+          finding={investigationFinding}
+          mode={investigationMode}
+          caseResult={caseResult}
+          caseDetails={caseDetails}
+          caseError={caseError}
+          isCreatingCase={isCreatingCase}
+          onCreateCase={() => onCreateCase(investigationFinding)}
+          onClose={onCloseInvestigation}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function matchingFinding(findings: Finding[], row: AutonomousDashboardData['topFindings'][number] | null | undefined) {
+  if (!row) return null;
+  if (row.id) {
+    const byId = findings.find((finding) => finding.id === row.id);
+    if (byId) return byId;
+  }
+  return findings.find((finding) => (
+    finding.service === row.service &&
+    finding.metric_name === row.metric &&
+    Math.abs((finding.importance_score ?? 0) - row.importance) < 0.0001
+  )) ?? null;
+}
+
+function AutonomousInvestigationPanel({
+  finding,
+  mode,
+  caseResult,
+  caseDetails,
+  caseError,
+  isCreatingCase,
+  onCreateCase,
+  onClose,
+}: {
+  finding: Finding;
+  mode: 'investigate' | 'evidence';
+  caseResult: GrafanaCaseCreateResponse | null;
+  caseDetails: GrafanaCase | null;
+  caseError: string;
+  isCreatingCase: boolean;
+  onCreateCase: () => void;
+  onClose: () => void;
+}) {
+  const comparisonEntries = Object.entries(finding.comparison_json ?? {}).filter(([, value]) => value !== null && value !== undefined);
+  return (
+    <div id="autonomous-investigation" style={panelStyle(mode === 'evidence' ? '#5794f2' : '#b877d9')}>
+      <div style={styles.rowBetween}>
+        <div>
+          <div style={styles.helperText}>{mode === 'evidence' ? 'Evidence' : 'Investigation'} / Current Finding</div>
+          <h3 style={{ margin: '4px 0 0' }}>{finding.title}</h3>
+          <p style={{ ...styles.muted, margin: '6px 0 0' }}>{finding.summary}</p>
+        </div>
+        <button type="button" style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.08)' }} onClick={onClose}>Close</button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 0.75fr) minmax(280px, 1fr)', gap: 12, marginTop: 14 }}>
+        <div style={{ ...styles.stack, border: '1px solid rgba(204, 204, 220, 0.12)', borderRadius: 8, padding: 14 }}>
+          <div style={styles.row}><SeverityPill severity={finding.health_status} /><BehaviorPill label={humanize(finding.category)} /></div>
+          <div style={styles.detailGrid}>
+            <div><div style={styles.helperText}>Service</div><strong>{finding.service || 'unknown'}</strong></div>
+            <div><div style={styles.helperText}>Metric</div><strong>{finding.metric_name}</strong></div>
+            <div><div style={styles.helperText}>Importance</div><strong>{finding.importance_score.toFixed(2)}</strong></div>
+            <div><div style={styles.helperText}>Analysis run</div><strong>{finding.analysis_run_id || 'unknown'}</strong></div>
+          </div>
+          <button
+            type="button"
+            style={{ ...styles.button, width: 'fit-content', ...(finding.id ? {} : styles.buttonDisabled) }}
+            disabled={isCreatingCase || !finding.id}
+            onClick={onCreateCase}
+            title={finding.id ? 'Create a case using the existing finding-case workflow.' : 'This finding has not been persisted yet.'}
+          >
+            {isCreatingCase ? 'Creating case...' : 'Create Case'}
+          </button>
+          {caseResult ? <div style={{ ...styles.helperText, color: '#3fcf8e' }}>Case #{caseResult.case_id} created from finding #{caseResult.finding_id}.</div> : null}
+          {caseError ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{caseError}</div> : null}
+          {caseDetails ? (
+            <div style={{ borderTop: '1px solid rgba(204, 204, 220, 0.12)', paddingTop: 10 }}>
+              <div style={styles.helperText}>Case workflow</div>
+              <strong>{caseDetails.case_title}</strong>
+              <div style={styles.row}>
+                <StatusBadge status={caseDetails.case_status} />
+                <StatusBadge status={caseDetails.investigation_status} />
+              </div>
+              <p style={{ ...styles.muted, margin: '6px 0 0' }}>Continue investigation, RCA, resolution, and knowledge publishing in the existing case flow.</p>
+            </div>
+          ) : null}
+        </div>
+
+        <div style={{ ...styles.stack, border: '1px solid rgba(204, 204, 220, 0.12)', borderRadius: 8, padding: 14 }}>
+          <h3 style={sectionTitleStyle}>Evidence Snapshot <InfoTip title="Autonomous evidence uses persisted finding fields. Open Interactive Analysis when you need the full metric timeline for a single metric." /></h3>
+          <div>
+            <div style={styles.helperText}>Signal ids supporting this finding</div>
+            {finding.signal_ids.length ? (
+              <div style={styles.row}>{finding.signal_ids.map((id) => <span key={id} style={styles.chip}>{id}</span>)}</div>
+            ) : <p style={styles.muted}>No signal ids were attached to this finding.</p>}
+          </div>
+          {comparisonEntries.length ? (
+            <div>
+              <div style={styles.helperText}>Comparison data</div>
+              <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', border: '1px solid rgba(204, 204, 220, 0.12)', borderRadius: 8, padding: 12, overflow: 'auto', maxHeight: 220 }}>
+                {JSON.stringify(finding.comparison_json, null, 2)}
+              </pre>
+            </div>
+          ) : <p style={styles.muted}>No comparison details were returned for this finding.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportanceBar({ value }: { value: number }) {
+  const pct = Math.max(0, Math.min(100, value * 100));
+  const tone = value >= 0.85 ? '#f2495c' : value >= 0.65 ? '#ffb357' : '#5794f2';
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '42px minmax(48px, 1fr)', gap: 8, alignItems: 'center' }}>
+      <strong style={{ color: tone }}>{value.toFixed(2)}</strong>
+      <span style={{ height: 5, borderRadius: 999, background: 'rgba(204, 204, 220, 0.12)', overflow: 'hidden' }}>
+        <span style={{ display: 'block', width: `${pct}%`, height: '100%', borderRadius: 999, background: tone }} />
+      </span>
+    </div>
+  );
+}
+
+function InfoTip({ title = 'More information' }: { title?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+      tabIndex={0}
+      style={{ position: 'relative', display: 'inline-grid', placeItems: 'center', width: 16, height: 16, borderRadius: 999, border: '1px solid rgba(204, 204, 220, 0.35)', color: 'rgba(204, 204, 220, 0.76)', fontSize: 11, marginLeft: 5, cursor: 'help', outline: 'none' }}
+    >
+      i
+      {open ? (
+        <span style={{ position: 'absolute', zIndex: 20, bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', width: 260, padding: '9px 10px', border: '1px solid rgba(204, 204, 220, 0.24)', borderRadius: 6, background: '#111217', color: 'rgba(242, 244, 248, 0.94)', boxShadow: '0 12px 32px rgba(0, 0, 0, 0.38)', lineHeight: 1.35, fontSize: 12, fontWeight: 500, textAlign: 'left', pointerEvents: 'none' }}>
+          {title}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function MiniSparkline({ tone }: { tone: string }) {
+  return (
+    <svg viewBox="0 0 90 32" width="90" height="32" aria-hidden="true">
+      <polyline points="2,24 10,22 18,25 26,18 34,19 42,15 50,17 58,11 66,13 74,8 88,12" fill="none" stroke={tone} strokeWidth="2" />
+      <line x1="74" y1="4" x2="74" y2="29" stroke="rgba(204, 204, 220, 0.35)" strokeDasharray="2 2" />
+    </svg>
+  );
+}
+
+function buildServicePriorities(findings: AutonomousDashboardData['topFindings']) {
+  const grouped = findings.reduce<Record<string, {
+    service: string;
+    symptoms: typeof findings;
+    metrics: string[];
+    behaviors: string[];
+    highestImportance: number;
+    href: string;
+  }>>((acc, finding) => {
+    const item = acc[finding.service] ?? {
+      service: finding.service,
+      symptoms: [],
+      metrics: [],
+      behaviors: [],
+      highestImportance: 0,
+      href: finding.href,
+    };
+    item.symptoms.push(finding);
+    item.metrics = Array.from(new Set([...item.metrics, finding.metric]));
+    item.behaviors = Array.from(new Set([...item.behaviors, finding.behavior]));
+    if (finding.importance > item.highestImportance) {
+      item.highestImportance = finding.importance;
+      item.href = finding.href;
+    }
+    acc[finding.service] = item;
+    return acc;
+  }, {});
+
+  return Object.values(grouped).sort((a, b) => b.highestImportance - a.highestImportance);
+}
+
+function BehaviorPill({ label }: { label: string }) {
+  const tone = label.toLowerCase().includes('trend') ? '#ffb357' : label.toLowerCase().includes('spike') ? '#f2495c' : '#5794f2';
+  return <span style={{ ...styles.chip, width: 'fit-content', color: tone, borderColor: `${tone}66` }}>{label}</span>;
+}
+
+function SeverityPill({ severity }: { severity: string }) {
+  const normalized = severity.toLowerCase();
+  const tone = normalized.includes('critical') || normalized.includes('significant')
+    ? '#f2495c'
+    : normalized.includes('warning') || normalized.includes('medium')
+      ? '#ffb357'
+      : '#3fcf8e';
+  return <span style={{ ...styles.chip, width: 'fit-content', color: tone, borderColor: `${tone}66` }}>{humanize(severity)}</span>;
+}
+
+function BehaviorDonut({ items, total }: { items: Array<{ label: string; count: number }>; total: number }) {
+  const palette = ['#5794f2', '#ffb357', '#3fcf8e', '#b877d9', '#33a2a2', '#f2cc0c', '#8a95a5'];
+  const safeTotal = total || items.reduce((sum, item) => sum + item.count, 0) || 1;
+  let offset = 0;
+  const segments = items.map((item, index) => {
+    const length = (item.count / safeTotal) * 100;
+    const segment = { ...item, color: palette[index % palette.length], dash: `${length} ${100 - length}`, offset: -offset };
+    offset += length;
+    return segment;
+  });
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '130px minmax(0, 1fr)', gap: 18, alignItems: 'center' }}>
+      <div style={{ position: 'relative', width: 124, height: 124 }}>
+        <svg viewBox="0 0 42 42" width="124" height="124" aria-label="Behavior distribution chart">
+          <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="rgba(204, 204, 220, 0.14)" strokeWidth="7" />
+          {segments.map((segment) => (
+            <circle key={segment.label} cx="21" cy="21" r="15.9" fill="transparent" stroke={segment.color} strokeWidth="7" strokeDasharray={segment.dash} strokeDashoffset={segment.offset} transform="rotate(-90 21 21)" />
+          ))}
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+          <div><div style={{ fontSize: 24, fontWeight: 900 }}>{safeTotal}</div><div style={styles.helperText}>Total</div></div>
+        </div>
+      </div>
+      <div style={styles.stack}>
+        {segments.map((item) => (
+          <div key={item.label} style={styles.rowBetween}>
+            <span style={{ ...styles.row, gap: 8 }}><span style={{ width: 9, height: 9, borderRadius: 999, background: item.color }} />{item.label}</span>
+            <strong>{item.count} ({Math.round((item.count / safeTotal) * 100)}%)</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MetricSelectionFunnel({ selection }: { selection: AutonomousSelectionSummary }) {
+  const discovered = selection.discovered ?? 0;
+  const selected = selection.selected ?? 0;
+  const excluded = selection.excluded ?? Math.max(discovered - selected, 0);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0, 1fr)', gap: 16, alignItems: 'center' }}>
+      <svg viewBox="0 0 160 170" width="150" height="160" aria-label="Metric selection funnel">
+        <polygon points="10,10 150,10 130,62 30,62" fill="#3fcf8e" opacity="0.85" />
+        <polygon points="30,62 130,62 108,112 52,112" fill="#73bf69" opacity="0.9" />
+        <polygon points="52,112 108,112 80,160" fill="#ff9830" opacity="0.92" />
+        <text x="80" y="37" textAnchor="middle" fill="#fff" fontSize="20" fontWeight="800">{formatNullableCount(discovered)}</text>
+        <text x="80" y="88" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="800">{formatNullableCount(selected)}</text>
+        <text x="80" y="135" textAnchor="middle" fill="#fff" fontSize="17" fontWeight="800">{formatNullableCount(excluded)}</text>
+      </svg>
+      <div style={styles.stack}>
+        <div style={styles.rowBetween}><span>Discovered</span><strong>{formatNullableCount(selection.discovered)}</strong></div>
+        <div style={styles.rowBetween}><span>Selected</span><strong>{formatNullableCount(selection.selected)}</strong></div>
+        <div style={styles.rowBetween}><span>Excluded</span><strong>{formatNullableCount(selection.excluded)}</strong></div>
+        <div style={styles.infoNote}>{selection.selectedLabel}</div>
+        <div style={styles.helperText}>Statistical candidate screening is not enabled yet.</div>
+        {selection.reductionPercent !== null ? <div style={{ textAlign: 'center', marginTop: 8 }}><div style={{ color: '#3fcf8e', fontSize: 24, fontWeight: 900 }}>{selection.reductionPercent.toFixed(1)}%</div><div style={styles.helperText}>Reduction</div></div> : null}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const normalized = status.toLowerCase();
+  const tone = normalized === 'completed' ? '#3fcf8e' : normalized === 'partial' ? '#ffb357' : normalized === 'failed' ? '#f2495c' : '#5794f2';
+  return <span style={{ ...styles.chip, width: 'fit-content', color: tone, borderColor: `${tone}66` }}>{humanize(status)}</span>;
 }
 
 function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }) {
@@ -1066,6 +1796,10 @@ function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }
 function PreviewPlanPanel({
   result,
   rows,
+  canRunOnce,
+  isRunningOnce,
+  onRunOnce,
+  onBack,
   statusFilter,
   setStatusFilter,
   categoryFilter,
@@ -1077,6 +1811,10 @@ function PreviewPlanPanel({
 }: {
   result: AutonomousPreviewResponse | null;
   rows: AutonomousPlanItem[];
+  canRunOnce: boolean;
+  isRunningOnce: boolean;
+  onRunOnce: () => Promise<void>;
+  onBack: () => void;
   statusFilter: 'all' | 'planned' | 'excluded';
   setStatusFilter: (value: 'all' | 'planned' | 'excluded') => void;
   categoryFilter: string;
@@ -1100,29 +1838,79 @@ function PreviewPlanPanel({
   }
   const categories = Array.from(new Set(result.items.map((item) => item.category).filter(Boolean))) as string[];
   const concepts = Array.from(new Set(result.items.map((item) => item.concept).filter(Boolean))) as string[];
+  const selectedRows = rows.filter((item) => item.planned);
+  const categoryCounts = result.items.reduce<Record<string, number>>((acc, item) => {
+    if (item.planned && item.category) acc[item.category] = (acc[item.category] ?? 0) + 1;
+    return acc;
+  }, {});
   return (
     <Card>
       <div style={styles.rowBetween}>
         <div>
           <h2 style={{ margin: 0 }}>Metric Plan Preview</h2>
-          <p style={{ ...styles.muted, margin: '5px 0 0' }}>Review selected and excluded metric groups before scheduler execution exists.</p>
+          <p style={{ ...styles.muted, margin: '5px 0 0' }}>Review selected and excluded metric groups before starting autonomous analysis.</p>
         </div>
         <span style={{ ...styles.chip, color: '#3fcf8e' }}>{result.planned_jobs} planned jobs</span>
       </div>
       {result.warnings.map((warning) => <div key={warning} style={{ ...styles.alert, marginTop: 12 }}>{warning}</div>)}
       <div style={{ ...styles.compactStats, marginTop: 16 }}>
-        <Kpi label="Services resolved" value={result.scope_summary.services ?? 0} />
-        <Kpi label="Namespaces resolved" value={result.scope_summary.namespaces ?? 0} />
         <Kpi label="Metrics discovered" value={result.metrics_discovered} />
-        <Kpi label="Metrics selected" value={result.metrics_selected ?? result.metrics_matched} tone="#3fcf8e" />
-        <Kpi label="Metrics excluded" value={result.metrics_excluded} tone="#ffb357" />
-        <Kpi label="Budget limited" value={result.budget_limited_jobs ?? result.budget_limited} tone="#b877d9" />
+        <Kpi label="Selected by monitoring policy" value={result.metrics_selected ?? result.metrics_matched} tone="#3fcf8e" />
+        <Kpi label="Excluded" value={result.metrics_excluded} tone="#ffb357" />
       </div>
+      <div style={{ ...styles.infoNote, marginTop: 12 }}>Statistical candidate screening is not enabled yet.</div>
       {result.monitoring_summary?.concepts?.length ? (
         <div style={{ ...styles.infoNote, marginTop: 12 }}>
           Intent expanded to concepts: {result.monitoring_summary.concepts.map(humanize).join(', ')}
         </div>
       ) : null}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 0.35fr) minmax(0, 1fr)', gap: 16, marginTop: 16 }}>
+        <div style={panelStyle('#5794f2')}>
+          <h3 style={sectionTitleStyle}>Selected by category</h3>
+          {Object.keys(categoryCounts).length ? Object.entries(categoryCounts).map(([category, count]) => (
+            <div key={category} style={styles.rowBetween}>
+              <span>{humanize(category)}</span>
+              <strong>{count}</strong>
+            </div>
+          )) : <p style={styles.muted}>No selected categories returned.</p>}
+        </div>
+        <div style={panelStyle('#3fcf8e')}>
+          <h3 style={sectionTitleStyle}>Selected metrics</h3>
+          {!selectedRows.length ? (
+            <div style={styles.emptyHero}>
+              <p>No metrics matched the current scope and monitoring categories.</p>
+              <p style={styles.muted}>Adjust the service, namespace, or monitoring selections and preview again.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '0.9fr 1.4fr 0.9fr 1fr', gap: '10px 14px', fontSize: 12 }}>
+              {['Service', 'Metric', 'Category', 'Reason'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
+              {selectedRows.slice(0, 25).map((item) => (
+                <React.Fragment key={`${item.service ?? 'unknown'}:${item.metric_name}:${item.category ?? 'none'}`}>
+                  <div>{item.service ?? 'unknown'}</div>
+                  <button type="button" style={styles.tableRowButton} onClick={() => setExpandedMetric(expandedMetric === item.metric_name ? null : item.metric_name)}>{item.metric_name}</button>
+                  <div>{item.category ? humanize(item.category) : 'Unmatched'}</div>
+                  <div>{humanize(item.selection_reason ?? 'policy match')}</div>
+                  {expandedMetric === item.metric_name && (
+                    <div style={{ gridColumn: '1 / -1', ...styles.answerCard }}>
+                      {previewRowExplanation(item)}
+                      {item.promql && <pre style={{ ...styles.pre, marginTop: 10 }}>{item.promql}</pre>}
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
+              {selectedRows.length > 25 ? <div style={{ gridColumn: '1 / -1', ...styles.helperText }}>+ {selectedRows.length - 25} more selected metrics</div> : null}
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{ ...styles.row, marginTop: 16 }}>
+        <button type="button" style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.14)' }} onClick={onBack}>
+          Back to configuration
+        </button>
+        <button type="button" style={canRunOnce ? { ...styles.button, background: 'linear-gradient(135deg, #3fcf8e, #197a4d)' } : { ...styles.button, ...styles.buttonDisabled, background: 'rgba(63, 207, 142, 0.2)' }} disabled={!canRunOnce} onClick={onRunOnce}>
+          {isRunningOnce ? 'Running autonomous analysis...' : 'Run autonomous analysis once'}
+        </button>
+      </div>
       <div style={{ ...styles.row, marginTop: 16 }}>
         <Field label="Status filter">
           <select style={styles.input} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'planned' | 'excluded')}>
@@ -1144,60 +1932,148 @@ function PreviewPlanPanel({
           </select>
         </Field>
       </div>
-      {!rows.length ? (
-        <div style={styles.emptyHero}>
-          <p>No preview rows match the current filters.</p>
-        </div>
-      ) : (
-        <div style={{ overflow: 'auto', marginTop: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 0.9fr 0.9fr 1fr 1fr 0.8fr 1.4fr 1fr 1fr 0.7fr 1.2fr 1.4fr', gap: 10, minWidth: 1480, fontSize: 12 }}>
-            {['Status', 'Service', 'Namespace', 'Category', 'Concept', 'Type', 'Metric', 'Transform', 'Aggregation', 'Conf.', 'Reason', 'PromQL'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
-            {rows.map((item) => {
-              const rowKey = `${item.service ?? 'unknown'}:${item.namespace ?? 'all'}:${item.metric_name}:${item.category ?? 'none'}`;
-              const expanded = expandedMetric === rowKey;
-              return (
-                <React.Fragment key={rowKey}>
-                  <div style={{ color: item.planned ? '#3fcf8e' : '#ffb357' }}>{item.planned ? 'Planned' : 'Excluded'}</div>
-                  <div>{item.service ?? 'unknown'}</div>
-                  <div>{item.namespace ?? 'all'}</div>
-                  <div>{item.category ? humanize(item.category) : 'Unmatched'}</div>
-                  <div>{item.concept ? humanize(item.concept) : 'Unmatched'}</div>
-                  <div>{item.metric_type ?? 'unknown'}</div>
-                  <button type="button" style={styles.tableRowButton} onClick={() => setExpandedMetric(expanded ? null : rowKey)}>{item.metric_name}</button>
-                  <div>{humanize(item.transformation ?? 'raw')}</div>
-                  <div>{humanize(item.aggregation ?? item.aggregation_strategy)}</div>
-                  <div>{item.confidence.toFixed(2)}</div>
-                  <div>{humanize(item.selection_reason ?? item.exclusion_reason ?? 'not selected')}</div>
-                  <code style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.promql || '-'}</code>
-                  {expanded && (
-                    <div style={{ gridColumn: '1 / -1', ...styles.answerCard }}>
-                      {item.planned
-                        ? `${previewRowExplanation(item)}${item.matched_rule ? ` Matched ${item.matched_rule}.` : ''}`
-                        : previewRowExplanation(item)}
-                      <div style={styles.helperText}>Estimated series: {item.estimated_series_count}. Group by: {(item.group_by ?? []).join(', ') || 'service'}. Analysis window: {item.analysis_window}. Router/analyzer selection will still happen later per planned AnalysisRequest.</div>
-                      {item.promql && <pre style={{ ...styles.pre, marginTop: 10 }}>{item.promql}</pre>}
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {!rows.length && selectedRows.length ? <div style={styles.emptyHero}><p>No preview rows match the current filters.</p></div> : null}
     </Card>
   );
 }
 
-function OverviewRow({ title, meta, tone }: { title: string; meta: string; tone: string }) {
+function PreviewLoadingPanel() {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '12px minmax(0, 1fr)', gap: 10, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(204, 204, 220, 0.08)' }}>
-      <span style={{ width: 8, height: 8, borderRadius: 999, background: tone }} />
+    <Card>
       <div>
-        <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-        <div style={styles.helperText}>{meta}</div>
+        <h2 style={{ margin: 0 }}>Building metric plan...</h2>
+        <p style={{ ...styles.muted, margin: '5px 0 0' }}>Previewing the metrics that match the current scope and monitoring policy.</p>
       </div>
+      <div style={{ ...styles.stack, marginTop: 16 }}>
+        {['Discovering metrics', 'Applying monitoring policy', 'Preparing selected metrics'].map((step) => (
+          <div key={step} style={panelStyle('#5794f2')}>
+            <strong>{step}</strong>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function PreviewErrorPanel({ onRetry, onBack }: { onRetry: () => Promise<void>; onBack: () => void }) {
+  return (
+    <Card>
+      <div style={styles.emptyHero}>
+        <div>
+          <h2 style={{ margin: 0 }}>Metric plan could not be loaded.</h2>
+          <p style={styles.muted}>Check the backend connection or adjust the selected scope, then try again.</p>
+          <div style={{ ...styles.row, justifyContent: 'center', marginTop: 16 }}>
+            <button type="button" style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.14)' }} onClick={onBack}>
+              Back to configuration
+            </button>
+            <button type="button" style={styles.button} onClick={onRetry}>
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function AutonomousRunningPanel({ plannedJobs }: { plannedJobs: number | null }) {
+  return (
+    <Card>
+      <div style={styles.rowBetween}>
+        <div>
+          <h2 style={{ margin: 0 }}>Autonomous analysis is running...</h2>
+          <p style={{ ...styles.muted, margin: '5px 0 0' }}>The overview will appear when the run completes.</p>
+        </div>
+        <span style={{ ...styles.chip, color: '#3fcf8e' }}>Run once</span>
+      </div>
+      <div style={{ ...styles.stack, marginTop: 18 }}>
+        <ProgressRow label="Discovering metrics" status="complete" />
+        <ProgressRow label="Building metric plan" status="complete" />
+        <ProgressRow label="Executing analysis jobs" status="running" detail={plannedJobs ? `${plannedJobs} planned jobs` : 'In progress'} />
+        <ProgressRow label="Aggregating findings" status="pending" />
+        <ProgressRow label="Preparing overview" status="pending" />
+      </div>
+      <div style={{ ...styles.alert, marginTop: 18 }}>
+        You can keep this page open. The results view will replace this progress state when the run completes.
+      </div>
+    </Card>
+  );
+}
+
+function ProgressRow({ label, status, detail }: { label: string; status: 'complete' | 'running' | 'pending'; detail?: string }) {
+  const marker = status === 'complete' ? '✓' : status === 'running' ? '⟳' : '○';
+  const tone = status === 'complete' ? '#3fcf8e' : status === 'running' ? '#5794f2' : 'rgba(204, 204, 220, 0.62)';
+  return (
+    <div style={{ ...styles.rowBetween, borderBottom: '1px solid rgba(204, 204, 220, 0.1)', padding: '10px 0' }}>
+      <div style={{ ...styles.row, gap: 10 }}>
+        <span style={{ color: tone, fontWeight: 900 }}>{marker}</span>
+        <strong>{label}</strong>
+      </div>
+      <span style={{ ...styles.helperText, marginTop: 0 }}>{detail ?? humanize(status)}</span>
     </div>
   );
+}
+
+function RunErrorPanel({ result, onRetry, onBack }: { result: AutonomousRunResponse | null; onRetry: () => Promise<void>; onBack: () => void }) {
+  const failedJobs = result?.results?.filter((job) => job.status === 'failed' || job.error).slice(0, 5) ?? [];
+  return (
+    <Card>
+      <div style={styles.emptyHero}>
+        <div>
+          <h2 style={{ margin: 0 }}>Autonomous analysis could not be completed.</h2>
+          <p style={styles.muted}>The metric plan is still available. Retry the run or return to configuration.</p>
+          {result ? (
+            <div style={{ ...styles.compactStats, marginTop: 16, textAlign: 'left' }}>
+              <Kpi label="Planned jobs" value={result.planned_jobs} />
+              <Kpi label="Completed" value={result.executed_jobs} tone="#3fcf8e" />
+              <Kpi label="Skipped" value={result.skipped_jobs} tone="#ffb357" />
+              <Kpi label="Failed" value={result.failed_jobs} tone="#f2495c" />
+            </div>
+          ) : null}
+          {result?.warnings?.length ? (
+            <div style={{ ...styles.stack, textAlign: 'left', marginTop: 16 }}>
+              {result.warnings.slice(0, 3).map((warning) => (
+                <div key={warning} style={panelStyle('#f2495c')}>{warning}</div>
+              ))}
+            </div>
+          ) : null}
+          {failedJobs.length ? (
+            <div style={{ ...styles.stack, textAlign: 'left', marginTop: 16 }}>
+              {failedJobs.map((job) => (
+                <div key={`${job.service ?? 'unknown'}:${job.metric_name}:${job.promql}`} style={panelStyle('#f2495c')}>
+                  <div style={styles.rowBetween}>
+                    <strong>{job.service ?? 'unknown'} / {job.metric_name}</strong>
+                    <span style={{ color: '#f2495c' }}>{humanize(job.status)}</span>
+                  </div>
+                  {job.error ? <div style={{ ...styles.alert, marginTop: 8 }}>{job.error}</div> : null}
+                  {job.promql ? <pre style={{ ...styles.pre, marginTop: 10 }}>{job.promql}</pre> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div style={{ ...styles.row, justifyContent: 'center', marginTop: 16 }}>
+            <button type="button" style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.14)' }} onClick={onBack}>
+              Back to configuration
+            </button>
+            <button type="button" style={styles.button} onClick={onRetry}>
+              Retry run
+            </button>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function formatNullableCount(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '—';
+}
+
+function formatCompactDate(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 function humanize(value: string) {

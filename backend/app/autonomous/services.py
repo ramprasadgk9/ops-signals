@@ -75,6 +75,12 @@ def build_scope_selector(scope: AnalysisScope) -> str:
     return "{" + ",".join(matcher for matcher in matchers if matcher) + "}"
 
 
+def _merge_selector_matchers(selector: str, matchers: list[str]) -> str:
+    existing = selector[1:-1].strip() if selector.startswith("{") and selector.endswith("}") else ""
+    parts = [part for part in [existing, *matchers] if part]
+    return "{" + ",".join(parts) + "}"
+
+
 def _enum_list(enum_cls, values: list[str]) -> list:
     result = []
     for value in values or []:
@@ -360,7 +366,7 @@ class MetricQueryStrategyResolver:
     ) -> tuple[str, str, str, list[str]]:
         strategy = classification.suggested_query_strategy
         metric_name = self._logical_metric_name(metric.metric_name, strategy.transformation)
-        selector = self._selector(metric_name, resolved_scope.selector)
+        selector = self._selector(metric_name, self._item_scope_selector(metric, resolved_scope))
         group_by = [label for label in strategy.group_by if validate_label_name(label)]
         if not group_by:
             group_by = ["service"]
@@ -385,6 +391,21 @@ class MetricQueryStrategyResolver:
             promql = f"{strategy.aggregation} by ({', '.join(group_by)}) ({selector})"
 
         return promql, transformation, aggregation, group_by
+
+    @staticmethod
+    def _item_scope_selector(metric: DiscoveredMetric, resolved_scope: ResolvedAnalysisScope) -> str:
+        labels = resolved_scope.label_mapping
+        matchers: list[str] = []
+        service_label = labels.get("service")
+        namespace_label = labels.get("namespace")
+        environment_label = labels.get("environment")
+        if service_label and metric.service and metric.labels.get(service_label) == metric.service:
+            matchers.append(f'{service_label}="{escape_label_value(metric.service)}"')
+        if namespace_label and metric.namespace and metric.labels.get(namespace_label) == metric.namespace:
+            matchers.append(f'{namespace_label}="{escape_label_value(metric.namespace)}"')
+        if environment_label and metric.environment and metric.labels.get(environment_label) == metric.environment:
+            matchers.append(f'{environment_label}="{escape_label_value(metric.environment)}"')
+        return _merge_selector_matchers(resolved_scope.selector, matchers)
 
     @staticmethod
     def _selector(metric_name: str, scope_selector: str) -> str:
@@ -444,16 +465,26 @@ class MetricPlanBuilder:
         ]
         selected_rows = [(metric, classification) for metric, classification in classified_rows if classification.selected]
         selected_rows = self._rank_and_dedupe(selected_rows)
+        planned_row_ids = {
+            self._row_id(metric, classification)
+            for metric, classification in selected_rows[: execution.max_metrics_per_run]
+        }
         selected_row_ids = {self._row_id(metric, classification) for metric, classification in selected_rows}
+        selected_rank = {
+            self._row_id(metric, classification): index
+            for index, (metric, classification) in enumerate(selected_rows)
+        }
+        ordered_rows = sorted(classified_rows, key=lambda row: self._item_order(row, selected_rank, planned_row_ids))
 
         items: list[MetricPlanItem] = []
         budget_used = 0
-        for metric, classification in classified_rows:
+        for metric, classification in ordered_rows:
             logical_key = self._logical_key(metric, classification)
             planned = False
             exclusion_reason = classification.exclusion_reason
-            if classification.selected and self._row_id(metric, classification) in selected_row_ids:
-                if budget_used < execution.max_metrics_per_run:
+            row_id = self._row_id(metric, classification)
+            if classification.selected and row_id in selected_row_ids:
+                if row_id in planned_row_ids:
                     planned = True
                     budget_used += 1
                 else:
@@ -546,7 +577,7 @@ class MetricPlanBuilder:
         winners = []
         for rows in by_key.values():
             winners.append(sorted(rows, key=self._ranking_score, reverse=True)[0])
-        return winners
+        return sorted(winners, key=self._ranking_score, reverse=True)
 
     @staticmethod
     def _logical_key(metric: DiscoveredMetric, classification: MetricClassification) -> tuple:
@@ -570,11 +601,34 @@ class MetricPlanBuilder:
         metric, classification = row
         return (
             classification.confidence,
+            MetricPlanBuilder._demo_signal_priority(metric),
             1 if metric.referenced_by_recording_rule else 0,
             1 if metric.referenced_by_alert_rule else 0,
             1 if metric.referenced_by_dashboard else 0,
             -int(metric.estimated_series_count or metric.cardinality_estimate or 1),
         )
+
+    @staticmethod
+    def _item_order(
+        row: tuple[DiscoveredMetric, MetricClassification],
+        selected_rank: dict[tuple, int],
+        planned_row_ids: set[tuple],
+    ) -> tuple[int, int]:
+        row_id = MetricPlanBuilder._row_id(row[0], row[1])
+        if row_id in planned_row_ids:
+            return (0, selected_rank.get(row_id, 0))
+        if row_id in selected_rank:
+            return (1, selected_rank[row_id])
+        return (2, 0)
+
+    @staticmethod
+    def _demo_signal_priority(metric: DiscoveredMetric) -> int:
+        # Local demo metrics are intentionally shaped to produce visible findings
+        # across rolling windows. Prefer them when a tiny preview budget is used.
+        service = (metric.service or "").lower()
+        if service in {"spike-lab", "trend-lab", "mixed-lab", "ruptures-lab"}:
+            return 1
+        return 0
 
     @staticmethod
     def _planned_request(

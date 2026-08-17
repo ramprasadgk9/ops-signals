@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from sqlalchemy.orm import Session
 
+from backend.app.autonomous.repository import AutonomousJobRepository, AutonomousPolicyRunRepository
 from backend.app.autonomous.execution import execute_autonomous_plan_once
 from backend.app.autonomous.schemas import AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunRequest, AutonomousRunResponse
 from backend.app.autonomous.services import MetricClassificationService, MetricDiscoveryService, MetricPlanBuilder
@@ -82,6 +83,30 @@ def run_autonomous_once(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/policy-runs")
+def list_autonomous_policy_runs(
+    status: str | None = Query(default=None),
+    policy_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    runs = AutonomousPolicyRunRepository(db).list_runs(status=status, policy_id=policy_id, limit=limit)
+    return [_policy_run_to_dict(run) for run in runs]
+
+
+@router.get("/policy-runs/{policy_run_id}")
+def get_autonomous_policy_run(policy_run_id: str, db: Session = Depends(get_db)) -> dict:
+    run = AutonomousPolicyRunRepository(db).get_run(policy_run_id)
+    return _policy_run_to_dict(run)
+
+
+@router.get("/policy-runs/{policy_run_id}/jobs")
+def list_autonomous_policy_run_jobs(policy_run_id: str, db: Session = Depends(get_db)) -> list[dict]:
+    AutonomousPolicyRunRepository(db).get_run(policy_run_id)
+    jobs = AutonomousJobRepository(db).get_jobs_for_run(policy_run_id)
+    return [_job_to_dict(job) for job in jobs]
+
+
 @router.get("/scope-options")
 def autonomous_scope_options(
     service_label: str = Query(default="service"),
@@ -93,4 +118,62 @@ def autonomous_scope_options(
         "services": prometheus.label_values(service_label),
         "namespaces": prometheus.label_values(namespace_label),
         "environments": prometheus.label_values(environment_label),
+    }
+
+
+def _policy_run_to_dict(run) -> dict:
+    return {
+        "policy_run_id": run.id,
+        "id": run.id,
+        "policy_id": run.policy_id,
+        "trigger": run.trigger,
+        "status": run.status,
+        "started_at": run.started_at,
+        "completed_at": run.completed_at,
+        "policy_snapshot": run.policy_snapshot_json,
+        "metrics_discovered": run.metrics_discovered,
+        "metrics_selected": run.metrics_selected,
+        "jobs_planned": run.jobs_planned,
+        "jobs_completed": run.jobs_completed,
+        "jobs_skipped": run.jobs_skipped,
+        "jobs_failed": run.jobs_failed,
+        "findings_created": run.findings_created,
+        "error_summary": run.error_summary,
+        "created_at": run.created_at,
+        "updated_at": run.updated_at,
+    }
+
+
+def _job_to_dict(job) -> dict:
+    return {
+        "job_id": job.id,
+        "id": job.id,
+        "policy_run_id": job.policy_run_id,
+        "status": job.status,
+        "datasource": job.datasource,
+        "environment": job.environment,
+        "namespace": job.namespace,
+        "service": job.service,
+        "metric_name": job.metric_name,
+        "logical_metric_name": job.logical_metric_name,
+        "category": job.category,
+        "concept": job.concept,
+        "promql": job.promql,
+        "analysis_window": job.analysis_window,
+        "aggregation_strategy": job.aggregation_strategy,
+        "transformation": job.transformation,
+        "classification_confidence": job.classification_confidence,
+        "selection_reason": job.selection_reason,
+        "skip_reason_code": job.skip_reason_code,
+        "skip_reason_detail": job.skip_reason_detail,
+        "retry_count": job.retry_count,
+        "analysis_run_id": job.analysis_run_id,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+        "duration_ms": job.duration_ms,
+        "error_type": job.error_type,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
     }

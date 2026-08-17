@@ -68,6 +68,24 @@ def _deterministic_noise(bucket: int, service_index: int, scale: float = 0.015) 
 
 def _cpu_usage_for_profile(profile: str, bucket: int, service_index: int, baseline: float, amplitude: float, phase: float) -> float:
     noise = _deterministic_noise(bucket, service_index)
+    if profile == "demo_incident":
+        # Purpose-built for the open-source demo stack. A daily compressed ramp
+        # means a rolling 6h query usually contains a clear before/after change,
+        # so the demo remains useful even when run hours or days later.
+        ramp = _saw(bucket, 2880, phase=int(phase * 100)) * 1.1
+        pulse = 0.18 if _square_window(bucket, 96, duty_cycle=0.12, phase=8) else 0.0
+        return baseline + ramp + pulse + (_wave(bucket, 24, phase) * 0.025) + (noise * 0.25)
+    if profile == "demo_trend":
+        # Stable upward pressure for demos of trend-style findings.
+        ramp = _saw(bucket, 3600, phase=int(phase * 100)) * 1.1
+        return baseline + ramp + (_wave(bucket, 36, phase) * amplitude) + noise
+    if profile == "demo_mixed":
+        # Combines a trend, smaller baseline regimes, and short bursts so users
+        # can demo multiple symptoms without relying on random live behavior.
+        ramp = _saw(bucket, 2160, phase=int(phase * 100)) * 0.95
+        shifted = 0.22 if _square_window(bucket, 240, duty_cycle=0.5, phase=12) else 0.0
+        spike = 0.35 if _square_window(bucket, 72, duty_cycle=0.08, phase=6) else 0.0
+        return baseline + ramp + shifted + spike + (_wave(bucket, 28, phase) * amplitude) + noise
     if profile == "baseline_shift":
         # Repeats a clean low/high operating regime. Good for Ruptures and baseline shift.
         shifted = 0.9 if not _square_window(bucket, 160, duty_cycle=0.5, phase=0) else 0.0
@@ -148,7 +166,7 @@ def _metric_lines() -> str:
             "phase": 1.2,
             "baseline": 0.2,
             "amplitude": 0.03,
-            "profile": "spiky",
+            "profile": "demo_incident",
         },
         {
             "service": "trend-lab",
@@ -157,7 +175,7 @@ def _metric_lines() -> str:
             "phase": 1.8,
             "baseline": 0.18,
             "amplitude": 0.04,
-            "profile": "trend",
+            "profile": "demo_trend",
         },
         {
             "service": "drift-lab",
@@ -175,7 +193,7 @@ def _metric_lines() -> str:
             "phase": 3.0,
             "baseline": 0.38,
             "amplitude": 0.14,
-            "profile": "mixed",
+            "profile": "demo_mixed",
         },
     ]
 

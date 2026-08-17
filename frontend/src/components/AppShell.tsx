@@ -14,6 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
 import CrisisAlertRoundedIcon from '@mui/icons-material/CrisisAlertRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
@@ -49,6 +50,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: 'Overview', to: '/', icon: <HomeRoundedIcon />, match: (path) => path === '/' },
+  { label: 'Autonomous Monitoring', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon /> },
   { label: 'Investigations', to: '/investigations', icon: <TravelExploreRoundedIcon /> },
   { label: 'Findings', to: '/findings', icon: <CrisisAlertRoundedIcon /> },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },

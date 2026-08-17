@@ -13,8 +13,8 @@ export type AutonomousPreviewForm = {
   selectedCategories: MonitoringCategory[];
   executionInterval: string;
   analysisWindow: string;
-  maxMetricsPerRun: number;
-  maxParallelJobs: number;
+  maxMetricsPerRun: number | string;
+  maxParallelJobs: number | string;
   customExplicitMetrics: string;
   customIncludePatterns: string;
   customExcludePatterns: string;
@@ -24,7 +24,16 @@ export function splitCsvList(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+function parsePositiveInteger(value: number | string, fallback: number) {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.floor(parsed);
+}
+
 export function buildAutonomousPreviewRequest(form: AutonomousPreviewForm): AutonomousPreviewRequest {
+  const maxMetricsPerRun = parsePositiveInteger(form.maxMetricsPerRun, 500);
+  const maxParallelJobs = parsePositiveInteger(form.maxParallelJobs, 20);
+
   return {
     datasource: 'prometheus',
     backend: form.backend,
@@ -53,8 +62,8 @@ export function buildAutonomousPreviewRequest(form: AutonomousPreviewForm): Auto
     execution: {
       interval: form.executionInterval,
       analysis_window: form.analysisWindow,
-      max_metrics_per_run: form.maxMetricsPerRun,
-      max_parallel_jobs: form.maxParallelJobs,
+      max_metrics_per_run: maxMetricsPerRun,
+      max_parallel_jobs: maxParallelJobs,
     },
     custom_constraints: {
       explicit_metrics: splitCsvList(form.customExplicitMetrics),

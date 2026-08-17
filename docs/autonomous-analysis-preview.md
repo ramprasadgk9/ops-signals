@@ -83,17 +83,17 @@ Excluded rows remain visible so users can validate why a metric was skipped.
 
 ## Run Once
 
-`POST /api/autonomous/run-once` rebuilds the preview plan, executes planned rows up to the selected budget, queries Prometheus for the requested analysis window, and sends each one-series result through the existing `SignalPipeline`.
+`POST /api/autonomous/run-once` rebuilds the preview plan, executes planned rows up to the selected budget, queries Prometheus for the requested analysis window, and sends each one-series result through the autonomous `MetricAnalysisExecutor`.
 
 Run-once behavior:
 
 - executes only rows marked `planned`
 - requires each planned PromQL query to return exactly one logical series
-- persists normal analysis runs, signals, findings, behavior findings, and cases through existing storage
+- persists normal analysis runs, signals, findings, and behavior findings through shared storage
 - returns per-job status, sample count, signal count, finding count, behavior finding count, warnings, and errors
 - does not create a persistent autonomous policy or background schedule
 
-For local mock Prometheus data, prefer `All environments`, service `ruptures-lab`, category `Capacity`, and a `6h` analysis window. A `24h` window can include sparse sample gaps and may be rejected by the existing pipeline validator.
+For local mock Prometheus data, prefer `All environments`, service `ruptures-lab`, category `Capacity`, and a `6h` analysis window. A `24h` window can include sparse sample gaps and may be rejected by the existing time-series validator.
 
 ## Non-Goals
 

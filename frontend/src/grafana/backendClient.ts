@@ -1,4 +1,5 @@
 import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, Signal, TimeseriesPoint } from '../types';
+import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type {
   GrafanaAnalyzerRoutingDecision,
   AutonomousPreviewRequest,
@@ -90,6 +91,30 @@ async function postJson<T>(baseUrl: string, path: string, payload?: unknown): Pr
   return response.json() as Promise<T>;
 }
 
+async function postJsonWithTimeout<T>(baseUrl: string, path: string, payload: unknown, timeoutMs: number): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw await buildRequestError(response);
+    }
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)} seconds`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 async function patchJson<T>(baseUrl: string, path: string, payload: unknown): Promise<T> {
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
     method: 'PATCH',
@@ -114,6 +139,14 @@ export async function listAnalysisRuns(baseUrl: string) {
   return fetchJson<AnalysisRun[]>(baseUrl, '/api/analysis-runs');
 }
 
+export async function listAutonomousPolicyRuns(baseUrl: string, limit = 25) {
+  return fetchJson<AutonomousPolicyRun[]>(baseUrl, `/api/autonomous/policy-runs?limit=${limit}`);
+}
+
+export async function listAutonomousPolicyRunJobs(baseUrl: string, policyRunId: string) {
+  return fetchJson<Record<string, unknown>[]>(baseUrl, `/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`);
+}
+
 export async function listFindings(baseUrl: string, params?: {
   window?: '24h' | '7d';
   service?: string;
@@ -127,8 +160,19 @@ export async function listFindings(baseUrl: string, params?: {
   return fetchJson<Finding[]>(baseUrl, `/api/findings${suffix}`);
 }
 
+export async function listBehaviorFindings(baseUrl: string, params?: {
+  analysisRunId?: string;
+  service?: string;
+}) {
+  const search = new URLSearchParams();
+  if (params?.analysisRunId) search.set('analysis_run_id', params.analysisRunId);
+  if (params?.service) search.set('service', params.service);
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson<BehaviorFinding[]>(baseUrl, `/api/behavior-evaluations${suffix}`);
+}
+
 export async function previewAutonomousPlan(baseUrl: string, payload: AutonomousPreviewRequest) {
-  return postJson<AutonomousPreviewResponse>(baseUrl, '/api/autonomous/preview', payload);
+  return postJsonWithTimeout<AutonomousPreviewResponse>(baseUrl, '/api/autonomous/preview', payload, 120000);
 }
 
 export async function runAutonomousPlanOnce(baseUrl: string, payload: AutonomousPreviewRequest) {
