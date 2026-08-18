@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { createCaseFromFinding, getCase, listAnalysisRuns, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, getCase, listAnalysisRuns, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, searchFindings, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -51,6 +51,31 @@ type OverviewEndpointError = {
   endpoint: string;
   url: string;
   message: string;
+};
+
+type AutonomousAskState = {
+  question: string;
+  answer: AutonomousQuestionAnswer | null;
+  isLoading: boolean;
+  error: string;
+  setQuestion: (value: string) => void;
+  ask: (question?: string) => Promise<void>;
+};
+
+type AutonomousFindingsLookupState = {
+  window: FindingsWindow;
+  query: string;
+  service: string;
+  metricName: string;
+  findings: Finding[];
+  isLoading: boolean;
+  error: string;
+  setWindow: (value: FindingsWindow) => void;
+  setQuery: (value: string) => void;
+  setService: (value: string) => void;
+  setMetricName: (value: string) => void;
+  search: () => Promise<void>;
+  askAboutFinding: (finding: Finding) => Promise<void>;
 };
 
 const monitorCategories = [
@@ -119,6 +144,17 @@ export function PluginApp(_props: unknown) {
   const [autonomousCaseDetails, setAutonomousCaseDetails] = useState<GrafanaCase | null>(null);
   const [autonomousCaseError, setAutonomousCaseError] = useState('');
   const [isCreatingAutonomousCase, setIsCreatingAutonomousCase] = useState(false);
+  const [autonomousAskQuestion, setAutonomousAskQuestion] = useState('');
+  const [autonomousAskAnswer, setAutonomousAskAnswer] = useState<AutonomousQuestionAnswer | null>(null);
+  const [autonomousAskError, setAutonomousAskError] = useState('');
+  const [isAutonomousAsking, setIsAutonomousAsking] = useState(false);
+  const [autonomousLookupWindow, setAutonomousLookupWindow] = useState<FindingsWindow>('24h');
+  const [autonomousLookupQuery, setAutonomousLookupQuery] = useState('');
+  const [autonomousLookupService, setAutonomousLookupService] = useState('');
+  const [autonomousLookupMetric, setAutonomousLookupMetric] = useState('');
+  const [autonomousLookupFindings, setAutonomousLookupFindings] = useState<Finding[]>([]);
+  const [autonomousLookupError, setAutonomousLookupError] = useState('');
+  const [isAutonomousLookupLoading, setIsAutonomousLookupLoading] = useState(false);
 
   useEffect(() => {
     try {
@@ -256,9 +292,51 @@ export function PluginApp(_props: unknown) {
   const backendReady = useMemo(() => Boolean(backendUrl), [backendUrl]);
   const ready = Boolean(selectedPrometheusUid && target.service && target.metric);
   const timeRangeValid = timeRange.from.getTime() < timeRange.to.getTime();
+  const latestAutonomousPolicyRunId = overviewPolicyRuns[0]?.policy_run_id ?? overviewPolicyRuns[0]?.id ?? autonomousRunResult?.policy_run_id ?? null;
 
   function setRange(nextFrom: Date, nextTo: Date) {
     setTimeRange(buildTimeRange(nextFrom, nextTo));
+  }
+
+  async function askAutonomousQuestion(question?: string) {
+    const nextQuestion = (question ?? autonomousAskQuestion).trim();
+    if (!nextQuestion) return;
+    if (question) setAutonomousAskQuestion(question);
+    setIsAutonomousAsking(true);
+    setAutonomousAskError('');
+    try {
+      const answer = await answerAutonomousQuestion(backendUrl, {
+        question: nextQuestion,
+        policy_run_id: latestAutonomousPolicyRunId,
+        window: autonomousLookupWindow,
+        service: autonomousLookupService.trim() || undefined,
+        metric_name: autonomousLookupMetric.trim() || undefined,
+      });
+      setAutonomousAskAnswer(answer);
+    } catch {
+      setAutonomousAskError('Could not answer from autonomous run evidence. Check the backend URL and retry.');
+    } finally {
+      setIsAutonomousAsking(false);
+    }
+  }
+
+  async function searchAutonomousFindings() {
+    setIsAutonomousLookupLoading(true);
+    setAutonomousLookupError('');
+    try {
+      const nextFindings = await searchFindings(backendUrl, {
+        window: autonomousLookupWindow,
+        q: autonomousLookupQuery.trim() || undefined,
+        service: autonomousLookupService.trim() || undefined,
+        metricName: autonomousLookupMetric.trim() || undefined,
+        limit: 8,
+      });
+      setAutonomousLookupFindings(nextFindings);
+    } catch {
+      setAutonomousLookupError('Could not search stored findings. Check the backend URL and retry.');
+    } finally {
+      setIsAutonomousLookupLoading(false);
+    }
   }
 
   function applyPreset(hours: number) {
@@ -442,6 +520,29 @@ export function PluginApp(_props: unknown) {
           caseDetails={autonomousCaseDetails}
           caseError={autonomousCaseError}
           isCreatingCase={isCreatingAutonomousCase}
+          askState={{
+            question: autonomousAskQuestion,
+            answer: autonomousAskAnswer,
+            isLoading: isAutonomousAsking,
+            error: autonomousAskError,
+            setQuestion: setAutonomousAskQuestion,
+            ask: askAutonomousQuestion,
+          }}
+          findingsLookupState={{
+            window: autonomousLookupWindow,
+            query: autonomousLookupQuery,
+            service: autonomousLookupService,
+            metricName: autonomousLookupMetric,
+            findings: autonomousLookupFindings,
+            isLoading: isAutonomousLookupLoading,
+            error: autonomousLookupError,
+            setWindow: setAutonomousLookupWindow,
+            setQuery: setAutonomousLookupQuery,
+            setService: setAutonomousLookupService,
+            setMetricName: setAutonomousLookupMetric,
+            search: searchAutonomousFindings,
+            askAboutFinding: (finding) => askAutonomousQuestion(`What should I investigate first for ${finding.service} / ${finding.metric_name}?`),
+          }}
           onRetryOverview={() => refreshAutonomousOverview(true)}
           onBackToConfigure={() => {
             setPreviewResult(null);
@@ -813,6 +914,8 @@ function AutonomousAnalysisView({
   caseDetails,
   caseError,
   isCreatingCase,
+  askState,
+  findingsLookupState,
   onRetryOverview,
   onBackToConfigure,
   onInvestigateInteractive,
@@ -879,6 +982,8 @@ function AutonomousAnalysisView({
   caseDetails: GrafanaCase | null;
   caseError: string;
   isCreatingCase: boolean;
+  askState: AutonomousAskState;
+  findingsLookupState: AutonomousFindingsLookupState;
   onRetryOverview: () => void;
   onBackToConfigure: () => void;
   onInvestigateInteractive: (finding: Finding) => void;
@@ -1145,6 +1250,8 @@ function AutonomousAnalysisView({
           caseDetails={caseDetails}
           caseError={caseError}
           isCreatingCase={isCreatingCase}
+          askState={askState}
+          findingsLookupState={findingsLookupState}
           onOpenInvestigation={onOpenInvestigation}
           onInvestigateInteractive={onInvestigateInteractive}
           onCloseInvestigation={onCloseInvestigation}
@@ -1194,6 +1301,8 @@ function GrafanaAutonomousOverview({
   caseDetails,
   caseError,
   isCreatingCase,
+  askState,
+  findingsLookupState,
   onOpenInvestigation,
   onInvestigateInteractive,
   onCloseInvestigation,
@@ -1217,6 +1326,8 @@ function GrafanaAutonomousOverview({
   caseDetails: GrafanaCase | null;
   caseError: string;
   isCreatingCase: boolean;
+  askState: AutonomousAskState;
+  findingsLookupState: AutonomousFindingsLookupState;
   onOpenInvestigation: (finding: Finding, mode: 'investigate' | 'evidence') => void;
   onInvestigateInteractive: (finding: Finding) => void;
   onCloseInvestigation: () => void;
@@ -1377,108 +1488,32 @@ function GrafanaAutonomousOverview({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(280px, 0.65fr)', gap: 12 }}>
-        <div style={panelStyle('#3fcf8e')}>
-          <h3 style={sectionTitleStyle}>Current Run Discovery & Selection</h3>
-          <div style={styles.compactStats}>
-            <DashboardKpi label="Metrics discovered" value={data.summary.metricsDiscovered} detail="From policy data" tone="#3fcf8e" />
-            <DashboardKpi label="Metrics selected" value={data.summary.candidatesSelected} detail="Selected by monitoring policy" tone="#3fcf8e" />
-            <DashboardKpi label="Findings" value={data.summary.findingsGenerated} detail="Generated" tone="#ffb357" />
-            <DashboardKpi label="Cases" value={data.summary.casesOpen} detail="Created / open" tone="#b877d9" />
-          </div>
-        </div>
-        <div style={panelStyle('#5794f2')}>
-          <h3 style={sectionTitleStyle}>Current Run Execution Summary</h3>
-          <div style={styles.compactStats}>
-            <DashboardKpi label="Executed" value={data.summary.executed} detail="Metrics" tone="#5794f2" />
-            <DashboardKpi label="Skipped" value={data.summary.skipped} detail="Policy / filters" tone="#ffb357" />
-            <DashboardKpi label="Failed" value={data.summary.failed} detail="Errors" tone="#f2495c" />
-          </div>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12 }}>
+        <GrafanaAutonomousAskPanel askState={askState} />
+        <GrafanaFindingsLookupPanel lookupState={findingsLookupState} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.65fr)', gap: 12 }}>
-        <div id="top-findings" style={panelStyle('#ffb357')}>
-          <div style={styles.rowBetween}>
-            <h3 style={sectionTitleStyle}>Service Priorities <InfoTip title="Services are ranked by their highest-importance current-run symptom. Multiple symptoms on one service are grouped to avoid creating duplicate incident candidates." /></h3>
-            <span style={styles.helperText}>{servicePriorities.length} service{servicePriorities.length === 1 ? '' : 's'} shown</span>
-          </div>
-          {servicePriorities.length ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr 1fr 1fr 1fr', gap: '10px 14px', fontSize: 12, overflowX: 'auto', alignItems: 'center' }}>
-              {['Service', 'Symptoms', 'Metrics affected', 'Highest importance', 'Recommended action'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
-              {servicePriorities.slice(0, 5).map((service, index) => (
-                <React.Fragment key={service.service}>
-                  <div style={{ borderLeft: `4px solid ${index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e'}`, paddingLeft: 10 }}>
-                    <strong>{service.service}</strong>
-                    <div style={styles.helperText}>{service.symptoms.length > 1 ? 'Likely incident candidate' : 'Single symptom'}</div>
-                  </div>
-                  <div style={styles.row}>{service.behaviors.slice(0, 3).map((behavior) => <BehaviorPill key={behavior} label={behavior} />)}</div>
-                  <div><strong>{service.metrics.length}</strong><div style={styles.helperText}>{service.metrics.slice(0, 3).join(', ')}</div></div>
-                  <ImportanceBar value={service.highestImportance} />
-                  <button
-                    type="button"
-                    style={styles.tableRowButton}
-                    onClick={() => {
-                      const finding = matchingFinding(findings, service.symptoms[0]);
-                      if (finding) onInvestigateInteractive(finding);
-                    }}
-                  >
-                    Investigate {service.service}
-                  </button>
-                </React.Fragment>
-              ))}
-            </div>
-          ) : <p style={styles.muted}>No services need investigation from the current run.</p>}
-        </div>
+      <CurrentRunSummaryPanel data={data} />
 
-        <div style={panelStyle('#ffb357')}>
-          <h3 style={sectionTitleStyle}>Observed Changes <InfoTip title="Observed changes are analyzer-detected metric patterns, such as spikes or baseline shifts. They are not root cause." /></h3>
-          {data.behaviorDistribution.length ? (
-            <BehaviorDonut items={data.behaviorDistribution} total={data.summary.findingsGenerated} />
-          ) : <p style={styles.muted}>No behavior findings were generated.</p>}
+      {(servicePriorities.length > 1 || data.behaviorDistribution.length > 1) ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.65fr)', gap: 12 }}>
+          {servicePriorities.length > 1 ? (
+            <ServicePrioritiesPanel
+              servicePriorities={servicePriorities}
+              findings={findings}
+              onInvestigateInteractive={onInvestigateInteractive}
+            />
+          ) : null}
+          {data.behaviorDistribution.length > 1 ? (
+            <ObservedChangesPanel data={data} />
+          ) : null}
         </div>
-      </div>
+      ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.85fr) minmax(280px, 1fr) minmax(260px, 0.85fr)', gap: 12 }}>
-        <div style={panelStyle('#3fcf8e')}>
-          <h3 style={sectionTitleStyle}>What Was Analyzed <InfoTip title="Shows how many discovered metrics were selected by the monitoring policy and how many were excluded." /></h3>
-          <MetricSelectionFunnel selection={data.selection} />
-        </div>
-        <div style={panelStyle('#5794f2')}>
-          <h3 style={sectionTitleStyle}>Run History <InfoTip title="Recent autonomous runs. Failures here may indicate overly broad scope or queries returning multiple series." /></h3>
-          {data.executionRows.length ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr 0.8fr', gap: '9px 12px', fontSize: 12, alignItems: 'center' }}>
-              {['Scope', 'Status', 'Completed'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
-              {data.executionRows.slice(0, 6).map((row) => (
-                <React.Fragment key={row.id}>
-                  <div>
-                    <strong>{row.current ? 'Current run' : row.scope}</strong>
-                    <div style={styles.helperText}>{row.current ? row.scope : row.metrics}</div>
-                    {row.errorSummary ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{row.errorSummary}</div> : null}
-                  </div>
-                  <StatusBadge status={row.status} />
-                  <div>{formatCompactDate(row.completed)}</div>
-                </React.Fragment>
-              ))}
-            </div>
-          ) : <p style={styles.muted}>No execution history returned yet.</p>}
-        </div>
-        <div style={panelStyle('#b877d9')}>
-          <h3 style={sectionTitleStyle}>{data.casesScope === 'current_run' ? 'Cases Created From This Run' : 'Recent Cases from History'} <InfoTip title="Cases are investigation records. Current-run cases are linked to findings generated by this run." /></h3>
-          {data.recentCases.length ? (
-            <div style={styles.stack}>
-              {data.recentCases.slice(0, 5).map((caseItem) => (
-                <div key={caseItem.id} style={styles.rowBetween}>
-                  <div style={{ minWidth: 0 }}>
-                    <a style={{ ...styles.tableRowButton, fontWeight: 700 }} href={caseItem.href}>{caseItem.title}</a>
-                    <div style={styles.helperText}>{caseItem.status}</div>
-                  </div>
-                  <div style={styles.helperText}>{formatCompactDate(caseItem.updatedAt)}</div>
-                </div>
-              ))}
-            </div>
-          ) : <p style={styles.muted}>No cases were created for the current run.</p>}
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.95fr) minmax(280px, 1fr) minmax(260px, 0.85fr)', gap: 12 }}>
+        <CoverageDetailsPanel selection={data.selection} />
+        <RunHistoryPanel rows={data.executionRows} />
+        <CasesPanel data={data} />
       </div>
       {investigationFinding ? (
         <AutonomousInvestigationPanel
@@ -1493,6 +1528,304 @@ function GrafanaAutonomousOverview({
         />
       ) : null}
     </div>
+  );
+}
+
+const autonomousSuggestedQuestions = [
+  'Summarize this autonomous run',
+  'What changed in this run?',
+  'What should I investigate first?',
+  'Which metrics were skipped?',
+  'Which findings are new in the last 24h?',
+];
+
+function CurrentRunSummaryPanel({ data }: { data: AutonomousDashboardData }) {
+  const summaryItems = [
+    { label: 'executed', value: data.summary.executed, tone: '#5794f2', detail: 'metrics analyzed' },
+    { label: 'skipped', value: data.summary.skipped, tone: '#ffb357', detail: 'policy / filters' },
+    { label: 'finding', value: data.summary.findingsGenerated, tone: '#b877d9', detail: 'generated' },
+    { label: 'cases', value: data.summary.casesOpen, tone: '#3fcf8e', detail: 'created / open' },
+  ];
+  return (
+    <div style={panelStyle('#68707f')}>
+      <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>Current Run Summary</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+        {summaryItems.map((item) => (
+          <div key={item.label} style={{ border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 14, background: 'rgba(17, 18, 23, 0.55)' }}>
+            <div style={{ color: item.tone, fontSize: 24, fontWeight: 900 }}>{item.value === null ? '—' : item.value.toLocaleString()}</div>
+            <div style={{ fontWeight: 850, marginTop: 5 }}>{item.label}</div>
+            <div style={styles.helperText}>{item.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ServicePrioritiesPanel({
+  servicePriorities,
+  findings,
+  onInvestigateInteractive,
+}: {
+  servicePriorities: ReturnType<typeof buildServicePriorities>;
+  findings: Finding[];
+  onInvestigateInteractive: (finding: Finding) => void;
+}) {
+  return (
+    <div id="top-findings" style={panelStyle('#ffb357')}>
+      <div style={styles.rowBetween}>
+        <h3 style={sectionTitleStyle}>Service Priorities <InfoTip title="Services are ranked by their highest-importance current-run symptom. Multiple symptoms on one service are grouped to avoid creating duplicate incident candidates." /></h3>
+        <span style={styles.helperText}>{servicePriorities.length} service{servicePriorities.length === 1 ? '' : 's'} shown</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr 1fr 1fr 1fr', gap: '10px 14px', fontSize: 12, overflowX: 'auto', alignItems: 'center' }}>
+        {['Service', 'Symptoms', 'Metrics affected', 'Highest importance', 'Recommended action'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
+        {servicePriorities.slice(0, 5).map((service, index) => (
+          <React.Fragment key={service.service}>
+            <div style={{ borderLeft: `4px solid ${index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e'}`, paddingLeft: 10 }}>
+              <strong>{service.service}</strong>
+              <div style={styles.helperText}>{service.symptoms.length > 1 ? 'Likely incident candidate' : 'Single symptom'}</div>
+            </div>
+            <div style={styles.row}>{service.behaviors.slice(0, 3).map((behavior) => <BehaviorPill key={behavior} label={behavior} />)}</div>
+            <div><strong>{service.metrics.length}</strong><div style={styles.helperText}>{service.metrics.slice(0, 3).join(', ')}</div></div>
+            <ImportanceBar value={service.highestImportance} />
+            <button
+              type="button"
+              style={styles.tableRowButton}
+              onClick={() => {
+                const finding = matchingFinding(findings, service.symptoms[0]);
+                if (finding) onInvestigateInteractive(finding);
+              }}
+            >
+              Investigate {service.service}
+            </button>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ObservedChangesPanel({ data }: { data: AutonomousDashboardData }) {
+  return (
+    <div style={panelStyle('#ffb357')}>
+      <h3 style={sectionTitleStyle}>Observed Changes <InfoTip title="Observed changes are analyzer-detected metric patterns, such as spikes or baseline shifts. They are not root cause." /></h3>
+      <BehaviorDonut items={data.behaviorDistribution} total={data.summary.findingsGenerated} />
+    </div>
+  );
+}
+
+function CoverageDetailsPanel({ selection }: { selection: AutonomousSelectionSummary }) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div style={panelStyle('#3fcf8e')}>
+      <div style={styles.rowBetween}>
+        <div>
+          <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>Coverage Details <InfoTip title="Shows how many discovered metrics were selected by the monitoring policy and how many were excluded." /></h3>
+          <div style={{ ...styles.row, color: '#cfd3e6' }}>
+            <span style={{ color: '#5794f2' }}>{formatNullableCount(selection.discovered)} discovered</span>
+            <span>·</span>
+            <span style={{ color: '#3fcf8e' }}>{formatNullableCount(selection.selected)} selected</span>
+            <span>·</span>
+            <span style={{ color: '#ffb357' }}>{formatNullableCount(selection.excluded)} excluded</span>
+            <span>·</span>
+            <span>{selection.reductionPercent === null ? '—' : `${selection.reductionPercent.toFixed(1)}%`} reduction</span>
+          </div>
+        </div>
+        <button type="button" style={styles.button} onClick={() => setIsOpen((current) => !current)}>
+          {isOpen ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {isOpen ? <div style={{ marginTop: 14 }}><MetricSelectionFunnel selection={selection} /></div> : null}
+    </div>
+  );
+}
+
+function RunHistoryPanel({ rows }: { rows: AutonomousDashboardData['executionRows'] }) {
+  return (
+    <div style={panelStyle('#5794f2')}>
+      <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>Run History <InfoTip title="Recent autonomous runs. Failures here may indicate overly broad scope or queries returning multiple series." /></h3>
+      {rows.length ? (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {rows.slice(0, 5).map((row) => (
+            <div key={row.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr 0.7fr', gap: 10, alignItems: 'center', borderBottom: '1px solid rgba(204, 204, 220, 0.1)', paddingBottom: 8 }}>
+              <div>
+                <strong>{row.current ? 'Current run' : row.scope}</strong>
+                <div style={styles.helperText}>{row.current ? row.scope : row.metrics}</div>
+                {row.errorSummary ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{row.errorSummary}</div> : null}
+              </div>
+              <StatusBadge status={row.status} />
+              <div>{formatCompactDate(row.completed)}</div>
+            </div>
+          ))}
+        </div>
+      ) : <p style={styles.muted}>No execution history returned yet.</p>}
+    </div>
+  );
+}
+
+function CasesPanel({ data }: { data: AutonomousDashboardData }) {
+  return (
+    <div style={panelStyle('#b877d9')}>
+      <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>{data.casesScope === 'current_run' ? 'Cases Created From This Run' : 'Recent Cases from History'} <InfoTip title="Cases are investigation records. Current-run cases are linked to findings generated by this run." /></h3>
+      {data.recentCases.length ? (
+        <div style={styles.stack}>
+          {data.recentCases.slice(0, 5).map((caseItem) => (
+            <div key={caseItem.id} style={styles.rowBetween}>
+              <div style={{ minWidth: 0 }}>
+                <a style={{ ...styles.tableRowButton, fontWeight: 700 }} href={caseItem.href}>{caseItem.title}</a>
+                <div style={styles.helperText}>{caseItem.status}</div>
+              </div>
+              <div style={styles.helperText}>{formatCompactDate(caseItem.updatedAt)}</div>
+            </div>
+          ))}
+        </div>
+      ) : <p style={styles.muted}>No cases were created for the current run.</p>}
+    </div>
+  );
+}
+
+function CollapsibleInsightPanel({
+  title,
+  subtitle,
+  tone,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  tone: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div style={panelStyle(tone)}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        style={{
+          width: '100%',
+          border: 0,
+          background: 'transparent',
+          color: 'inherit',
+          padding: 0,
+          textAlign: 'left',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={styles.rowBetween}>
+          <div>
+            <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>
+              {title}
+            </h3>
+            <p style={{ ...styles.muted, margin: '4px 0 0', color: '#cfd3e6' }}>{subtitle}</p>
+          </div>
+          <span style={{ ...styles.chip, color: '#f5f7ff', borderColor: `${tone}88` }}>{isOpen ? 'Hide' : 'Show'} ▾</span>
+        </div>
+      </button>
+      {isOpen ? <div style={{ marginTop: 14 }}>{children}</div> : null}
+    </div>
+  );
+}
+
+function GrafanaAutonomousAskPanel({ askState }: { askState: AutonomousAskState }) {
+  const evidenceCount = (key: string) => {
+    const value = askState.answer?.evidence?.[key];
+    return Array.isArray(value) ? value.length : 0;
+  };
+  return (
+    <CollapsibleInsightPanel
+      title="Ask Ops Signals"
+      subtitle="Grounded Q&A from this autonomous run, skipped jobs, findings, and cases."
+      tone="#3fcf8e"
+    >
+      <p style={{ ...styles.muted, color: '#cfd3e6' }}>Answers are generated from stored autonomous evidence. No external LLM is required. <InfoTip title="Answers are generated from stored autonomous runs, jobs, findings, and cases. No external LLM is required." /></p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {autonomousSuggestedQuestions.map((question) => (
+          <button key={question} type="button" style={styles.questionButton} disabled={askState.isLoading} onClick={() => askState.ask(question)}>
+            {question}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, marginTop: 12 }}>
+        <input
+          style={styles.input}
+          value={askState.question}
+          onChange={(event) => askState.setQuestion(event.target.value)}
+          placeholder="Ask: what changed in checkout in the last 24h?"
+        />
+        <button type="button" style={styles.button} disabled={askState.isLoading || !askState.question.trim()} onClick={() => askState.ask()}>
+          {askState.isLoading ? 'Asking...' : 'Ask'}
+        </button>
+      </div>
+      {askState.error ? <p style={{ ...styles.helperText, color: '#ff7381' }}>{askState.error}</p> : null}
+      {askState.answer ? (
+        <div style={{ ...panelStyle('#3fcf8e'), marginTop: 12, background: 'rgba(63, 207, 142, 0.06)' }}>
+          <div style={styles.rowBetween}>
+            <div>
+              <strong>{askState.answer.headline}</strong>
+              <div style={styles.helperText}>Priority {askState.answer.priority} · confidence {(askState.answer.confidence * 100).toFixed(0)}%</div>
+            </div>
+            <div style={{ ...styles.row, justifyContent: 'flex-end' }}>
+              <span style={styles.chip}>{evidenceCount('finding_ids')} findings</span>
+              <span style={styles.chip}>{evidenceCount('job_ids')} jobs</span>
+              <span style={styles.chip}>{evidenceCount('case_ids')} cases</span>
+            </div>
+          </div>
+          <p style={styles.muted}>{askState.answer.answer}</p>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {askState.answer.key_points.map((point) => <li key={point}>{point}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </CollapsibleInsightPanel>
+  );
+}
+
+function GrafanaFindingsLookupPanel({ lookupState }: { lookupState: AutonomousFindingsLookupState }) {
+  return (
+    <CollapsibleInsightPanel
+      title="Find Recent Findings"
+      subtitle="Search persisted finding rows by time, service, metric, or text."
+      tone="#5794f2"
+    >
+      <p style={{ ...styles.muted, color: '#cfd3e6' }}>Use this to show what was stored automatically and ask follow-up questions from finding evidence. <InfoTip title="Searches persisted finding rows by time window, service, metric, and text." /></p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+        <Field label="Window">
+          <select style={styles.input} value={lookupState.window} onChange={(event) => lookupState.setWindow(event.target.value as FindingsWindow)}>
+            <option value="1h">Last 1 hour</option>
+            <option value="6h">Last 6 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+          </select>
+        </Field>
+        <Field label="Search text">
+          <input style={styles.input} value={lookupState.query} onChange={(event) => lookupState.setQuery(event.target.value)} placeholder="baseline, spike" />
+        </Field>
+        <Field label="Service">
+          <input style={styles.input} value={lookupState.service} onChange={(event) => lookupState.setService(event.target.value)} placeholder="optional" />
+        </Field>
+        <Field label="Metric">
+          <input style={styles.input} value={lookupState.metricName} onChange={(event) => lookupState.setMetricName(event.target.value)} placeholder="optional" />
+        </Field>
+      </div>
+      <button type="button" style={{ ...styles.button, marginTop: 10 }} disabled={lookupState.isLoading} onClick={lookupState.search}>
+        {lookupState.isLoading ? 'Searching...' : 'Find recent findings'}
+      </button>
+      {lookupState.error ? <p style={{ ...styles.helperText, color: '#ff7381' }}>{lookupState.error}</p> : null}
+      <div style={{ ...styles.stack, marginTop: 12 }}>
+        {lookupState.findings.length ? lookupState.findings.map((finding) => (
+          <div key={finding.id} style={styles.rowBetween}>
+            <div style={{ minWidth: 0 }}>
+              <strong>{finding.service} / {finding.metric_name}</strong>
+              <div style={styles.helperText}>{finding.title}</div>
+              <div style={styles.helperText}>Importance {finding.importance_score.toFixed(2)} · {humanize(finding.category)} · {formatCompactDate(finding.created_at)}</div>
+            </div>
+            <button type="button" style={styles.tableRowButton} onClick={() => lookupState.askAboutFinding(finding)}>Ask</button>
+          </div>
+        )) : <p style={styles.muted}>No findings matched the selected filters.</p>}
+      </div>
+    </CollapsibleInsightPanel>
   );
 }
 

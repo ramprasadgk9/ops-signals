@@ -40,6 +40,7 @@ const data: AutonomousDashboardData = {
   executionRows: [{ id: 'run-1', scope: 'checkout', metrics: '4 metrics', status: 'completed', completed: '2026-08-13T17:21:00Z' }],
   recentCases: [{ id: 12, title: 'Case #12 - checkout latency degradation', status: 'open · not_started', meta: 'checkout / latency', updatedAt: '2026-08-13T17:23:00Z', href: '/cases/12' }],
   behaviorFindingCount: 0,
+  casesScope: 'history',
 };
 
 describe('AutonomousMonitoringDashboard', () => {
