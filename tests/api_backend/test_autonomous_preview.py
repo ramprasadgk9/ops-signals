@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -7,6 +8,8 @@ from backend.app.api.autonomous import get_prometheus_query_service
 from backend.app.autonomous.schemas import AnalysisScope, CustomMetricConstraints, DiscoveredMetric, ExecutionPolicy, MetricConcept, MonitoringCategory
 from backend.app.autonomous.services import MetricClassificationService, MetricDiscoveryService, MetricPlanBuilder, build_label_matcher, build_scope_selector, validate_label_name
 from backend.app.main import create_app
+from backend.app.models.db import get_session_local
+from backend.app.models.entities import FindingEntity
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
 
 
@@ -493,6 +496,59 @@ def test_autonomous_jobs_endpoint_returns_only_requested_policy_run(monkeypatch)
     assert second_jobs
     assert {job["policy_run_id"] for job in first_jobs} == {first["policy_run_id"]}
     assert {job["policy_run_id"] for job in second_jobs} == {second["policy_run_id"]}
+
+
+def test_findings_search_filters_recent_stored_findings() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        session_local = get_session_local()
+        with session_local() as db:
+            db.add(
+                FindingEntity(
+                    service="checkout",
+                    metric_name="latency_p95",
+                    title="checkout latency shifted upward",
+                    summary="latency_p95 experienced a persistent baseline shift.",
+                    category="Behavior Change",
+                    health_status="significant",
+                    importance_score=0.91,
+                    investigation_priority=1,
+                    signal_ids=["signal-1"],
+                    comparison_json={"before": 180, "after": 650},
+                    analysis_run_id="analysis-run-latency",
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            db.commit()
+        response = client.get("/api/findings/search?window=1h&q=latency&service=checkout")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["metric_name"] == "latency_p95"
+
+
+def test_autonomous_question_answer_uses_run_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(autonomous_execution, "MetricAnalysisExecutor", FakeMetricAnalysisExecutor)
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider([metric("cpu_usage", "checkout"), metric("request_latency_p95", "checkout")])
+    with TestClient(app) as client:
+        run_response = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 500, "max_parallel_jobs": 20},
+            },
+        ).json()
+        answer_response = client.post(
+            "/api/autonomous/questions/answer",
+            json={"policy_run_id": run_response["policy_run_id"], "question": "Which metrics were skipped?", "window": "24h"},
+        )
+    assert answer_response.status_code == 200
+    answer = answer_response.json()
+    assert "skipped" in answer["headline"].lower()
+    assert answer["evidence"]["policy_run_id"] == run_response["policy_run_id"]
+    assert answer["evidence"]["job_ids"]
 
 
 def test_autonomous_code_does_not_import_signal_pipeline() -> None:

@@ -1,6 +1,8 @@
 import './AutonomousMonitoringDashboard.css';
 import React from 'react';
 import type { AutonomousDashboardData } from './dashboardModel';
+import type { AutonomousQuestionAnswer, FindingsWindow } from '../api/queries';
+import type { Finding } from '../types';
 
 export type AutonomousDashboardContext = {
   environment?: string | null;
@@ -17,6 +19,29 @@ type Props = {
   error?: string | null;
   onRetry?: () => void;
   isLoading?: boolean;
+  askOps?: {
+    question: string;
+    answer: AutonomousQuestionAnswer | null;
+    isLoading: boolean;
+    error?: string | null;
+    onQuestionChange: (question: string) => void;
+    onAsk: (question?: string) => void;
+  };
+  findingsLookup?: {
+    window: FindingsWindow;
+    query: string;
+    service: string;
+    metricName: string;
+    findings: Finding[];
+    isLoading: boolean;
+    error?: string | null;
+    onWindowChange: (window: FindingsWindow) => void;
+    onQueryChange: (query: string) => void;
+    onServiceChange: (service: string) => void;
+    onMetricNameChange: (metricName: string) => void;
+    onSearch: () => void;
+    onAskAboutFinding: (finding: Finding) => void;
+  };
 };
 
 function fmt(value: number | null | undefined) {
@@ -57,7 +82,113 @@ function Panel({ title, span, children }: { title: string; span: 4 | 5 | 6 | 7 |
   );
 }
 
-export function AutonomousMonitoringDashboard({ data, context, state, isLoading = false, error, onRetry }: Props) {
+const suggestedQuestions = [
+  'Summarize this autonomous run',
+  'What changed in this run?',
+  'What should I investigate first?',
+  'Which metrics were skipped?',
+  'Which findings are new in the last 24h?',
+];
+
+function evidenceCount(answer: AutonomousQuestionAnswer | null, key: string) {
+  const value = answer?.evidence?.[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function AskOpsPanel({ askOps }: { askOps: NonNullable<Props['askOps']> }) {
+  return (
+    <div className="auto-ask">
+      <p className="auto-helper">Ask about the current autonomous run. Answers are grounded in stored runs, jobs, findings, and cases.</p>
+      <div className="auto-prompt-grid">
+        {suggestedQuestions.map((question) => (
+          <button type="button" className="auto-prompt" key={question} onClick={() => askOps.onAsk(question)} disabled={askOps.isLoading}>
+            {question}
+          </button>
+        ))}
+      </div>
+      <div className="auto-input-row">
+        <input
+          className="auto-input"
+          value={askOps.question}
+          onChange={(event) => askOps.onQuestionChange(event.target.value)}
+          placeholder="Ask: what changed in checkout in the last 24h?"
+        />
+        <button type="button" className="auto-primary-button" onClick={() => askOps.onAsk()} disabled={askOps.isLoading || !askOps.question.trim()}>
+          {askOps.isLoading ? 'Asking...' : 'Ask'}
+        </button>
+      </div>
+      {askOps.error ? <div className="auto-inline-error">{askOps.error}</div> : null}
+      {askOps.answer ? (
+        <div className="auto-answer">
+          <div className="auto-answer-head">
+            <div>
+              <div className="auto-row-title">{askOps.answer.headline}</div>
+              <div className="auto-row-meta">Priority {askOps.answer.priority} · confidence {(askOps.answer.confidence * 100).toFixed(0)}%</div>
+            </div>
+            <div className="auto-evidence-chips" aria-label="Answer evidence">
+              <span>{evidenceCount(askOps.answer, 'finding_ids')} findings</span>
+              <span>{evidenceCount(askOps.answer, 'job_ids')} jobs</span>
+              <span>{evidenceCount(askOps.answer, 'case_ids')} cases</span>
+            </div>
+          </div>
+          <p>{askOps.answer.answer}</p>
+          <ul className="auto-answer-list">
+            {askOps.answer.key_points.map((point) => <li key={point}>{point}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FindingsLookupPanel({ findingsLookup }: { findingsLookup: NonNullable<Props['findingsLookup']> }) {
+  return (
+    <div className="auto-lookup">
+      <p className="auto-helper">Search stored findings by time, service, metric, or text. Useful for demoing what landed in Postgres.</p>
+      <div className="auto-form-grid">
+        <label>
+          Window
+          <select className="auto-input" value={findingsLookup.window} onChange={(event) => findingsLookup.onWindowChange(event.target.value as FindingsWindow)}>
+            <option value="1h">Last 1 hour</option>
+            <option value="6h">Last 6 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+          </select>
+        </label>
+        <label>
+          Search text
+          <input className="auto-input" value={findingsLookup.query} onChange={(event) => findingsLookup.onQueryChange(event.target.value)} placeholder="baseline, spike, checkout" />
+        </label>
+        <label>
+          Service
+          <input className="auto-input" value={findingsLookup.service} onChange={(event) => findingsLookup.onServiceChange(event.target.value)} placeholder="optional" />
+        </label>
+        <label>
+          Metric
+          <input className="auto-input" value={findingsLookup.metricName} onChange={(event) => findingsLookup.onMetricNameChange(event.target.value)} placeholder="optional" />
+        </label>
+      </div>
+      <button type="button" className="auto-primary-button" onClick={findingsLookup.onSearch} disabled={findingsLookup.isLoading}>
+        {findingsLookup.isLoading ? 'Searching...' : 'Find recent findings'}
+      </button>
+      {findingsLookup.error ? <div className="auto-inline-error">{findingsLookup.error}</div> : null}
+      <div className="auto-list auto-lookup-results">
+        {findingsLookup.findings.length ? findingsLookup.findings.map((finding) => (
+          <div className="auto-list-row" key={finding.id}>
+            <div>
+              <div className="auto-row-title">{finding.service} / {finding.metric_name}</div>
+              <div className="auto-row-meta">{finding.title}</div>
+              <div className="auto-row-meta">Importance {fmtScore(finding.importance_score)} · {finding.category} · {fmtDate(finding.created_at)}</div>
+            </div>
+            <button type="button" className="auto-action" onClick={() => findingsLookup.onAskAboutFinding(finding)}>Ask</button>
+          </div>
+        )) : <div className="auto-empty">No findings matched the selected filters.</div>}
+      </div>
+    </div>
+  );
+}
+
+export function AutonomousMonitoringDashboard({ data, context, state, isLoading = false, error, onRetry, askOps, findingsLookup }: Props) {
   const totalDistribution = data.behaviorDistribution.reduce((sum, item) => sum + item.count, 0);
   const displayState = state ?? (isLoading ? 'loading' : 'ready');
 
@@ -266,6 +397,18 @@ export function AutonomousMonitoringDashboard({ data, context, state, isLoading 
             </div>
           ) : <div className="auto-empty">No cases returned yet.</div>}
         </Panel>
+
+        {askOps ? (
+          <Panel title="Ask Ops Signals" span={6}>
+            <AskOpsPanel askOps={askOps} />
+          </Panel>
+        ) : null}
+
+        {findingsLookup ? (
+          <Panel title="Find Recent Findings" span={6}>
+            <FindingsLookupPanel findingsLookup={findingsLookup} />
+          </Panel>
+        ) : null}
       </div>
     </div>
   );

@@ -17,6 +17,17 @@ import type {
 } from './contracts';
 import type { MetricSample } from './prometheusFrameNormalizer';
 
+export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
+
+export type AutonomousQuestionAnswer = {
+  headline: string;
+  answer: string;
+  priority: string;
+  confidence: number;
+  key_points: string[];
+  evidence: Record<string, unknown>;
+};
+
 export type BackendPluginAnalysis = {
   runId: string;
   datasource: string;
@@ -148,7 +159,7 @@ export async function listAutonomousPolicyRunJobs(baseUrl: string, policyRunId: 
 }
 
 export async function listFindings(baseUrl: string, params?: {
-  window?: '24h' | '7d';
+  window?: FindingsWindow;
   service?: string;
   metricName?: string;
 }) {
@@ -158,6 +169,32 @@ export async function listFindings(baseUrl: string, params?: {
   if (params?.metricName) search.set('metric_name', params.metricName);
   const suffix = search.toString() ? `?${search.toString()}` : '';
   return fetchJson<Finding[]>(baseUrl, `/api/findings${suffix}`);
+}
+
+export async function searchFindings(baseUrl: string, params: {
+  window?: FindingsWindow;
+  q?: string;
+  service?: string;
+  metricName?: string;
+  limit?: number;
+}) {
+  const search = new URLSearchParams();
+  search.set('window', params.window ?? '24h');
+  search.set('limit', String(params.limit ?? 8));
+  if (params.q) search.set('q', params.q);
+  if (params.service) search.set('service', params.service);
+  if (params.metricName) search.set('metric_name', params.metricName);
+  return fetchJson<Finding[]>(baseUrl, `/api/findings/search?${search.toString()}`);
+}
+
+export async function answerAutonomousQuestion(baseUrl: string, payload: {
+  question: string;
+  policy_run_id?: string | null;
+  window?: FindingsWindow;
+  service?: string;
+  metric_name?: string;
+}) {
+  return postJson<AutonomousQuestionAnswer>(baseUrl, '/api/autonomous/questions/answer', payload);
 }
 
 export async function listBehaviorFindings(baseUrl: string, params?: {

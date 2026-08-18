@@ -36,6 +36,17 @@ import type {
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 
+export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
+
+export type AutonomousQuestionAnswer = {
+  headline: string;
+  answer: string;
+  priority: string;
+  confidence: number;
+  key_points: string[];
+  evidence: Record<string, unknown>;
+};
+
 export const api = {
   health: () => getJson<{ status: string }>('/api/health'),
   overviewSummary: (window: '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
@@ -70,7 +81,7 @@ export const api = {
   signals: (service: string, metric: string, runId: string) =>
     getJson<Signal[]>(`/api/signals?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
   signalDetail: (signalId: string) => getJson<Signal>(`/api/signals/${signalId}`),
-  findings: (service?: string, metric?: string, runId?: string, window?: '24h' | '7d') => {
+  findings: (service?: string, metric?: string, runId?: string, window?: FindingsWindow) => {
     const params = new URLSearchParams();
     if (service) params.append('service', service);
     if (metric) params.append('metric_name', metric);
@@ -79,9 +90,20 @@ export const api = {
     const queryString = params.toString();
     return getJson<Finding[]>(`/api/findings${queryString ? `?${queryString}` : ''}`);
   },
+  findingsSearch: (params: { window?: FindingsWindow; q?: string; service?: string; metric_name?: string; limit?: number }) => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('window', params.window ?? '24h');
+    queryParams.append('limit', String(params.limit ?? 10));
+    if (params.q) queryParams.append('q', params.q);
+    if (params.service) queryParams.append('service', params.service);
+    if (params.metric_name) queryParams.append('metric_name', params.metric_name);
+    return getJson<Finding[]>(`/api/findings/search?${queryParams.toString()}`);
+  },
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),
+  autonomousQuestionAnswer: (payload: { question: string; policy_run_id?: string | null; window?: FindingsWindow; service?: string; metric_name?: string }) =>
+    postJson<typeof payload, AutonomousQuestionAnswer>('/api/autonomous/questions/answer', payload),
   createCase: (findingId: number) =>
     postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {}),
   getCase: (caseId: number) => getJson<OperationalCase>(`/api/cases/${caseId}`),

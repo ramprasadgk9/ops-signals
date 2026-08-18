@@ -68,11 +68,8 @@ function runResult(overrides: Partial<AutonomousRunResponse> = {}): AutonomousRu
     requested_end: '2026-08-13T17:00:00Z',
     step: '10m',
     preview: {
-      datasource: 'prometheus',
-      backend: 'grafana-stack',
       scope_summary: { services: 1, namespaces: 0, label_mapping: {}, selector: '{}' },
       monitoring_summary: { categories: ['capacity'], concepts: ['cpu'] },
-      execution_policy: { interval: '10m', analysis_window: '6h', dry_run: false },
       metrics_discovered: 4,
       metrics_selected: 1,
       metrics_matched: 1,

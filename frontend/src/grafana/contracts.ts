@@ -266,6 +266,7 @@ export type AutonomousRunJobResult = {
 
 export type AutonomousRunResponse = {
   status: 'completed' | 'partial' | 'failed' | 'dry_run';
+  policy_run_id?: string | null;
   planned_jobs: number;
   executed_jobs: number;
   skipped_jobs: number;

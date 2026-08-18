@@ -78,6 +78,7 @@ export type AutonomousCaseRow = {
 
 export type AutonomousDashboardCase = {
   id: number;
+  analysis_run_id?: string | null;
   case_title: string;
   case_status: string;
   investigation_status: string;

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from sqlalchemy.orm import Session
 
@@ -10,9 +15,28 @@ from backend.app.autonomous.schemas import AutonomousPreviewRequest, AutonomousP
 from backend.app.autonomous.services import MetricClassificationService, MetricDiscoveryService, MetricPlanBuilder
 from backend.app.config import PrometheusConnectionConfig, get_prometheus_config
 from backend.app.models.db import get_db
+from backend.app.models.entities import FindingEntity, OperationalCaseEntity
 from backend.app.services.prometheus_service import PrometheusQueryService
 
 router = APIRouter(prefix="/api/autonomous", tags=["autonomous"])
+AnswerWindow = Literal["1h", "6h", "24h", "7d"]
+
+
+class AutonomousQuestionRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    policy_run_id: str | None = None
+    window: AnswerWindow = "24h"
+    service: str | None = None
+    metric_name: str | None = None
+
+
+class AutonomousQuestionAnswer(BaseModel):
+    headline: str
+    answer: str
+    priority: str
+    confidence: float
+    key_points: list[str]
+    evidence: dict
 
 
 def get_prometheus_query_service(
@@ -107,6 +131,59 @@ def list_autonomous_policy_run_jobs(policy_run_id: str, db: Session = Depends(ge
     return [_job_to_dict(job) for job in jobs]
 
 
+@router.post("/questions/answer", response_model=AutonomousQuestionAnswer)
+def answer_autonomous_question(payload: AutonomousQuestionRequest, db: Session = Depends(get_db)) -> AutonomousQuestionAnswer:
+    run_repo = AutonomousPolicyRunRepository(db)
+    job_repo = AutonomousJobRepository(db)
+    try:
+        run = run_repo.get_run(payload.policy_run_id) if payload.policy_run_id else next(iter(run_repo.list_runs(limit=1)), None)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="autonomous policy run not found") from exc
+    if run is None:
+        return AutonomousQuestionAnswer(
+            headline="No autonomous run data is available yet",
+            answer="Run autonomous analysis once, then ask about the current run, skipped metrics, findings, or investigation priority.",
+            priority="none",
+            confidence=1.0,
+            key_points=["No autonomous policy runs were found."],
+            evidence={"policy_run_id": None, "finding_ids": [], "analysis_run_ids": [], "job_ids": []},
+        )
+
+    jobs = job_repo.get_jobs_for_run(run.id)
+    service_filter = payload.service.strip() if payload.service else None
+    metric_filter = payload.metric_name.strip() if payload.metric_name else None
+    scoped_jobs = [
+        job
+        for job in jobs
+        if (not service_filter or job.service == service_filter)
+        and (not metric_filter or job.metric_name == metric_filter or job.logical_metric_name == metric_filter)
+    ]
+    analysis_run_ids = [job.analysis_run_id for job in scoped_jobs if job.analysis_run_id]
+
+    findings_query = select(FindingEntity).where(FindingEntity.created_at >= _answer_window_start(payload.window))
+    if analysis_run_ids:
+        findings_query = findings_query.where(FindingEntity.analysis_run_id.in_(analysis_run_ids))
+    if service_filter:
+        findings_query = findings_query.where(FindingEntity.service == service_filter)
+    if metric_filter:
+        findings_query = findings_query.where(FindingEntity.metric_name == metric_filter)
+    findings = list(
+        db.execute(findings_query.order_by(FindingEntity.importance_score.desc(), FindingEntity.created_at.desc()).limit(20)).scalars().all()
+    )
+    cases = _cases_for_findings(db, [finding.id for finding in findings])
+    question = payload.question.lower()
+
+    if "skip" in question or "excluded" in question:
+        return _answer_skipped_metrics(run, scoped_jobs or jobs, payload.window)
+    if "investigate" in question or "first" in question or "priority" in question:
+        return _answer_investigation_priority(run, findings, scoped_jobs or jobs, cases)
+    if "changed" in question or "new" in question or "finding" in question:
+        return _answer_what_changed(run, findings, scoped_jobs or jobs, cases, payload.window)
+    if "why" in question or "prioritized" in question:
+        return _answer_prioritization(run, findings, scoped_jobs or jobs)
+    return _answer_run_summary(run, findings, scoped_jobs or jobs, cases, payload.window)
+
+
 @router.get("/scope-options")
 def autonomous_scope_options(
     service_label: str = Query(default="service"),
@@ -119,6 +196,187 @@ def autonomous_scope_options(
         "namespaces": prometheus.label_values(namespace_label),
         "environments": prometheus.label_values(environment_label),
     }
+
+
+def _answer_window_start(window: AnswerWindow) -> datetime:
+    now = datetime.now(timezone.utc)
+    if window == "1h":
+        return now - timedelta(hours=1)
+    if window == "6h":
+        return now - timedelta(hours=6)
+    if window == "7d":
+        return now - timedelta(days=7)
+    return now - timedelta(hours=24)
+
+
+def _cases_for_findings(db: Session, finding_ids: list[int]) -> list[OperationalCaseEntity]:
+    if not finding_ids:
+        return []
+    return list(
+        db.execute(
+            select(OperationalCaseEntity)
+            .where(OperationalCaseEntity.finding_id.in_(finding_ids))
+            .order_by(OperationalCaseEntity.updated_at.desc())
+            .limit(20)
+        ).scalars().all()
+    )
+
+
+def _job_label(job) -> str:
+    service = job.service or "unknown service"
+    metric = job.metric_name or job.logical_metric_name or "unknown metric"
+    return f"{service} / {metric}"
+
+
+def _finding_label(finding: FindingEntity) -> str:
+    return f"{finding.service} / {finding.metric_name}: {finding.title}"
+
+
+def _priority_from_findings(findings: list[FindingEntity], failed_count: int) -> str:
+    top_importance = max((finding.importance_score for finding in findings), default=0.0)
+    if top_importance >= 0.85 or failed_count > 0:
+        return "high"
+    if top_importance >= 0.6 or findings:
+        return "medium"
+    return "low"
+
+
+def _answer_evidence(run, jobs, findings: list[FindingEntity], cases: list[OperationalCaseEntity] | None = None) -> dict:
+    return {
+        "policy_run_id": run.id,
+        "analysis_run_ids": [job.analysis_run_id for job in jobs if job.analysis_run_id],
+        "job_ids": [job.id for job in jobs],
+        "finding_ids": [finding.id for finding in findings],
+        "case_ids": [case.id for case in cases or []],
+    }
+
+
+def _answer_run_summary(run, findings: list[FindingEntity], jobs, cases: list[OperationalCaseEntity], window: AnswerWindow) -> AutonomousQuestionAnswer:
+    completed = len([job for job in jobs if job.status == "completed"])
+    skipped = len([job for job in jobs if job.status == "screened_out"])
+    failed = len([job for job in jobs if job.status == "failed"])
+    headline = f"Autonomous run {run.status} with {len(findings)} findings"
+    key_points = [
+        f"{run.metrics_discovered or 0} metrics discovered and {run.metrics_selected or 0} selected by policy.",
+        f"{completed} jobs completed, {skipped} skipped, and {failed} failed.",
+        f"{len(cases)} cases are linked to findings from the selected evidence.",
+    ]
+    if findings:
+        key_points.append(f"Top finding: {_finding_label(findings[0])}.")
+    else:
+        key_points.append(f"No findings were found in the last {window}.")
+    return AutonomousQuestionAnswer(
+        headline=headline,
+        answer="This answer is generated from stored autonomous run, job, finding, and case records. No external model is required.",
+        priority=_priority_from_findings(findings, failed),
+        confidence=0.9,
+        key_points=key_points,
+        evidence=_answer_evidence(run, jobs, findings, cases),
+    )
+
+
+def _answer_what_changed(run, findings: list[FindingEntity], jobs, cases: list[OperationalCaseEntity], window: AnswerWindow) -> AutonomousQuestionAnswer:
+    failed = len([job for job in jobs if job.status == "failed"])
+    if not findings:
+        return AutonomousQuestionAnswer(
+            headline=f"No stored findings were found in the last {window}",
+            answer="The selected autonomous evidence does not contain a generated finding for this window. Review skipped or failed jobs if you expected broader coverage.",
+            priority=_priority_from_findings([], failed),
+            confidence=0.9,
+            key_points=[f"{len(jobs)} jobs are in scope for this answer.", "No finding rows matched the selected run, service, metric, and time window."],
+            evidence=_answer_evidence(run, jobs, [], cases),
+        )
+    grouped = {}
+    for finding in findings:
+        grouped.setdefault(finding.service, []).append(finding)
+    key_points = [
+        f"{service}: {len(items)} finding(s), highest importance {max(item.importance_score for item in items):.2f}."
+        for service, items in list(grouped.items())[:5]
+    ]
+    key_points.insert(0, f"{len(findings)} finding(s) matched the selected evidence in the last {window}.")
+    return AutonomousQuestionAnswer(
+        headline=f"{len(grouped)} service(s) changed in the last {window}",
+        answer=f"The strongest observed change is {_finding_label(findings[0])}.",
+        priority=_priority_from_findings(findings, failed),
+        confidence=0.88,
+        key_points=key_points,
+        evidence=_answer_evidence(run, jobs, findings, cases),
+    )
+
+
+def _answer_investigation_priority(run, findings: list[FindingEntity], jobs, cases: list[OperationalCaseEntity]) -> AutonomousQuestionAnswer:
+    failed = len([job for job in jobs if job.status == "failed"])
+    if not findings:
+        return AutonomousQuestionAnswer(
+            headline="No immediate investigation is recommended from stored findings",
+            answer="No finding rows matched the selected autonomous run evidence. If this seems wrong, check whether the selected metrics produced enough samples and whether jobs were skipped or failed.",
+            priority=_priority_from_findings([], failed),
+            confidence=0.86,
+            key_points=[f"{failed} job(s) failed.", f"{len([job for job in jobs if job.status == 'screened_out'])} job(s) were skipped by policy or filters."],
+            evidence=_answer_evidence(run, jobs, [], cases),
+        )
+    top = findings[0]
+    return AutonomousQuestionAnswer(
+        headline=f"Investigate {top.service} / {top.metric_name} first",
+        answer=f"It has the highest stored importance score ({top.importance_score:.2f}) among matching autonomous findings.",
+        priority=_priority_from_findings(findings, failed),
+        confidence=0.9,
+        key_points=[
+            top.title,
+            top.summary,
+            f"Health status: {top.health_status}; category: {top.category}.",
+            f"{len(cases)} case(s) are already linked to matching findings.",
+        ],
+        evidence=_answer_evidence(run, jobs, findings, cases),
+    )
+
+
+def _answer_prioritization(run, findings: list[FindingEntity], jobs) -> AutonomousQuestionAnswer:
+    failed = len([job for job in jobs if job.status == "failed"])
+    if findings:
+        top = findings[0]
+        key_points = [
+            f"{top.service} / {top.metric_name} has the highest importance score ({top.importance_score:.2f}).",
+            f"The finding category is {top.category} and health status is {top.health_status}.",
+            f"It is backed by signal ids: {', '.join(top.signal_ids or []) or 'none recorded'}.",
+        ]
+        headline = f"{top.service} is prioritized because its finding ranks highest"
+    else:
+        selected = len([job for job in jobs if job.status in {"completed", "running"}])
+        key_points = [
+            f"{selected} job(s) were selected/executed by the monitoring policy.",
+            "No matching finding row was generated, so no service has a finding-backed priority.",
+        ]
+        headline = "No service has finding-backed priority for this evidence"
+    return AutonomousQuestionAnswer(
+        headline=headline,
+        answer="Prioritization is derived from stored importance scores, job status, and finding metadata.",
+        priority=_priority_from_findings(findings, failed),
+        confidence=0.87,
+        key_points=key_points,
+        evidence=_answer_evidence(run, jobs, findings),
+    )
+
+
+def _answer_skipped_metrics(run, jobs, window: AnswerWindow) -> AutonomousQuestionAnswer:
+    skipped = [job for job in jobs if job.status == "screened_out"]
+    failed = [job for job in jobs if job.status == "failed"]
+    examples = skipped[:5] or failed[:5]
+    key_points = [
+        f"{len(skipped)} metric job(s) were skipped and {len(failed)} failed in the selected run evidence.",
+        *[
+            f"{_job_label(job)}: {job.skip_reason_detail or job.skip_reason_code or job.error_message or 'No detail recorded'}"
+            for job in examples
+        ],
+    ]
+    return AutonomousQuestionAnswer(
+        headline=f"{len(skipped)} skipped metric job(s) in the selected evidence",
+        answer=f"Skipped and failed metrics are read from autonomous job rows for the latest selected run, filtered to the last {window} context.",
+        priority="medium" if skipped or failed else "low",
+        confidence=0.9,
+        key_points=key_points,
+        evidence=_answer_evidence(run, jobs, []),
+    )
 
 
 def _policy_run_to_dict(run) -> dict:
