@@ -109,3 +109,17 @@ def test_load_config_keeps_legacy_flat_configs_working() -> None:
     assert config.analysis.mode == "batch"
     assert "baseline_shift" in config.analysis.analyzers
     assert config.input.provider == "generic"
+
+
+def test_modular_analyzer_config_supports_nested_baseline_shift_schema() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    config = load_config(project_root / "config/providers/prometheus.yaml")
+
+    baseline_params = config.analysis.analyzers["baseline_shift"].params
+    assert baseline_params["ruptures"]["algorithm"] == "binseg"
+    assert baseline_params["ruptures"]["model"] == "l2"
+    assert baseline_params["ruptures"]["min_size"] == 5
+    assert baseline_params["ruptures"]["jump"] == 5
+    assert baseline_params["ruptures"]["n_bkps"] == 1
+    assert baseline_params["statistical_gate"]["min_effect_size"] == 1.5
+    assert baseline_params["operational_significance"]["min_change_percent"] == 25

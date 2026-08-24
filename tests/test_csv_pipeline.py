@@ -67,6 +67,19 @@ def test_csv_pipeline_generates_operational_signals() -> None:
     signal_types = {signal.signal_type for signal in result.signals}
     assert "baseline_shift" in signal_types
     assert "trend" in signal_types
+    baseline_signal = next(signal for signal in result.signals if signal.signal_type == "baseline_shift")
+    assert baseline_signal.analyzer_id == "baseline_shift"
+    assert baseline_signal.evidence["library"] == "ruptures"
+    assert baseline_signal.evidence["algorithm"] == "binseg"
+    assert baseline_signal.evidence["model"] == "l2"
+    assert baseline_signal.evidence["jump"] == 5
+    assert baseline_signal.evidence["n_bkps"] == 1
+    assert baseline_signal.evidence["change_point_index"] > 0
+    trend_signal = next(signal for signal in result.signals if signal.signal_type == "trend")
+    assert trend_signal.evidence["library"] == "statsmodels"
+    assert trend_signal.evidence["model"] == "OLS"
+    assert "p_value" in trend_signal.evidence
+    assert "r_squared" in trend_signal.evidence
     assert len(result.findings) == 1
     assert result.report.answers["what_changed_yesterday"]
 
@@ -95,15 +108,18 @@ def test_pipeline_records_recommended_analyzers_that_are_skipped() -> None:
         [
             {"analyzer_id": "trend_regression", "display_name": "Trend Regression", "recommendation": "RECOMMENDED"},
             {"analyzer_id": "kats", "display_name": "Kats", "recommendation": "RECOMMENDED"},
+            {"analyzer_id": "pyod_outlier", "display_name": "PyOD Outlier Detection", "recommendation": "RECOMMENDED"},
             {"analyzer_id": "adtk", "display_name": "ADTK", "recommendation": "REJECTED"},
         ],
-        ["trend"],
+        ["trend", "baseline_shift", "pyod_outlier"],
     )
 
     by_id = {item["router_analyzer_id"]: item for item in snapshots}
     assert by_id["trend_regression"]["execution_status"] == "completed"
     assert by_id["trend_regression"]["executed_pipeline_analyzer_ids"] == ["trend"]
     assert by_id["kats"]["selected"] is True
-    assert by_id["kats"]["execution_status"] == "skipped"
-    assert "No enabled pipeline analyzer" in by_id["kats"]["execution_reason"]
+    assert by_id["kats"]["execution_status"] == "completed"
+    assert by_id["kats"]["executed_pipeline_analyzer_ids"] == ["baseline_shift", "trend"]
+    assert by_id["pyod_outlier"]["execution_status"] == "completed"
+    assert by_id["pyod_outlier"]["executed_pipeline_analyzer_ids"] == ["pyod_outlier"]
     assert by_id["adtk"]["selected"] is False

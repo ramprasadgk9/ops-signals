@@ -5,7 +5,7 @@ analysis:
   selected_analyzers: []
   analyzers:
     ruptures:
-      enabled: true
+      enabled: false
     stumpy:
       enabled: true
       window_size: 20
@@ -18,11 +18,26 @@ analysis:
       uncertainty_threshold: 0.15
     baseline_shift:
       enabled: true
-      threshold_percent: 25
+      ruptures:
+        algorithm: binseg
+        model: l2
+        min_size: 5
+        jump: 5
+        n_bkps: 1
+      statistical_gate:
+        min_effect_size: 1.5
+      operational_significance:
+        min_change_percent: 25
     anomaly_zscore:
       enabled: true
       zscore_threshold: 3.0
       grouping_gap: 15m
+    pyod_outlier:
+      enabled: true
+      detector_type: knn
+      contamination: 0.05
+      grouping_gap: 15m
+      min_samples: 50
     trend:
       enabled: true
       min_slope_percent: 10

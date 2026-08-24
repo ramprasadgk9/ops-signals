@@ -53,6 +53,7 @@ const ANALYZER_OPTIONS = [
   { id: 'prophet', label: 'Prophet' },
   { id: 'baseline_shift', label: 'Baseline Shift' },
   { id: 'anomaly_zscore', label: 'Anomaly Z-Score' },
+  { id: 'pyod_outlier', label: 'PyOD Outlier' },
   { id: 'trend', label: 'Trend' },
 ];
 
@@ -68,7 +69,7 @@ const PRESETS: Array<{ id: TimePreset; label: string; ms: number | null }> = [
 const LAB_SCENARIOS = [
   { label: 'Baseline shift', service: 'ruptures-lab', metric: 'ops_signal_lab_value', analyzer: 'ruptures' },
   { label: 'Trend', service: 'trend-lab', metric: 'ops_signal_lab_value', analyzer: 'trend' },
-  { label: 'Spike', service: 'spike-lab', metric: 'ops_signal_lab_value', analyzer: 'anomaly_zscore' },
+  { label: 'Spike', service: 'spike-lab', metric: 'ops_signal_lab_value', analyzer: 'pyod_outlier' },
   { label: 'Seasonal', service: 'forecast-lab', metric: 'ops_signal_lab_value', analyzer: 'prophet' },
   { label: 'Mixed', service: 'mixed-lab', metric: 'ops_signal_lab_value', analyzer: 'baseline_shift' },
 ];

@@ -222,3 +222,33 @@ analyzers:
     assert decision.parameters_tested["profile_match"] is True
     assert decision.parameters_tested["behavioral_supported_profiles"] == []
     assert "No behavioral profile restriction is configured" in decision.reasons[1]
+
+
+def test_pyod_outlier_is_recommended_for_spiky_profile() -> None:
+    router = UniversalTimeSeriesRouter()
+    decisions = {
+        decision.analyzer: decision
+        for decision in router.recommend_analyzers_for_profile(
+            _profile(detected_profiles=["spike", "anomaly", "outlier"], spikiness=0.4)
+        )
+    }
+
+    decision = decisions["pyod_outlier"]
+    assert decision.eligible is True
+    assert decision.recommendation == "RECOMMENDED"
+    assert decision.parameters_tested["matched_profiles"] == ["anomaly", "outlier", "spike"]
+
+
+def test_pyod_outlier_is_not_recommended_for_baseline_shift_profile() -> None:
+    router = UniversalTimeSeriesRouter()
+    decisions = {
+        decision.analyzer: decision
+        for decision in router.recommend_analyzers_for_profile(
+            _profile(detected_profiles=["baseline_shift", "regime_change"], shift_index=0.3, spikiness=0.0)
+        )
+    }
+
+    decision = decisions["pyod_outlier"]
+    assert decision.eligible is True
+    assert decision.recommendation == "NOT_RECOMMENDED"
+    assert decision.parameters_tested["profile_match"] is False

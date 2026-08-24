@@ -128,7 +128,7 @@ export function PluginApp(_props: unknown) {
   const [customExplicitMetrics, setCustomExplicitMetrics] = useState('');
   const [customIncludePatterns, setCustomIncludePatterns] = useState('');
   const [customExcludePatterns, setCustomExcludePatterns] = useState('.*_info$,.*_created$');
-  const executionInterval = '10m';
+  const [executionInterval, setExecutionInterval] = useState('1m');
   const [analysisWindow, setAnalysisWindow] = useState('24h');
   const [maxMetricsPerRun, setMaxMetricsPerRun] = useState('500');
   const [maxParallelJobs, setMaxParallelJobs] = useState('20');
@@ -502,6 +502,8 @@ export function PluginApp(_props: unknown) {
           setCustomIncludePatterns={setCustomIncludePatterns}
           customExcludePatterns={customExcludePatterns}
           setCustomExcludePatterns={setCustomExcludePatterns}
+          executionInterval={executionInterval}
+          setExecutionInterval={setExecutionInterval}
           analysisWindow={analysisWindow}
           setAnalysisWindow={setAnalysisWindow}
           maxMetricsPerRun={maxMetricsPerRun}
@@ -896,6 +898,8 @@ function AutonomousAnalysisView({
   setCustomIncludePatterns,
   customExcludePatterns,
   setCustomExcludePatterns,
+  executionInterval,
+  setExecutionInterval,
   analysisWindow,
   setAnalysisWindow,
   maxMetricsPerRun,
@@ -964,6 +968,8 @@ function AutonomousAnalysisView({
   setCustomIncludePatterns: (value: string) => void;
   customExcludePatterns: string;
   setCustomExcludePatterns: (value: string) => void;
+  executionInterval: string;
+  setExecutionInterval: (value: string) => void;
   analysisWindow: string;
   setAnalysisWindow: (value: string) => void;
   maxMetricsPerRun: string;
@@ -1190,9 +1196,19 @@ function AutonomousAnalysisView({
             </Field>
             <Field label="Analysis window">
               <select style={styles.input} value={analysisWindow} onChange={(event) => setAnalysisWindow(event.target.value)}>
+                <option value="30m">30m</option>
+                <option value="1h">1h</option>
                 <option value="6h">6h</option>
                 <option value="24h">24h</option>
                 <option value="7d">7d</option>
+              </select>
+            </Field>
+            <Field label="Analysis interval">
+              <select style={styles.input} value={executionInterval} onChange={(event) => setExecutionInterval(event.target.value)}>
+                <option value="30s">30s</option>
+                <option value="1m">1m</option>
+                <option value="5m">5m</option>
+                <option value="10m">10m</option>
               </select>
             </Field>
             <Field label="Max metrics per run">

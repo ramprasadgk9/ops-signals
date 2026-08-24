@@ -21,7 +21,7 @@ class OllamaLLMClient(LLMClient):
         start = time.perf_counter()
         payload = {
             "model": self.model,
-            "messages": [message.__dict__ for message in request.messages],
+            "messages": [{"role": message.role, "content": message.content} for message in request.messages],
             "stream": False,
             "options": {
                 "temperature": request.temperature,
