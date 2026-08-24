@@ -1,40 +1,14 @@
-# Git metadata
 .git
-.gitignore
-
-# Python
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.venv/
-venv/
-env/
-*.egg-info/
-build/
-dist/
-
-# Node / frontend
-node_modules/
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/coverage/
-
-# Local runtime data
-postgres_data/
-qdrant_data/
-*.db
-*.sqlite
-*.sqlite3
-
-# Environment and logs
-.env
-.env.*
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+frontend/node_modules
+frontend/dist
+frontend/dist-admin
+frontend/coverage
+benchmark/reports
+experiments/analyzer_router/output
 *.log
-
-# IDE and OS files
-.DS_Store
-.idea/
-.vscode/

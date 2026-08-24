@@ -2,10 +2,66 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import ruptures as rpt
 
 from intelligence.analyzers.base import Analyzer
 from intelligence.capability import Capability
 from intelligence.signals.schema import OperationalSignal
+
+
+def detect_primary_change_point(
+    values: np.ndarray,
+    *,
+    min_segment_size: int,
+    change_threshold: float,
+    algorithm: str = "binseg",
+    model: str = "l2",
+    jump: int = 5,
+    n_bkps: int = 1,
+) -> dict[str, float | int] | None:
+    if algorithm.lower().strip() != "binseg":
+        raise ValueError("Only ruptures algorithm 'binseg' is supported")
+
+    clean_values = np.asarray(values, dtype=float)
+    clean_values = clean_values[np.isfinite(clean_values)]
+    if len(clean_values) < min_segment_size * 2:
+        return None
+
+    signal = clean_values.reshape(-1, 1)
+    try:
+        breakpoints = (
+            rpt.Binseg(model=model, min_size=min_segment_size, jump=jump)
+            .fit(signal)
+            .predict(n_bkps=n_bkps)
+        )
+    except rpt.exceptions.BadSegmentationParameters:
+        return None
+
+    candidates = [point for point in breakpoints if min_segment_size <= point <= len(clean_values) - min_segment_size]
+    if not candidates:
+        return None
+
+    scale = max(float(np.std(clean_values, ddof=0)), 1e-9)
+    best: dict[str, float | int] | None = None
+    for point in candidates:
+        left = clean_values[:point]
+        right = clean_values[point:]
+        left_mean = float(left.mean())
+        right_mean = float(right.mean())
+        score = abs(right_mean - left_mean) / scale
+        if best is None or score > float(best["score"]):
+            percent_change = ((right_mean - left_mean) / max(abs(left_mean), 1e-9)) * 100.0
+            best = {
+                "change_point_index": int(point),
+                "left_mean": left_mean,
+                "right_mean": right_mean,
+                "percent_change": percent_change,
+                "score": score,
+            }
+
+    if best is None or float(best["score"]) < change_threshold:
+        return None
+    return best
 
 
 class RupturesAnalyzer(Analyzer):
@@ -14,6 +70,10 @@ class RupturesAnalyzer(Analyzer):
     def __init__(self, min_segment_size: int, change_threshold: float) -> None:
         self.min_segment_size = max(2, int(min_segment_size))
         self.change_threshold = float(change_threshold)
+        self.algorithm = "binseg"
+        self.model = "l2"
+        self.jump = 5
+        self.n_bkps = 1
 
     def capability(self) -> Capability:
         return Capability(
@@ -38,27 +98,23 @@ class RupturesAnalyzer(Analyzer):
             if len(ordered) < self.min_segment_size * 2:
                 continue
 
-            values = ordered["value"].to_numpy(dtype=float)
-            best_index = None
-            best_score = 0.0
-            scale = max(float(np.std(values, ddof=0)), 1e-9)
-
-            for index in range(self.min_segment_size, len(values) - self.min_segment_size + 1):
-                left = values[:index]
-                right = values[index:]
-                score = abs(float(right.mean()) - float(left.mean())) / scale
-                if score > best_score:
-                    best_score = score
-                    best_index = index
-
-            if best_index is None or best_score < self.change_threshold:
+            result = detect_primary_change_point(
+                ordered["value"].to_numpy(dtype=float),
+                min_segment_size=self.min_segment_size,
+                change_threshold=self.change_threshold,
+                algorithm=self.algorithm,
+                model=self.model,
+                jump=self.jump,
+                n_bkps=self.n_bkps,
+            )
+            if result is None:
                 continue
 
-            left = values[:best_index]
-            right = values[best_index:]
-            left_mean = float(left.mean())
-            right_mean = float(right.mean())
-            percent_change = ((right_mean - left_mean) / max(abs(left_mean), 1e-9)) * 100.0
+            best_index = int(result["change_point_index"])
+            best_score = float(result["score"])
+            left_mean = float(result["left_mean"])
+            right_mean = float(result["right_mean"])
+            percent_change = float(result["percent_change"])
             severity = "high" if best_score >= self.change_threshold * 1.5 else "medium"
             confidence = min(1.0, best_score / max(self.change_threshold * 2.0, 1.0))
             metric_name = ordered.iloc[0]["metric_name"]
@@ -86,6 +142,11 @@ class RupturesAnalyzer(Analyzer):
                         "score": round(float(best_score), 4),
                         "threshold": round(self.change_threshold, 4),
                         "min_segment_size": self.min_segment_size,
+                        "library": "ruptures",
+                        "algorithm": self.algorithm,
+                        "model": self.model,
+                        "jump": self.jump,
+                        "n_bkps": self.n_bkps,
                     },
                 )
             )

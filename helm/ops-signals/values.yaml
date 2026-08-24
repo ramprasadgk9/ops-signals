@@ -1,0 +1,43 @@
+nameOverride: ""
+fullnameOverride: ""
+
+backend:
+  image:
+    repository: ghcr.io/your-org/ops-signals-backend
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8000
+  env:
+    OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
+    OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
+    OPS_SIGNALS_PROMETHEUS_URL: http://prometheus-server:9090
+
+web:
+  image:
+    repository: ghcr.io/your-org/ops-signals-web
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 8080
+
+mcp:
+  image:
+    repository: ghcr.io/your-org/ops-signals-mcp
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  env:
+    OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
+    OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
+
+ingress:
+  enabled: false
+  className: ""
+  host: ops-signals.local
+  annotations: {}
+  tls: []

@@ -5,6 +5,7 @@ import math
 import pandas as pd
 
 from intelligence.analyzers.base import Analyzer
+from intelligence.analyzers.ruptures import detect_primary_change_point
 from intelligence.capability import Capability
 from intelligence.signals.schema import OperationalSignal
 
@@ -12,8 +13,23 @@ from intelligence.signals.schema import OperationalSignal
 class BaselineShiftAnalyzer(Analyzer):
     analyzer_id = "baseline_shift"
 
-    def __init__(self, threshold_percent: float) -> None:
+    def __init__(
+        self,
+        threshold_percent: float,
+        min_segment_size: int = 5,
+        change_threshold: float = 1.5,
+        ruptures_algorithm: str = "binseg",
+        ruptures_model: str = "l2",
+        ruptures_jump: int = 5,
+        ruptures_n_bkps: int = 1,
+    ) -> None:
         self.threshold_percent = threshold_percent
+        self.min_segment_size = max(2, int(min_segment_size))
+        self.change_threshold = float(change_threshold)
+        self.ruptures_algorithm = ruptures_algorithm
+        self.ruptures_model = ruptures_model
+        self.ruptures_jump = int(ruptures_jump)
+        self.ruptures_n_bkps = int(ruptures_n_bkps)
 
     def capability(self) -> Capability:
         return Capability(
@@ -37,18 +53,22 @@ class BaselineShiftAnalyzer(Analyzer):
             ordered = ordered.copy()
             ordered["value"] = pd.to_numeric(ordered["value"], errors="coerce")
             ordered = ordered.dropna(subset=["value"])
-            if len(ordered) < 4:
+            result = detect_primary_change_point(
+                ordered["value"].to_numpy(dtype=float),
+                min_segment_size=self.min_segment_size,
+                change_threshold=self.change_threshold,
+                algorithm=self.ruptures_algorithm,
+                model=self.ruptures_model,
+                jump=self.ruptures_jump,
+                n_bkps=self.ruptures_n_bkps,
+            )
+            if result is None:
                 continue
-            midpoint = len(ordered) // 2
-            first_half = ordered.iloc[:midpoint]
-            second_half = ordered.iloc[midpoint:]
-            first_mean = float(first_half["value"].mean())
-            second_mean = float(second_half["value"].mean())
-            if not math.isfinite(first_mean) or not math.isfinite(second_mean):
-                continue
-            if math.isclose(first_mean, 0.0, abs_tol=1e-9):
-                continue
-            percent_change = ((second_mean - first_mean) / abs(first_mean)) * 100.0
+
+            first_mean = float(result["left_mean"])
+            second_mean = float(result["right_mean"])
+            percent_change = float(result["percent_change"])
+            score = float(result["score"])
             if not math.isfinite(percent_change):
                 continue
             if abs(percent_change) < self.threshold_percent:
@@ -60,7 +80,7 @@ class BaselineShiftAnalyzer(Analyzer):
             service = ordered.iloc[0].get("service")
             env = ordered.iloc[0].get("env")
             summary = (
-                f"{metric_name} baseline shifted by {percent_change:.1f}% between the first and second half of the batch window."
+                f"{metric_name} baseline shifted by {percent_change:.1f}% around sample {int(result['change_point_index'])}."
             )
             signals.append(
                 OperationalSignal(
@@ -79,6 +99,15 @@ class BaselineShiftAnalyzer(Analyzer):
                         "second_half_mean": round(second_mean, 4),
                         "percent_change": round(percent_change, 4),
                         "threshold_percent": self.threshold_percent,
+                        "change_point_index": int(result["change_point_index"]),
+                        "score": round(score, 4),
+                        "change_threshold": round(self.change_threshold, 4),
+                        "min_segment_size": self.min_segment_size,
+                        "library": "ruptures",
+                        "algorithm": self.ruptures_algorithm,
+                        "model": self.ruptures_model,
+                        "jump": self.ruptures_jump,
+                        "n_bkps": self.ruptures_n_bkps,
                     },
                 )
             )

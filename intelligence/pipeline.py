@@ -13,7 +13,7 @@ from intelligence.adapters.csv_adapter import CSVAdapter
 from intelligence.analyzers import (
     BaselineShiftAnalyzer,
     ProphetAnalyzer,
-    RupturesAnalyzer,
+    PyODOutlierAnalyzer,
     STUMPYAnalyzer,
     TrendAnalyzer,
     ZScoreAnomalyAnalyzer,
@@ -160,14 +160,16 @@ class SignalPipeline:
         analyzers = []
         baseline_cfg = self.config.analysis.analyzers.get("baseline_shift")
         if baseline_cfg and baseline_cfg.enabled and self._should_run_analyzer("baseline_shift", allowed):
-            analyzers.append(BaselineShiftAnalyzer(threshold_percent=float(baseline_cfg.params["threshold_percent"])))
-
-        ruptures_cfg = self.config.analysis.analyzers.get("ruptures")
-        if ruptures_cfg and ruptures_cfg.enabled and self._should_run_analyzer("ruptures", allowed):
+            baseline_params = self._baseline_shift_params(baseline_cfg.params)
             analyzers.append(
-                RupturesAnalyzer(
-                    min_segment_size=int(ruptures_cfg.params.get("min_segment_size", 5)),
-                    change_threshold=float(ruptures_cfg.params.get("change_threshold", 1.5)),
+                BaselineShiftAnalyzer(
+                    threshold_percent=baseline_params["threshold_percent"],
+                    min_segment_size=int(baseline_params["min_segment_size"]),
+                    change_threshold=baseline_params["change_threshold"],
+                    ruptures_algorithm=str(baseline_params["ruptures_algorithm"]),
+                    ruptures_model=str(baseline_params["ruptures_model"]),
+                    ruptures_jump=int(baseline_params["ruptures_jump"]),
+                    ruptures_n_bkps=int(baseline_params["ruptures_n_bkps"]),
                 )
             )
 
@@ -177,6 +179,17 @@ class SignalPipeline:
                 ZScoreAnomalyAnalyzer(
                     zscore_threshold=float(anomaly_cfg.params["zscore_threshold"]),
                     grouping_gap=str(anomaly_cfg.params["grouping_gap"]),
+                )
+            )
+
+        pyod_outlier_cfg = self.config.analysis.analyzers.get("pyod_outlier")
+        if pyod_outlier_cfg and pyod_outlier_cfg.enabled and self._should_run_analyzer("pyod_outlier", allowed):
+            analyzers.append(
+                PyODOutlierAnalyzer(
+                    detector_type=str(pyod_outlier_cfg.params.get("detector_type", "knn")),
+                    contamination=float(pyod_outlier_cfg.params.get("contamination", 0.05)),
+                    grouping_gap=str(pyod_outlier_cfg.params.get("grouping_gap", "15m")),
+                    min_samples=int(pyod_outlier_cfg.params.get("min_samples", 50)),
                 )
             )
 
@@ -256,12 +269,12 @@ class SignalPipeline:
     ) -> list[dict[str, object]]:
         router_to_pipeline = self._router_to_pipeline_analyzers()
         reverse_mapping = {
-            "ruptures": "ruptures",
             "baseline_shift": "ruptures",
             "stumpy": "stumpy",
             "prophet": "prophet",
             "trend": "trend_regression",
             "anomaly_zscore": "adtk",
+            "pyod_outlier": "pyod_outlier",
         }
         executed_set = set(executed_analyzers)
         snapshots = []
@@ -313,13 +326,46 @@ class SignalPipeline:
     @staticmethod
     def _router_to_pipeline_analyzers() -> dict[str, set[str]]:
         return {
-            "ruptures": {"ruptures", "baseline_shift"},
+            "ruptures": {"baseline_shift"},
             "stumpy": {"stumpy"},
             "prophet": {"prophet"},
             "darts": {"prophet"},
+            "kats": {"baseline_shift", "trend", "anomaly_zscore", "stumpy", "prophet"},
             "trend_regression": {"trend"},
             "adtk": {"anomaly_zscore"},
             "pyod": {"anomaly_zscore"},
+            "pyod_outlier": {"pyod_outlier"},
+        }
+
+    @staticmethod
+    def _baseline_shift_params(params: dict[str, object]) -> dict[str, float | int | str]:
+        ruptures_params = params.get("ruptures") if isinstance(params.get("ruptures"), dict) else {}
+        statistical_gate = params.get("statistical_gate") if isinstance(params.get("statistical_gate"), dict) else {}
+        operational_significance = (
+            params.get("operational_significance") if isinstance(params.get("operational_significance"), dict) else {}
+        )
+        return {
+            "threshold_percent": float(
+                operational_significance.get("min_change_percent", params.get("threshold_percent", 25))  # type: ignore[union-attr]
+            ),
+            "min_segment_size": int(
+                ruptures_params.get("min_size", params.get("min_segment_size", 5))  # type: ignore[union-attr]
+            ),
+            "change_threshold": float(
+                statistical_gate.get("min_effect_size", params.get("change_threshold", 1.5))  # type: ignore[union-attr]
+            ),
+            "ruptures_algorithm": str(
+                ruptures_params.get("algorithm", params.get("ruptures_algorithm", "binseg"))  # type: ignore[union-attr]
+            ),
+            "ruptures_model": str(
+                ruptures_params.get("model", params.get("ruptures_model", "l2"))  # type: ignore[union-attr]
+            ),
+            "ruptures_jump": int(
+                ruptures_params.get("jump", params.get("ruptures_jump", 5))  # type: ignore[union-attr]
+            ),
+            "ruptures_n_bkps": int(
+                ruptures_params.get("n_bkps", params.get("ruptures_n_bkps", 1))  # type: ignore[union-attr]
+            ),
         }
 
     @staticmethod

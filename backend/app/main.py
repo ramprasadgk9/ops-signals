@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from backend.app.api.analysis_runs import router as analysis_runs_router
+from backend.app.api.admin_analyzers import router as admin_analyzers_router
 from backend.app.api.assistant import router as assistant_router
 from backend.app.api.analyzer_router import router as analyzer_router
 from backend.app.api.autonomous import router as autonomous_router
@@ -57,7 +59,12 @@ def load_memory_config() -> MemoryConfig | None:
         with open("config.yaml") as f:
             config_data = yaml.safe_load(f)
             if config_data and "memory" in config_data:
-                return MemoryConfig(**config_data["memory"])
+                memory_config = MemoryConfig(**config_data["memory"])
+                if os.getenv("OPS_SIGNALS_QDRANT_URL"):
+                    memory_config.vector_store.url = os.environ["OPS_SIGNALS_QDRANT_URL"]
+                if os.getenv("OPS_SIGNALS_QDRANT_API_KEY"):
+                    memory_config.vector_store.api_key = os.environ["OPS_SIGNALS_QDRANT_API_KEY"]
+                return memory_config
     except Exception as e:
         logger.warning(f"Failed to load memory configuration: {e}")
     return None
@@ -68,7 +75,12 @@ def load_ai_config() -> AIConfig | None:
         with open("config.yaml") as f:
             config_data = yaml.safe_load(f)
             if config_data and "ai" in config_data:
-                return AIConfig(**config_data["ai"])
+                ai_config = AIConfig(**config_data["ai"])
+                if os.getenv("OPS_SIGNALS_OLLAMA_URL"):
+                    ai_config.ollama.base_url = os.environ["OPS_SIGNALS_OLLAMA_URL"]
+                if os.getenv("OPS_SIGNALS_OLLAMA_MODEL"):
+                    ai_config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
+                return ai_config
     except Exception as e:
         logger.warning(f"Failed to load AI configuration: {e}")
     return None
@@ -222,6 +234,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "http://127.0.0.1:3000",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -230,6 +244,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     
     # Register routers
     app.include_router(services_router)
+    app.include_router(admin_analyzers_router)
     app.include_router(overview_router)
     app.include_router(analysis_runs_router)
     app.include_router(behavior_definitions_router)

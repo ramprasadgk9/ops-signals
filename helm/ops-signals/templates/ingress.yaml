@@ -1,0 +1,36 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ops-signals.fullname" . }}
+  labels:
+    {{- include "ops-signals.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ops-signals.fullname" . }}-web
+                port:
+                  number: {{ .Values.web.service.port }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ops-signals.fullname" . }}-backend
+                port:
+                  number: {{ .Values.backend.service.port }}
+{{- end }}

@@ -37,10 +37,18 @@ analysis:
     baseline_shift:
       enabled: true
       threshold_percent: 25
+      min_segment_size: 5
+      change_threshold: 1.5
     anomaly_zscore:
       enabled: true
       zscore_threshold: 3.0
       grouping_gap: 15m
+    pyod_outlier:
+      enabled: true
+      detector_type: knn
+      contamination: 0.05
+      grouping_gap: 15m
+      min_samples: 50
     trend:
       enabled: true
       min_slope_percent: 10

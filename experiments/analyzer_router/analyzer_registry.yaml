@@ -349,3 +349,32 @@ analyzers:
     explanation_templates:
       selected: The series contains enough unusual variation to justify an outlier-centric view.
       excluded: The series is too smooth to make outlier scoring especially useful.
+
+  pyod_outlier:
+    display_name: PyOD Outlier Detection
+    supported_profiles:
+      - anomaly
+      - outlier
+      - spike
+    eligibility_rules:
+      min_samples: 50
+      requires_numeric: true
+    suitability_rules:
+    scoring_rules:
+      base: 0.3
+      rules:
+        - metric: spikiness
+          gte: 0.2
+          add: 0.18
+        - metric: spikiness
+          gte: 0.35
+          add: 0.12
+        - metric: sample_count
+          gte: 80
+          add: 0.08
+        - metric: shift_index
+          lt: 0.08
+          add: 0.08
+    explanation_templates:
+      selected: The series has isolated outlier-like behavior suitable for PyOD.
+      excluded: The series does not show enough outlier-like behavior for PyOD.

@@ -35,6 +35,7 @@ import type {
   MemoryStatsResponse,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
+import type { AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
 
 export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
 
@@ -102,6 +103,17 @@ export const api = {
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),
+  autonomousScopeOptions: (labels: { service_label?: string; namespace_label?: string; environment_label?: string } = {}) => {
+    const params = new URLSearchParams();
+    params.append('service_label', labels.service_label ?? 'service');
+    params.append('namespace_label', labels.namespace_label ?? 'namespace');
+    params.append('environment_label', labels.environment_label ?? 'env');
+    return getJson<{ services: string[]; namespaces: string[]; environments: string[] }>(`/api/autonomous/scope-options?${params.toString()}`);
+  },
+  autonomousPreview: (payload: AutonomousPreviewRequest) =>
+    postJson<AutonomousPreviewRequest, AutonomousPreviewResponse>('/api/autonomous/preview', payload),
+  autonomousRunOnce: (payload: AutonomousPreviewRequest) =>
+    postJson<AutonomousPreviewRequest & { dry_run: boolean }, AutonomousRunResponse>('/api/autonomous/run-once', { ...payload, dry_run: false }),
   autonomousQuestionAnswer: (payload: { question: string; policy_run_id?: string | null; window?: FindingsWindow; service?: string; metric_name?: string }) =>
     postJson<typeof payload, AutonomousQuestionAnswer>('/api/autonomous/questions/answer', payload),
   createCase: (findingId: number) =>

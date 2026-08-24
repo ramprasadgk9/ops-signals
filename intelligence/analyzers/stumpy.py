@@ -87,6 +87,7 @@ class STUMPYAnalyzer(Analyzer):
                         "motif_distance": round(motif_summary["distance"], 4),
                         "motif_count": self.config.motif_count,
                         "library": "stumpy" if _stumpy is not None else "fallback",
+                        "algorithm": "stump" if _stumpy is not None else "pairwise_numpy",
                     },
                 )
             )

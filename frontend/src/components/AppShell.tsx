@@ -50,7 +50,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: 'Overview', to: '/', icon: <HomeRoundedIcon />, match: (path) => path === '/' },
-  { label: 'Autonomous Monitoring', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon /> },
+  { label: 'Autonomous Analysis Configure', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon /> },
   { label: 'Investigations', to: '/investigations', icon: <TravelExploreRoundedIcon /> },
   { label: 'Findings', to: '/findings', icon: <CrisisAlertRoundedIcon /> },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
@@ -228,7 +228,7 @@ export function AppShell({ children }: PropsWithChildren) {
           </Button>
         </Box>
 
-        <Box component="main" sx={{ px: { xs: 2, md: 4 }, py: { xs: 2.5, md: 4 }, overflow: 'hidden' }}>
+        <Box component="main" sx={{ px: { xs: 2, md: 4 }, py: { xs: 2.5, md: 4 }, minWidth: 0, overflowX: 'auto' }}>
           <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ display: { xs: 'none', lg: isAnalysisPage ? 'none' : 'flex' }, mb: 3 }}>
             <Button startIcon={<CalendarTodayRoundedIcon />} endIcon={<KeyboardArrowDownRoundedIcon />} variant="outlined" disabled sx={{ height: 44, borderColor: ui.border, color: '#334155', bgcolor: '#fff', textTransform: 'none', fontWeight: 750 }}>
               Time Window Unavailable
