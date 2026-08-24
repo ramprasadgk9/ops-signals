@@ -12,6 +12,7 @@ vi.mock('../api/queries', () => ({
     behaviorFindings: vi.fn(),
     overviewSummary: vi.fn(),
     memoryStats: vi.fn(),
+    autonomousPolicyRuns: vi.fn(),
   },
 }));
 
@@ -50,6 +51,23 @@ const healthyMemory = {
   source: 'ops_operational_cases.memory_status',
 };
 
+const autonomousRun = {
+  policy_run_id: 'run-1',
+  id: 'run-1',
+  status: 'completed',
+  trigger: 'run_once',
+  policy_id: null,
+  started_at: '2026-07-26T00:00:00Z',
+  completed_at: '2026-07-26T00:01:00Z',
+  metrics_discovered: 4,
+  metrics_selected: 1,
+  jobs_planned: 1,
+  jobs_completed: 1,
+  jobs_skipped: 3,
+  jobs_failed: 0,
+  findings_created: 2,
+};
+
 describe('OverviewPage integration resilience', () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -85,14 +103,21 @@ describe('OverviewPage integration resilience', () => {
       category_breakdown: [{ category: 'behavior_change', count: 3 }],
     });
     vi.mocked(api.memoryStats).mockResolvedValue({ ...healthyMemory, indexed_cases: 1, total_cases: 1 });
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([autonomousRun]);
 
     renderOverview();
 
     expect(await screen.findByText('Active Findings')).toBeInTheDocument();
     expect(screen.getAllByText('3').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Open Cases').length).toBeGreaterThan(0);
-    expect(screen.getByText('Behavior Change')).toBeInTheDocument();
+    expect(screen.getByText('Operational Summary')).toBeInTheDocument();
+    expect(screen.getByText('Needs Attention')).toBeInTheDocument();
     expect(screen.getByText('CPU usage sustained high')).toBeInTheDocument();
+    expect(screen.getByText('Autonomous Analysis')).toBeInTheDocument();
+    expect(screen.getByText('checkout-api / cpu_usage')).toBeInTheDocument();
+    expect(screen.getByText(/2 findings \\| 0 failed \\| Top finding cpu_usage/)).toBeInTheDocument();
+    expect(screen.queryByText('Memory Items')).not.toBeInTheDocument();
+    expect(screen.queryByText('Finding Severity Trend')).not.toBeInTheDocument();
   });
 
   it('renders empty states without fabricated trend points', async () => {
@@ -101,26 +126,28 @@ describe('OverviewPage integration resilience', () => {
     vi.mocked(api.behaviorFindings).mockResolvedValue([]);
     vi.mocked(api.overviewSummary).mockResolvedValue(emptySummary);
     vi.mocked(api.memoryStats).mockResolvedValue(healthyMemory);
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
 
     renderOverview();
 
-    expect(await screen.findByText('No severity trend points returned for this window.')).toBeInTheDocument();
-    expect(screen.getByText('No finding categories returned by the findings API.')).toBeInTheDocument();
-    expect(screen.getByText('No findings returned for the last 24 hours.')).toBeInTheDocument();
+    expect(await screen.findByText('No findings need attention in this window.')).toBeInTheDocument();
+    expect(screen.getByText('No open cases returned by the API.')).toBeInTheDocument();
     expect(api.findings).toHaveBeenCalledWith(undefined, undefined, undefined, '24h');
   });
 
-  it('shows memory unavailable when memory stats reports degraded status', async () => {
+  it('keeps memory inventory off the executive overview', async () => {
     vi.mocked(api.findings).mockResolvedValue([]);
     vi.mocked(api.cases).mockResolvedValue([]);
     vi.mocked(api.behaviorFindings).mockResolvedValue([]);
     vi.mocked(api.overviewSummary).mockResolvedValue(emptySummary);
     vi.mocked(api.memoryStats).mockResolvedValue({ ...healthyMemory, status: 'unhealthy', indexed_cases: 4 });
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
 
     renderOverview();
 
-    expect(await screen.findAllByText('Memory unavailable')).not.toHaveLength(0);
-    expect(screen.getByText('Memory unavailable.')).toBeInTheDocument();
+    expect(await screen.findByText('Operational Summary')).toBeInTheDocument();
+    expect(screen.queryByText('Memory Items')).not.toBeInTheDocument();
+    expect(screen.queryByText('Memory unavailable')).not.toBeInTheDocument();
   });
 
   it('keeps independent sections usable when the overview summary request fails', async () => {
@@ -144,12 +171,13 @@ describe('OverviewPage integration resilience', () => {
     vi.mocked(api.behaviorFindings).mockResolvedValue([]);
     vi.mocked(api.overviewSummary).mockRejectedValue(new Error('malformed JSON'));
     vi.mocked(api.memoryStats).mockResolvedValue(healthyMemory);
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
 
     renderOverview();
 
     expect(await screen.findAllByText('Unavailable')).not.toHaveLength(0);
-    expect(screen.getByText('Historical trend unavailable.')).toBeInTheDocument();
-    expect(screen.getByText('Finding categories unavailable.')).toBeInTheDocument();
+    expect(screen.getByText(/Findings unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/Service impact unavailable/)).toBeInTheDocument();
     expect(screen.getByText('CPU usage sustained high')).toBeInTheDocument();
   });
 });

@@ -1,22 +1,22 @@
-import { Box, Button, Grid2 as Grid, Stack, Typography } from '@mui/material';
+import { Box, Button, Collapse, Grid2 as Grid, Stack, Typography } from '@mui/material';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
-import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
-import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
-import BoltRoundedIcon from '@mui/icons-material/BoltRounded';
 import ShowChartRoundedIcon from '@mui/icons-material/ShowChartRounded';
+import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
+import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { Link as RouterLink } from 'react-router-dom';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
-import { PageHeader, IconTile, Pill, SectionHeader, WorkspacePanel } from '../standalone/components';
+import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
 import { relativeTime, severityTone, titleCase, ui } from '../standalone/theme';
 import { toCaseRows } from '../standalone/casesService';
-import { buildMemorySummaryFromStats } from '../standalone/memoryService';
-
-const categoryColors = ['#ff3b3f', '#ff8a1f', '#3b82f6', '#7c3aed', '#64748b'];
+import { buildAutonomousDashboardData, type AutonomousDashboardData, type AutonomousPolicyRun } from '../autonomous/dashboardModel';
+import type { Finding, OperationalCase } from '../types';
 
 function KpiCard({ icon, value, label, delta, to, bg, color }: { icon: React.ReactNode; value: number | string; label: string; delta: string; to: string; bg: string; color: string }) {
   return (
@@ -26,7 +26,7 @@ function KpiCard({ icon, value, label, delta, to, bg, color }: { icon: React.Rea
         <Box sx={{ textAlign: 'left' }}>
           <Typography sx={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>{value}</Typography>
           <Typography sx={{ color: '#334155', fontWeight: 750 }}>{label}</Typography>
-          <Typography sx={{ mt: 1.4, color, fontSize: 13, fontWeight: 800 }}>↑ {delta}</Typography>
+          <Typography sx={{ mt: 1.4, color, fontSize: 13, fontWeight: 800 }}>{delta}</Typography>
         </Box>
       </Button>
     </WorkspacePanel>
@@ -34,163 +34,272 @@ function KpiCard({ icon, value, label, delta, to, bg, color }: { icon: React.Rea
 }
 
 export function OverviewPage() {
+  const [autonomousDetailsOpen, setAutonomousDetailsOpen] = useState(false);
   const findingsQuery = useQuery({ queryKey: ['findings-overview', '24h'], queryFn: () => api.findings(undefined, undefined, undefined, '24h') });
   const casesQuery = useQuery({ queryKey: ['cases-overview'], queryFn: () => api.cases(200) });
   const behaviorsQuery = useQuery({ queryKey: ['behavior-findings-overview'], queryFn: () => api.behaviorFindings() });
   const summaryQuery = useQuery({ queryKey: ['overview-summary', '24h'], queryFn: () => api.overviewSummary('24h') });
-  const memoryStatsQuery = useQuery({ queryKey: ['memory-stats'], queryFn: api.memoryStats });
+  const autonomousPolicyRunsQuery = useQuery({ queryKey: ['overview-autonomous-policy-runs'], queryFn: () => api.autonomousPolicyRuns(10), retry: false });
 
-  if (findingsQuery.isLoading || casesQuery.isLoading || behaviorsQuery.isLoading || summaryQuery.isLoading || memoryStatsQuery.isLoading) return <LoadingSkeleton />;
+  if (findingsQuery.isLoading || casesQuery.isLoading || behaviorsQuery.isLoading || summaryQuery.isLoading || autonomousPolicyRunsQuery.isLoading) return <LoadingSkeleton />;
 
   const findings = findingsQuery.data ?? [];
   const cases = casesQuery.data ?? [];
   const behaviors = behaviorsQuery.data ?? [];
   const summary = summaryQuery.data;
+  const policyRuns = autonomousPolicyRunsQuery.data ?? [];
   const caseRows = toCaseRows(cases);
   const openCases = caseRows.filter((item) => item.isOpen);
-  const memorySummary = buildMemorySummaryFromStats(memoryStatsQuery.data);
-  const memoryUnavailable = Boolean(memoryStatsQuery.error || memorySummary?.availability === 'unavailable');
-  const recentFindings = [...findings].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime());
-  const indexedCases = caseRows
-    .filter((item) => cases.find((source) => source.id === item.id)?.memory_status === 'indexed')
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  const categoryCounts = (summary?.category_breakdown ?? []).map((item) => ({ name: titleCase(item.category), value: item.count }));
-  const trendData = (summary?.severity_trend ?? []).map((item) => ({
-    time: new Date(item.timestamp).toLocaleString(undefined, summary?.window === '7d' ? { month: 'numeric', day: 'numeric' } : { hour: '2-digit', minute: '2-digit' }),
-    Critical: item.critical,
-    High: item.high,
-    Medium: item.medium,
-    Low: item.low,
-  }));
+  const prioritizedFindings = [...findings].sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0));
+  const autonomousData = buildAutonomousDashboardData({
+    findings,
+    cases,
+    analysisRuns: [],
+    behaviorFindings: behaviors,
+    policyRuns,
+    findingHref: () => '/findings?window=24h',
+    caseHref: (caseItem) => `/cases/${caseItem.id}`,
+  });
+  const latestAutonomousRun = latestPolicyRun(policyRuns);
+  const failedJobs = latestAutonomousRun?.jobs_failed ?? autonomousData.summary.failed ?? 0;
+  const topFinding = prioritizedFindings[0];
+  const topIssue = topFinding ? `${topFinding.service} / ${topFinding.metric_name}` : 'No active top issue';
 
   return (
     <Stack spacing={3}>
       <PageHeader title="Overview" subtitle="Operational intelligence at a glance" />
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiCard icon={<WarningAmberRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.active_findings ?? 0} label="Active Findings" delta="from overview summary" to="/findings?window=24h" bg="#fff1f2" color={ui.red} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiCard icon={<WorkOutlineRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.open_cases ?? 0} label="Open Cases" delta="from overview summary" to="/cases" bg="#fff7ed" color={ui.orange} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiCard icon={<HubRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.behavior_changes ?? 0} label="Behavior Changes" delta="from overview summary" to="/behavior-intelligence" bg="#f3f0ff" color={ui.purple} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiCard icon={<DnsRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.impacted_services ?? 0} label="Impacted Services" delta="from overview summary" to="/findings?window=24h" bg="#eff6ff" color="#3b82f6" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 2.4 }}><KpiCard icon={<StorageRoundedIcon />} value={memoryUnavailable ? 'Memory unavailable' : memorySummary?.indexedItems ?? 0} label="Memory Items" delta="authoritative memory stats" to="/operational-memory" bg="#ecfdf5" color={ui.green} /></Grid>
-      </Grid>
+
+      <OperationalSummary
+        activeFindings={summaryQuery.error ? null : summary?.active_findings ?? findings.length}
+        impactedServices={summaryQuery.error ? null : summary?.impacted_services ?? 0}
+        failedJobs={failedJobs}
+        topIssue={topIssue}
+      />
 
       <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WarningAmberRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.active_findings ?? 0} label="Active Findings" delta="Needs review" to="/findings?window=24h" bg="#fff1f2" color={ui.red} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WorkOutlineRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.open_cases ?? 0} label="Open Cases" delta="Investigation backlog" to="/cases" bg="#fff7ed" color={ui.orange} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<DnsRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.impacted_services ?? 0} label="Impacted Services" delta={topFinding?.service ?? 'No service impacted'} to="/findings?window=24h" bg="#eff6ff" color="#3b82f6" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<CheckCircleRoundedIcon />} value={failedJobs > 0 ? 'Needs attention' : 'Healthy'} label="Automation" delta={`${failedJobs} failed jobs`} to="/autonomous-monitoring" bg="#ecfdf5" color={failedJobs > 0 ? ui.red : ui.green} /></Grid>
+      </Grid>
+
+      <NeedsAttentionPanel findings={prioritizedFindings} cases={cases} />
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, lg: 7 }}>
+          <AutonomousSummaryPanel data={autonomousData} latestRun={latestAutonomousRun} error={Boolean(autonomousPolicyRunsQuery.error)} detailsOpen={autonomousDetailsOpen} onToggleDetails={() => setAutonomousDetailsOpen((open) => !open)} />
+        </Grid>
         <Grid size={{ xs: 12, lg: 5 }}>
-          <WorkspacePanel sx={{ p: 2.5, height: 330 }}>
-            <SectionHeader title="Finding Severity Trend" to="/findings?window=24h" />
-            {summaryQuery.error ? (
-              <UnavailableBlock title="Historical trend unavailable." message="The overview summary endpoint could not be loaded." />
-            ) : trendData.length ? (
-              <ResponsiveContainer width="100%" height={235}>
-                <LineChart data={trendData}>
-                  <XAxis dataKey="time" tickLine={false} axisLine={false} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="Critical" stroke="#ff3b3f" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="High" stroke="#ff8a1f" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="Medium" stroke="#facc15" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="Low" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : <Typography color="text.secondary">No severity trend points returned for this window.</Typography>}
-          </WorkspacePanel>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}>
-          <WorkspacePanel sx={{ p: 2.5, height: 330 }}>
-            <SectionHeader title="Top Finding Categories" to="/findings?window=24h" />
-            {summaryQuery.error ? <UnavailableBlock title="Finding categories unavailable." message="The overview summary endpoint failed, so this section is not replaced with zeros." /> : categoryCounts.length ? (
-              <Stack direction="row" alignItems="center" spacing={2}>
-                <Box sx={{ width: 190, height: 210 }}>
-                  <ResponsiveContainer>
-                    <PieChart>
-                      <Pie data={categoryCounts} dataKey="value" innerRadius={55} outerRadius={88}>
-                        {categoryCounts.map((entry, index) => <Cell key={entry.name} fill={categoryColors[index % categoryColors.length]} />)}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </Box>
-                <Stack spacing={1.5} sx={{ flex: 1 }}>
-                  {categoryCounts.slice(0, 5).map((item, index) => (
-                    <Stack key={item.name} direction="row" justifyContent="space-between">
-                      <Typography sx={{ fontWeight: 750 }}>{item.name}</Typography>
-                      <Typography sx={{ color: ui.muted }}>{item.value}</Typography>
-                    </Stack>
-                  ))}
-                </Stack>
-              </Stack>
-            ) : <Typography color="text.secondary">No finding categories returned by the findings API.</Typography>}
-          </WorkspacePanel>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 3 }}>
-          <WorkspacePanel sx={{ p: 2.5, height: 330 }}>
-            <SectionHeader title="Recent Findings" to="/findings?window=24h" />
-            <Stack spacing={1.2}>
-              {recentFindings.slice(0, 5).map((finding) => {
-                const tone = severityTone(finding.health_status);
-                return (
-                  <Button key={finding.id ?? finding.title} component={RouterLink} to="/findings?window=24h" sx={{ justifyContent: 'flex-start', gap: 1.2, p: 0, color: 'inherit', textTransform: 'none' }}>
-                    <IconTile bg={tone.bg} color={tone.color}><BoltRoundedIcon fontSize="small" /></IconTile>
-                    <Box sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
-                      <Typography sx={{ fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{finding.title}</Typography>
-                      <Typography sx={{ color: ui.muted, fontSize: 13 }}>{relativeTime(finding.created_at)}</Typography>
-                    </Box>
-                    <Pill label={finding.health_status} tone="severity" />
-                  </Button>
-                );
-              })}
-              {findingsQuery.error ? <Typography color="error">Recent findings unavailable.</Typography> : !recentFindings.length ? <Typography color="text.secondary">No findings returned for the last 24 hours.</Typography> : null}
-            </Stack>
-          </WorkspacePanel>
-        </Grid>
-      </Grid>
-
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, lg: 4 }}>
-          <WorkspacePanel sx={{ p: 2.5, minHeight: 280 }}>
-            <SectionHeader title="Open Cases" to="/cases" />
-            <Stack spacing={1.4}>
-              {openCases.slice(0, 4).map((item) => <CaseMiniRow key={item.id} id={item.id} title={item.title} meta={`${item.caseId} • Updated ${relativeTime(item.updatedAt)}`} status={item.status} />)}
-              {casesQuery.error ? <Typography color="error">Open cases unavailable.</Typography> : !openCases.length ? <Typography color="text.secondary">No open cases returned by the API.</Typography> : null}
-            </Stack>
-          </WorkspacePanel>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}>
-          <WorkspacePanel sx={{ p: 2.5, minHeight: 280 }}>
-            <SectionHeader title="Recent Behavior Changes" to="/behavior-intelligence" />
-            <Stack spacing={1.4}>
-              {behaviors.slice(0, 4).map((item) => <CaseMiniRow key={item.id} id={item.case_id ?? 0} title={item.title} meta={`Detected ${relativeTime(item.created_at)} • ${item.evidence_json.length} signals`} status={item.severity} severity />)}
-              {behaviorsQuery.error ? <Typography color="error">Behavior changes unavailable.</Typography> : !behaviors.length ? <Typography color="text.secondary">No behavior changes returned by the API.</Typography> : null}
-            </Stack>
-          </WorkspacePanel>
-        </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}>
-          <WorkspacePanel sx={{ p: 2.5, minHeight: 280 }}>
-            <SectionHeader title="Operational Memory" to="/operational-memory" />
-            <Stack spacing={1.4}>
-              {indexedCases.slice(0, 3).map((item) => <CaseMiniRow key={item.id} id={item.id} title={`Indexed: ${item.title}`} meta={`Last updated ${relativeTime(item.updatedAt)}`} status="indexed" />)}
-              {memoryUnavailable ? <Typography color="error">Memory unavailable.</Typography> : !indexedCases.length ? <Typography color="text.secondary">No indexed cases returned by the cases API.</Typography> : null}
-              <Button component={RouterLink} to="/assistant" variant="contained" sx={{ mt: 1, bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>
-                Ask Ops Signals
-              </Button>
-            </Stack>
-          </WorkspacePanel>
+          <OpenInvestigationsPanel openCases={openCases} />
         </Grid>
       </Grid>
     </Stack>
   );
 }
 
-function UnavailableBlock({ title, message }: { title: string; message: string }) {
+function latestPolicyRun(policyRuns: AutonomousPolicyRun[]) {
+  return [...policyRuns].sort((a, b) => {
+    const aTime = new Date(a.completed_at ?? a.started_at ?? a.created_at ?? 0).getTime();
+    const bTime = new Date(b.completed_at ?? b.started_at ?? b.created_at ?? 0).getTime();
+    return bTime - aTime;
+  })[0] ?? null;
+}
+
+function OperationalSummary({ activeFindings, impactedServices, failedJobs, topIssue }: { activeFindings: number | null; impactedServices: number | null; failedJobs: number; topIssue: string }) {
+  const findingText = activeFindings === null ? 'Findings unavailable.' : `${activeFindings} active ${activeFindings === 1 ? 'finding' : 'findings'}.`;
+  const serviceText = impactedServices === null ? 'Service impact unavailable.' : `${impactedServices} ${impactedServices === 1 ? 'service' : 'services'} impacted.`;
+  const automationText = failedJobs > 0 ? `Automation needs attention with ${failedJobs} failed ${failedJobs === 1 ? 'job' : 'jobs'}.` : 'Automation healthy.';
   return (
-    <Box sx={{ height: 220, display: 'grid', placeItems: 'center', textAlign: 'center', px: 3, borderRadius: '8px', bgcolor: '#f8fafc', border: `1px dashed ${ui.border}` }}>
-      <Box>
-        <Typography sx={{ fontWeight: 900, color: ui.text }}>{title}</Typography>
-        <Typography sx={{ color: ui.muted, mt: 1, maxWidth: 430 }}>{message}</Typography>
+    <WorkspacePanel sx={{ p: 2.5 }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2}>
+        <IconTile bg="#eff6ff" color={ui.blue}><ShowChartRoundedIcon /></IconTile>
+        <Box>
+          <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Operational Summary</Typography>
+          <Typography sx={{ color: ui.text, mt: 0.8, fontSize: 16 }}>
+            {findingText} {serviceText} {automationText} Top issue: {topIssue}.
+          </Typography>
+        </Box>
+      </Stack>
+    </WorkspacePanel>
+  );
+}
+
+function NeedsAttentionPanel({ findings, cases }: { findings: Finding[]; cases: OperationalCase[] }) {
+  const rows = findings.slice(0, 5);
+  return (
+    <WorkspacePanel sx={{ p: 2.5 }}>
+      <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 2 }}>Needs Attention</Typography>
+      <Box sx={{ overflowX: 'auto' }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '90px 220px 150px 210px 120px 110px', lg: '0.7fr 1.8fr 1fr 1.5fr 1fr 0.8fr' },
+            minWidth: 840,
+            border: `1px solid ${ui.border}`,
+            borderRadius: '8px',
+            overflow: 'hidden',
+          }}
+        >
+          {['Priority', 'Service / Metric', 'Issue', 'Impact', 'Status', 'Action'].map((header) => (
+            <Typography key={header} sx={{ px: 1.5, py: 1.2, bgcolor: '#f8fafc', borderBottom: `1px solid ${ui.border}`, fontWeight: 850, fontSize: 13 }}>
+              {header}
+            </Typography>
+          ))}
+          {rows.map((finding, index) => {
+            const matchingCase = cases.find((caseItem) => caseItem.finding_id === finding.id || caseItem.finding_snapshot?.metric_name === finding.metric_name);
+            const tone = severityTone(finding.health_status);
+            const status = matchingCase ? `Case #${matchingCase.id}` : 'No case';
+            return (
+              <NeedsAttentionRow
+                key={`${finding.id ?? finding.metric_name}-${index}`}
+                priority={titleCase(finding.health_status)}
+                priorityColor={tone.color}
+                priorityBg={tone.bg}
+                serviceMetric={`${finding.service ?? 'unknown'} / ${finding.metric_name}`}
+                issue={titleCase(finding.category)}
+                impact={finding.title}
+                status={status}
+                action={matchingCase ? 'Review' : 'Watch'}
+                to={matchingCase ? `/cases/${matchingCase.id}` : '/findings?window=24h'}
+              />
+            );
+          })}
+        </Box>
       </Box>
+      {rows.length === 0 ? <Typography sx={{ color: ui.muted, mt: 2 }}>No findings need attention in this window.</Typography> : null}
+    </WorkspacePanel>
+  );
+}
+
+function NeedsAttentionRow({ priority, priorityColor, priorityBg, serviceMetric, issue, impact, status, action, to }: { priority: string; priorityColor: string; priorityBg: string; serviceMetric: string; issue: string; impact: string; status: string; action: string; to: string }) {
+  const cellSx = { px: 1.5, py: 1.25, borderBottom: `1px solid ${ui.border}`, minWidth: 0 };
+  return (
+    <>
+      <Box sx={cellSx}>
+        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', minHeight: 24, px: 1, borderRadius: '8px', color: priorityColor, bgcolor: priorityBg, border: `1px solid ${priorityColor}`, fontWeight: 850, fontSize: 12 }}>
+          {priority}
+        </Box>
+      </Box>
+      <Typography sx={{ ...cellSx, fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serviceMetric}</Typography>
+      <Typography sx={cellSx}>{issue}</Typography>
+      <Typography sx={{ ...cellSx, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{impact}</Typography>
+      <Typography sx={{ ...cellSx, color: status.startsWith('Case') ? ui.blue : ui.muted, fontWeight: 800 }}>{status}</Typography>
+      <Button component={RouterLink} to={to} sx={{ ...cellSx, justifyContent: 'flex-start', textTransform: 'none', fontWeight: 850 }}>{action}</Button>
+    </>
+  );
+}
+
+function AutonomousSummaryPanel({ data, latestRun, error, detailsOpen, onToggleDetails }: { data: AutonomousDashboardData; latestRun: AutonomousPolicyRun | null; error: boolean; detailsOpen: boolean; onToggleDetails: () => void }) {
+  const topFinding = data.topFindings[0];
+  const completedAt = latestRun?.completed_at ?? latestRun?.updated_at ?? latestRun?.started_at ?? null;
+  return (
+    <WorkspacePanel sx={{ p: 0, overflow: 'hidden' }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between" spacing={1.5} sx={{ px: 2.5, py: 1.8, borderBottom: `1px solid ${ui.border}` }}>
+        <Stack direction="row" alignItems="center" spacing={1.4}>
+          <IconTile bg="#eff6ff" color={ui.blue}><AutoModeRoundedIcon /></IconTile>
+          <Box>
+            <Typography sx={{ fontWeight: 900, fontSize: 18 }}>Autonomous Analysis</Typography>
+            <Typography sx={{ color: ui.muted, fontSize: 13 }}>
+              {error ? 'Autonomous run status unavailable.' : latestRun ? `Last run ${latestRun.status} • ${relativeTime(completedAt)}` : 'No autonomous runs completed yet.'}
+            </Typography>
+          </Box>
+        </Stack>
+        <Stack direction="row" spacing={1}>
+          <Button onClick={onToggleDetails} endIcon={detailsOpen ? <KeyboardArrowUpRoundedIcon /> : <KeyboardArrowDownRoundedIcon />} variant="outlined" sx={{ textTransform: 'none', fontWeight: 800 }}>
+            {detailsOpen ? 'Hide details' : 'View details'}
+          </Button>
+        </Stack>
+      </Stack>
+      <Box sx={{ px: 2.5, py: 2 }}>
+        <Typography sx={{ color: ui.text, fontWeight: 750 }}>
+          Last run {latestRun?.status ?? 'not available'} {latestRun ? relativeTime(completedAt) : ''} | {data.summary.findingsGenerated} findings | {data.summary.failed ?? 0} failed | Top finding {topFinding?.metric ?? 'none'}
+        </Typography>
+      </Box>
+      <Collapse in={detailsOpen} unmountOnExit>
+        <Box sx={{ borderTop: `1px solid ${ui.border}`, px: 2.5, py: 2.5 }}>
+          <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 0.5 }}>Autonomous Analysis Details</Typography>
+          <Typography sx={{ color: ui.muted, mb: 2 }}>Latest autonomous results, run history, generated findings, and related cases in this overview window.</Typography>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, lg: 6 }}>
+              <DetailPanel title="Autonomous Findings">
+                {data.topFindings.length ? data.topFindings.slice(0, 5).map((finding) => (
+                  <DetailRow
+                    key={`${finding.rank}-${finding.service}-${finding.metric}`}
+                    title={`${finding.service} / ${finding.metric}`}
+                    meta={`${finding.behavior} • importance ${finding.importance.toFixed(2)} • ${relativeTime(finding.firstObserved)}`}
+                    to={finding.href}
+                  />
+                )) : <Typography color="text.secondary">No autonomous findings returned for this window.</Typography>}
+              </DetailPanel>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 6 }}>
+              <DetailPanel title="Execution History">
+                {data.executionRows.length ? data.executionRows.slice(0, 5).map((row) => (
+                  <DetailRow key={row.id} title={row.scope} meta={`${row.metrics} • ${row.status} • ${relativeTime(row.completed)}`} />
+                )) : <Typography color="text.secondary">No autonomous execution history is available.</Typography>}
+              </DetailPanel>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 6 }}>
+              <DetailPanel title="Behavior Distribution">
+                {data.behaviorDistribution.length ? data.behaviorDistribution.map((item) => (
+                  <Stack key={item.label} direction="row" justifyContent="space-between" sx={{ py: 0.75, borderBottom: `1px solid ${ui.border}` }}>
+                    <Typography sx={{ fontWeight: 800 }}>{item.label}</Typography>
+                    <Typography sx={{ color: ui.muted }}>{item.count}</Typography>
+                  </Stack>
+                )) : <Typography color="text.secondary">No behavior distribution available.</Typography>}
+              </DetailPanel>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 6 }}>
+              <DetailPanel title="Recent Autonomous Cases">
+                {data.recentCases.length ? data.recentCases.slice(0, 5).map((caseItem) => (
+                  <DetailRow key={caseItem.id} title={caseItem.title} meta={`${caseItem.status} • ${caseItem.meta} • ${relativeTime(caseItem.updatedAt)}`} to={caseItem.href} />
+                )) : <Typography color="text.secondary">No related cases returned.</Typography>}
+              </DetailPanel>
+            </Grid>
+          </Grid>
+        </Box>
+      </Collapse>
+    </WorkspacePanel>
+  );
+}
+
+function OpenInvestigationsPanel({ openCases }: { openCases: ReturnType<typeof toCaseRows> }) {
+  return (
+    <WorkspacePanel sx={{ p: 2.5, height: '100%' }}>
+      <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Open Investigations</Typography>
+      <Typography sx={{ color: ui.muted, mb: 1.5 }}>Top 3 cases</Typography>
+      <Stack spacing={1.4}>
+        {openCases.slice(0, 3).map((item) => <CaseMiniRow key={item.id} id={item.id} title={`${item.caseId} - ${item.title}`} meta={`Updated ${relativeTime(item.updatedAt)}`} status={item.status} />)}
+        {!openCases.length ? <Typography color="text.secondary">No open cases returned by the API.</Typography> : null}
+      </Stack>
+    </WorkspacePanel>
+  );
+}
+
+function DetailPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, minHeight: 180 }}>
+      <Typography sx={{ fontWeight: 900, mb: 1.5 }}>{title}</Typography>
+      <Stack spacing={1}>{children}</Stack>
     </Box>
   );
+}
+
+function DetailRow({ title, meta, to }: { title: string; meta: string; to?: string }) {
+  const content = (
+    <Box sx={{ minWidth: 0, textAlign: 'left' }}>
+      <Typography sx={{ fontWeight: 850, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
+      <Typography sx={{ color: ui.muted, fontSize: 13 }}>{meta}</Typography>
+    </Box>
+  );
+  if (to) {
+    return (
+      <Button component={RouterLink} to={to} sx={{ justifyContent: 'flex-start', p: 0, color: 'inherit', textTransform: 'none' }}>
+        {content}
+      </Button>
+    );
+  }
+  return content;
 }
 
 function CaseMiniRow({ id, title, meta, status, severity = false }: { id: number; title: string; meta: string; status: string; severity?: boolean }) {
