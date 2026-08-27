@@ -1,7 +1,7 @@
 # Router Benchmark Report: cpu_online_anomaly_stream_v1
 
 - Status: `GAP`
-- Recommended: `['stumpy', 'prophet', 'darts', 'adtk', 'pyod']`
+- Recommended: `['stumpy', 'prophet', 'darts', 'adtk', 'pyod', 'pyod_outlier']`
 - Optional: `['ruptures', 'river', 'kats']`
 - Not recommended: `['alibi_detect', 'trend_regression']`
 

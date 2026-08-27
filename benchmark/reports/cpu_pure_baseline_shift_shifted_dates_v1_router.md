@@ -3,7 +3,7 @@
 - Status: `PASS`
 - Recommended: `['ruptures']`
 - Optional: `['kats', 'alibi_detect']`
-- Not recommended: `['stumpy', 'prophet', 'river', 'darts', 'trend_regression', 'adtk', 'pyod']`
+- Not recommended: `['stumpy', 'prophet', 'river', 'darts', 'trend_regression', 'adtk', 'pyod', 'pyod_outlier']`
 
 ## Checks
 

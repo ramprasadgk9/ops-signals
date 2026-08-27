@@ -79,6 +79,140 @@ def test_ruptures_and_trend_prioritizes_structural_change() -> None:
     assert finding.signal_ids == [baseline.signal_id, ruptures.signal_id, trend.signal_id]
 
 
+def test_pyod_outlier_finding_rule_suppresses_findings_below_threshold() -> None:
+    pyod = _signal(
+        "anomaly",
+        analyzer_id="pyod_outlier",
+        evidence={
+            "point_count": 3,
+            "finding_rule": {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
+            "finding_rule_matched": False,
+        },
+    )
+
+    result = FindingAggregator().aggregate([pyod], _points())
+
+    assert result.findings == []
+
+
+def test_pyod_outlier_finding_rule_allows_findings_when_threshold_matches() -> None:
+    pyod = _signal(
+        "anomaly",
+        analyzer_id="pyod_outlier",
+        evidence={
+            "point_count": 8,
+            "finding_rule": {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
+            "finding_rule_matched": True,
+        },
+    )
+
+    finding = _finding([pyod])
+
+    assert finding.category == "unusual_activity"
+    assert finding.title == "cpu_usage has unusual activity in the selected time window."
+
+
+def test_zscore_finding_rule_suppresses_findings_below_threshold() -> None:
+    zscore = _signal(
+        "anomaly",
+        analyzer_id="anomaly_zscore",
+        evidence={
+            "max_abs_zscore": 3.2,
+            "point_count": 1,
+            "finding_rules": {"min_abs_zscore": 3.0, "min_points": 2},
+            "finding_rule_matched": False,
+        },
+    )
+
+    result = FindingAggregator().aggregate([zscore], _points())
+
+    assert result.findings == []
+
+
+def test_zscore_finding_rule_allows_findings_when_threshold_matches() -> None:
+    zscore = _signal(
+        "anomaly",
+        analyzer_id="anomaly_zscore",
+        evidence={
+            "max_abs_zscore": 3.2,
+            "point_count": 2,
+            "finding_rules": {"min_abs_zscore": 3.0, "min_points": 2},
+            "finding_rule_matched": True,
+        },
+    )
+
+    finding = _finding([zscore])
+
+    assert finding.category == "unusual_activity"
+    assert finding.signal_ids == [zscore.signal_id]
+
+
+def test_stumpy_finding_rule_suppresses_findings_below_threshold() -> None:
+    stumpy = _signal(
+        "pattern_discovery",
+        analyzer_id="stumpy",
+        evidence={
+            "motif_distance": 2.84,
+            "finding_rules": {"max_motif_distance": 1.0, "min_confidence": 0.75},
+            "finding_rule_matched": False,
+        },
+    )
+
+    result = FindingAggregator().aggregate([stumpy], _points())
+
+    assert result.findings == []
+
+
+def test_stumpy_finding_rule_allows_findings_when_threshold_matches() -> None:
+    stumpy = _signal(
+        "pattern_discovery",
+        analyzer_id="stumpy",
+        evidence={
+            "motif_distance": 0.0,
+            "finding_rules": {"max_motif_distance": 1.0, "min_confidence": 0.75},
+            "finding_rule_matched": True,
+        },
+    )
+
+    finding = _finding([stumpy])
+
+    assert finding.category == "operational_insight"
+    assert finding.signal_ids == [stumpy.signal_id]
+
+
+def test_prophet_finding_rule_suppresses_findings_below_threshold() -> None:
+    prophet = _signal(
+        "forecast",
+        analyzer_id="prophet",
+        evidence={
+            "relative_error": 0.05,
+            "finding_rules": {"min_relative_error": 0.25},
+            "finding_rule_matched": False,
+        },
+    )
+
+    result = FindingAggregator().aggregate([prophet], _points())
+
+    assert result.findings == []
+
+
+def test_prophet_finding_rule_allows_findings_when_threshold_matches() -> None:
+    prophet = _signal(
+        "forecast",
+        analyzer_id="prophet",
+        evidence={
+            "relative_error": 0.35,
+            "finding_rules": {"min_relative_error": 0.25},
+            "finding_rule_matched": True,
+        },
+    )
+
+    finding = _finding([prophet])
+
+    assert finding.category == "operational_insight"
+    assert finding.signal_ids == [prophet.signal_id]
+
+
 def test_baseline_shift_and_trend_keeps_baseline_primary() -> None:
     baseline = _signal("baseline_shift", evidence={"percent_change": -42.5})
     trend = _signal("trend", analyzer_id="trend", summary="cpu_usage shows a sustained downward trend of -50.0%.", evidence={"slope": -0.1})

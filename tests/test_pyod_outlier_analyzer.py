@@ -33,10 +33,32 @@ def test_pyod_outlier_analyzer_emits_anomaly_signal_for_outlier_series() -> None
     assert signal.analyzer_id == "pyod_outlier"
     assert signal.evidence["library"] == "pyod"
     assert signal.evidence["detector"] == "KNN"
+    assert signal.evidence["implementation"]["library"] == "pyod"
+    assert signal.evidence["implementation"]["detector"] == "KNN"
+    assert signal.evidence["implementation"]["detector_type"] == "knn"
     assert signal.evidence["contamination"] == 0.05
     assert signal.evidence["max_anomaly_score"] > 0
     assert signal.evidence["point_count"] >= 1
+    assert signal.evidence["outlier_indices"]
+    assert signal.evidence["outlier_timestamps"]
     assert signal.evidence["min_samples"] == 50
+    assert signal.evidence["finding_rule"]["min_outlier_points"] == 1
+    assert signal.evidence["finding_rule_matched"] is True
+
+
+def test_pyod_outlier_analyzer_marks_finding_rule_as_unmatched_below_threshold() -> None:
+    values = [50.0 + (index % 5) for index in range(120)]
+    values[20] = 180.0
+
+    signals = PyODOutlierAnalyzer(
+        contamination=0.01,
+        min_samples=50,
+        grouping_gap="5m",
+        finding_rule={"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
+    ).analyze(_frame(values))
+
+    assert signals
+    assert all(signal.evidence["finding_rule_matched"] is False for signal in signals)
 
 
 def test_pyod_outlier_analyzer_skips_short_dataset() -> None:

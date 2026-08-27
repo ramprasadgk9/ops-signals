@@ -46,6 +46,16 @@ export async function patchJson<TRequest, TResponse>(path: string, body: TReques
   return res.json() as Promise<TResponse>;
 }
 
+export async function deleteJson<TResponse>(path: string): Promise<TResponse> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res));
+  }
+  return res.json() as Promise<TResponse>;
+}
+
 export async function postForm<TResponse>(path: string, body: FormData): Promise<TResponse> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',

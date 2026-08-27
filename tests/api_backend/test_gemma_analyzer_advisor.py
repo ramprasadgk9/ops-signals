@@ -53,7 +53,13 @@ class FakeStructuredLLM:
                         "analyzer_id": "trend_regression",
                         "recommendation": "recommended",
                         "confidence": 0.88,
-                        "reason": "Trend profile and router score agree.",
+                        "reason": "Rank 1 primary trend summarizer. Trend profile and router score agree.",
+                    },
+                    {
+                        "analyzer_id": "prophet",
+                        "recommendation": "optional",
+                        "confidence": 0.62,
+                        "reason": "Rank 2 supporting forecaster when trend needs projection.",
                     }
                 ],
                 "not_recommended": [],
@@ -83,12 +89,14 @@ def test_gemma_prompt_includes_timeseries_and_analyzer_patterns() -> None:
         metric_context={"metric_name": "cpu_usage"},
         max_points=5,
     )
-    payload = json.loads(prompt)
+    payload = json.loads(prompt.split("Input data:\n", 1)[1])
 
     assert payload["series_profile"]["detected_profiles"] == ["trend"]
     assert len(payload["timeseries_sample"]) == 5
     assert payload["available_analyzers"][0]["supported_patterns"] == ["trend"]
     assert payload["available_analyzers"][0]["matched_patterns"] == ["trend"]
+    assert "exactly 3 analyzers" in prompt
+    assert "Return exactly 3 items" in prompt
 
 
 def test_gemma_advisor_returns_validated_recommendation() -> None:
@@ -110,5 +118,29 @@ def test_gemma_advisor_returns_validated_recommendation() -> None:
 
     assert isinstance(result, GemmaAnalyzerRecommendation)
     assert result.best_analyzer_id == "trend_regression"
+    assert len(result.recommended) == 2
     assert fake_llm.last_request is not None
     assert fake_llm.last_request.response_format == "json"
+
+
+def test_gemma_advisor_normalizes_ranked_picks_from_wrong_bucket() -> None:
+    result = GemmaAnalyzerRecommendation.model_validate(
+        {
+            "best_analyzer_id": "prophet",
+            "rationale": "Ranked result.",
+            "recommended": [
+                {"analyzer_id": "prophet", "recommendation": "Rank 1", "confidence": 1.0, "reason": "Rank 1 forecaster."}
+            ],
+            "not_recommended": [
+                {"analyzer_id": "ruptures", "recommendation": "Rank 2", "confidence": 1.0, "reason": "Rank 2 change detector."},
+                {"analyzer_id": "stumpy", "recommendation": "Rank 3", "confidence": 1.0, "reason": "Rank 3 motif detector."},
+                {"analyzer_id": "pyod", "recommendation": "not_recommended", "confidence": 0.4, "reason": "Outlier view is less aligned."},
+            ],
+            "caveats": [],
+        }
+    )
+
+    normalized = GemmaAnalyzerAdvisor._normalize_top_recommendations(result)
+
+    assert [item.analyzer_id for item in normalized.recommended] == ["prophet", "ruptures", "stumpy"]
+    assert [item.analyzer_id for item in normalized.not_recommended] == ["pyod"]

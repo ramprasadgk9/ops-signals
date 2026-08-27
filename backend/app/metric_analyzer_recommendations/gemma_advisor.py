@@ -38,14 +38,14 @@ class GemmaAnalyzerAdvisor:
         timeseries: list[tuple[Any, float]],
         analyzer_decisions: list[Any],
         metric_context: dict[str, Any] | None = None,
-        max_points: int = 80,
+        max_points: int = 40,
     ) -> GemmaAnalyzerRecommendation:
         request = LLMRequest(
             messages=[
                 LLMMessage(
                     role="system",
                     content=(
-                        "You are an analyzer-routing assistant. Recommend the time-series analyzers that best match "
+                        "You are an analyzer-routing assistant. Rank the time-series analyzers that best match "
                         "the observed metric pattern. Return only valid JSON matching the requested schema."
                     ),
                 ),
@@ -61,10 +61,11 @@ class GemmaAnalyzerAdvisor:
                 ),
             ],
             temperature=0.0,
-            max_tokens=900,
+            max_tokens=1800,
             response_format="json",
         )
-        return self.structured_llm.generate_structured(request, GemmaAnalyzerRecommendation)
+        result = self.structured_llm.generate_structured(request, GemmaAnalyzerRecommendation)
+        return self._normalize_top_recommendations(result)
 
     @classmethod
     def build_prompt(
@@ -74,29 +75,27 @@ class GemmaAnalyzerAdvisor:
         timeseries: list[tuple[Any, float]],
         analyzer_decisions: list[Any],
         metric_context: dict[str, Any] | None = None,
-        max_points: int = 80,
+        max_points: int = 40,
     ) -> str:
         payload = {
-            "task": "Choose the best analyzer or analyzers for this metric sample.",
             "metric_context": metric_context or {},
             "series_profile": cls._compact_profile(profile),
             "timeseries_sample": cls._compact_timeseries(timeseries, max_points=max_points),
             "available_analyzers": [cls._compact_analyzer(decision) for decision in analyzer_decisions],
-            "decision_rules": [
-                "Prefer analyzers whose supported patterns match the time-series behavior.",
-                "Do not recommend analyzers that are technically ineligible unless the caveat explains why.",
-                "Use the existing router score as evidence, but override it when the raw series pattern clearly conflicts.",
-                "Pick one best_analyzer_id even when multiple analyzers are useful.",
-            ],
-            "response_schema": {
-                "best_analyzer_id": "string",
-                "rationale": "short string",
-                "recommended": [{"analyzer_id": "string", "recommendation": "recommended|optional", "confidence": "0..1", "reason": "string"}],
-                "not_recommended": [{"analyzer_id": "string", "recommendation": "not_recommended|rejected", "confidence": "0..1", "reason": "string"}],
-                "caveats": ["string"],
-            },
         }
-        return json.dumps(payload, default=str, separators=(",", ":"))
+        return (
+            "Choose exactly 3 analyzers for this metric sample, ranked from best primary choice to supporting choices.\n"
+            "Return only one JSON object. Do not echo the input. Do not use markdown.\n\n"
+            "Rules:\n"
+            "- Set best_analyzer_id to the strongest primary analyzer.\n"
+            "- Return exactly 3 items in recommended when at least 3 eligible analyzers are available.\n"
+            "- Break router score ties using the dominant raw-series behavior.\n"
+            "- Include Rank 1, Rank 2, or Rank 3 and the analyzer role in every recommended reason.\n"
+            "- Put eligible analyzers outside the top 3 into not_recommended when redundant, too broad, or less aligned.\n\n"
+            "Required JSON keys: best_analyzer_id, rationale, recommended, not_recommended, caveats.\n"
+            "Each recommended/not_recommended item must include analyzer_id, recommendation, confidence, reason.\n\n"
+            f"Input data:\n{json.dumps(payload, default=str, separators=(',', ':'))}"
+        )
 
     @staticmethod
     def _compact_profile(profile: Any) -> dict[str, Any]:
@@ -135,7 +134,7 @@ class GemmaAnalyzerAdvisor:
             selected = timeseries[::step][:max_points]
             if timeseries[-1] not in selected:
                 selected = [*selected[:-1], timeseries[-1]]
-        return [{"timestamp": timestamp, "value": round(float(value), 6)} for timestamp, value in selected]
+        return [{"index": index, "value": round(float(value), 6)} for index, (_, value) in enumerate(selected)]
 
     @staticmethod
     def _compact_analyzer(decision: Any) -> dict[str, Any]:
@@ -152,6 +151,20 @@ class GemmaAnalyzerAdvisor:
             "reason": data.get("routing_reason") or data.get("summary") or data.get("explanation"),
             "warnings": data.get("warnings", []),
         }
+
+    @staticmethod
+    def _normalize_top_recommendations(result: GemmaAnalyzerRecommendation) -> GemmaAnalyzerRecommendation:
+        recommended = list(result.recommended)
+        remaining_not_recommended: list[GemmaAnalyzerPick] = []
+        for pick in result.not_recommended:
+            label = pick.recommendation.lower().replace("_", " ")
+            if len(recommended) < 3 and label.startswith("rank "):
+                recommended.append(
+                    pick.model_copy(update={"recommendation": "optional" if not label.startswith("rank 1") else "recommended"})
+                )
+            else:
+                remaining_not_recommended.append(pick)
+        return result.model_copy(update={"recommended": recommended[:3], "not_recommended": remaining_not_recommended})
 
 
 def _object_to_dict(value: Any) -> dict[str, Any]:

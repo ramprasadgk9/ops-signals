@@ -10,9 +10,23 @@ from intelligence.signals.schema import OperationalSignal
 class ZScoreAnomalyAnalyzer(Analyzer):
     analyzer_id = "anomaly_zscore"
 
-    def __init__(self, zscore_threshold: float, grouping_gap: str) -> None:
+    def __init__(
+        self,
+        zscore_threshold: float = 3.0,
+        grouping_gap: str = "15m",
+        finding_rules: dict[str, object] | None = None,
+        implementation: dict[str, object] | None = None,
+    ) -> None:
+        impl = implementation or {}
+        rules = finding_rules or {}
+        zscore_threshold = float(impl.get("zscore_threshold", zscore_threshold))
+        grouping_gap = str(impl.get("grouping_gap", grouping_gap))
         self.zscore_threshold = zscore_threshold
         self.grouping_gap = pd.to_timedelta(grouping_gap)
+        self.library = str(impl.get("library", "pandas"))
+        self.method = str(impl.get("method", "zscore"))
+        self.finding_min_abs_zscore = max(0.0, float(rules.get("min_abs_zscore", zscore_threshold)))
+        self.finding_min_points = max(1, int(rules.get("min_points", 1)))
 
     def capability(self) -> Capability:
         return Capability(
@@ -46,8 +60,11 @@ class ZScoreAnomalyAnalyzer(Analyzer):
             anomalies["group_id"] = (anomalies["timestamp"].diff().gt(self.grouping_gap)).cumsum()
             for _, anomaly_group in anomalies.groupby("group_id"):
                 max_abs_z = float(anomaly_group["zscore"].abs().max())
-                severity = "high" if max_abs_z >= self.zscore_threshold * 1.5 else "medium"
-                confidence = min(1.0, max_abs_z / (self.zscore_threshold * 2.0))
+                finding_rule_matched = bool(
+                    max_abs_z >= self.finding_min_abs_zscore and len(anomaly_group) >= self.finding_min_points
+                )
+                severity = "high" if max_abs_z >= self.finding_min_abs_zscore * 1.5 else "medium"
+                confidence = min(1.0, max_abs_z / max(self.finding_min_abs_zscore * 2.0, 1e-9))
                 metric_name = anomaly_group.iloc[0]["metric_name"]
                 service = anomaly_group.iloc[0].get("service")
                 env = anomaly_group.iloc[0].get("env")
@@ -72,6 +89,19 @@ class ZScoreAnomalyAnalyzer(Analyzer):
                             "max_abs_zscore": round(max_abs_z, 4),
                             "point_count": int(len(anomaly_group)),
                             "grouping_gap_minutes": self.grouping_gap.total_seconds() / 60,
+                            "implementation": {
+                                "library": self.library,
+                                "method": self.method,
+                                "zscore_threshold": self.zscore_threshold,
+                                "grouping_gap": str(self.grouping_gap),
+                            },
+                            "library": self.library,
+                            "method": self.method,
+                            "finding_rules": {
+                                "min_abs_zscore": self.finding_min_abs_zscore,
+                                "min_points": self.finding_min_points,
+                            },
+                            "finding_rule_matched": finding_rule_matched,
                         },
                     )
                 )

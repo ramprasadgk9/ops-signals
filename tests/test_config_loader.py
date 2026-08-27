@@ -116,10 +116,52 @@ def test_modular_analyzer_config_supports_nested_baseline_shift_schema() -> None
     config = load_config(project_root / "config/providers/prometheus.yaml")
 
     baseline_params = config.analysis.analyzers["baseline_shift"].params
+    anomaly_params = config.analysis.analyzers["anomaly_zscore"].params
+    pyod_params = config.analysis.analyzers["pyod_outlier"].params
+    stumpy_params = config.analysis.analyzers["stumpy"].params
+    prophet_params = config.analysis.analyzers["prophet"].params
+    trend_params = config.analysis.analyzers["trend"].params
+    assert anomaly_params["implementation"] == {
+        "library": "pandas",
+        "method": "zscore",
+        "zscore_threshold": 3.0,
+        "grouping_gap": "15m",
+    }
+    assert anomaly_params["finding_rules"] == {"min_abs_zscore": 3.0, "min_points": 1}
+    assert "zscore_threshold" not in anomaly_params
+    assert pyod_params["implementation"]["library"] == "pyod"
+    assert pyod_params["implementation"]["detector"] == "KNN"
+    assert pyod_params["implementation"]["detector_type"] == "knn"
+    assert pyod_params["implementation"]["contamination"] == 0.01
+    assert pyod_params["implementation"]["grouping_gap"] == "15m"
+    assert pyod_params["implementation"]["min_samples"] == 50
+    assert "detector_type" not in pyod_params
+    assert stumpy_params["finding_rules"]["max_motif_distance"] == 1.0
+    assert stumpy_params["finding_rules"]["min_confidence"] == 0.75
+    assert stumpy_params["implementation"] == {
+        "library": "stumpy",
+        "algorithm": "stump",
+        "window_size": 20,
+        "motif_count": 1,
+        "profile_threshold": 2.0,
+    }
+    assert prophet_params["finding_rules"]["min_relative_error"] == 0.25
+    assert "min_confidence" not in prophet_params["finding_rules"]
+    assert prophet_params["implementation"] == {
+        "library": "prophet",
+        "horizon_points": 10,
+        "changepoint_prior_scale": 0.05,
+        "uncertainty_threshold": 0.15,
+    }
+    assert "min_slope_percent" not in trend_params
+    assert trend_params["implementation"] == {"library": "statsmodels", "model": "OLS"}
+    assert trend_params["finding_rules"]["min_slope_percent"] == 10
     assert baseline_params["ruptures"]["algorithm"] == "binseg"
     assert baseline_params["ruptures"]["model"] == "l2"
     assert baseline_params["ruptures"]["min_size"] == 5
     assert baseline_params["ruptures"]["jump"] == 5
     assert baseline_params["ruptures"]["n_bkps"] == 1
+    assert baseline_params["finding_rules"]["min_change_percent"] == 25
+    assert baseline_params["finding_rules"]["min_effect_size"] == 1.5
     assert baseline_params["statistical_gate"]["min_effect_size"] == 1.5
     assert baseline_params["operational_significance"]["min_change_percent"] == 25

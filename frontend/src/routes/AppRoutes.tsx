@@ -15,6 +15,13 @@ import { OperationalMemoryPage } from '../pages/OperationalMemoryPage';
 import { ValidateDataPage } from '../pages/ValidateDataPage';
 import { ExperimentDashboardPage } from '../pages/ExperimentDashboardPage';
 import { AnalyzerRouterExperimentPage } from '../pages/AnalyzerRouterExperimentPage';
+import { AddAnalyzerPage } from '../pages/analyzer-labs/AddAnalyzerPage';
+import { PyodOutlierLabPage } from '../pages/analyzer-labs/PyodOutlierLabPage';
+import { ProphetForecastLabPage } from '../pages/analyzer-labs/ProphetForecastLabPage';
+import { RupturesChangePointLabPage } from '../pages/analyzer-labs/RupturesChangePointLabPage';
+import { StumpyMotifLabPage } from '../pages/analyzer-labs/StumpyMotifLabPage';
+import { TrendLabPage } from '../pages/analyzer-labs/TrendLabPage';
+import { ZScoreAnomalyLabPage } from '../pages/analyzer-labs/ZScoreAnomalyLabPage';
 import { CasesPage } from '../pages/CasesPage';
 import { InvestigationsPage } from '../pages/InvestigationsPage';
 import { SystemPage } from '../pages/SystemPage';
@@ -34,6 +41,13 @@ export function AppRoutes() {
       <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
       <Route path="/validate-data" element={<ValidateDataPage />} />
       <Route path="/experiments" element={<ExperimentDashboardPage />} />
+      <Route path="/experiments/add-analyzer" element={<AddAnalyzerPage />} />
+      <Route path="/experiments/pyod-outlier-lab" element={<PyodOutlierLabPage />} />
+      <Route path="/experiments/prophet-forecast-lab" element={<ProphetForecastLabPage />} />
+      <Route path="/experiments/ruptures-change-point-lab" element={<RupturesChangePointLabPage />} />
+      <Route path="/experiments/stumpy-motif-lab" element={<StumpyMotifLabPage />} />
+      <Route path="/experiments/trend-lab" element={<TrendLabPage />} />
+      <Route path="/experiments/zscore-anomaly-lab" element={<ZScoreAnomalyLabPage />} />
       <Route path="/analyzer-router" element={<AnalyzerRouterExperimentPage />} />
       <Route path="/assistant" element={<MemoryChatPage />} />
       <Route path="/operational-memory" element={<OperationalMemoryPage />} />

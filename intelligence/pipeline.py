@@ -175,45 +175,65 @@ class SignalPipeline:
 
         anomaly_cfg = self.config.analysis.analyzers.get("anomaly_zscore")
         if anomaly_cfg and anomaly_cfg.enabled and self._should_run_analyzer("anomaly_zscore", allowed):
+            anomaly_impl = self._analyzer_implementation(anomaly_cfg.params) or {}
             analyzers.append(
                 ZScoreAnomalyAnalyzer(
-                    zscore_threshold=float(anomaly_cfg.params["zscore_threshold"]),
-                    grouping_gap=str(anomaly_cfg.params["grouping_gap"]),
+                    zscore_threshold=float(anomaly_impl.get("zscore_threshold", anomaly_cfg.params.get("zscore_threshold", 3.0))),
+                    grouping_gap=str(anomaly_impl.get("grouping_gap", anomaly_cfg.params.get("grouping_gap", "15m"))),
+                    finding_rules=self._analyzer_finding_rules(anomaly_cfg.params),
+                    implementation=anomaly_impl,
                 )
             )
 
         pyod_outlier_cfg = self.config.analysis.analyzers.get("pyod_outlier")
         if pyod_outlier_cfg and pyod_outlier_cfg.enabled and self._should_run_analyzer("pyod_outlier", allowed):
+            pyod_impl = self._analyzer_implementation(pyod_outlier_cfg.params) or {}
             analyzers.append(
                 PyODOutlierAnalyzer(
-                    detector_type=str(pyod_outlier_cfg.params.get("detector_type", "knn")),
-                    contamination=float(pyod_outlier_cfg.params.get("contamination", 0.05)),
-                    grouping_gap=str(pyod_outlier_cfg.params.get("grouping_gap", "15m")),
-                    min_samples=int(pyod_outlier_cfg.params.get("min_samples", 50)),
+                    detector_type=str(pyod_impl.get("detector_type", pyod_outlier_cfg.params.get("detector_type", "knn"))),
+                    contamination=float(pyod_impl.get("contamination", pyod_outlier_cfg.params.get("contamination", 0.05))),
+                    grouping_gap=str(pyod_impl.get("grouping_gap", pyod_outlier_cfg.params.get("grouping_gap", "15m"))),
+                    min_samples=int(pyod_impl.get("min_samples", pyod_outlier_cfg.params.get("min_samples", 50))),
+                    finding_rule=self._analyzer_finding_rules(pyod_outlier_cfg.params),
+                    implementation=pyod_impl,
                 )
             )
 
         trend_cfg = self.config.analysis.analyzers.get("trend")
         if trend_cfg and trend_cfg.enabled and self._should_run_analyzer("trend", allowed):
-            analyzers.append(TrendAnalyzer(min_slope_percent=float(trend_cfg.params["min_slope_percent"])))
+            analyzers.append(
+                TrendAnalyzer(
+                    min_slope_percent=float(trend_cfg.params["min_slope_percent"])
+                    if "min_slope_percent" in trend_cfg.params
+                    else None,
+                    finding_rules=self._analyzer_finding_rules(trend_cfg.params),
+                    implementation=self._analyzer_implementation(trend_cfg.params),
+                )
+            )
 
         stumpy_cfg = self.config.analysis.analyzers.get("stumpy")
         if stumpy_cfg and stumpy_cfg.enabled and self._should_run_analyzer("stumpy", allowed):
+            stumpy_impl = self._analyzer_implementation(stumpy_cfg.params) or {}
             analyzers.append(
                 STUMPYAnalyzer(
-                    window_size=int(stumpy_cfg.params.get("window_size", 20)),
-                    motif_count=int(stumpy_cfg.params.get("motif_count", 1)),
-                    profile_threshold=float(stumpy_cfg.params.get("profile_threshold", 2.0)),
+                    window_size=int(stumpy_impl.get("window_size", stumpy_cfg.params.get("window_size", 20))),
+                    motif_count=int(stumpy_impl.get("motif_count", stumpy_cfg.params.get("motif_count", 1))),
+                    profile_threshold=float(stumpy_impl.get("profile_threshold", stumpy_cfg.params.get("profile_threshold", 2.0))),
+                    finding_rules=self._analyzer_finding_rules(stumpy_cfg.params),
+                    implementation=stumpy_impl,
                 )
             )
 
         prophet_cfg = self.config.analysis.analyzers.get("prophet")
         if prophet_cfg and prophet_cfg.enabled and self._should_run_analyzer("prophet", allowed):
+            prophet_impl = self._analyzer_implementation(prophet_cfg.params) or {}
             analyzers.append(
                 ProphetAnalyzer(
-                    horizon_points=int(prophet_cfg.params.get("horizon_points", 10)),
-                    changepoint_prior_scale=float(prophet_cfg.params.get("changepoint_prior_scale", 0.05)),
-                    uncertainty_threshold=float(prophet_cfg.params.get("uncertainty_threshold", 0.15)),
+                    horizon_points=int(prophet_impl.get("horizon_points", prophet_cfg.params.get("horizon_points", 10))),
+                    changepoint_prior_scale=float(prophet_impl.get("changepoint_prior_scale", prophet_cfg.params.get("changepoint_prior_scale", 0.05))),
+                    uncertainty_threshold=float(prophet_impl.get("uncertainty_threshold", prophet_cfg.params.get("uncertainty_threshold", 0.15))),
+                    finding_rules=self._analyzer_finding_rules(prophet_cfg.params),
+                    implementation=prophet_impl,
                 )
             )
         return analyzers
@@ -338,21 +358,43 @@ class SignalPipeline:
         }
 
     @staticmethod
+    def _analyzer_finding_rules(params: dict[str, object]) -> dict[str, object] | None:
+        rules = params.get("finding_rules")
+        if isinstance(rules, dict):
+            return rules
+        legacy_rule = params.get("finding_rule")
+        if isinstance(legacy_rule, dict):
+            return legacy_rule
+        return None
+
+    @staticmethod
+    def _analyzer_implementation(params: dict[str, object]) -> dict[str, object] | None:
+        implementation = params.get("implementation")
+        return implementation if isinstance(implementation, dict) else None
+
+    @staticmethod
     def _baseline_shift_params(params: dict[str, object]) -> dict[str, float | int | str]:
         ruptures_params = params.get("ruptures") if isinstance(params.get("ruptures"), dict) else {}
+        finding_rules = params.get("finding_rules") if isinstance(params.get("finding_rules"), dict) else {}
         statistical_gate = params.get("statistical_gate") if isinstance(params.get("statistical_gate"), dict) else {}
         operational_significance = (
             params.get("operational_significance") if isinstance(params.get("operational_significance"), dict) else {}
         )
         return {
             "threshold_percent": float(
-                operational_significance.get("min_change_percent", params.get("threshold_percent", 25))  # type: ignore[union-attr]
+                finding_rules.get(  # type: ignore[union-attr]
+                    "min_change_percent",
+                    operational_significance.get("min_change_percent", params.get("threshold_percent", 25)),  # type: ignore[union-attr]
+                )
             ),
             "min_segment_size": int(
                 ruptures_params.get("min_size", params.get("min_segment_size", 5))  # type: ignore[union-attr]
             ),
             "change_threshold": float(
-                statistical_gate.get("min_effect_size", params.get("change_threshold", 1.5))  # type: ignore[union-attr]
+                finding_rules.get(  # type: ignore[union-attr]
+                    "min_effect_size",
+                    statistical_gate.get("min_effect_size", params.get("change_threshold", 1.5)),  # type: ignore[union-attr]
+                )
             ),
             "ruptures_algorithm": str(
                 ruptures_params.get("algorithm", params.get("ruptures_algorithm", "binseg"))  # type: ignore[union-attr]

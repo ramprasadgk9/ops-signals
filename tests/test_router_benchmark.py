@@ -135,6 +135,53 @@ def test_benchmark_uses_same_shared_routing_path_as_csv_validation_pipeline() ->
     assert direct_scores == pipeline_scores
 
 
+def test_csv_routing_config_applies_analyzer_overrides_for_preview_runs() -> None:
+    config = build_csv_routing_config(
+        provider="generic",
+        service="pyod-lab",
+        metric_name="synthetic_pyod_value",
+        interval="5m",
+        analyzer_id="pyod_outlier",
+        preview=True,
+        analyzer_overrides={
+            "pyod_outlier": {
+                "implementation": {
+                    "library": "pyod",
+                    "detector": "KNN",
+                    "detector_type": "knn",
+                    "contamination": 0.0278,
+                    "min_samples": 75,
+                    "grouping_gap": "10m",
+                },
+                "finding_rules": {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
+            }
+        },
+    )
+
+    params = config.analysis.analyzers["pyod_outlier"].params
+    assert params["implementation"]["contamination"] == 0.0278
+    assert params["implementation"]["min_samples"] == 75
+    assert params["implementation"]["grouping_gap"] == "10m"
+    assert params["finding_rules"] == {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"}
+    assert config.analysis.selected_analyzers == ["pyod_outlier"]
+
+
+def test_baseline_shift_params_prefer_finding_rules_schema() -> None:
+    params = SignalPipeline._baseline_shift_params(
+        {
+            "finding_rules": {"min_change_percent": 40, "min_effect_size": 2.5},
+            "statistical_gate": {"min_effect_size": 1.5},
+            "operational_significance": {"min_change_percent": 25},
+            "ruptures": {"min_size": 7, "jump": 3},
+        }
+    )
+
+    assert params["threshold_percent"] == 40
+    assert params["change_threshold"] == 2.5
+    assert params["min_segment_size"] == 7
+    assert params["ruptures_jump"] == 3
+
+
 def test_router_suite_runner_returns_success_for_phase_one_scenarios() -> None:
     scenarios_root = PROJECT_ROOT / "benchmark" / "scenarios"
     evaluations = [

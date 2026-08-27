@@ -3,7 +3,7 @@
 - Status: `GAP`
 - Recommended: `[]`
 - Optional: `[]`
-- Not recommended: `['ruptures', 'stumpy', 'prophet', 'river', 'kats', 'darts', 'alibi_detect', 'trend_regression', 'adtk', 'pyod']`
+- Not recommended: `['ruptures', 'stumpy', 'prophet', 'river', 'kats', 'darts', 'alibi_detect', 'trend_regression', 'adtk', 'pyod', 'pyod_outlier']`
 
 ## Checks
 

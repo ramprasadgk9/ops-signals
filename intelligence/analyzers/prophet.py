@@ -20,6 +20,8 @@ class ProphetConfig:
     horizon_points: int = 10
     changepoint_prior_scale: float = 0.05
     uncertainty_threshold: float = 0.15
+    library: str = "prophet"
+    finding_min_relative_error: float = 0.25
 
 
 class ProphetAnalyzer(Analyzer):
@@ -30,11 +32,20 @@ class ProphetAnalyzer(Analyzer):
         horizon_points: int = 10,
         changepoint_prior_scale: float = 0.05,
         uncertainty_threshold: float = 0.15,
+        finding_rules: dict[str, object] | None = None,
+        implementation: dict[str, object] | None = None,
     ) -> None:
+        rules = finding_rules or {}
+        impl = implementation or {}
+        horizon_points = int(impl.get("horizon_points", horizon_points))
+        changepoint_prior_scale = float(impl.get("changepoint_prior_scale", changepoint_prior_scale))
+        uncertainty_threshold = float(impl.get("uncertainty_threshold", uncertainty_threshold))
         self.config = ProphetConfig(
             horizon_points=max(3, int(horizon_points)),
             changepoint_prior_scale=float(changepoint_prior_scale),
             uncertainty_threshold=float(uncertainty_threshold),
+            library=str(impl.get("library", "prophet")),
+            finding_min_relative_error=max(0.0, float(rules.get("min_relative_error", 0.25))),
         )
 
     def capability(self) -> Capability:
@@ -71,6 +82,7 @@ class ProphetAnalyzer(Analyzer):
             env = ordered.iloc[0].get("env")
             severity = "high" if forecast["relative_error"] >= self.config.uncertainty_threshold * 2 else "medium"
             confidence = max(0.1, min(1.0, 1.0 - forecast["relative_error"]))
+            finding_rule_matched = forecast["relative_error"] >= self.config.finding_min_relative_error
             direction = "above" if forecast["residual"] > 0 else "below"
             signals.append(
                 OperationalSignal(
@@ -93,7 +105,17 @@ class ProphetAnalyzer(Analyzer):
                         "residual": round(forecast["residual"], 4),
                         "relative_error": round(forecast["relative_error"], 4),
                         "horizon_points": self.config.horizon_points,
-                        "library": "prophet" if _Prophet is not None else "fallback",
+                        "implementation": {
+                            "library": self.config.library if _Prophet is not None else "fallback",
+                            "horizon_points": self.config.horizon_points,
+                            "changepoint_prior_scale": self.config.changepoint_prior_scale,
+                            "uncertainty_threshold": self.config.uncertainty_threshold,
+                        },
+                        "library": self.config.library if _Prophet is not None else "fallback",
+                        "finding_rules": {
+                            "min_relative_error": self.config.finding_min_relative_error,
+                        },
+                        "finding_rule_matched": finding_rule_matched,
                     },
                 )
             )

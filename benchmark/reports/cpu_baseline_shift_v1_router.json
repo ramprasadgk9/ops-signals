@@ -4,7 +4,8 @@
       "stumpy",
       "river",
       "adtk",
-      "pyod"
+      "pyod",
+      "pyod_outlier"
     ],
     "optional": [
       "alibi_detect"
@@ -354,6 +355,81 @@
         "routing_reason": "PyOD is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.50.",
         "score": 0.5,
         "suitability_score": 0.5,
+        "warnings": []
+      },
+      {
+        "analyzer": "pyod_outlier",
+        "category": "NOT_RECOMMENDED",
+        "display_name": "PyOD Outlier Detection",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "PyOD Outlier Detection is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.38.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "anomaly",
+            "outlier",
+            "spike"
+          ],
+          "detected_profiles": [
+            "baseline_shift",
+            "mixed",
+            "trend"
+          ],
+          "eligibility_rules": {
+            "min_samples": 50,
+            "requires_numeric": true
+          },
+          "matched_profiles": [],
+          "matched_scoring_rules": [
+            {
+              "add": 0.08,
+              "gte": 80,
+              "metric": "sample_count"
+            }
+          ],
+          "profile_match": false,
+          "scoring_rules": {
+            "base": 0.3,
+            "rules": [
+              {
+                "add": 0.18,
+                "gte": 0.2,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.12,
+                "gte": 0.35,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.08,
+                "gte": 80,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.08,
+                "lt": 0.08,
+                "metric": "shift_index"
+              }
+            ]
+          },
+          "suitability_explanation": "PyOD Outlier Detection is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.38.",
+          "suitability_rules": {},
+          "supported_profiles": [
+            "anomaly",
+            "outlier",
+            "spike"
+          ]
+        },
+        "reason": "PyOD Outlier Detection is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.38.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 50.",
+          "No supported behavioral profile matched the detected profiles: baseline_shift, mixed, trend.",
+          "The series has isolated outlier-like behavior suitable for PyOD."
+        ],
+        "routing_reason": "PyOD Outlier Detection is technically eligible, but its supported behavioral profiles did not match the detected series behavior. Final score 0.38.",
+        "score": 0.38,
+        "suitability_score": 0.38,
         "warnings": []
       }
     ],
