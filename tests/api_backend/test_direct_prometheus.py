@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from backend.app.api.direct_prometheus import get_prometheus_query_service
+from backend.app.api.direct_prometheus import _observed_interval, _prometheus_series_to_normalized, get_prometheus_query_service
 from backend.app.config import PrometheusConnectionConfig
 from backend.app.main import create_app
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
@@ -100,6 +100,38 @@ def test_prometheus_label_values_returns_real_labels() -> None:
         "label": "service",
         "values": ["drift-lab", "ruptures-lab", "trend-lab"],
     }
+
+
+def test_observed_interval_uses_returned_sample_spacing() -> None:
+    start = datetime(2026, 7, 26, 10, tzinfo=timezone.utc)
+    samples = [
+        PrometheusSeriesSample(timestamp=start, value=1.0),
+        PrometheusSeriesSample(timestamp=start + timedelta(minutes=10), value=2.0),
+        PrometheusSeriesSample(timestamp=start + timedelta(minutes=20), value=3.0),
+    ]
+
+    assert _observed_interval(samples, fallback_seconds=300) == "10m"
+
+
+def test_prometheus_series_to_normalized_does_not_insert_empty_buckets() -> None:
+    start = datetime(2026, 7, 26, 10, tzinfo=timezone.utc)
+    samples = [
+        PrometheusSeriesSample(timestamp=start, value=1.0),
+        PrometheusSeriesSample(timestamp=start + timedelta(minutes=10), value=2.0),
+        PrometheusSeriesSample(timestamp=start + timedelta(minutes=30), value=3.0),
+    ]
+
+    normalized = _prometheus_series_to_normalized(
+        samples=samples,
+        labels={"__name__": "ops_signal_lab_value", "service": "ruptures-lab", "instance": "mock:9101"},
+        service="fallback-service",
+        metric="fallback_metric",
+    )
+
+    assert len(normalized) == 3
+    assert normalized["value"].isna().sum() == 0
+    assert normalized["metric_name"].unique().tolist() == ["ops_signal_lab_value"]
+    assert normalized["service"].unique().tolist() == ["ruptures-lab"]
 
 
 def test_direct_prometheus_analysis_rejects_empty_result() -> None:

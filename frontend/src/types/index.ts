@@ -194,9 +194,25 @@ export type PrometheusConnectionTestResponse = {
   message: string;
 };
 
+export type AnalyzerConfigSuggestion = {
+  id: number;
+  analyzer_id: string;
+  lab_name: string;
+  suggestion_name: string;
+  yaml_text: string;
+  implementation_json: Record<string, unknown>;
+  finding_rules_json: Record<string, unknown>;
+  benchmark_summary_json: Record<string, unknown>;
+  pass_fail_status: 'pass' | 'fail' | 'unknown';
+  created_by: string;
+  created_at: string;
+};
+
+export type AnalyzerConfigSuggestionInput = Omit<AnalyzerConfigSuggestion, 'id' | 'created_at'>;
+
 export type PrometheusPreviewSeries = {
   labels: Record<string, string>;
-  samples: Array<{ timestamp: string; value: number }>;
+  samples: Array<{ timestamp: string; value: number | null }>;
 };
 
 export type PrometheusPreviewResponse = {

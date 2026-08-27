@@ -37,6 +37,15 @@ class FindingAggregator:
         findings: list[OperationalFinding] = []
         comparison_json: dict[str, object] = {}
         for (service, metric_name), grouped_signals in signals_by_key.items():
+            if self._skip_by_pyod_finding_rule(grouped_signals):
+                continue
+            if self._skip_by_stumpy_finding_rule(grouped_signals):
+                continue
+            if self._skip_by_prophet_finding_rule(grouped_signals):
+                continue
+            if self._skip_by_zscore_finding_rule(grouped_signals):
+                continue
+
             metric_points = points.copy()
             metric_points = metric_points[metric_points["metric_name"].astype(str) == str(metric_name)]
             if service is not None:
@@ -67,6 +76,42 @@ class FindingAggregator:
 
         findings.sort(key=lambda item: item.importance_score, reverse=True)
         return FindingAggregationResult(findings=findings, comparison_json=comparison_json)
+
+    def _skip_by_pyod_finding_rule(self, signals: list[OperationalSignal]) -> bool:
+        pyod_signals = [signal for signal in signals if signal.analyzer_id == "pyod_outlier"]
+        if not pyod_signals:
+            return False
+        non_pyod_signals = [signal for signal in signals if signal.analyzer_id != "pyod_outlier"]
+        if non_pyod_signals:
+            return False
+        return not any(signal.evidence.get("finding_rule_matched") is True for signal in pyod_signals)
+
+    def _skip_by_stumpy_finding_rule(self, signals: list[OperationalSignal]) -> bool:
+        stumpy_signals = [signal for signal in signals if signal.analyzer_id == "stumpy"]
+        if not stumpy_signals:
+            return False
+        non_stumpy_signals = [signal for signal in signals if signal.analyzer_id != "stumpy"]
+        if non_stumpy_signals:
+            return False
+        return not any(signal.evidence.get("finding_rule_matched") is True for signal in stumpy_signals)
+
+    def _skip_by_prophet_finding_rule(self, signals: list[OperationalSignal]) -> bool:
+        prophet_signals = [signal for signal in signals if signal.analyzer_id == "prophet"]
+        if not prophet_signals:
+            return False
+        non_prophet_signals = [signal for signal in signals if signal.analyzer_id != "prophet"]
+        if non_prophet_signals:
+            return False
+        return not any(signal.evidence.get("finding_rule_matched") is True for signal in prophet_signals)
+
+    def _skip_by_zscore_finding_rule(self, signals: list[OperationalSignal]) -> bool:
+        zscore_signals = [signal for signal in signals if signal.analyzer_id == "anomaly_zscore"]
+        if not zscore_signals:
+            return False
+        non_zscore_signals = [signal for signal in signals if signal.analyzer_id != "anomaly_zscore"]
+        if non_zscore_signals:
+            return False
+        return not any(signal.evidence.get("finding_rule_matched") is True for signal in zscore_signals)
 
     def _category(self, signals: list[OperationalSignal]) -> str:
         counts = Counter(signal.signal_type for signal in signals)

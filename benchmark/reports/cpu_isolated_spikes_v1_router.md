@@ -1,7 +1,7 @@
 # Router Benchmark Report: cpu_isolated_spikes_v1
 
 - Status: `PASS`
-- Recommended: `['adtk', 'pyod']`
+- Recommended: `['adtk', 'pyod', 'pyod_outlier']`
 - Optional: `['river']`
 - Not recommended: `['ruptures', 'stumpy', 'prophet', 'kats', 'darts', 'alibi_detect', 'trend_regression']`
 

@@ -99,6 +99,7 @@ def build_csv_routing_config(
     interval: str = "5m",
     analyzer_id: str = "all",
     preview: bool = True,
+    analyzer_overrides: dict[str, dict[str, object]] | None = None,
 ) -> AppConfig:
     provider_lower = provider.lower()
     mapping_defaults, required_defaults = provider_defaults(provider_lower)
@@ -119,6 +120,12 @@ def build_csv_routing_config(
     config.output.save_question_answers = not preview
     config.output.save_embeddings = False
     config.embeddings.enabled = False
+
+    for override_analyzer_id, override_params in (analyzer_overrides or {}).items():
+        analyzer_config = config.analysis.analyzers.get(override_analyzer_id)
+        if analyzer_config is None:
+            raise ValueError(f"analyzer '{override_analyzer_id}' is not configured")
+        analyzer_config.params.update(override_params)
 
     requested_analyzer_id = analyzer_id.strip()
     if requested_analyzer_id.lower() not in {"all", "router"}:

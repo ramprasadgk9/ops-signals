@@ -8,14 +8,24 @@ analysis:
       enabled: false
     stumpy:
       enabled: true
-      window_size: 20
-      motif_count: 1
-      profile_threshold: 2.0
+      implementation:
+        library: stumpy
+        algorithm: stump
+        window_size: 20
+        motif_count: 1
+        profile_threshold: 2.0
+      finding_rules:
+        max_motif_distance: 1.0
+        min_confidence: 0.75
     prophet:
       enabled: true
-      horizon_points: 10
-      changepoint_prior_scale: 0.05
-      uncertainty_threshold: 0.15
+      implementation:
+        library: prophet
+        horizon_points: 10
+        changepoint_prior_scale: 0.05
+        uncertainty_threshold: 0.15
+      finding_rules:
+        min_relative_error: 0.25
     baseline_shift:
       enabled: true
       ruptures:
@@ -24,20 +34,40 @@ analysis:
         min_size: 5
         jump: 5
         n_bkps: 1
+      finding_rules:
+        min_change_percent: 25
+        min_effect_size: 1.5
       statistical_gate:
         min_effect_size: 1.5
       operational_significance:
         min_change_percent: 25
     anomaly_zscore:
       enabled: true
-      zscore_threshold: 3.0
-      grouping_gap: 15m
+      implementation:
+        library: pandas
+        method: zscore
+        zscore_threshold: 3.0
+        grouping_gap: 15m
+      finding_rules:
+        min_abs_zscore: 3.0
+        min_points: 1
     pyod_outlier:
       enabled: true
-      detector_type: knn
-      contamination: 0.05
-      grouping_gap: 15m
-      min_samples: 50
+      implementation:
+        library: pyod
+        detector: KNN
+        detector_type: knn
+        contamination: 0.01
+        grouping_gap: 15m
+        min_samples: 50
+      finding_rules:
+        min_outlier_points: 8
+        min_confidence: 0.75
+        window: 15m
     trend:
       enabled: true
-      min_slope_percent: 10
+      implementation:
+        library: statsmodels
+        model: OLS
+      finding_rules:
+        min_slope_percent: 10

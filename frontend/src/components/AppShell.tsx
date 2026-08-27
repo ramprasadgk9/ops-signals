@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { PropsWithChildren, ReactNode } from 'react';
 import {
   Avatar,
@@ -22,7 +23,6 @@ import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
-import DatasetRoundedIcon from '@mui/icons-material/DatasetRounded';
 import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
@@ -58,8 +58,21 @@ const navItems: NavItem[] = [
   { label: 'Operational Memory', to: '/operational-memory', icon: <StorageRoundedIcon /> },
   { label: 'Ask Ops Signals', to: '/assistant', icon: <ChatBubbleOutlineRoundedIcon />, badge: 'Beta' },
   { label: 'Experiments', to: '/experiments', icon: <ScienceRoundedIcon /> },
-  { label: 'Data Sources', to: '/validate-data', icon: <DatasetRoundedIcon /> },
-  { label: 'Analyzer Recommendations', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon /> },
+  { label: 'New Analysis', to: '/validate-data', icon: <AddRoundedIcon /> },
+];
+
+const analyzerLabItems: NavItem[] = [
+  { label: 'Z-Score Anomaly Lab', to: '/experiments/zscore-anomaly-lab', icon: <ScienceRoundedIcon /> },
+  { label: 'PyOD Outlier Lab', to: '/experiments/pyod-outlier-lab', icon: <ScienceRoundedIcon /> },
+  { label: 'Prophet Forecast Lab', to: '/experiments/prophet-forecast-lab', icon: <TimelineRoundedIcon /> },
+  { label: 'Ruptures Change Point Lab', to: '/experiments/ruptures-change-point-lab', icon: <TimelineRoundedIcon /> },
+  { label: 'STUMPY Motif Lab', to: '/experiments/stumpy-motif-lab', icon: <TimelineRoundedIcon /> },
+  { label: 'Trend Lab', to: '/experiments/trend-lab', icon: <TimelineRoundedIcon /> },
+];
+
+const analyzerWorkbenchItems: NavItem[] = [
+  { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon /> },
+  { label: 'Recommendations', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon /> },
 ];
 
 const systemItems: NavItem[] = [
@@ -67,7 +80,7 @@ const systemItems: NavItem[] = [
   { label: 'System', to: '/system', icon: <DnsRoundedIcon /> },
 ];
 
-function NavButton({ item }: { item: NavItem }) {
+function NavButton({ item, nested = false }: { item: NavItem; nested?: boolean }) {
   const location = useLocation();
   const active = item.match ? item.match(location.pathname) : location.pathname === item.to;
   return (
@@ -78,14 +91,17 @@ function NavButton({ item }: { item: NavItem }) {
       fullWidth
       sx={{
         justifyContent: 'flex-start',
-        minHeight: 42,
-        px: 1.6,
+        minHeight: nested ? 36 : 42,
+        px: nested ? 1.2 : 1.6,
+        ml: nested ? 2.2 : 0,
+        width: nested ? 'calc(100% - 17.6px)' : '100%',
         borderRadius: '8px',
         textTransform: 'none',
         color: active ? ui.red : '#475569',
         bgcolor: active ? 'rgba(255, 77, 87, 0.09)' : 'transparent',
-        fontWeight: active ? 800 : 650,
-        '& .MuiButton-startIcon': { mr: 1.2, color: active ? ui.red : '#64748b' },
+        fontWeight: active ? 800 : nested ? 600 : 650,
+        fontSize: nested ? 13 : 14,
+        '& .MuiButton-startIcon': { mr: 1.1, color: active ? ui.red : '#64748b', '& svg': { fontSize: nested ? 18 : 20 } },
         '&:hover': { bgcolor: active ? 'rgba(255, 77, 87, 0.12)' : '#f8fafc' },
       }}
     >
@@ -93,6 +109,66 @@ function NavButton({ item }: { item: NavItem }) {
         {item.label}
       </Box>
       {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: '#ede9fe', color: ui.purple, fontWeight: 800 }} /> : null}
+    </Button>
+  );
+}
+
+function WorkbenchButton({
+  label,
+  icon,
+  active,
+  onClick,
+  expanded,
+  to,
+  activeColor = '#0f766e',
+  activeBg = 'rgba(15, 118, 110, 0.09)',
+  inactiveColor = '#0f766e',
+}: {
+  label: string;
+  icon: ReactNode;
+  active: boolean;
+  onClick?: () => void;
+  expanded?: boolean;
+  to?: string;
+  activeColor?: string;
+  activeBg?: string;
+  inactiveColor?: string;
+}) {
+  const commonSx = {
+    justifyContent: 'flex-start',
+    minHeight: 42,
+    px: 1.6,
+    borderRadius: '8px',
+    textTransform: 'none',
+    color: active ? activeColor : inactiveColor,
+    bgcolor: active ? activeBg : 'transparent',
+    fontWeight: active ? 800 : 750,
+    fontSize: 14,
+    '&:hover': { bgcolor: active ? activeBg : '#f8fafc' },
+  };
+  const content = (
+    <>
+      <Box sx={{ width: 24, minWidth: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', mr: 1.1, color: active ? activeColor : inactiveColor, '& svg': { fontSize: 20 } }}>
+        {icon}
+      </Box>
+      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>
+        {label}
+      </Box>
+      {expanded !== undefined ? <KeyboardArrowDownRoundedIcon sx={{ color: active ? activeColor : inactiveColor, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} /> : null}
+    </>
+  );
+
+  if (to) {
+    return (
+      <Button component={RouterLink} to={to} fullWidth sx={commonSx}>
+        {content}
+      </Button>
+    );
+  }
+
+  return (
+    <Button onClick={onClick} fullWidth sx={commonSx}>
+      {content}
     </Button>
   );
 }
@@ -133,6 +209,14 @@ function SystemStatus() {
 export function AppShell({ children }: PropsWithChildren) {
   const location = useLocation();
   const isAnalysisPage = location.pathname === '/validate-data';
+  const isAnalyzerWorkbenchPage =
+    analyzerLabItems.some((item) => location.pathname === item.to) ||
+    analyzerWorkbenchItems.some((item) => location.pathname === item.to);
+  const [analyzerWorkbenchOpen, setAnalyzerWorkbenchOpen] = useState(isAnalyzerWorkbenchPage);
+  const [labsOpen, setLabsOpen] = useState(isAnalyzerWorkbenchPage);
+  useEffect(() => {
+    if (isAnalyzerWorkbenchPage) setAnalyzerWorkbenchOpen(true);
+  }, [isAnalyzerWorkbenchPage, location.pathname]);
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: ui.bg, color: ui.text }}>
       <Box
@@ -216,6 +300,47 @@ export function AppShell({ children }: PropsWithChildren) {
         >
           <Stack spacing={0.8} sx={{ px: 1.5 }}>
             {navItems.map((item) => <NavButton key={item.label} item={item} />)}
+            <Button
+              onClick={() => setAnalyzerWorkbenchOpen((open) => !open)}
+              endIcon={<KeyboardArrowDownRoundedIcon sx={{ transform: analyzerWorkbenchOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}
+              fullWidth
+              sx={{
+                justifyContent: 'space-between',
+                minHeight: 34,
+                px: 1.6,
+                pt: 1.4,
+                color: ui.red,
+                textTransform: 'uppercase',
+                letterSpacing: 1.2,
+                fontSize: 14,
+                fontWeight: 900,
+                '& .MuiButton-endIcon svg': { color: ui.red, fontSize: 22 },
+                '&:hover': { bgcolor: 'rgba(255, 77, 87, 0.05)' },
+              }}
+            >
+              Analyzer Workbench
+            </Button>
+            {analyzerWorkbenchOpen ? (
+              <>
+                <WorkbenchButton
+                  label="Labs"
+                  icon={<ScienceRoundedIcon />}
+                  active={analyzerLabItems.some((item) => location.pathname === item.to)}
+                  onClick={() => setLabsOpen((open) => !open)}
+                  expanded={labsOpen}
+                />
+                {labsOpen ? analyzerLabItems.map((item) => <NavButton key={item.label} item={item} nested />) : null}
+                {analyzerWorkbenchItems.map((item) => (
+                  <WorkbenchButton
+                    key={item.label}
+                    label={item.label}
+                    icon={item.icon}
+                    to={item.to}
+                    active={item.match ? item.match(location.pathname) : location.pathname === item.to}
+                  />
+                ))}
+              </>
+            ) : null}
           </Stack>
           <Divider sx={{ mx: 3, my: 2 }} />
           <Stack spacing={0.8} sx={{ px: 1.5 }}>

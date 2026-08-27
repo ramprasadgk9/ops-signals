@@ -6,6 +6,8 @@ from typing import Any
 import pandas as pd
 from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select
 from sqlalchemy.dialects.postgresql import BIGINT
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from intelligence.config import AppConfig
 from intelligence.findings.schema import OperationalFinding
@@ -250,17 +252,40 @@ class PostgresStore:
         if not questions:
             return
         with self.engine.begin() as connection:
-            connection.execute(self.question_catalog_table.delete())
             for question in questions:
-                connection.execute(
-                    self.question_catalog_table.insert().values(
-                        id=question["id"],
-                        label=question["label"],
-                        description=question["description"],
-                        enabled=bool(question.get("enabled", True)),
-                        display_order=question.get("display_order", 0),
+                record = {
+                    "id": question["id"],
+                    "label": question["label"],
+                    "description": question["description"],
+                    "enabled": bool(question.get("enabled", True)),
+                    "display_order": question.get("display_order", 0),
+                }
+                if self.engine.dialect.name == "postgresql":
+                    statement = postgres_insert(self.question_catalog_table).values(**record)
+                    statement = statement.on_conflict_do_update(
+                        index_elements=[self.question_catalog_table.c.id],
+                        set_={
+                            "label": statement.excluded.label,
+                            "description": statement.excluded.description,
+                            "enabled": statement.excluded.enabled,
+                            "display_order": statement.excluded.display_order,
+                        },
                     )
-                )
+                    connection.execute(statement)
+                elif self.engine.dialect.name == "sqlite":
+                    statement = sqlite_insert(self.question_catalog_table).values(**record)
+                    statement = statement.on_conflict_do_update(
+                        index_elements=[self.question_catalog_table.c.id],
+                        set_={
+                            "label": statement.excluded.label,
+                            "description": statement.excluded.description,
+                            "enabled": statement.excluded.enabled,
+                            "display_order": statement.excluded.display_order,
+                        },
+                    )
+                    connection.execute(statement)
+                else:
+                    connection.execute(self.question_catalog_table.insert().values(**record))
 
     def create_analysis_run(self, payload: dict[str, Any]) -> None:
         column_names = {column["name"] for column in inspect(self.engine).get_columns("analysis_runs", schema=None)}

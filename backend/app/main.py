@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.analysis_runs import router as analysis_runs_router
 from backend.app.api.admin_analyzers import router as admin_analyzers_router
+from backend.app.api.analyzer_labs import router as analyzer_labs_router
 from backend.app.api.assistant import router as assistant_router
 from backend.app.api.analyzer_router import router as analyzer_router
 from backend.app.api.autonomous import router as autonomous_router
@@ -257,6 +258,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(timeseries_router)
     app.include_router(metric_analyzer_recommendations_router)
     app.include_router(analyzer_router)
+    app.include_router(analyzer_labs_router)
     app.include_router(autonomous_router)
     app.include_router(experiments_router)
     app.include_router(ingestion_router)

@@ -14,7 +14,8 @@
     ],
     "recommended": [
       "adtk",
-      "pyod"
+      "pyod",
+      "pyod_outlier"
     ]
   },
   "actual_details": {
@@ -939,6 +940,100 @@
         "routing_reason": "PyOD matched the detected anomaly and outlier profiles, with final score 0.88.",
         "score": 0.88,
         "suitability_score": 0.88,
+        "warnings": []
+      },
+      {
+        "analyzer": "pyod_outlier",
+        "category": "RECOMMENDED",
+        "display_name": "PyOD Outlier Detection",
+        "eligibility_score": 1.0,
+        "eligible": true,
+        "explanation": "PyOD Outlier Detection matched the detected anomaly, outlier, and spike profiles, with final score 0.86.",
+        "feature_evidence": {
+          "behavioral_supported_profiles": [
+            "anomaly",
+            "outlier",
+            "spike"
+          ],
+          "detected_profiles": [
+            "anomaly",
+            "outlier",
+            "spike"
+          ],
+          "eligibility_rules": {
+            "min_samples": 50,
+            "requires_numeric": true
+          },
+          "matched_profiles": [
+            "anomaly",
+            "outlier",
+            "spike"
+          ],
+          "matched_scoring_rules": [
+            {
+              "add": 0.18,
+              "gte": 0.2,
+              "metric": "spikiness"
+            },
+            {
+              "add": 0.12,
+              "gte": 0.35,
+              "metric": "spikiness"
+            },
+            {
+              "add": 0.08,
+              "gte": 80,
+              "metric": "sample_count"
+            },
+            {
+              "add": 0.08,
+              "lt": 0.08,
+              "metric": "shift_index"
+            }
+          ],
+          "profile_match": true,
+          "scoring_rules": {
+            "base": 0.3,
+            "rules": [
+              {
+                "add": 0.18,
+                "gte": 0.2,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.12,
+                "gte": 0.35,
+                "metric": "spikiness"
+              },
+              {
+                "add": 0.08,
+                "gte": 80,
+                "metric": "sample_count"
+              },
+              {
+                "add": 0.08,
+                "lt": 0.08,
+                "metric": "shift_index"
+              }
+            ]
+          },
+          "suitability_explanation": "PyOD Outlier Detection matched the detected anomaly, outlier, and spike profiles, with final score 0.86.",
+          "suitability_rules": {},
+          "supported_profiles": [
+            "anomaly",
+            "outlier",
+            "spike"
+          ]
+        },
+        "reason": "PyOD Outlier Detection matched the detected anomaly, outlier, and spike profiles, with final score 0.86.",
+        "reasons": [
+          "Has 2016 valid samples, which meets the minimum of 50.",
+          "Matched detected profiles: anomaly, outlier, spike.",
+          "The series has isolated outlier-like behavior suitable for PyOD."
+        ],
+        "routing_reason": "PyOD Outlier Detection matched the detected anomaly, outlier, and spike profiles, with final score 0.86.",
+        "score": 0.86,
+        "suitability_score": 0.86,
         "warnings": []
       }
     ]

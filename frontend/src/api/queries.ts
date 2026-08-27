@@ -1,5 +1,7 @@
-import { getJson, postForm, postJson, patchJson } from './client';
+import { deleteJson, getJson, postForm, postJson, patchJson } from './client';
 import type {
+  AnalyzerConfigSuggestion,
+  AnalyzerConfigSuggestionInput,
   AnalyzerRecommendation,
   AnalyzerRecommendationChatRequest,
   AnalyzerRecommendationChatResponse,
@@ -173,6 +175,18 @@ export const api = {
     return getJson<ExperimentComparison>(`/api/experiments/compare?${params.toString()}`);
   },
   analyzerRouterRoute: (payload: FormData) => postForm<RouterResponse>('/api/experiment-analyzer-router/route', payload),
+  analyzerLabConfigSuggestions: (analyzerId?: string) =>
+    getJson<AnalyzerConfigSuggestion[]>(
+      `/api/analyzer-labs/config-suggestions${analyzerId ? `?analyzer_id=${encodeURIComponent(analyzerId)}` : ''}`
+    ),
+  saveAnalyzerLabConfigSuggestion: (payload: AnalyzerConfigSuggestionInput) =>
+    postJson<AnalyzerConfigSuggestionInput, AnalyzerConfigSuggestion>('/api/analyzer-labs/config-suggestions', payload),
+  deleteAnalyzerLabConfigSuggestion: (suggestionId: number) =>
+    deleteJson<{ deleted: number }>(`/api/analyzer-labs/config-suggestions/${suggestionId}`),
+  clearAnalyzerLabConfigSuggestions: (analyzerId?: string) =>
+    deleteJson<{ deleted: number }>(
+      `/api/analyzer-labs/config-suggestions${analyzerId ? `?analyzer_id=${encodeURIComponent(analyzerId)}` : ''}`
+    ),
   
   timeseries: (service: string, metric: string, runId: string) =>
     getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),

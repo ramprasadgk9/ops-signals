@@ -12,8 +12,22 @@ from intelligence.signals.schema import OperationalSignal
 class TrendAnalyzer(Analyzer):
     analyzer_id = "trend"
 
-    def __init__(self, min_slope_percent: float) -> None:
-        self.min_slope_percent = min_slope_percent
+    def __init__(
+        self,
+        min_slope_percent: float | None = None,
+        finding_rules: dict[str, object] | None = None,
+        implementation: dict[str, object] | None = None,
+    ) -> None:
+        rules = finding_rules or {}
+        impl = implementation or {}
+        default_min_slope_percent = 10.0 if min_slope_percent is None else float(min_slope_percent)
+        self.finding_min_slope_percent = max(
+            0.0,
+            float(rules.get("min_slope_percent", default_min_slope_percent)),
+        )
+        self.min_slope_percent = self.finding_min_slope_percent
+        self.library = str(impl.get("library", "statsmodels"))
+        self.model = str(impl.get("model", "OLS"))
 
     def capability(self) -> Capability:
         return Capability(
@@ -54,10 +68,11 @@ class TrendAnalyzer(Analyzer):
             slope_percent = (slope * (len(ordered) - 1) / baseline) * 100.0
             if not all(np.isfinite(value) for value in [slope, intercept, p_value, r_squared, slope_percent]):
                 continue
-            if abs(slope_percent) < self.min_slope_percent:
+            finding_rule_matched = bool(abs(slope_percent) >= self.finding_min_slope_percent)
+            if not finding_rule_matched:
                 continue
-            severity = "high" if abs(slope_percent) >= self.min_slope_percent * 2 else "medium"
-            effect_confidence = min(1.0, abs(slope_percent) / (self.min_slope_percent * 2.0))
+            severity = "high" if abs(slope_percent) >= self.finding_min_slope_percent * 2 else "medium"
+            effect_confidence = min(1.0, abs(slope_percent) / max(self.finding_min_slope_percent * 2.0, 1e-9))
             statistical_confidence = max(0.0, min(1.0, 1.0 - p_value))
             fit_confidence = max(0.0, min(1.0, r_squared))
             confidence = max(0.0, min(1.0, effect_confidence * 0.6 + statistical_confidence * 0.25 + fit_confidence * 0.15))
@@ -85,10 +100,18 @@ class TrendAnalyzer(Analyzer):
                         "intercept": round(float(intercept), 6),
                         "slope_percent": round(float(slope_percent), 4),
                         "threshold_percent": self.min_slope_percent,
+                        "finding_rules": {
+                            "min_slope_percent": self.finding_min_slope_percent,
+                        },
+                        "finding_rule_matched": finding_rule_matched,
                         "p_value": round(float(p_value), 6),
                         "r_squared": round(float(r_squared), 6),
-                        "library": "statsmodels",
-                        "model": "OLS",
+                        "implementation": {
+                            "library": self.library,
+                            "model": self.model,
+                        },
+                        "library": self.library,
+                        "model": self.model,
                     },
                 )
             )

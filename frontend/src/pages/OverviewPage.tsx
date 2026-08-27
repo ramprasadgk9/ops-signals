@@ -192,6 +192,8 @@ function NeedsAttentionRow({ priority, priorityColor, priorityBg, serviceMetric,
 function AutonomousSummaryPanel({ data, latestRun, error, detailsOpen, onToggleDetails }: { data: AutonomousDashboardData; latestRun: AutonomousPolicyRun | null; error: boolean; detailsOpen: boolean; onToggleDetails: () => void }) {
   const topFinding = data.topFindings[0];
   const completedAt = latestRun?.completed_at ?? latestRun?.updated_at ?? latestRun?.started_at ?? null;
+  const findingsByRun = buildFindingsByObserved(data.topFindings);
+  const priorityBreakdown = buildPriorityBreakdown(data.topFindings);
   return (
     <WorkspacePanel sx={{ p: 0, overflow: 'hidden' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between" spacing={1.5} sx={{ px: 2.5, py: 1.8, borderBottom: `1px solid ${ui.border}` }}>
@@ -211,18 +213,39 @@ function AutonomousSummaryPanel({ data, latestRun, error, detailsOpen, onToggleD
         </Stack>
       </Stack>
       <Box sx={{ px: 2.5, py: 2 }}>
-        <Typography sx={{ color: ui.text, fontWeight: 750 }}>
-          Last run {latestRun?.status ?? 'not available'} {latestRun ? relativeTime(completedAt) : ''} | {data.summary.findingsGenerated} findings | {data.summary.failed ?? 0} failed | Top finding {topFinding?.metric ?? 'none'}
-        </Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 1.5 }}>
+          <AutonomousStatusTile label="Last Run" value={latestRun?.status ?? 'Unavailable'} detail={latestRun ? relativeTime(completedAt) : 'No run yet'} tone={latestRun?.status === 'completed' ? ui.green : ui.orange} />
+          <AutonomousStatusTile label="Findings" value={data.summary.findingsGenerated} detail="Generated" tone={ui.orange} />
+          <AutonomousStatusTile label="Failed Jobs" value={data.summary.failed ?? 0} detail="Execution errors" tone={(data.summary.failed ?? 0) > 0 ? ui.red : ui.green} />
+          <AutonomousStatusTile label="Top Metric" value={topFinding?.metric ?? 'None'} detail={topFinding?.service ?? 'No service'} tone={ui.blue} />
+        </Box>
       </Box>
       <Collapse in={detailsOpen} unmountOnExit>
         <Box sx={{ borderTop: `1px solid ${ui.border}`, px: 2.5, py: 2.5 }}>
           <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 0.5 }}>Autonomous Analysis Details</Typography>
-          <Typography sx={{ color: ui.muted, mb: 2 }}>Latest autonomous results, run history, generated findings, and related cases in this overview window.</Typography>
+          <Typography sx={{ color: ui.muted, mb: 2 }}>Run health, finding trend, priority mix, and the investigation queue for this overview window.</Typography>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, lg: 6 }}>
-              <DetailPanel title="Autonomous Findings">
-                {data.topFindings.length ? data.topFindings.slice(0, 5).map((finding) => (
+              <DetailPanel title="Findings by Run">
+                {findingsByRun.some((item) => item.value > 0) ? (
+                  <MiniBarChart items={findingsByRun} />
+                ) : (
+                  <Typography color="text.secondary">No finding trend points returned yet.</Typography>
+                )}
+              </DetailPanel>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 6 }}>
+              <DetailPanel title="Priority Breakdown">
+                {priorityBreakdown.length ? (
+                  <HorizontalBars items={priorityBreakdown} />
+                ) : (
+                  <Typography color="text.secondary">No priority breakdown available.</Typography>
+                )}
+              </DetailPanel>
+            </Grid>
+            <Grid size={{ xs: 12, lg: 7 }}>
+              <DetailPanel title="Top Autonomous Findings">
+                {data.topFindings.length ? data.topFindings.slice(0, 3).map((finding) => (
                   <DetailRow
                     key={`${finding.rank}-${finding.service}-${finding.metric}`}
                     title={`${finding.service} / ${finding.metric}`}
@@ -232,21 +255,16 @@ function AutonomousSummaryPanel({ data, latestRun, error, detailsOpen, onToggleD
                 )) : <Typography color="text.secondary">No autonomous findings returned for this window.</Typography>}
               </DetailPanel>
             </Grid>
-            <Grid size={{ xs: 12, lg: 6 }}>
-              <DetailPanel title="Execution History">
-                {data.executionRows.length ? data.executionRows.slice(0, 5).map((row) => (
-                  <DetailRow key={row.id} title={row.scope} meta={`${row.metrics} • ${row.status} • ${relativeTime(row.completed)}`} />
-                )) : <Typography color="text.secondary">No autonomous execution history is available.</Typography>}
+            <Grid size={{ xs: 12, lg: 5 }}>
+              <DetailPanel title="Behavior Distribution">
+                {data.behaviorDistribution.length ? <HorizontalBars items={data.behaviorDistribution.map((item) => ({ ...item, color: ui.blue }))} /> : <Typography color="text.secondary">No behavior distribution available.</Typography>}
               </DetailPanel>
             </Grid>
             <Grid size={{ xs: 12, lg: 6 }}>
-              <DetailPanel title="Behavior Distribution">
-                {data.behaviorDistribution.length ? data.behaviorDistribution.map((item) => (
-                  <Stack key={item.label} direction="row" justifyContent="space-between" sx={{ py: 0.75, borderBottom: `1px solid ${ui.border}` }}>
-                    <Typography sx={{ fontWeight: 800 }}>{item.label}</Typography>
-                    <Typography sx={{ color: ui.muted }}>{item.count}</Typography>
-                  </Stack>
-                )) : <Typography color="text.secondary">No behavior distribution available.</Typography>}
+              <DetailPanel title="Execution Timeline">
+                {data.executionRows.length ? data.executionRows.slice(0, 5).map((row) => (
+                  <TimelineRow key={row.id} title={row.scope} meta={`${row.metrics} • ${relativeTime(row.completed)}`} status={row.status} failed={row.status.toLowerCase().includes('fail')} />
+                )) : <Typography color="text.secondary">No autonomous execution history is available.</Typography>}
               </DetailPanel>
             </Grid>
             <Grid size={{ xs: 12, lg: 6 }}>
@@ -276,6 +294,67 @@ function OpenInvestigationsPanel({ openCases }: { openCases: ReturnType<typeof t
   );
 }
 
+function AutonomousStatusTile({ label, value, detail, tone }: { label: string; value: number | string; detail: string; tone: string }) {
+  return (
+    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.5, bgcolor: '#fbfdff', minWidth: 0 }}>
+      <Typography sx={{ color: ui.muted, fontSize: 12, fontWeight: 800 }}>{label}</Typography>
+      <Typography sx={{ color: ui.text, fontSize: 20, fontWeight: 900, mt: 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</Typography>
+      <Typography sx={{ color: tone, fontSize: 12, fontWeight: 800, mt: 0.8 }}>{detail}</Typography>
+    </Box>
+  );
+}
+
+function MiniBarChart({ items }: { items: Array<{ label: string; value: number }> }) {
+  const max = Math.max(...items.map((item) => item.value), 1);
+  return (
+    <Stack direction="row" alignItems="flex-end" spacing={1.2} sx={{ height: 150, pt: 1 }}>
+      {items.map((item, index) => {
+        const height = Math.max(8, (item.value / max) * 104);
+        return (
+          <Box key={`${item.label}-${index}`} sx={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+            <Typography sx={{ fontSize: 12, fontWeight: 850, color: ui.text, mb: 0.8 }}>{item.value}</Typography>
+            <Box sx={{ height, borderRadius: '6px 6px 2px 2px', bgcolor: item.value > 0 ? ui.blue : '#e2e8f0', transition: 'height 160ms ease' }} />
+            <Typography sx={{ color: ui.muted, fontSize: 11, mt: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</Typography>
+          </Box>
+        );
+      })}
+    </Stack>
+  );
+}
+
+function HorizontalBars({ items }: { items: Array<{ label: string; count: number; color?: string }> }) {
+  const max = Math.max(...items.map((item) => item.count), 1);
+  return (
+    <Stack spacing={1.2}>
+      {items.map((item) => (
+        <Box key={item.label}>
+          <Stack direction="row" justifyContent="space-between" spacing={1}>
+            <Typography sx={{ fontWeight: 850 }}>{item.label}</Typography>
+            <Typography sx={{ color: ui.muted, fontWeight: 800 }}>{item.count}</Typography>
+          </Stack>
+          <Box sx={{ mt: 0.7, height: 8, borderRadius: '999px', bgcolor: '#e2e8f0', overflow: 'hidden' }}>
+            <Box sx={{ width: `${Math.max(4, (item.count / max) * 100)}%`, height: '100%', bgcolor: item.color ?? priorityColor(item.label), borderRadius: '999px' }} />
+          </Box>
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
+function TimelineRow({ title, meta, status, failed }: { title: string; meta: string; status: string; failed?: boolean }) {
+  return (
+    <Stack direction="row" spacing={1.2} alignItems="flex-start">
+      <Box sx={{ width: 22, height: 22, borderRadius: '999px', bgcolor: failed ? '#fff1f2' : '#ecfdf5', color: failed ? ui.red : ui.green, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 900 }}>
+        {failed ? '!' : <CheckCircleRoundedIcon sx={{ fontSize: 15 }} />}
+      </Box>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</Typography>
+        <Typography sx={{ color: ui.muted, fontSize: 13 }}>{status} • {meta}</Typography>
+      </Box>
+    </Stack>
+  );
+}
+
 function DetailPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, minHeight: 180 }}>
@@ -283,6 +362,38 @@ function DetailPanel({ title, children }: { title: string; children: React.React
       <Stack spacing={1}>{children}</Stack>
     </Box>
   );
+}
+
+function buildPriorityBreakdown(findings: AutonomousDashboardData['topFindings']) {
+  const counts = findings.reduce<Record<string, number>>((acc, finding) => {
+    const label = titleCase(finding.severity || 'normal');
+    acc[label] = (acc[label] ?? 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts)
+    .map(([label, count]) => ({ label, count, color: priorityColor(label) }))
+    .sort((left, right) => right.count - left.count);
+}
+
+function buildFindingsByObserved(findings: AutonomousDashboardData['topFindings']) {
+  const counts = findings.reduce<Record<string, number>>((acc, finding) => {
+    const date = finding.firstObserved ? new Date(finding.firstObserved) : null;
+    const label = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Unknown';
+    acc[label] = (acc[label] ?? 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts)
+    .map(([label, value]) => ({ label, value }))
+    .slice(-5);
+}
+
+function priorityColor(label: string) {
+  const normalized = label.toLowerCase();
+  if (normalized.includes('critical') || normalized.includes('significant')) return ui.red;
+  if (normalized.includes('high')) return ui.orange;
+  if (normalized.includes('medium')) return '#f59e0b';
+  if (normalized.includes('low') || normalized.includes('normal')) return ui.green;
+  return ui.blue;
 }
 
 function DetailRow({ title, meta, to }: { title: string; meta: string; to?: string }) {

@@ -115,7 +115,7 @@ function formatNumber(value: number | null | undefined) {
 }
 
 function minMaxAvg(preview: PrometheusPreviewResponse | null) {
-  const values = preview?.series.flatMap((series) => series.samples.map((sample) => sample.value)) ?? [];
+  const values = preview?.series.flatMap((series) => series.samples.map((sample) => sample.value).filter((value): value is number => typeof value === 'number' && !Number.isNaN(value))) ?? [];
   if (!values.length) return { min: null, max: null, avg: null };
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -193,12 +193,46 @@ function RouterDecisionPanel({ decisions }: { decisions: CsvAnalyzerRoutingDecis
   );
 }
 
+function buildDataQualityMessage(result: DirectPrometheusAnalysisResponse | null) {
+  if (!result) return null;
+  const decisions = (result.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[];
+  if (!decisions.length) return null;
+  const allRejected = decisions.every((decision) => String(decision.recommendation ?? '').toUpperCase() === 'REJECTED');
+  const reasonText = decisions.map((decision) => [
+    decision.routing_reason,
+    decision.explanation,
+    ...(decision.reasons ?? []),
+  ].filter(Boolean).join(' ')).join(' ').toLowerCase();
+  const sampleRejected = reasonText.includes('needs at least') && reasonText.includes('valid samples');
+  const qualityRejected = decisions.some((decision) => {
+    const decisionReasonText = [
+      decision.routing_reason,
+      decision.explanation,
+      ...(decision.reasons ?? []),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return decisionReasonText.includes('missing') || decisionReasonText.includes('invalid values');
+  });
+  if (!allRejected || (!qualityRejected && !sampleRejected)) return null;
+
+  const samples = result.series[0]?.samples ?? [];
+  const missingCount = samples.filter((sample) => sample.value === null || Number.isNaN(Number(sample.value))).length;
+  const missingPercentage = samples.length ? (missingCount / samples.length) * 100 : null;
+  const validCount = samples.length - missingCount;
+  return {
+    kind: sampleRejected ? 'sample_count' : missingCount > 0 ? 'missing' : 'invalid',
+    missingPercentage,
+    validCount,
+    analyzerCount: decisions.length,
+  };
+}
+
 export function ValidateDataPage() {
   const [mode, setMode] = useState<Mode>('csv');
   const [provider, setProvider] = useState<Provider>('prometheus');
   const [analyzerId, setAnalyzerId] = useState('all');
   const [service, setService] = useState('ruptures-lab');
   const [metricName, setMetricName] = useState('ops_signal_lab_value');
+  const [metricNames, setMetricNames] = useState<string[]>(['ops_signal_lab_value']);
   const [interval, setInterval] = useState('5m');
   const [file, setFile] = useState<File | null>(null);
   const [resultSignals, setResultSignals] = useState<ValidationSignal[]>([]);
@@ -218,8 +252,10 @@ export function ValidateDataPage() {
   const [connectionId, setConnectionId] = useState('default');
   const [promPreview, setPromPreview] = useState<PrometheusPreviewResponse | null>(null);
   const [promResult, setPromResult] = useState<DirectPrometheusAnalysisResponse | null>(null);
+  const [promResults, setPromResults] = useState<DirectPrometheusAnalysisResponse[]>([]);
   const [promMessage, setPromMessage] = useState<string | null>(null);
   const [promError, setPromError] = useState<string | null>(null);
+  const [createdCases, setCreatedCases] = useState<Record<number, number>>({});
 
   const capabilitiesQuery = useQuery({ queryKey: ['capabilities'], queryFn: () => api.capabilities() });
   const connectionsQuery = useQuery({ queryKey: ['prometheus-connections'], queryFn: api.prometheusConnections });
@@ -252,7 +288,8 @@ export function ValidateDataPage() {
     return { start: new Date(customStart), end: new Date(customEnd) };
   }, [customEnd, customStart, timePreset]);
 
-  const effectiveQuery = queryMode === 'simple' ? buildPromql(metricName, service) : promQuery;
+  const selectedMetricNames = queryMode === 'simple' ? (metricNames.length ? metricNames : [metricName]).filter(Boolean) : [metricName].filter(Boolean);
+  const effectiveQuery = queryMode === 'simple' ? buildPromql(selectedMetricNames[0] ?? metricName, service) : promQuery;
   const rangeValid = selectedRange.start instanceof Date && selectedRange.end instanceof Date && !Number.isNaN(selectedRange.start.getTime()) && !Number.isNaN(selectedRange.end.getTime()) && selectedRange.start < selectedRange.end;
   const suggestedLabService = service.replace(/_/g, '-');
   const likelyLabServiceTypo = service.includes('_') && LAB_SERVICE_NAMES.has(suggestedLabService);
@@ -304,17 +341,33 @@ export function ValidateDataPage() {
   });
 
   const previewMutation = useMutation({
-    mutationFn: () =>
-      api.previewPrometheus({
-        connection_id: connectionId,
-        query: effectiveQuery,
-        start: selectedRange.start.toISOString(),
-        end: selectedRange.end.toISOString(),
-        step,
-      }),
+    mutationFn: async () => {
+      if (queryMode !== 'simple' || selectedMetricNames.length <= 1) {
+        return api.previewPrometheus({
+          connection_id: connectionId,
+          query: effectiveQuery,
+          start: selectedRange.start.toISOString(),
+          end: selectedRange.end.toISOString(),
+          step,
+        });
+      }
+      const previews = await Promise.all(selectedMetricNames.map((metric) =>
+        api.previewPrometheus({
+          connection_id: connectionId,
+          query: buildPromql(metric, service),
+          start: selectedRange.start.toISOString(),
+          end: selectedRange.end.toISOString(),
+          step,
+        })
+      ));
+      const sampleCount = previews.reduce((total, item) => total + item.sample_count, 0);
+      const seriesCount = previews.reduce((total, item) => total + item.series_count, 0);
+      return { ...previews[0], sample_count: sampleCount, series_count: seriesCount, warnings: previews.flatMap((item) => item.warnings) };
+    },
     onSuccess: (result) => {
       setPromError(null);
-      setPromMessage(result.sample_count ? `Preview returned ${result.sample_count} samples across ${result.series_count} series.` : 'The query succeeded, but Prometheus returned no samples for the selected time range.');
+      const metricText = queryMode === 'simple' && selectedMetricNames.length > 1 ? ` across ${selectedMetricNames.length} metrics` : '';
+      setPromMessage(result.sample_count ? `Preview returned ${result.sample_count} samples across ${result.series_count} series${metricText}.` : 'The query succeeded, but Prometheus returned no samples for the selected time range.');
       setPromPreview(result);
     },
     onError: (err: unknown) => {
@@ -325,26 +378,69 @@ export function ValidateDataPage() {
   });
 
   const runPrometheusMutation = useMutation({
-    mutationFn: () =>
-      api.runPrometheusAnalysis({
-        connection_id: connectionId,
-        query: effectiveQuery,
-        service,
-        metric: metricName,
-        start: selectedRange.start.toISOString(),
-        end: selectedRange.end.toISOString(),
-        step,
-        analyzer: analyzerId,
-        execution_mode: 'persist',
-      }),
-    onSuccess: (result) => {
+    mutationFn: async () => {
+      if (queryMode !== 'simple' || selectedMetricNames.length <= 1) {
+        return [await api.runPrometheusAnalysis({
+          connection_id: connectionId,
+          query: effectiveQuery,
+          service,
+          metric: metricName,
+          start: selectedRange.start.toISOString(),
+          end: selectedRange.end.toISOString(),
+          step,
+          analyzer: analyzerId,
+          execution_mode: 'persist',
+        })];
+      }
+      const results: DirectPrometheusAnalysisResponse[] = [];
+      for (const metric of selectedMetricNames) {
+        results.push(await api.runPrometheusAnalysis({
+          connection_id: connectionId,
+          query: buildPromql(metric, service),
+          service,
+          metric,
+          start: selectedRange.start.toISOString(),
+          end: selectedRange.end.toISOString(),
+          step,
+          analyzer: analyzerId,
+          execution_mode: 'persist',
+        }));
+      }
+      return results;
+    },
+    onSuccess: (results) => {
       setPromError(null);
-      setPromResult(result);
-      setPromMessage(`Analysis run ${result.analysis_run_id} created with ${result.signal_count} signals and ${result.findings_count} findings.`);
+      const ranked = [...results].sort((left, right) =>
+        (right.findings_count - left.findings_count)
+        || (right.signal_count - left.signal_count)
+        || (right.sample_count - left.sample_count)
+      );
+      setPromResults(results);
+      setPromResult(ranked[0] ?? null);
+      const signalCount = results.reduce((total, item) => total + item.signal_count, 0);
+      const findingCount = results.reduce((total, item) => total + item.findings_count, 0);
+      setPromMessage(
+        results.length > 1
+          ? `${results.length} analysis runs created with ${signalCount} signals and ${findingCount} findings. Showing ${ranked[0]?.metric_name ?? 'top metric'} first.`
+          : `Analysis run ${results[0]?.analysis_run_id ?? 'unknown'} created with ${results[0]?.signal_count ?? 0} signals and ${results[0]?.findings_count ?? 0} findings.`
+      );
     },
     onError: (err: unknown) => {
       setPromMessage(null);
       setPromError(err instanceof Error ? err.message : 'Prometheus analysis failed');
+    },
+  });
+
+  const createCaseMutation = useMutation({
+    mutationFn: (findingId: number) => api.createCase(findingId),
+    onSuccess: (result) => {
+      setCreatedCases((current) => ({ ...current, [result.finding_id]: result.case_id }));
+      setPromError(null);
+      setPromMessage(`Case #${result.case_id} is ready for finding #${result.finding_id}.`);
+    },
+    onError: (err: unknown) => {
+      setPromMessage(null);
+      setPromError(err instanceof Error ? err.message : 'Could not create case');
     },
   });
 
@@ -370,6 +466,7 @@ export function ValidateDataPage() {
   const lastSample = previewSamples[previewSamples.length - 1]?.timestamp;
   const primaryFinding = promResult?.findings[0];
   const primarySignal = promResult?.signals[0];
+  const dataQualityMessage = buildDataQualityMessage(promResult);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -462,6 +559,7 @@ export function ValidateDataPage() {
 	                          onClick={() => {
 	                            setService(scenario.service);
 	                            setMetricName(scenario.metric);
+	                            setMetricNames([scenario.metric]);
 	                            setAnalyzerId(scenario.analyzer);
 	                            setQueryMode('simple');
 	                            setPromQuery(buildPromql(scenario.metric, scenario.service));
@@ -496,16 +594,28 @@ export function ValidateDataPage() {
 	                    />
 	                  </Box>
 	                  <Box>
-	                    <FieldLabel>Metric</FieldLabel>
+	                    <FieldLabel>{queryMode === 'simple' ? 'Metrics' : 'Metric'}</FieldLabel>
 	                    <Autocomplete
+                        multiple={queryMode === 'simple'}
 	                      freeSolo
 	                      size="small"
 	                      options={metricOptions}
-	                      value={metricName}
+	                      value={queryMode === 'simple' ? metricNames : metricName}
 	                      loading={metricLabelsQuery.isLoading}
+	                      onChange={(_, value) => {
+                          if (queryMode !== 'simple') return;
+                          const next = Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+                          setMetricNames(next);
+                          setMetricName(next[0] ?? '');
+                          setPromQuery(buildPromql(next[0] ?? '', service));
+                          setPromPreview(null);
+                          setPromResult(null);
+                          setPromResults([]);
+                        }}
 	                      onInputChange={(_, value) => {
-	                        setMetricName(value);
-	                        if (queryMode === 'simple') setPromQuery(buildPromql(value, service));
+                          if (queryMode === 'simple') return;
+                          setMetricName(value);
+	                        setPromQuery(buildPromql(value, service));
 	                      }}
 	                      renderInput={(params) => <TextField {...params} placeholder={metricLabelsQuery.error ? 'Type metric manually' : 'Select or type metric'} />}
 	                    />
@@ -660,8 +770,27 @@ export function ValidateDataPage() {
 	                  <Chip size="small" label={`${promResult.sample_count} samples`} />
 	                  <Chip size="small" label={`${promResult.signal_count} signals`} />
 	                  <Chip size="small" label={`${promResult.findings_count} findings`} />
+                    {promResults.length > 1 ? <Chip size="small" label={`${promResults.length} metrics analyzed`} /> : null}
 	                </Stack>
 	              </Stack>
+
+                {promResults.length > 1 ? (
+                  <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.4, bgcolor: '#fbfdff' }}>
+                    <Typography sx={{ fontWeight: 900, color: ui.text, mb: 1 }}>Metric Results</Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      {promResults.map((result) => (
+                        <Chip
+                          key={result.analysis_run_id}
+                          clickable
+                          color={result.analysis_run_id === promResult.analysis_run_id ? 'primary' : 'default'}
+                          label={`${result.metric_name}: ${result.findings_count} findings, ${result.signal_count} signals`}
+                          onClick={() => setPromResult(result)}
+                          sx={{ fontWeight: 800 }}
+                        />
+                      ))}
+                    </Stack>
+                  </Box>
+                ) : null}
 
 	              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1.45fr 0.9fr' }, gap: 2 }}>
 	                <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, bgcolor: '#fbfdff' }}>
@@ -696,6 +825,25 @@ export function ValidateDataPage() {
 	                      </Stack>
 	                      <Typography sx={{ fontSize: 17, fontWeight: 900, color: ui.text }}>{primaryFinding.title}</Typography>
 	                      <Typography sx={{ color: '#475569', fontSize: 14, lineHeight: 1.55 }}>{primaryFinding.summary}</Typography>
+                        {primaryFinding.id ? (
+                          <Stack direction="row" spacing={1}>
+                            {createdCases[primaryFinding.id] ? (
+                              <Button size="small" variant="contained" href={`/cases/${createdCases[primaryFinding.id]}`} sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}>
+                                Open Case #{createdCases[primaryFinding.id]}
+                              </Button>
+                            ) : (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={createCaseMutation.isPending}
+                                onClick={() => createCaseMutation.mutate(primaryFinding.id as number)}
+                                sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}
+                              >
+                                {createCaseMutation.isPending ? 'Creating...' : 'Create Case'}
+                              </Button>
+                            )}
+                          </Stack>
+                        ) : null}
 	                    </Stack>
 	                  ) : (
 	                    <Typography color="text.secondary">No findings were emitted for this run.</Typography>
@@ -710,9 +858,26 @@ export function ValidateDataPage() {
 	                </Box>
 	              </Box>
 
+	              {dataQualityMessage ? (
+	                <Alert severity="warning">
+	                  <Typography sx={{ fontWeight: 900 }}>
+	                    {dataQualityMessage.kind === 'sample_count'
+	                      ? `Data quality failed: only ${dataQualityMessage.validCount} valid samples returned.`
+	                      : dataQualityMessage.kind === 'missing' && dataQualityMessage.missingPercentage !== null
+	                        ? `Data quality failed: ${dataQualityMessage.missingPercentage.toFixed(2)}% missing values.`
+	                        : 'Data quality failed: router rejected the series because values were missing or invalid.'}
+	                  </Typography>
+	                  <Typography sx={{ mt: 0.5 }}>
+	                    {dataQualityMessage.kind === 'sample_count'
+	                      ? 'Router skipped all analyzers because the selected window did not return enough valid samples. Try a denser or wider time window, or refresh/restart mock Prometheus data.'
+	                      : 'Router skipped all analyzers. Try a shorter time window or refresh/restart mock Prometheus data.'}
+	                  </Typography>
+	                </Alert>
+	              ) : null}
+
 	              <RouterDecisionPanel decisions={(promResult.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]} />
 
-	              {promResult.signal_count === 0 ? (
+	              {promResult.signal_count === 0 && !dataQualityMessage ? (
 	                <Alert severity="info">
 	                  No signals crossed analyzer thresholds for this Prometheus window. Executed analyzers: {promResult.executed_analyzers.length ? promResult.executed_analyzers.join(', ') : 'none'}.
 	                </Alert>
@@ -725,8 +890,29 @@ export function ValidateDataPage() {
 	                    <Stack spacing={1}>
 	                      {promResult.findings.map((finding) => (
 	                        <Box key={`${finding.id ?? finding.title}`} sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.4 }}>
-	                          <Typography sx={{ fontWeight: 850 }}>{finding.title}</Typography>
-	                          <Typography sx={{ color: ui.muted, fontSize: 13 }}>{finding.category} · {finding.health_status}</Typography>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.2}>
+                              <Box>
+	                              <Typography sx={{ fontWeight: 850 }}>{finding.title}</Typography>
+	                              <Typography sx={{ color: ui.muted, fontSize: 13 }}>{finding.category} · {finding.health_status}</Typography>
+                              </Box>
+                              {finding.id ? (
+                                createdCases[finding.id] ? (
+                                  <Button size="small" variant="outlined" href={`/cases/${createdCases[finding.id]}`} sx={{ textTransform: 'none', fontWeight: 850, alignSelf: { xs: 'flex-start', sm: 'center' } }}>
+                                    Open Case
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    disabled={createCaseMutation.isPending}
+                                    onClick={() => createCaseMutation.mutate(finding.id as number)}
+                                    sx={{ textTransform: 'none', fontWeight: 850, alignSelf: { xs: 'flex-start', sm: 'center' } }}
+                                  >
+                                    Create Case
+                                  </Button>
+                                )
+                              ) : null}
+                            </Stack>
 	                        </Box>
 	                      ))}
 	                    </Stack>

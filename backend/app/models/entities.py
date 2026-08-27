@@ -115,6 +115,26 @@ class AnalysisRunEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AnalyzerConfigSuggestionEntity(Base):
+    __tablename__ = "analyzer_config_suggestions"
+    __table_args__ = (
+        Index("idx_analyzer_config_suggestions_analyzer", "analyzer_id"),
+        Index("idx_analyzer_config_suggestions_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    analyzer_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    lab_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    suggestion_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    yaml_text: Mapped[str] = mapped_column(Text, nullable=False)
+    implementation_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    finding_rules_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    benchmark_summary_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    pass_fail_status: Mapped[str] = mapped_column(String(32), default="unknown")
+    created_by: Mapped[str] = mapped_column(String(128), default="local")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class AutonomousPolicyEntity(Base):
     __tablename__ = "autonomous_policies"
 

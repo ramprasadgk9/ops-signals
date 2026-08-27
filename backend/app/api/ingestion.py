@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -243,6 +244,7 @@ async def validate_csv_analysis(
     service: str = Form(default="uploaded-service"),
     metric_name: str = Form(default="uploaded_metric"),
     interval: str = Form(default="5m"),
+    analyzer_overrides: str | None = Form(default=None),
 ) -> CsvValidationOut:
     provider_lower = provider.lower()
     if provider_lower not in {"generic", "prometheus", "datadog"}:
@@ -260,6 +262,7 @@ async def validate_csv_analysis(
         handle.write(data)
 
     try:
+        parsed_overrides = _parse_analyzer_overrides(analyzer_overrides)
         requested_analyzer_id = analyzer_id.strip()
         config = build_csv_routing_config(
             provider=provider_lower,
@@ -269,6 +272,7 @@ async def validate_csv_analysis(
             interval=interval,
             analyzer_id=requested_analyzer_id,
             preview=True,
+            analyzer_overrides=parsed_overrides,
         )
 
         result = SignalPipeline(config, store=PreviewPipelineStore()).run(
@@ -333,7 +337,27 @@ async def validate_csv_analysis(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=f"validation failed: {exc}") from exc
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+def _parse_analyzer_overrides(raw: str | None) -> dict[str, dict[str, object]] | None:
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="analyzer_overrides must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="analyzer_overrides must be an object")
+
+    parsed: dict[str, dict[str, object]] = {}
+    for analyzer_id, params in payload.items():
+        if not isinstance(analyzer_id, str) or not isinstance(params, dict):
+            raise HTTPException(status_code=400, detail="analyzer_overrides must map analyzer ids to parameter objects")
+        parsed[analyzer_id] = params
+    return parsed

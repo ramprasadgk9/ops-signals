@@ -31,6 +31,11 @@ def main() -> int:
         default="all",
         help="Synthetic time-series scenario to test.",
     )
+    parser.add_argument("--csv", type=Path, help="Optional CSV file with timestamp/value columns to test instead of synthetic scenarios.")
+    parser.add_argument("--timestamp-column", default="timestamp", help="Timestamp column name for --csv input.")
+    parser.add_argument("--value-column", default="value", help="Value column name for --csv input.")
+    parser.add_argument("--service", default="unknown-service", help="Service name for CSV metric context.")
+    parser.add_argument("--metric", default="unknown_metric", help="Metric name for CSV metric context.")
     args = parser.parse_args()
 
     ai = build_optional_ai_services(
@@ -58,11 +63,26 @@ def main() -> int:
             }
         },
     )
-    scenarios = ["trend", "baseline_shift", "seasonal"] if args.scenario == "all" else [args.scenario]
+    if args.csv:
+        points = load_csv_points(args.csv, args.timestamp_column, args.value_column)
+        runs = [(args.csv.stem, points, {"service": args.service, "metric_name": args.metric, "input": str(args.csv)})]
+    else:
+        scenarios = ["trend", "baseline_shift", "seasonal"] if args.scenario == "all" else [args.scenario]
+        runs = [
+            (
+                scenario,
+                build_scenario(scenario),
+                {
+                    "metric_name": "cpu_usage",
+                    "operational_purpose": "recommend the best analyzer for observed CPU behavior",
+                    "scenario": scenario,
+                },
+            )
+            for scenario in scenarios
+        ]
 
-    for scenario in scenarios:
-        print(f"\n=== Scenario: {scenario} ===")
-        points = build_scenario(scenario)
+    for label, points, metric_context in runs:
+        print(f"\n=== Scenario: {label} ===")
         profile, analyzer_decisions = current_router_recommendations(router, points)
         print_current_router_decisions(analyzer_decisions)
         try:
@@ -70,11 +90,7 @@ def main() -> int:
                 profile=profile,
                 timeseries=points,
                 analyzer_decisions=analyzer_decisions,
-                metric_context={
-                    "metric_name": "cpu_usage",
-                    "operational_purpose": "recommend the best analyzer for observed CPU behavior",
-                    "scenario": scenario,
-                },
+                metric_context=metric_context,
             )
         except AIError as exc:
             print(f"Gemma advisor failed: {exc}", file=sys.stderr)
@@ -99,6 +115,21 @@ def build_scenario(name: str) -> list[tuple[datetime, float]]:
         points = [(start + timedelta(minutes=index * 5), 100 + 20 * math.sin(index / 4)) for index in range(80)]
     else:
         raise ValueError(f"Unknown scenario: {name}")
+    return points
+
+
+def load_csv_points(path: Path, timestamp_column: str, value_column: str) -> list[tuple[datetime, float]]:
+    dataframe = pd.read_csv(path)
+    missing = [column for column in [timestamp_column, value_column] if column not in dataframe.columns]
+    if missing:
+        raise ValueError(f"CSV {path} is missing required columns: {missing}")
+    points: list[tuple[datetime, float]] = []
+    for row in dataframe[[timestamp_column, value_column]].dropna().itertuples(index=False):
+        timestamp_raw, value_raw = row
+        timestamp = pd.to_datetime(timestamp_raw, utc=True).to_pydatetime()
+        points.append((timestamp, float(value_raw)))
+    if not points:
+        raise ValueError(f"CSV {path} did not contain any valid timestamp/value rows.")
     return points
 
 

@@ -14,9 +14,14 @@ from intelligence.signals.schema import OperationalSignal
 @dataclass(slots=True)
 class PyODOutlierConfig:
     detector_type: str = "knn"
+    detector: str = "KNN"
+    library: str = "pyod"
     contamination: float = 0.05
     grouping_gap: pd.Timedelta = pd.Timedelta("15m")
     min_samples: int = 50
+    finding_min_outlier_points: int = 1
+    finding_min_confidence: float = 0.0
+    finding_window: pd.Timedelta = pd.Timedelta("15m")
 
 
 class PyODOutlierAnalyzer(Analyzer):
@@ -28,15 +33,28 @@ class PyODOutlierAnalyzer(Analyzer):
         contamination: float = 0.05,
         grouping_gap: str = "15m",
         min_samples: int = 50,
+        finding_rule: dict[str, object] | None = None,
+        implementation: dict[str, object] | None = None,
     ) -> None:
+        impl = implementation or {}
+        detector_type = str(impl.get("detector_type", detector_type))
+        contamination = float(impl.get("contamination", contamination))
+        grouping_gap = str(impl.get("grouping_gap", grouping_gap))
+        min_samples = int(impl.get("min_samples", min_samples))
         detector = detector_type.lower().strip()
         if detector != "knn":
             raise ValueError("PyODOutlierAnalyzer v1 supports detector_type='knn' only")
+        rule = finding_rule or {}
         self.config = PyODOutlierConfig(
             detector_type=detector,
+            detector=str(impl.get("detector", "KNN")),
+            library=str(impl.get("library", "pyod")),
             contamination=max(1e-6, min(float(contamination), 0.5)),
             grouping_gap=pd.to_timedelta(grouping_gap),
             min_samples=max(3, int(min_samples)),
+            finding_min_outlier_points=max(1, int(rule.get("min_outlier_points", 1))),
+            finding_min_confidence=max(0.0, min(float(rule.get("min_confidence", 0.0)), 1.0)),
+            finding_window=pd.to_timedelta(str(rule.get("window", grouping_gap))),
         )
 
     def capability(self) -> Capability:
@@ -107,13 +125,32 @@ class PyODOutlierAnalyzer(Analyzer):
                         end_time=anomaly_group["timestamp"].max().to_pydatetime(),
                         summary=summary,
                         evidence={
-                            "library": "pyod",
-                            "detector": "KNN",
+                            "implementation": {
+                                "library": self.config.library,
+                                "detector": self.config.detector,
+                                "detector_type": self.config.detector_type,
+                                "contamination": self.config.contamination,
+                                "grouping_gap": str(self.config.grouping_gap),
+                                "min_samples": self.config.min_samples,
+                            },
+                            "library": self.config.library,
+                            "detector": self.config.detector,
                             "contamination": self.config.contamination,
                             "max_anomaly_score": round(max_score, 6),
                             "point_count": int(len(anomaly_group)),
+                            "outlier_indices": [int(index) for index in anomaly_group.index.tolist()],
+                            "outlier_timestamps": [timestamp.isoformat() for timestamp in anomaly_group["timestamp"]],
                             "grouping_gap_minutes": self.config.grouping_gap.total_seconds() / 60,
                             "min_samples": self.config.min_samples,
+                            "finding_rule": {
+                                "min_outlier_points": self.config.finding_min_outlier_points,
+                                "min_confidence": self.config.finding_min_confidence,
+                                "window": str(self.config.finding_window),
+                            },
+                            "finding_rule_matched": (
+                                int(len(anomaly_group)) >= self.config.finding_min_outlier_points
+                                and confidence >= self.config.finding_min_confidence
+                            ),
                         },
                     )
                 )
