@@ -135,6 +135,30 @@ class AnalyzerConfigSuggestionEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AnalyzerDraftEntity(Base):
+    __tablename__ = "analyzer_drafts"
+    __table_args__ = (
+        Index("idx_analyzer_drafts_analyzer", "analyzer_id"),
+        Index("idx_analyzer_drafts_status", "status"),
+        Index("idx_analyzer_drafts_updated_at", "updated_at"),
+        UniqueConstraint("analyzer_id", name="uq_analyzer_drafts_analyzer_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    analyzer_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    config_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    readiness_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    routing_test_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    execution_test_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    benchmark_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str] = mapped_column(String(128), default="local")
+    promoted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class AutonomousPolicyEntity(Base):
     __tablename__ = "autonomous_policies"
 

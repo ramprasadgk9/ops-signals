@@ -1,0 +1,37 @@
+analyzers:
+  statsforecast_forecast:
+    display_name: Statsforecast Forecast
+    supported_profiles:
+    - forecast
+    eligibility_rules:
+      min_samples: 30
+      requires_numeric: true
+      requires_regular_sampling: true
+    suitability_rules: {}
+    scoring_rules:
+      base: 0.3
+      rules:
+      - metric: seasonality_strength
+        gte: 0.42
+        add: 0.2
+      - metric: seasonality_strength
+        gte: 0.65
+        add: 0.22
+      - metric: regular_sampling
+        equals: true
+        add: 0.08
+      - metric: sample_count
+        gte: 60.0
+        add: 0.04
+    explanation_templates:
+      selected: The series appears to repeat similar shapes or seasonal motifs.
+      excluded: The series is too irregular or too short for reliable motif discovery.
+    admin_metadata:
+      template_type: Forecast
+      library: statsforecast
+      enabled: true
+      runtime_mapping: not_implemented
+      runtime_params:
+        window_size: 20
+        motif_count: 1
+        profile_threshold: 2
