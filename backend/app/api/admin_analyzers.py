@@ -196,6 +196,22 @@ def save_analyzer(data: AnalyzerConfigIn) -> AnalyzerConfigOut:
     return _registry_analyzer_to_ui(data.analyzer_id, analyzers[data.analyzer_id], "custom")
 
 
+@router.delete("/{analyzer_id}")
+def delete_custom_analyzer(analyzer_id: str) -> dict[str, Any]:
+    custom = _read_yaml(CUSTOM_ANALYZERS_PATH)
+    custom_analyzers = custom.get("analyzers", {})
+    if not isinstance(custom_analyzers, dict) or analyzer_id not in custom_analyzers:
+        builtin_analyzers = _read_yaml(REGISTRY_PATH).get("analyzers", {})
+        if isinstance(builtin_analyzers, dict) and analyzer_id in builtin_analyzers:
+            raise HTTPException(status_code=400, detail="Built-in analyzers cannot be removed from custom config.")
+        raise HTTPException(status_code=404, detail="Custom analyzer not found.")
+
+    del custom_analyzers[analyzer_id]
+    custom["analyzers"] = custom_analyzers
+    _write_yaml(CUSTOM_ANALYZERS_PATH, custom)
+    return {"deleted": 1, "analyzer_id": analyzer_id}
+
+
 @router.post("/test-route")
 def test_route(data: AnalyzerConfigIn) -> dict[str, Any]:
     _validate_analyzer(data)
