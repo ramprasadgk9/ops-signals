@@ -24,8 +24,8 @@ analyzers:
         gte: 60.0
         add: 0.04
     explanation_templates:
-      selected: The series appears to repeat similar shapes or seasonal motifs.
-      excluded: The series is too irregular or too short for reliable motif discovery.
+      selected: The series has forecast-style behavior with enough regular history for routing.
+      excluded: The series needs enough regular history for reliable forecast-based routing.
     admin_metadata:
       template_type: Forecast
       library: statsforecast
