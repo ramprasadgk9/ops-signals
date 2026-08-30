@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import yaml
 
 from backend.app.api import analyzer_labs
 from backend.app.main import create_app
@@ -173,6 +174,8 @@ def test_analyzer_lab_runtime_mappings_and_draft_lifecycle(tmp_path, monkeypatch
         assert preview.json()["analyzer_id"] == "motif_detection"
         assert "motif_detection:" in preview.json()["yaml_text"]
         assert "runtime_mapping: stumpy" in preview.json()["yaml_text"]
+        assert "implementation:" in preview.json()["yaml_text"]
+        assert "status: pending" in preview.json()["yaml_text"]
 
         promoted = client.post(f"/api/analyzer-labs/drafts/{draft['id']}/promote", json={})
         assert promoted.status_code == 200
@@ -190,6 +193,50 @@ def test_analyzer_lab_runtime_mappings_and_draft_lifecycle(tmp_path, monkeypatch
         remaining = client.get("/api/analyzer-labs/drafts")
         assert remaining.status_code == 200
         assert remaining.json() == []
+
+
+def test_analyzer_lab_backend_support_generates_pending_adapter(tmp_path, monkeypatch):
+    monkeypatch.setattr(analyzer_labs, "CUSTOM_ANALYZERS_PATH", tmp_path / "custom_analyzers.yaml")
+    monkeypatch.setattr(analyzer_labs, "CUSTOM_ANALYZER_ADAPTER_DIR", tmp_path / "custom_adapters")
+    app = create_app("sqlite+pysqlite:///:memory:")
+    payload = _draft_payload("statsforecast_forecast")
+    payload["config"]["display_name"] = "StatsForecast Forecast"
+    payload["config"]["library"] = "statsforecast"
+    payload["config"]["runtime_mapping"] = "not_implemented"
+    payload["config"]["supported_profiles"] = ["forecast"]
+
+    with TestClient(app) as client:
+        created = client.post("/api/analyzer-labs/drafts", json=payload)
+        assert created.status_code == 200
+        draft = created.json()
+
+        routed = client.post(f"/api/analyzer-labs/drafts/{draft['id']}/routing-test", json={})
+        assert routed.status_code == 200
+
+        promoted = client.post(f"/api/analyzer-labs/drafts/{draft['id']}/promote", json={})
+        assert promoted.status_code == 200
+
+        support = client.post(f"/api/analyzer-labs/drafts/{draft['id']}/backend-support", json={})
+        assert support.status_code == 200
+        body = support.json()
+        assert body["implementation_status"] == "pending"
+        assert body["module"] == "backend.app.analyzers.custom.statsforecast_forecast"
+        assert body["class_name"] == "StatsforecastForecastAnalyzer"
+        assert body["created"] is True
+
+        adapter_path = tmp_path / "custom_adapters" / "statsforecast_forecast.py"
+        assert adapter_path.exists()
+        assert "class StatsforecastForecastAnalyzer" in adapter_path.read_text(encoding="utf-8")
+        assert "return []" in adapter_path.read_text(encoding="utf-8")
+
+        custom_config = yaml.safe_load((tmp_path / "custom_analyzers.yaml").read_text(encoding="utf-8"))
+        implementation = custom_config["analyzers"]["statsforecast_forecast"]["implementation"]
+        assert implementation == {
+            "type": "adapter",
+            "module": "backend.app.analyzers.custom.statsforecast_forecast",
+            "class_name": "StatsforecastForecastAnalyzer",
+            "status": "pending",
+        }
 
 
 def test_analyzer_lab_execution_test_unavailable_for_config_only():

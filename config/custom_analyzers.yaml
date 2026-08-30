@@ -35,3 +35,8 @@ analyzers:
         window_size: 20
         motif_count: 1
         profile_threshold: 2
+    implementation:
+      type: adapter
+      module: backend.app.analyzers.custom.statsforecast_forecast
+      class_name: StatsforecastForecastAnalyzer
+      status: pending
