@@ -38,6 +38,7 @@ DraftStatus = Literal["draft", "routing_tested", "ready_for_backend", "executabl
 REGISTRY_PATH = Path("experiments/analyzer_router/analyzer_registry.yaml")
 CUSTOM_ANALYZERS_PATH = Path("config/custom_analyzers.yaml")
 ANALYZERS_CONFIG_PATH = Path("config/analyzers.yaml")
+CUSTOM_ANALYZER_ADAPTER_DIR = Path("backend/app/analyzers/custom")
 PYTHON_IMPORT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 EXECUTABLE_ANALYZER_IDS = {
@@ -137,6 +138,16 @@ class AnalyzerDraftOut(BaseModel):
 class AnalyzerDraftYamlPreviewOut(BaseModel):
     analyzer_id: str
     yaml_text: str
+
+
+class BackendSupportOut(BaseModel):
+    analyzer_id: str
+    implementation_status: str
+    module: str
+    class_name: str
+    adapter_path: str
+    created: bool
+    message: str
 
 
 class ExecutionTestOut(BaseModel):
@@ -281,9 +292,89 @@ def _draft_to_out(row: AnalyzerDraftEntity) -> AnalyzerDraftOut:
 
 def _draft_yaml_text(config: AnalyzerConfigIn) -> str:
     return yaml.safe_dump(
-        {"analyzers": {config.analyzer_id: _ui_to_registry(config)}},
+        {"analyzers": {config.analyzer_id: _registry_with_pending_implementation(config)}},
         sort_keys=False,
     )
+
+
+def _adapter_class_name(analyzer_id: str) -> str:
+    return "".join(part.capitalize() for part in analyzer_id.split("_") if part) + "Analyzer"
+
+
+def _implementation_metadata(config: AnalyzerConfigIn, status: str = "pending") -> dict[str, str]:
+    return {
+        "type": "adapter",
+        "module": f"backend.app.analyzers.custom.{config.analyzer_id}",
+        "class_name": _adapter_class_name(config.analyzer_id),
+        "status": status,
+    }
+
+
+def _registry_with_pending_implementation(config: AnalyzerConfigIn) -> dict:
+    data = _ui_to_registry(config)
+    data["implementation"] = _implementation_metadata(config)
+    return data
+
+
+def _adapter_stub_text(config: AnalyzerConfigIn) -> str:
+    class_name = _adapter_class_name(config.analyzer_id)
+    return f'''from __future__ import annotations
+
+import pandas as pd
+
+from intelligence.analyzers.base import Analyzer
+from intelligence.capability import Capability
+from intelligence.signals.schema import OperationalSignal
+
+
+class {class_name}(Analyzer):
+    """Adapter stub for {config.display_name}.
+
+    Input:
+        dataframe: normalized time-series rows with timestamp, value, metric_name,
+        service, and env columns.
+
+    Output:
+        A list of OperationalSignal objects. Return an empty list when the
+        analyzer does not find meaningful behavior.
+    """
+
+    analyzer_id = "{config.analyzer_id}"
+
+    def __init__(self, **config: object) -> None:
+        self.config = config
+
+    def capability(self) -> Capability:
+        return Capability(
+            id="{config.analyzer_id}",
+            title="{config.display_name}",
+            description="Custom analyzer adapter. Implement analyze() before enabling execution.",
+            analyzer_id=self.analyzer_id,
+            enabled=True,
+            supported_question_ids=["what_changed", "service_health", "investigation_priority"],
+        )
+
+    def analyze(self, dataframe: pd.DataFrame) -> list[OperationalSignal]:
+        # TODO: Call {config.library} or your API/model here.
+        # Expected dataframe columns:
+        #   timestamp, value, metric_name, service, env
+        #
+        # Return OperationalSignal objects, for example:
+        #   OperationalSignal(
+        #       signal_type="forecast",
+        #       analyzer_id=self.analyzer_id,
+        #       metric_name=str(dataframe.iloc[0]["metric_name"]),
+        #       service=dataframe.iloc[0].get("service"),
+        #       env=dataframe.iloc[0].get("env"),
+        #       severity="medium",
+        #       confidence=0.8,
+        #       start_time=dataframe["timestamp"].min().to_pydatetime(),
+        #       end_time=dataframe["timestamp"].max().to_pydatetime(),
+        #       summary="Describe what the analyzer found.",
+        #       evidence={{"library": "{config.library}"}},
+        #   )
+        return []
+'''
 
 
 def _lab_series_profile(lab_profile: str, minimum_samples: int) -> SeriesProfile:
@@ -532,7 +623,7 @@ def promote_analyzer_draft(draft_id: int, db: Session = Depends(get_db)) -> Anal
     _validate_analyzer(config)
     custom = _read_yaml(CUSTOM_ANALYZERS_PATH)
     analyzers = custom.setdefault("analyzers", {})
-    analyzers[config.analyzer_id] = _ui_to_registry(config)
+    analyzers[config.analyzer_id] = _registry_with_pending_implementation(config)
     _write_yaml(CUSTOM_ANALYZERS_PATH, custom)
     readiness = get_analyzer_readiness(
         analyzer_id=config.analyzer_id,
@@ -547,6 +638,64 @@ def promote_analyzer_draft(draft_id: int, db: Session = Depends(get_db)) -> Anal
     db.commit()
     db.refresh(row)
     return _draft_to_out(row)
+
+
+@router.post("/drafts/{draft_id}/backend-support", response_model=BackendSupportOut)
+def add_backend_support(draft_id: int, db: Session = Depends(get_db)) -> BackendSupportOut:
+    row = db.get(AnalyzerDraftEntity, draft_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Analyzer draft not found")
+    if row.promoted_at is None:
+        raise HTTPException(status_code=400, detail="Promote the analyzer before adding backend execution support.")
+
+    config = AnalyzerConfigIn(**(row.config_json or {}))
+    _validate_analyzer(config)
+
+    custom = _read_yaml(CUSTOM_ANALYZERS_PATH)
+    analyzers = custom.setdefault("analyzers", {})
+    existing = analyzers.get(config.analyzer_id)
+    if not isinstance(existing, dict):
+        raise HTTPException(status_code=404, detail="Promoted custom analyzer not found in custom_analyzers.yaml.")
+
+    implementation = _implementation_metadata(config, status="pending")
+    existing["implementation"] = implementation
+    analyzers[config.analyzer_id] = existing
+    _write_yaml(CUSTOM_ANALYZERS_PATH, custom)
+
+    CUSTOM_ANALYZER_ADAPTER_DIR.mkdir(parents=True, exist_ok=True)
+    init_path = CUSTOM_ANALYZER_ADAPTER_DIR / "__init__.py"
+    init_created = False
+    if not init_path.exists():
+        init_path.write_text("", encoding="utf-8")
+        init_created = True
+
+    adapter_path = CUSTOM_ANALYZER_ADAPTER_DIR / f"{config.analyzer_id}.py"
+    created = False
+    if not adapter_path.exists():
+        adapter_path.write_text(_adapter_stub_text(config), encoding="utf-8")
+        created = True
+
+    row.readiness_json = get_analyzer_readiness(
+        analyzer_id=config.analyzer_id,
+        library=config.library,
+        import_name=config.library,
+        runtime_mapping=config.runtime_mapping,
+    ).model_dump()
+    row.updated_at = datetime.utcnow()
+    db.commit()
+
+    status_detail = "created" if created else "already existed"
+    if init_created:
+        status_detail += "; package __init__.py created"
+    return BackendSupportOut(
+        analyzer_id=config.analyzer_id,
+        implementation_status="pending",
+        module=implementation["module"],
+        class_name=implementation["class_name"],
+        adapter_path=str(adapter_path),
+        created=created,
+        message=f"Backend adapter stub {status_detail}. Implementation status is pending until the adapter is completed and verified.",
+    )
 
 
 @router.get("/drafts/{draft_id}/yaml-preview", response_model=AnalyzerDraftYamlPreviewOut)

@@ -66,6 +66,9 @@ type AnalyzerConfig = {
   source?: 'builtin' | 'custom';
   routable?: boolean;
   executable?: boolean;
+  implementation_status?: string | null;
+  implementation_module?: string | null;
+  implementation_class_name?: string | null;
 };
 
 type TestRouteResult = {
@@ -151,6 +154,16 @@ type ExecutionTestResult = {
   finding_count: number;
 };
 
+type BackendSupportResult = {
+  analyzer_id: string;
+  implementation_status: string;
+  module: string;
+  class_name: string;
+  adapter_path: string;
+  created: boolean;
+  message: string;
+};
+
 type RuntimeDesign = {
   type: 'internal_python' | 'external_http' | 'not_implemented';
   health_check_url?: string;
@@ -201,6 +214,14 @@ const motifTemplate: AnalyzerConfig = {
 
 function updateRule(rules: ScoringRule[], index: number, patch: Partial<ScoringRule>) {
   return rules.map((rule, idx) => (idx === index ? { ...rule, ...patch } : rule));
+}
+
+function adapterClassName(analyzerId: string) {
+  return analyzerId
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('') + 'Analyzer';
 }
 
 export function AddAnalyzerPage() {
@@ -324,6 +345,25 @@ export function AddAnalyzerPage() {
     },
   });
 
+  const backendSupportMutation = useMutation({
+    mutationFn: (draftId: number) => postJson<Record<string, never>, BackendSupportResult>(`/api/analyzer-labs/drafts/${draftId}/backend-support`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-analyzers'] });
+      queryClient.invalidateQueries({ queryKey: ['analyzer-drafts'] });
+      queryClient.invalidateQueries({ queryKey: ['analyzer-readiness'] });
+      queryClient.invalidateQueries({ queryKey: ['analyzer-draft-yaml-preview'] });
+    },
+  });
+
+  const addBackendSupportForAnalyzer = (analyzerId: string) => {
+    const draft = (drafts.data ?? []).find((item) => item.analyzer_id === analyzerId);
+    if (!draft) return;
+    setSelectedDraft(draft);
+    setForm(draft.config);
+    setImportName(draft.config.library.replace(/-/g, '_'));
+    backendSupportMutation.mutate(draft.id);
+  };
+
   const deleteDraftMutation = useMutation({
     mutationFn: (draftId: number) => deleteJson<{ deleted: number }>(`/api/analyzer-labs/drafts/${draftId}`),
     onSuccess: (_, draftId) => {
@@ -386,6 +426,24 @@ export function AddAnalyzerPage() {
   const step3Done = Boolean(labRoutingResult);
   const step3Expanded = !step3Done || expandedCompletedSteps.step3;
   const draftPromoted = Boolean(currentDraft?.promoted_at);
+  const currentCustomAnalyzer = useMemo(
+    () => customAnalyzers.find((item) => item.analyzer_id === currentDraft?.analyzer_id),
+    [customAnalyzers, currentDraft?.analyzer_id],
+  );
+  const backendSupportAdded = Boolean(
+    backendSupportMutation.data ||
+      (currentCustomAnalyzer?.implementation_status && ['pending', 'verified'].includes(currentCustomAnalyzer.implementation_status)),
+  );
+  const promotedRecommendationOnly = Boolean(draftPromoted && currentDraft?.config.runtime_mapping === 'not_implemented');
+  const currentAdapterPath =
+    backendSupportMutation.data?.adapter_path ??
+    (currentCustomAnalyzer?.implementation_module
+      ? `${currentCustomAnalyzer.implementation_module.replace(/\./g, '/')}.py`
+      : currentDraft
+        ? `backend/app/analyzers/custom/${currentDraft.analyzer_id}.py`
+        : '');
+  const currentAdapterClass =
+    backendSupportMutation.data?.class_name ?? currentCustomAnalyzer?.implementation_class_name ?? (currentDraft ? adapterClassName(currentDraft.analyzer_id) : '');
   const promoteIsNext = !draftPromoted && (nextStep.title === 'Next step: save to custom analyzers' || nextStep.title === 'Ready for promotion review');
   const toggleCompletedStep = (stepId: string) => {
     setExpandedCompletedSteps((current) => ({ ...current, [stepId]: !current[stepId] }));
@@ -549,6 +607,71 @@ export function AddAnalyzerPage() {
             <Typography sx={{ color: ui.muted, mt: 0.6, fontSize: 14 }}>
               It can be recommended by routing. It cannot execute or create findings until backend runtime support is added.
             </Typography>
+            {promotedRecommendationOnly ? (
+              <Box sx={{ mt: 2, border: backendSupportAdded ? `1px solid ${ui.green}` : '1px solid #fed7aa', borderRadius: 2, p: 2, bgcolor: backendSupportAdded ? '#f0fdf4' : '#fff7ed' }}>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                  <Box>
+                    <Typography sx={{ fontWeight: 900 }}>
+                      {backendSupportAdded ? 'Backend support path created' : 'Next option: Add backend execution support'}
+                    </Typography>
+                    <Typography sx={{ color: ui.muted, fontSize: 14, mt: 0.4 }}>
+                      {backendSupportAdded
+                        ? 'The adapter placeholder exists. Implementation is still manual and remains pending until the adapter is completed and verified.'
+                        : 'This creates an adapter placeholder and marks implementation status as pending. It does not install the library or make the analyzer executable yet.'}
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant={backendSupportAdded ? 'outlined' : 'contained'}
+                    color={backendSupportAdded ? 'success' : 'primary'}
+                    startIcon={backendSupportAdded ? <VerifiedRoundedIcon /> : <AddRoundedIcon />}
+                    disabled={backendSupportAdded || !currentDraft || backendSupportMutation.isPending}
+                    onClick={() => currentDraft && backendSupportMutation.mutate(currentDraft.id)}
+                    sx={{ textTransform: 'none', fontWeight: 850, minWidth: 230 }}
+                  >
+                    {backendSupportMutation.isPending ? 'Creating...' : backendSupportAdded ? 'Backend support added' : 'Add backend execution support'}
+                  </Button>
+                </Stack>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }}>
+                  <Chip size="small" label="runtime mapping missing" color="warning" />
+                  <Chip size="small" label="adapter pending" color={backendSupportAdded ? 'success' : 'warning'} />
+                  <Chip size="small" label="default config missing" color="warning" />
+                  <Chip size="small" label="execution test blocked" />
+                  <Chip size="small" label="benchmark blocked" />
+                </Stack>
+                {backendSupportAdded ? (
+                  <Box sx={{ mt: 2, border: `1px solid ${ui.border}`, borderRadius: 2, p: 1.5, bgcolor: 'white' }}>
+                    <Typography sx={{ fontWeight: 900 }}>Manual implementation required</Typography>
+                    <Typography sx={{ color: ui.muted, mt: 0.5 }}>
+                      Edit the generated adapter and implement the analyzer logic.
+                    </Typography>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
+                      <Chip label={`Stub: ${currentAdapterPath}`} sx={{ justifyContent: 'flex-start', maxWidth: '100%' }} />
+                      <Chip label={`Class: ${currentAdapterClass}`} color="primary" variant="outlined" />
+                    </Stack>
+                    <Typography sx={{ fontWeight: 850, mt: 1.5 }}>After implementation:</Typography>
+                    <Box component="ol" sx={{ mt: 0.5, pl: 3, color: ui.muted }}>
+                      <li>Update the adapter TODO so it returns real OperationalSignal objects.</li>
+                      <li>Add a runtime mapping from this analyzer ID to the adapter class.</li>
+                      <li>Add default runtime parameters in config/analyzers.yaml.</li>
+                      <li>Return here and run Verify Library / readiness checks.</li>
+                      <li>Run Execution Test, then run a benchmark before using it for findings.</li>
+                    </Box>
+                    <Alert severity="info" sx={{ mt: 1.5 }}>
+                      To validate the stub after editing: restart the backend, verify readiness, then run execution test. If the adapter imports and returns valid signals, execution testing can pass.
+                    </Alert>
+                  </Box>
+                ) : null}
+              </Box>
+            ) : null}
+            {backendSupportMutation.data ? (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                <Typography sx={{ fontWeight: 900 }}>Implementation status: pending</Typography>
+                <Typography>{backendSupportMutation.data.message}</Typography>
+                <Typography sx={{ mt: 0.5 }}>Adapter: {backendSupportMutation.data.adapter_path}</Typography>
+                <Typography>Class: {backendSupportMutation.data.class_name}</Typography>
+              </Alert>
+            ) : null}
+            {backendSupportMutation.error ? <Alert severity="error" sx={{ mt: 2 }}>{String(backendSupportMutation.error)}</Alert> : null}
           </Box>
         ) : null}
         <Divider sx={{ my: 2 }} />
@@ -705,6 +828,14 @@ export function AddAnalyzerPage() {
         </Box>
         {analyzers.error ? <Alert severity="error" sx={{ m: 2 }}>{String(analyzers.error)}</Alert> : null}
         {deleteCustomAnalyzerMutation.error ? <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{String(deleteCustomAnalyzerMutation.error)}</Alert> : null}
+        {backendSupportMutation.error ? <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{String(backendSupportMutation.error)}</Alert> : null}
+        {backendSupportMutation.data ? (
+          <Alert severity="success" sx={{ mx: 2, mb: 2 }}>
+            <Typography sx={{ fontWeight: 900 }}>{backendSupportMutation.data.analyzer_id}: implementation status pending</Typography>
+            <Typography>{backendSupportMutation.data.message}</Typography>
+            <Typography sx={{ fontSize: 13, mt: 0.5 }}>Adapter: {backendSupportMutation.data.adapter_path}</Typography>
+          </Alert>
+        ) : null}
         {deleteCustomAnalyzerMutation.data ? (
           <Alert severity="success" sx={{ mx: 2, mb: 2 }}>
             Removed {deleteCustomAnalyzerMutation.data.analyzer_id} from custom_analyzers.yaml.
@@ -723,7 +854,19 @@ export function AddAnalyzerPage() {
           </TableHead>
           <TableBody>
             {customAnalyzers.map((item) => (
-              <TableRow key={`${item.source}-${item.analyzer_id}`} hover>
+              <TableRow
+                key={`${item.source}-${item.analyzer_id}`}
+                hover
+                onClick={() => {
+                  const draft = (drafts.data ?? []).find((candidate) => candidate.analyzer_id === item.analyzer_id);
+                  if (draft) {
+                    setSelectedDraft(draft);
+                    setForm(draft.config);
+                    setImportName(draft.config.library.replace(/-/g, '_'));
+                  }
+                }}
+                sx={{ cursor: 'pointer' }}
+              >
                 <TableCell sx={{ fontWeight: 800 }}>{item.analyzer_id}</TableCell>
                 <TableCell>{item.display_name}</TableCell>
                 <TableCell>{item.library}</TableCell>
@@ -735,16 +878,41 @@ export function AddAnalyzerPage() {
                   </Stack>
                 </TableCell>
                 <TableCell align="right">
-                  <Button
-                    size="small"
-                    color="error"
-                    startIcon={<DeleteOutlineRoundedIcon />}
-                    disabled={deleteCustomAnalyzerMutation.isPending}
-                    onClick={() => deleteCustomAnalyzerMutation.mutate(item.analyzer_id)}
-                    sx={{ textTransform: 'none', fontWeight: 800 }}
-                  >
-                    Remove Custom
-                  </Button>
+                  <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    {!item.executable ? (
+                      <Button
+                        size="small"
+                        variant={item.implementation_status === 'pending' ? 'outlined' : 'contained'}
+                        color={item.implementation_status === 'pending' ? 'success' : 'primary'}
+                        startIcon={item.implementation_status === 'pending' ? <VerifiedRoundedIcon /> : <AddRoundedIcon />}
+                        disabled={
+                          item.implementation_status === 'pending' ||
+                          backendSupportMutation.isPending ||
+                          !(drafts.data ?? []).some((draft) => draft.analyzer_id === item.analyzer_id)
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          addBackendSupportForAnalyzer(item.analyzer_id);
+                        }}
+                        sx={{ textTransform: 'none', fontWeight: 800 }}
+                      >
+                        {item.implementation_status === 'pending' ? 'Backend support added' : 'Add backend execution support'}
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="small"
+                      color="error"
+                      startIcon={<DeleteOutlineRoundedIcon />}
+                      disabled={deleteCustomAnalyzerMutation.isPending}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteCustomAnalyzerMutation.mutate(item.analyzer_id);
+                      }}
+                      sx={{ textTransform: 'none', fontWeight: 800 }}
+                    >
+                      Remove Custom
+                    </Button>
+                  </Stack>
                 </TableCell>
               </TableRow>
             ))}

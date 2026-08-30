@@ -59,6 +59,9 @@ class AnalyzerConfigOut(AnalyzerConfigIn):
     source: Literal["builtin", "custom"]
     routable: bool
     executable: bool
+    implementation_status: str | None = None
+    implementation_module: str | None = None
+    implementation_class_name: str | None = None
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -90,6 +93,9 @@ def _registry_analyzer_to_ui(analyzer_id: str, data: dict[str, Any], source: Lit
     eligibility = data.get("eligibility_rules") or {}
     scoring = data.get("scoring_rules") or {}
     metadata = data.get("admin_metadata") or {}
+    implementation = data.get("implementation") or {}
+    if not isinstance(implementation, dict):
+        implementation = {}
     runtime_mapping = str(metadata.get("runtime_mapping") or ("not_implemented" if source == "custom" else analyzer_id))
     return AnalyzerConfigOut(
         analyzer_id=analyzer_id,
@@ -110,6 +116,9 @@ def _registry_analyzer_to_ui(analyzer_id: str, data: dict[str, Any], source: Lit
         source=source,
         routable=True,
         executable=runtime_mapping != "not_implemented",
+        implementation_status=str(implementation.get("status")) if implementation.get("status") else None,
+        implementation_module=str(implementation.get("module")) if implementation.get("module") else None,
+        implementation_class_name=str(implementation.get("class_name")) if implementation.get("class_name") else None,
     )
 
 
