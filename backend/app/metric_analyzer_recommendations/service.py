@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
-from math import isclose
+from math import isclose, isfinite
+from pathlib import Path
 from statistics import mean, pstdev, pvariance
 from typing import Any
 
@@ -41,10 +42,8 @@ class MetricProfile:
 
 class MetricAnalyzerRecommendationService:
     def __init__(self, registry_path: str | None = None) -> None:
-        self.router = UniversalTimeSeriesRouter(
-            registry=AnalyzerRegistry(registry_path or "experiments/analyzer_router/analyzer_registry.yaml"),
-            config={"data_validation": {"interpolation": {"enabled": True, "maximum_gap_points": 5, "maximum_interpolated_percentage": 20}}},
-        )
+        self.registry_path = registry_path
+        self.router = self._build_router()
 
     GOAL_KEYWORDS: dict[str, tuple[str, str]] = {
         "trend": ("detect_trend", "Detect Trend"),
@@ -81,7 +80,9 @@ class MetricAnalyzerRecommendationService:
         samples = []
         for (service, metric_name, analysis_run_id), values in grouped.items():
             timestamps = [stamp for stamp, _ in values]
-            numeric = [val for _, val in values]
+            numeric = self._finite_values([val for _, val in values])
+            if not numeric:
+                continue
             samples.append(
                 {
                     "service": service,
@@ -91,7 +92,7 @@ class MetricAnalyzerRecommendationService:
                     "start_time": min(timestamps),
                     "end_time": max(timestamps),
                     "sampling_interval_seconds": self._infer_interval_seconds(timestamps),
-                    "missing_ratio": 0.0,
+                    "missing_ratio": 1.0 - (len(numeric) / max(len(values), 1)),
                     "min_value": min(numeric),
                     "max_value": max(numeric),
                     "mean_value": mean(numeric),
@@ -110,12 +111,15 @@ class MetricAnalyzerRecommendationService:
         points = db.execute(query.order_by(NormalizedPoint.timestamp.asc())).scalars().all()
         if not points:
             raise ValueError("sample not found")
-        timestamps = [point.timestamp for point in points]
-        values = [float(point.value) for point in points]
+        finite_points = [(point.timestamp, float(point.value)) for point in points if isfinite(float(point.value))]
+        if not finite_points:
+            raise ValueError("sample has no finite numeric values")
+        timestamps = [timestamp for timestamp, _ in finite_points]
+        values = [value for _, value in finite_points]
         duplicate_timestamps = len(timestamps) - len(set(timestamps))
         interval = self._infer_interval_seconds(timestamps)
         regular_sampling = self._is_regular(timestamps, interval)
-        missing_ratio = self._missing_ratio(timestamps, interval)
+        missing_ratio = max(self._missing_ratio(timestamps, interval), 1.0 - (len(values) / max(len(points), 1)))
         constant_value_ratio = self._constant_ratio(values)
         x = np.arange(len(values), dtype=float)
         y = np.array(values, dtype=float)
@@ -178,7 +182,7 @@ class MetricAnalyzerRecommendationService:
                 "notes": [],
             },
         )()
-        decisions = self.router.recommend_analyzers_for_profile(router_profile)
+        decisions = self._build_router().recommend_analyzers_for_profile(router_profile)
         selected = set(selected_analyzers or [])
         mode = selection_mode.lower().strip()
         if mode == "recommended_only":
@@ -220,6 +224,23 @@ class MetricAnalyzerRecommendationService:
         if requirements is None:
             return []
         return [str(requirements)]
+
+    def _build_router(self) -> UniversalTimeSeriesRouter:
+        registry = AnalyzerRegistry(self.registry_path or "experiments/analyzer_router/analyzer_registry.yaml")
+        if self.registry_path is None:
+            custom_path = Path("config/custom_analyzers.yaml")
+            if custom_path.exists():
+                custom_registry = AnalyzerRegistry(custom_path)
+                registry._registry.update(custom_registry._registry)
+                registry.registry_version = f"{registry.registry_version}+custom"
+        return UniversalTimeSeriesRouter(
+            registry=registry,
+            config={"data_validation": {"interpolation": {"enabled": True, "maximum_gap_points": 5, "maximum_interpolated_percentage": 20}}},
+        )
+
+    @staticmethod
+    def _finite_values(values: list[float]) -> list[float]:
+        return [value for value in values if isfinite(value)]
 
     def normalize_goals(self, texts: list[str]) -> list[dict[str, str]]:
         normalized: dict[str, dict[str, str]] = {}
