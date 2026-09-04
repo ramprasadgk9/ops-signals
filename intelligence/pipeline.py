@@ -14,6 +14,7 @@ from intelligence.analyzers import (
     BaselineShiftAnalyzer,
     ProphetAnalyzer,
     PyODOutlierAnalyzer,
+    RupturesAnalyzer,
     STUMPYAnalyzer,
     TrendAnalyzer,
     ZScoreAnomalyAnalyzer,
@@ -77,77 +78,115 @@ class SignalPipeline:
         analysis_run_id = uuid4().hex
 
         self._create_analysis_run(analysis_run_id, normalized, run_metadata=run_metadata)
-        if self.config.output.save_normalized_data:
-            self.store.save_normalized_points(normalized, analysis_run_id=analysis_run_id)
+        try:
+            if self.config.output.save_normalized_data:
+                self.store.save_normalized_points(normalized, analysis_run_id=analysis_run_id)
 
-        analyzer_routing, series_profile, registry_version = self._route_analyzers(normalized)
-        analyzers = self._build_analyzers(analyzer_routing)
-        executed_analyzers = [analyzer.analyzer_id for analyzer in analyzers]
-        executed_analyzer_snapshots = self._executed_analyzer_snapshots(analyzer_routing, executed_analyzers)
-        self.store.update_analysis_run_learning_snapshot(
-            analysis_run_id,
-            {
-                "router_version": ROUTER_VERSION,
-                "feature_extractor_version": FEATURE_EXTRACTOR_VERSION,
-                "analyzer_registry_version": registry_version,
-                "series_profile_json": series_profile,
-                "router_decisions_json": analyzer_routing,
-                "executed_analyzers_json": executed_analyzer_snapshots,
-            },
-        )
-        if self.config.questions.auto_generate_from_capabilities:
-            self.store.save_questions(QUESTION_CATALOG)
-        if self.config.capabilities.auto_register:
-            self.store.save_capabilities([
-                asdict(analyzer.capability()) for analyzer in analyzers
-            ])
+            analyzer_routing, series_profile, registry_version = self._route_analyzers(normalized)
+            analyzers = self._build_analyzers(analyzer_routing)
+            selected_analyzers = [analyzer.analyzer_id for analyzer in analyzers]
+            selected_router_analyzers = self._selected_router_analyzers(analyzer_routing)
+            executed_analyzer_snapshots = self._executed_analyzer_snapshots(
+                analyzer_routing,
+                [],
+                selected_analyzers=selected_router_analyzers,
+            )
+            self.store.update_analysis_run_learning_snapshot(
+                analysis_run_id,
+                {
+                    "router_version": ROUTER_VERSION,
+                    "feature_extractor_version": FEATURE_EXTRACTOR_VERSION,
+                    "analyzer_registry_version": registry_version,
+                    "series_profile_json": series_profile,
+                    "router_decisions_json": analyzer_routing,
+                    "executed_analyzers_json": executed_analyzer_snapshots,
+                },
+            )
+            if self.config.questions.auto_generate_from_capabilities:
+                self.store.save_questions(QUESTION_CATALOG)
+            if self.config.capabilities.auto_register:
+                self.store.save_capabilities([
+                    asdict(analyzer.capability()) for analyzer in analyzers
+                ])
 
+            signals, failed_analyzers = self._run_analyzers(analyzers, normalized, analysis_run_id)
+            executed_analyzers = [
+                analyzer_id for analyzer_id in selected_analyzers if analyzer_id not in failed_analyzers
+            ]
+            executed_analyzer_snapshots = self._executed_analyzer_snapshots(
+                analyzer_routing,
+                executed_analyzers,
+                failed_analyzers=failed_analyzers,
+                selected_analyzers=selected_router_analyzers,
+            )
+            self.store.update_analysis_run_learning_snapshot(
+                analysis_run_id,
+                {"executed_analyzers_json": executed_analyzer_snapshots},
+            )
+
+            analysis_window_end = None
+            if not normalized.empty:
+                analysis_window_end = pd.to_datetime(normalized["timestamp"], utc=True, errors="coerce").max().to_pydatetime()
+
+            scored_signals = score_signals(signals, analysis_window_end)
+
+            if self.config.output.save_signals:
+                embeddings = self._build_embeddings(signals)
+                self.store.save_signals(scored_signals, embeddings)
+
+            aggregation_result = FindingAggregator().aggregate(scored_signals, normalized, series_profile=series_profile)
+            findings = aggregation_result.findings
+
+            for finding in findings:
+                finding.analysis_run_id = analysis_run_id
+
+            self.store.save_findings(findings)
+            self.store.update_analysis_run_learning_snapshot(
+                analysis_run_id,
+                {"generated_findings_json": [finding.to_record() for finding in findings]},
+            )
+
+            self._evaluate_behavior_intelligence(signals, analysis_run_id)
+
+            if self.config.output.save_question_answers:
+                self._save_question_answers(analysis_run_id, scored_signals)
+
+            self._finalize_analysis_run(analysis_run_id, selected_analyzers, executed_analyzers, failed_analyzers)
+            report = build_daily_report(findings, normalized)
+            return PipelineResult(
+                normalized_points=normalized,
+                signals=scored_signals,
+                findings=findings,
+                report=report,
+                analysis_run_id=analysis_run_id,
+                analyzer_routing=analyzer_routing,
+                executed_analyzers=executed_analyzers,
+                analyzer_executions=executed_analyzer_snapshots,
+            )
+        except Exception:
+            self.store.update_analysis_run_learning_snapshot(analysis_run_id, {"status": "failed"})
+            raise
+
+    def _run_analyzers(
+        self,
+        analyzers: list,
+        normalized: pd.DataFrame,
+        analysis_run_id: str,
+    ) -> tuple[list[OperationalSignal], dict[str, str]]:
         signals: list[OperationalSignal] = []
+        failed_analyzers: dict[str, str] = {}
         for analyzer in analyzers:
-            generated = analyzer.analyze(normalized)
+            analyzer_id = str(analyzer.analyzer_id)
+            try:
+                generated = analyzer.analyze(normalized)
+            except Exception as exc:  # pragma: no cover - exact analyzer failures vary by dependency
+                logger.exception("Analyzer %s failed during execution", analyzer_id)
+                failed_analyzers[analyzer_id] = f"{type(exc).__name__}: {exc}"
+                continue
             for signal in generated:
                 signal.analysis_run_id = analysis_run_id
             signals.extend(generated)
-
-        analysis_window_end = None
-        if not normalized.empty:
-            analysis_window_end = pd.to_datetime(normalized["timestamp"], utc=True, errors="coerce").max().to_pydatetime()
-
-        scored_signals = score_signals(signals, analysis_window_end)
-
-        if self.config.output.save_signals:
-            embeddings = self._build_embeddings(signals)
-            self.store.save_signals(scored_signals, embeddings)
-
-        aggregation_result = FindingAggregator().aggregate(scored_signals, normalized, series_profile=series_profile)
-        findings = aggregation_result.findings
-        
-        # Set analysis_run_id on findings before saving
-        for finding in findings:
-            finding.analysis_run_id = analysis_run_id
-
-        self.store.save_findings(findings)
-        self.store.update_analysis_run_learning_snapshot(
-            analysis_run_id,
-            {"generated_findings_json": [finding.to_record() for finding in findings]},
-        )
-
-        self._evaluate_behavior_intelligence(signals, analysis_run_id)
-
-        if self.config.output.save_question_answers:
-            self._save_question_answers(analysis_run_id, scored_signals)
-
-        report = build_daily_report(findings, normalized)
-        return PipelineResult(
-            normalized_points=normalized,
-            signals=scored_signals,
-            findings=findings,
-            report=report,
-            analysis_run_id=analysis_run_id,
-            analyzer_routing=analyzer_routing,
-            executed_analyzers=executed_analyzers,
-            analyzer_executions=executed_analyzer_snapshots,
-        )
+        return signals, failed_analyzers
 
     def _load_input(self) -> pd.DataFrame:
         if self.config.input.source_type != "csv":
@@ -170,6 +209,16 @@ class SignalPipeline:
                     ruptures_model=str(baseline_params["ruptures_model"]),
                     ruptures_jump=int(baseline_params["ruptures_jump"]),
                     ruptures_n_bkps=int(baseline_params["ruptures_n_bkps"]),
+                )
+            )
+
+        ruptures_cfg = self.config.analysis.analyzers.get("ruptures")
+        if ruptures_cfg and ruptures_cfg.enabled and self._should_run_analyzer("ruptures", allowed):
+            ruptures_params = self._baseline_shift_params(ruptures_cfg.params)
+            analyzers.append(
+                RupturesAnalyzer(
+                    min_segment_size=int(ruptures_params["min_segment_size"]),
+                    change_threshold=ruptures_params["change_threshold"],
                 )
             )
 
@@ -261,58 +310,95 @@ class SignalPipeline:
         return result.analyzer_routing, result.profile, result.registry_version
 
     def _allowed_pipeline_analyzers(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
+        selected_router_ids = self._selected_router_analyzers(analyzer_routing)
+        if selected_router_ids is None:
+            return None
+
+        allowed: set[str] = set()
+        router_to_pipeline = self._router_to_pipeline_analyzers()
+        for analyzer_id in selected_router_ids:
+            allowed.update(router_to_pipeline.get(analyzer_id, {analyzer_id}))
+        return allowed
+
+    def _selected_router_analyzers(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
         mode = (self.config.analysis.selection_mode or "all").lower().strip()
         if mode == "all" or not analyzer_routing:
             return None
 
         selected = set(self.config.analysis.selected_analyzers or [])
-        recommended_router_ids = {
-            str(decision["analyzer_id"])
-            for decision in analyzer_routing
-            if str(decision.get("recommendation")) == "RECOMMENDED"
-        }
         if mode == "manual_override":
+            recommended_router_ids = {
+                str(decision["analyzer_id"])
+                for decision in analyzer_routing
+                if str(decision.get("recommendation")) == "RECOMMENDED"
+            }
             recommended_router_ids.update(selected)
-        elif mode != "recommended_only":
+            return recommended_router_ids
+
+        if mode == "recommended_only":
+            return {
+                str(decision["analyzer_id"])
+                for decision in analyzer_routing
+                if str(decision.get("recommendation")) == "RECOMMENDED"
+            }
+
+        if mode != "recommended_threshold":
             return None
 
-        router_to_pipeline = self._router_to_pipeline_analyzers()
-        allowed: set[str] = set()
-        for analyzer_id in recommended_router_ids:
-            allowed.update(router_to_pipeline.get(analyzer_id, {analyzer_id}))
-        return allowed
+        execution_config = self.config.analysis.recommendation_execution
+        allowed_recommendations = {"RECOMMENDED"}
+        if execution_config.include_optional:
+            allowed_recommendations.add("OPTIONAL")
+        candidates = [
+            (self._decision_score(decision), str(decision["analyzer_id"]))
+            for decision in analyzer_routing
+            if str(decision.get("recommendation")) in allowed_recommendations
+            and self._decision_score(decision) >= execution_config.min_score
+        ]
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        max_analyzers = max(1, execution_config.max_analyzers)
+        return {analyzer_id for _, analyzer_id in candidates[:max_analyzers]}
 
     def _executed_analyzer_snapshots(
         self,
         analyzer_routing: list[dict[str, object]],
         executed_analyzers: list[str],
+        failed_analyzers: dict[str, str] | None = None,
+        selected_analyzers: set[str] | None = None,
     ) -> list[dict[str, object]]:
-        router_to_pipeline = self._router_to_pipeline_analyzers()
-        reverse_mapping = {
-            "baseline_shift": "ruptures",
-            "stumpy": "stumpy",
-            "prophet": "prophet",
-            "trend": "trend_regression",
-            "anomaly_zscore": "adtk",
-            "pyod_outlier": "pyod_outlier",
-        }
+        failed_analyzers = failed_analyzers or {}
         executed_set = set(executed_analyzers)
+        failed_set = set(failed_analyzers)
+        selected_router_ids = selected_analyzers
         snapshots = []
         routed_ids = {str(decision.get("analyzer_id")) for decision in analyzer_routing}
+        router_to_pipeline = self._router_to_pipeline_analyzers()
         for decision in analyzer_routing:
             router_analyzer_id = str(decision.get("analyzer_id"))
             pipeline_ids = sorted(router_to_pipeline.get(router_analyzer_id, {router_analyzer_id}))
             matching_executed = [pipeline_id for pipeline_id in pipeline_ids if pipeline_id in executed_set]
+            matching_failed = [pipeline_id for pipeline_id in pipeline_ids if pipeline_id in failed_set]
             recommended = str(decision.get("recommendation")) == "RECOMMENDED"
-            selected = bool(recommended and pipeline_ids)
+            selected = (
+                router_analyzer_id in selected_router_ids
+                if selected_router_ids is not None
+                else bool(recommended and pipeline_ids)
+            )
             status = "completed" if matching_executed else "skipped"
             reason = None
-            if not recommended:
+            if matching_failed:
+                status = "failed"
+                reason = "; ".join(f"{pipeline_id}: {failed_analyzers[pipeline_id]}" for pipeline_id in matching_failed)
+            if not selected:
                 selected = False
                 status = "skipped"
-                reason = f"Router decision was {decision.get('recommendation')}."
+                if recommended:
+                    reason = "Recommended, but below the execution threshold or capped by max_analyzers."
+                else:
+                    reason = f"Router decision was {decision.get('recommendation')}."
             elif not matching_executed:
-                reason = "No enabled pipeline analyzer is available for this recommended router analyzer."
+                if not matching_failed:
+                    reason = "No enabled pipeline analyzer is available for this recommended router analyzer."
             snapshots.append(
                 {
                     "router_analyzer_id": router_analyzer_id,
@@ -321,12 +407,13 @@ class SignalPipeline:
                     "selected": selected,
                     "pipeline_analyzer_ids": pipeline_ids,
                     "executed_pipeline_analyzer_ids": matching_executed,
+                    "failed_pipeline_analyzer_ids": matching_failed,
                     "execution_status": status,
                     "execution_reason": reason,
                 }
             )
         for analyzer_id in executed_analyzers:
-            router_analyzer_id = reverse_mapping.get(analyzer_id, analyzer_id)
+            router_analyzer_id = analyzer_id
             if router_analyzer_id in routed_ids:
                 continue
             snapshots.append(
@@ -337,25 +424,40 @@ class SignalPipeline:
                     "selected": True,
                     "pipeline_analyzer_ids": [analyzer_id],
                     "executed_pipeline_analyzer_ids": [analyzer_id],
+                    "failed_pipeline_analyzer_ids": [],
                     "execution_status": "completed",
                     "execution_reason": None,
+                }
+            )
+        for analyzer_id, error in failed_analyzers.items():
+            router_analyzer_id = analyzer_id
+            if router_analyzer_id in routed_ids:
+                continue
+            snapshots.append(
+                {
+                    "router_analyzer_id": router_analyzer_id,
+                    "display_name": router_analyzer_id,
+                    "recommendation": "UNROUTED",
+                    "selected": True,
+                    "pipeline_analyzer_ids": [analyzer_id],
+                    "executed_pipeline_analyzer_ids": [],
+                    "failed_pipeline_analyzer_ids": [analyzer_id],
+                    "execution_status": "failed",
+                    "execution_reason": f"{analyzer_id}: {error}",
                 }
             )
         return snapshots
 
     @staticmethod
     def _router_to_pipeline_analyzers() -> dict[str, set[str]]:
-        return {
-            "ruptures": {"baseline_shift"},
-            "stumpy": {"stumpy"},
-            "prophet": {"prophet"},
-            "darts": {"prophet"},
-            "kats": {"baseline_shift", "trend", "anomaly_zscore", "stumpy", "prophet"},
-            "trend_regression": {"trend"},
-            "adtk": {"anomaly_zscore"},
-            "pyod": {"anomaly_zscore"},
-            "pyod_outlier": {"pyod_outlier"},
-        }
+        return {"trend_regression": {"trend"}}
+
+    @staticmethod
+    def _decision_score(decision: dict[str, object]) -> float:
+        try:
+            return float(decision.get("final_score") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
     @staticmethod
     def _analyzer_finding_rules(params: dict[str, object]) -> dict[str, object] | None:
@@ -442,10 +544,25 @@ class SignalPipeline:
             "start_time": pd.to_datetime(normalized["timestamp"], utc=True, errors="coerce").min().to_pydatetime(),
             "end_time": pd.to_datetime(normalized["timestamp"], utc=True, errors="coerce").max().to_pydatetime(),
             "sample_count": int(len(normalized)),
-            "status": "completed",
+            "status": "running",
             "created_at": datetime.utcnow(),
         }
         self.store.create_analysis_run(payload)
+
+    def _finalize_analysis_run(
+        self,
+        analysis_run_id: str,
+        selected_analyzers: list[str],
+        executed_analyzers: list[str],
+        failed_analyzers: dict[str, str],
+    ) -> None:
+        if failed_analyzers and not executed_analyzers and selected_analyzers:
+            status = "failed"
+        elif failed_analyzers:
+            status = "completed_with_errors"
+        else:
+            status = "completed"
+        self.store.update_analysis_run_learning_snapshot(analysis_run_id, {"status": status})
 
     def _save_question_answers(self, analysis_run_id: str, signals: list[OperationalSignal]) -> None:
         if not signals:

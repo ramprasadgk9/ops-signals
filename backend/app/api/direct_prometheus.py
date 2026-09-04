@@ -240,6 +240,7 @@ def run_direct_prometheus_analysis(
         analyzer_selection_mode=pipeline_config.analysis.selection_mode,
         analyzer_routing=result.analyzer_routing,
         executed_analyzers=result.executed_analyzers,
+        analyzer_executions=result.analyzer_executions,
         series=preview.series,
         signals=[
             {

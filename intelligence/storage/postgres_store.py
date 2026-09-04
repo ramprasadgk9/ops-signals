@@ -296,6 +296,7 @@ class PostgresStore:
     def update_analysis_run_learning_snapshot(self, analysis_run_id: str, payload: dict[str, Any]) -> None:
         column_names = {column["name"] for column in inspect(self.engine).get_columns("analysis_runs", schema=None)}
         allowed = {
+            "status",
             "router_version",
             "feature_extractor_version",
             "analyzer_registry_version",

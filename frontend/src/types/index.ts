@@ -263,9 +263,22 @@ export type DirectPrometheusAnalysisResponse = {
   analyzer_selection_mode: string;
   analyzer_routing: Array<Record<string, unknown>>;
   executed_analyzers: string[];
+  analyzer_executions?: AnalyzerExecution[];
   series: PrometheusPreviewSeries[];
   signals: Signal[];
   findings: Finding[];
+};
+
+export type AnalyzerExecution = {
+  router_analyzer_id?: string;
+  display_name?: string;
+  recommendation?: string;
+  selected?: boolean;
+  pipeline_analyzer_ids?: string[];
+  executed_pipeline_analyzer_ids?: string[];
+  failed_pipeline_analyzer_ids?: string[];
+  execution_status?: 'completed' | 'skipped' | 'failed' | string;
+  execution_reason?: string | null;
 };
 
 export type AnalysisRun = {

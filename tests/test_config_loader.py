@@ -121,6 +121,10 @@ def test_modular_analyzer_config_supports_nested_baseline_shift_schema() -> None
     stumpy_params = config.analysis.analyzers["stumpy"].params
     prophet_params = config.analysis.analyzers["prophet"].params
     trend_params = config.analysis.analyzers["trend"].params
+    assert config.analysis.selection_mode == "recommended_threshold"
+    assert config.analysis.recommendation_execution.min_score == 0.8
+    assert config.analysis.recommendation_execution.max_analyzers == 3
+    assert config.analysis.recommendation_execution.include_optional is False
     assert anomaly_params["implementation"] == {
         "library": "pandas",
         "method": "zscore",
