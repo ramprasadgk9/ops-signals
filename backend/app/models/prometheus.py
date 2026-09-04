@@ -95,6 +95,7 @@ class DirectPrometheusAnalysisOut(BaseModel):
     analyzer_selection_mode: str = "all"
     analyzer_routing: list[dict] = Field(default_factory=list)
     executed_analyzers: list[str] = Field(default_factory=list)
+    analyzer_executions: list[dict] = Field(default_factory=list)
     series: list[PrometheusSeriesOut] = Field(default_factory=list)
     signals: list[dict] = Field(default_factory=list)
     findings: list[dict] = Field(default_factory=list)

@@ -34,12 +34,20 @@ class AnalyzerConfig:
 
 
 @dataclass(slots=True)
+class RecommendationExecutionConfig:
+    min_score: float = 0.8
+    max_analyzers: int = 3
+    include_optional: bool = False
+
+
+@dataclass(slots=True)
 class AnalysisConfig:
     mode: str
     window: str
     analyzers: dict[str, AnalyzerConfig]
     selection_mode: str = "all"
     selected_analyzers: list[str] = field(default_factory=list)
+    recommendation_execution: RecommendationExecutionConfig = field(default_factory=RecommendationExecutionConfig)
 
 
 @dataclass(slots=True)
@@ -116,6 +124,8 @@ def load_config(config_path: str | Path) -> AppConfig:
         for name, details in raw["analysis"]["analyzers"].items()
     }
 
+    recommendation_execution = raw["analysis"].get("recommendation_execution", {}) or {}
+
     return AppConfig(
         input=InputConfig(**raw["input"]),
         analysis=AnalysisConfig(
@@ -124,6 +134,11 @@ def load_config(config_path: str | Path) -> AppConfig:
             analyzers=analyzers,
             selection_mode=raw["analysis"].get("selection_mode", "all"),
             selected_analyzers=list(raw["analysis"].get("selected_analyzers", [])),
+            recommendation_execution=RecommendationExecutionConfig(
+                min_score=float(recommendation_execution.get("min_score", 0.8)),
+                max_analyzers=int(recommendation_execution.get("max_analyzers", 3)),
+                include_optional=bool(recommendation_execution.get("include_optional", False)),
+            ),
         ),
         output=OutputConfig(**raw["output"]),
         storage=StorageConfig(postgres=PostgresConfig(**raw["storage"]["postgres"])),

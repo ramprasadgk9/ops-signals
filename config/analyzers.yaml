@@ -1,11 +1,15 @@
 analysis:
   mode: batch
   window: entire_dataset
-  selection_mode: recommended_only
+  selection_mode: recommended_threshold
+  recommendation_execution:
+    min_score: 0.80
+    max_analyzers: 3
+    include_optional: false
   selected_analyzers: []
   analyzers:
     ruptures:
-      enabled: false
+      enabled: true
     stumpy:
       enabled: true
       implementation:

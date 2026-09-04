@@ -40,7 +40,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
 import { panelSx, ui } from '../standalone/theme';
-import type { CsvAnalyzerRoutingDecision, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
+import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
 
 type Provider = 'generic' | 'prometheus' | 'datadog';
 type Mode = 'csv' | 'prometheus';
@@ -147,13 +147,67 @@ function routerBucketLabel(decision: CsvAnalyzerRoutingDecision) {
   return 'Not Recommended';
 }
 
-function RouterDecisionPanel({ decisions }: { decisions: CsvAnalyzerRoutingDecision[] }) {
+function executionChipSx(status?: string) {
+  const normalized = String(status ?? 'skipped').toLowerCase();
+  if (normalized === 'completed') return { bgcolor: '#dcfce7', color: '#166534', fontWeight: 850 };
+  if (normalized === 'failed') return { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 850 };
+  if (normalized === 'unavailable') return { bgcolor: '#fef3c7', color: '#92400e', fontWeight: 850 };
+  return { bgcolor: '#f1f5f9', color: '#475569', fontWeight: 850 };
+}
+
+function RouterDecisionPanel({
+  decisions,
+  executions = [],
+  executedAnalyzers = [],
+}: {
+  decisions: CsvAnalyzerRoutingDecision[];
+  executions?: AnalyzerExecution[];
+  executedAnalyzers?: string[];
+}) {
   const buckets = ['Recommended', 'Optional', 'Not Recommended', 'Rejected'];
+  const executionByAnalyzer = new Map(
+    executions
+      .filter((execution) => execution.router_analyzer_id)
+      .map((execution) => [execution.router_analyzer_id as string, execution]),
+  );
+  const completedExecutions = executions.filter((execution) => execution.execution_status === 'completed');
+  const failedExecutions = executions.filter((execution) => execution.execution_status === 'failed');
+  const selectedSkippedExecutions = executions.filter(
+    (execution) => execution.selected && execution.execution_status === 'skipped',
+  );
+  const executedLabel = executedAnalyzers.length
+    ? executedAnalyzers.join(', ')
+    : completedExecutions
+      .flatMap((execution) => execution.executed_pipeline_analyzer_ids ?? [])
+      .join(', ') || 'none';
+  const hasExecutionSnapshots = executions.length > 0;
   return (
     <Card variant="outlined">
       <CardContent>
         <Stack spacing={2}>
           <Typography variant="h6">Router Decisions</Typography>
+          {decisions.length ? (
+            <Box sx={{ border: '1px solid #bae6fd', bgcolor: '#ecfeff', borderRadius: '8px', px: 2, py: 1.5 }}>
+              <Typography sx={{ fontSize: 13, color: '#0f766e', fontWeight: 850 }}>
+                Executed analyzers: {executedLabel}
+              </Typography>
+              {!hasExecutionSnapshots ? (
+                <Typography sx={{ fontSize: 12, color: '#92400e', mt: 0.5 }}>
+                  Execution details were not returned for this run. Re-run analysis after backend/frontend restart to confirm selected vs skipped analyzers.
+                </Typography>
+              ) : null}
+              {selectedSkippedExecutions.length ? (
+                <Typography sx={{ fontSize: 12, color: '#0f766e', mt: 0.5 }}>
+                  Recommended but not executed: {selectedSkippedExecutions.map((execution) => execution.display_name ?? execution.router_analyzer_id).join(', ')}.
+                </Typography>
+              ) : null}
+              {failedExecutions.length ? (
+                <Typography sx={{ fontSize: 12, color: ui.red, mt: 0.5 }}>
+                  Failed analyzer executions: {failedExecutions.map((execution) => execution.display_name ?? execution.router_analyzer_id).join(', ')}.
+                </Typography>
+              ) : null}
+            </Box>
+          ) : null}
           {decisions.length === 0 ? (
             <Typography variant="body2" color="text.secondary">No router decisions returned yet.</Typography>
           ) : (
@@ -168,15 +222,31 @@ function RouterDecisionPanel({ decisions }: { decisions: CsvAnalyzerRoutingDecis
                         <Typography variant="caption" color="text.secondary">None</Typography>
                       ) : items.map((decision) => {
                         const displayReason = decision.routing_reason ?? decision.explanation ?? decision.reasons?.[0];
+                        const execution = decision.analyzer_id ? executionByAnalyzer.get(decision.analyzer_id) : undefined;
+                        const ranIds = execution?.executed_pipeline_analyzer_ids ?? [];
+                        const failedIds = execution?.failed_pipeline_analyzer_ids ?? [];
+                        const executionStatus = execution?.execution_status ?? (hasExecutionSnapshots ? 'not selected' : 'unavailable');
                         return (
                           <Box key={`${bucket}-${decision.analyzer_id ?? decision.display_name}`} sx={{ borderTop: `1px solid ${ui.border}`, pt: 1 }}>
                             <Stack direction="row" spacing={0.8} flexWrap="wrap" alignItems="center">
                               <Chip size="small" label={decision.analyzer_id ?? decision.display_name ?? 'unknown'} />
                               <Chip size="small" variant="outlined" label={`score ${typeof decision.final_score === 'number' ? decision.final_score.toFixed(2) : 'n/a'}`} />
                               <Chip size="small" variant="outlined" label={decision.eligible ? 'eligible' : 'ineligible'} />
+                              <Chip size="small" label={`execution ${executionStatus}`} sx={executionChipSx(executionStatus)} />
+                              {ranIds.length ? (
+                                <Chip size="small" variant="outlined" label={`ran ${ranIds.join(', ')}`} />
+                              ) : null}
+                              {failedIds.length ? (
+                                <Chip size="small" variant="outlined" color="error" label={`failed ${failedIds.join(', ')}`} />
+                              ) : null}
                             </Stack>
                             {displayReason ? (
                               <Typography sx={{ color: ui.muted, fontSize: 12, mt: 0.8 }}>{displayReason}</Typography>
+                            ) : null}
+                            {execution?.execution_reason ? (
+                              <Typography sx={{ color: execution.execution_status === 'failed' ? ui.red : ui.muted, fontSize: 12, mt: 0.8 }}>
+                                Execution: {execution.execution_reason}
+                              </Typography>
                             ) : null}
                           </Box>
                         );
@@ -875,9 +945,13 @@ export function ValidateDataPage() {
 	                </Alert>
 	              ) : null}
 
-	              <RouterDecisionPanel decisions={(promResult.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]} />
+	              <RouterDecisionPanel
+	                decisions={(promResult.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]}
+	                executions={promResult.analyzer_executions ?? []}
+	                executedAnalyzers={promResult.executed_analyzers ?? []}
+	              />
 
-	              {promResult.signal_count === 0 && !dataQualityMessage ? (
+	              {promResult.signal_count === 0 && !dataQualityMessage && !promResult.analyzer_executions?.length ? (
 	                <Alert severity="info">
 	                  No signals crossed analyzer thresholds for this Prometheus window. Executed analyzers: {promResult.executed_analyzers.length ? promResult.executed_analyzers.join(', ') : 'none'}.
 	                </Alert>
