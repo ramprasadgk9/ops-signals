@@ -1,0 +1,26 @@
+[
+  {
+    "timestamp": "2026-09-07T11:45:00+00:00",
+    "service": "payment-service",
+    "pod": "payment-service-7b9f898-x8z9",
+    "type": "Warning",
+    "reason": "OOMKilled",
+    "message": "Container payment-service exceeded memory limit (1000Mi) and was terminated with exit code 137.",
+    "details": {
+      "exit_code": 137,
+      "restart_count": 1,
+      "limit": "1000Mi"
+    }
+  },
+  {
+    "timestamp": "2026-09-07T11:46:00+00:00",
+    "service": "payment-service",
+    "pod": "payment-service-7b9f898-x8z9",
+    "type": "Warning",
+    "reason": "BackOff",
+    "message": "Back-off restarting failed container payment-service in pod payment-service-7b9f898-x8z9.",
+    "details": {
+      "status": "CrashLoopBackOff"
+    }
+  }
+]

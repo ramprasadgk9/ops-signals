@@ -101,3 +101,52 @@ behavior_definitions:
         - cpu.anomaly.max_score
         - memory.trend.direction
         - memory.baseline_shift.present
+
+  memory_leak:
+    enabled: true
+    version: 1
+    title: Memory leak causing degradation
+    description: >
+      Detects sustained upward memory trend occurring alongside CPU
+      throttling or performance degradation.
+    scope:
+      service: "*"
+    inputs:
+      - alias: memory
+        metric_name: memory_usage
+        analyzers:
+          - trend
+          - baseline_shift
+      - alias: throttling
+        metric_name: cpu_throttled_seconds
+        analyzers:
+          - trend
+          - baseline_shift
+    conditions:
+      all:
+        - fact: memory.trend.direction
+          operator: equals
+          value: upward
+      any:
+        - fact: throttling.trend.direction
+          operator: equals
+          value: upward
+        - fact: throttling.baseline_shift.present
+          operator: equals
+          value: true
+    correlation:
+      same_analysis_context: true
+      max_time_gap: 30m
+      minimum_overlap: 5m
+    output:
+      category: resource_constraint
+      severity: critical
+      title: Memory leak driving resource degradation
+      summary: >
+        Sustained upward memory trend was accompanied by increased CPU throttling,
+        indicating a memory leak driving resource exhaustion.
+      evidence:
+        - memory.trend.direction
+        - memory.trend.change_percent
+        - throttling.baseline_shift.present
+

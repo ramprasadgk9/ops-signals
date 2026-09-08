@@ -1,0 +1,14 @@
+scenario_id: 01_resource_degradation
+entity: payment-service
+root_cause: MEMORY_LEAK
+secondary_symptoms:
+- CPU_THROTTLING
+- CONTAINER_OOM_KILLED
+fault_window:
+  start: '2026-09-07T10:30:00+00:00'
+  end: '2026-09-07T11:45:00+00:00'
+key_evidence:
+- memory_usage
+- cpu_throttled_seconds
+- trend
+- anomaly_zscore
