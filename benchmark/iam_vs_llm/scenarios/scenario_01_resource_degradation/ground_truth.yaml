@@ -11,4 +11,4 @@ key_evidence:
 - memory_usage
 - cpu_throttled_seconds
 - trend
-- anomaly_zscore
+- baseline_shift

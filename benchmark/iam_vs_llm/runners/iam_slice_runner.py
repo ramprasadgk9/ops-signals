@@ -104,6 +104,7 @@ class IAMSliceRunner(BaseBenchmarkRunner):
             config.output.save_question_answers = False
 
             store = IsolatedInMemoryStore()
+            ctx.register_cleanup(lambda: store.engine.dispose())
             embedder = StubEmbedder()
 
             pipeline = SignalPipeline(config=config, store=store, embedder=embedder)

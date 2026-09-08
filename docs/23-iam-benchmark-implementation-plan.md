@@ -104,94 +104,51 @@ The benchmark framework implements three realistic, production-grade incident sc
 
 ---
 
-## 4. Benchmark Scoring Contract & Metrics
+## 4. Benchmark Scoring Contract & Metrics (The Pareto Reframe)
 
-Each benchmark run measures 6 quantitative dimensions:
+Rather than asserting circular advantages by construction, the benchmark measures the **Cost–Accuracy Pareto Frontier**:
 
-| Metric | Measurement Method | Target Advantage for IAM |
+### Primary Evaluative Metrics
+| Metric | Measurement Method | Target Goal |
 | :--- | :--- | :--- |
-| **1. Token Consumption** | Total input + output tokens consumed across all LLM interactions during triage. | **$\ge 90\%$ reduction** compared to the direct LLM ReAct agent. |
-| **2. API Cost ($)** | Calculated cost based on public token pricing (e.g. Claude 3.5 Sonnet / GPT-4o rates). | **$\ge 90\%$ cost savings** per incident triaged. |
-| **3. Bounded Execution** | Number of tool iterations, query timeouts, malformed queries, or infinite loops. | **Deterministic termination** in $\le 3$ algorithmic stages vs. open-ended ReAct loops. |
-| **4. Time-to-Triage (Latency)** | Wall-clock execution time from data availability to finalized RCA report. | **$\le 5$ seconds** for IAM vs. $45–180$ seconds for multi-turn LLM reasoning. |
-| **5. RCA Accuracy** | Overlap between identified root cause and curated ground truth ($0.0 \to 1.0$). | **$\ge 90\%$ accuracy**, correctly isolating root cause from cascading symptoms. |
-| **6. Consistency** | Semantic variance score over 5 identical runs of the same incident dataset. | **Zero variance** in IAM signals/behavior rules vs. stochastic drift in LLMs. |
+| **1. Root-Cause Accuracy (Taxonomy F1)** | Overlap between identified root cause class and curated ground truth enum (`MEMORY_LEAK`, `CPU_STARVATION`, etc.). | $\ge 90\%$ accuracy, isolating root cause from downstream symptoms. |
+| **2. Culprit Entity Match (Entity F1)** | Precision and recall in identifying the true failing microservice / pod without blaming healthy control services. | $100\%$ precision (zero false accusations on healthy control services). |
+| **3. Evidence Grounding & Recall** | Jaccard overlap of cited metrics, signal types, and event timestamps vs. expected ground truth evidence. | $\ge 70\%$ evidence recall without hallucinating non-existent telemetry. |
+
+### Secondary Operational Trade-Off Metrics
+| Metric | Measurement Method | Target Goal |
+| :--- | :--- | :--- |
+| **4. Time-to-Triage (Latency)** | Wall-clock execution time from data availability to finalized RCA. | $\le 1$ second for IAM vs. $30–120$ seconds for multi-turn LLM reasoning. |
+| **5. Token Consumption & Cost ($)** | 4 isolated ledgers: IAM Advisor, Baseline A, Baseline B, and Judge (harness overhead). | $\ge 95\%$ cost reduction for IAM vs. unconstrained ReAct agent. |
+
+### Architectural Invariants & Operational Guardrails
+- **Per-Run State Isolation:** Ephemeral SQLite and in-memory stores per execution; zero cross-trial memory pollution.
+- **Bounded Deterministic Execution:** Fixed algorithmic stages vs. open-ended agent loops.
 
 ---
 
-## 5. Technical Implementation Blueprint
+## 5. Technical Implementation & 3-Slice Sequencing
 
-### Directory Structure to be Created in `benchmark/`
-```text
-benchmark/iam_vs_llm/
-├── scenarios/
-│   ├── 01_resource_degradation/
-│   │   ├── prometheus_metrics.csv
-│   │   ├── k8s_events.json
-│   │   ├── ground_truth.yaml
-│   │   └── generator.py
-│   ├── 02_config_regression/
-│   │   ├── loki_logs.jsonl
-│   │   ├── k8s_events.json
-│   │   ├── ground_truth.yaml
-│   │   └── generator.py
-│   └── 03_dependency_cascade/
-│       ├── prometheus_metrics.csv
-│       ├── loki_logs.jsonl
-│       ├── k8s_events.json
-│       ├── ground_truth.yaml
-│       └── generator.py
-│
-├── runners/
-│   ├── base_runner.py               # Abstract benchmark runner interface
-│   ├── iam_runner.py                # IAM pipeline execution (metrics + logs + behavior)
-│   ├── direct_llm_agent_runner.py   # ReAct agent with PromQL, LogQL, K8s tools
-│   └── mock_tool_environment.py     # Deterministic query engine serving scenario telemetry
-│
-├── evaluators/
-│   ├── rca_evaluator.py             # Compares generated RCA against ground_truth.yaml
-│   ├── token_cost_calculator.py     # Tracks tokens, tool iterations, and financial cost
-│   └── consistency_evaluator.py     # Measures variance over N runs
-│
-├── reports/                         # Auto-generated JSON and Markdown benchmark scorecards
-└── run_iam_benchmark.py             # Main CLI execution entry point
-```
+The benchmark is developed and verified in three strictly sequenced vertical slices:
 
-### Loki Log Analysis Integration in IAM
-To support multi-source triage alongside Prometheus, Phase 2 introduces a lightweight, bounded log pattern analyzer:
-- **Log Rate & Volume Analyzer:** Evaluates log frequency shifts per service and level (`ERROR`, `WARN`).
-- **Signature Clustering:** Groups raw stack traces into distinct template signatures (masking variable IDs, memory addresses, and timestamps).
-- **Log Signals:** Emits standard `OperationalSignal` objects for log anomalies (e.g. `signal_type: log_error_spike`, `signal_type: new_exception_signature`).
-- **Behavior Rule Integration:** Feeds log signals into `BehaviorIntelligenceService`, allowing rules such as:
-  ```yaml
-  conditions:
-    all:
-      - fact: cpu.trend.direction == "upward"
-      - fact: database.log_error.present == true
-  ```
+### Slice 1: Deterministic Offline Core (COMPLETED & VERIFIED)
+- [x] Canonical benchmark-local taxonomy: `benchmark/iam_vs_llm/evaluators/taxonomy.py` (`RootCauseClass`).
+- [x] Scenario 1 Telemetry Generator: `benchmark/iam_vs_llm/scenarios/scenario_01_resource_degradation/generator.py`.
+- [x] Dual-paradigm runner base + state isolation: `benchmark/iam_vs_llm/runners/base_runner.py`.
+- [x] IAM Slice Runner: `benchmark/iam_vs_llm/runners/iam_slice_runner.py` with `IsolatedInMemoryStore`.
+- [x] Deterministic F1 Evaluator: `benchmark/iam_vs_llm/evaluators/f1_evaluator.py`.
+- [x] CLI entry point: `benchmark/iam_vs_llm/run_slice.py`.
+- [x] Verified via unit test suite: `tests/test_iam_benchmark_slice1.py` (100% green).
 
----
+### Slice 2: Baseline A (Direct LLM ReAct Agent) + Runtime Manifest
+- [ ] Runtime-resolved Model Manifest (`benchmark_manifest.yaml`) with seed pinning and 4 cost ledgers.
+- [ ] Interactive mock query environment for Scenario 1 (`query_prometheus`, `query_k8s`).
+- [ ] Baseline A runner: ReAct tool-calling loop constrained to emit structured tail (`ROOT_CAUSE: <ENUM> / ENTITY: <service>`).
+- [ ] Cost and latency tracker.
 
-## 6. Implementation Milestones
+### Slice 3: Calibrated Judge Evaluator + Baseline B + Adversarial Coverage
+- [ ] Fleiss' $\kappa$ / Krippendorff's $\alpha$ calibrated LLM-as-a-judge (Attribution, Grounding, Actionability).
+- [ ] Baseline B (Signals-Augmented LLM) evaluating causal graph value.
+- [ ] Adversarial Scenario 1 (Deadlock mis-attribution) and Adversarial Scenario 2 (Benign maintenance suppression).
+- [ ] Final Pareto report generator.
 
-### Milestone 1: Scenario Datasets & Ground Truth Catalog
-- Implement deterministic data generators for the 3 scenarios.
-- Write ground-truth definitions: exact root causes, primary evidence keys, and secondary symptoms.
-
-### Milestone 2: Loki Ingestion & Log Pattern Signal Adapter
-- Build `LokiLogAdapter` and log error frequency analyzer.
-- Integrate log signals into `FindingAggregator` and `BehaviorIntelligenceService`.
-
-### Milestone 3: ReAct Baseline LLM Agent
-- Implement `DirectLLMAgentRunner` using standard tool-calling protocol.
-- Equip agent with 3 tools: `query_prometheus(promql)`, `query_loki(logql)`, `query_k8s(resource)`.
-- Enforce standard ReAct prompt templates.
-
-### Milestone 4: Evaluation Engine & Comparative Scorecard Generator
-- Implement automated scoring: Token counting, latency measurement, RCA ground-truth matching, and consistency evaluation.
-- Build Markdown/JSON comparison reporter.
-
-### Milestone 5: Benchmark Execution, Review & Publication Package
-- Execute comparative benchmark across 5 trials per scenario.
-- Generate final empirical scorecard.
-- Publish benchmark whitepaper section and patent claim defense documentation.

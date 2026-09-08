@@ -17,13 +17,26 @@ class F1EvaluationResult:
     evidence_precision: float
     evidence_recall: float
     evidence_f1: float
+    semantic_similarity: float
     composite_score: float
     details: dict[str, Any] = field(default_factory=dict)
 
     @property
+    def status(self) -> str:
+        """Tri-state status: SUCCESS, PARTIAL, or FAILED.
+        
+        Prevents overstating success when fault windows or evidence recall are degraded.
+        """
+        if not (self.entity_match and self.root_cause_match):
+            return "FAILED"
+        if self.window_iou >= 0.50 and self.evidence_recall >= 0.70 and self.composite_score >= 0.80:
+            return "SUCCESS"
+        return "PARTIAL"
+
+    @property
     def passed(self) -> bool:
-        """A diagnosis passes if it correctly isolates the culprit entity AND root-cause."""
-        return self.entity_match and self.root_cause_match
+        """A diagnosis passes strictly if it achieves full SUCCESS."""
+        return self.status == "SUCCESS"
 
 
 class F1Evaluator:
@@ -84,13 +97,28 @@ class F1Evaluator:
             evidence_recall = 0.0
             evidence_f1 = 0.0
 
+        # 5. Semantic Concept Similarity (deterministic token overlap against ground truth concepts)
+        import re
+        pred_words = set(re.findall(r"[a-zA-Z0-9]+", (predicted.raw_summary or "").lower()))
+        exp_concepts = [expected_entity, expected_root_cause.value.lower()] + [
+            str(s).lower() for s in ground_truth.get("secondary_symptoms", [])
+        ]
+        exp_words = set(re.findall(r"[a-zA-Z0-9]+", " ".join(exp_concepts).lower()))
+        if pred_words and exp_words:
+            overlap = len(pred_words & exp_words)
+            semantic_similarity = overlap / len(exp_words) if exp_words else 0.0
+            semantic_similarity = min(1.0, max(0.0, semantic_similarity))
+        else:
+            semantic_similarity = 0.0
+
         # Composite Score: weighted combination
-        # Entity (35%), Root Cause (45%), Window IoU (10%), Evidence F1 (10%)
+        # Entity (30%), Root Cause (35%), Window IoU (10%), Evidence F1 (15%), Semantic Similarity (10%)
         composite_score = (
-            (0.35 if entity_match else 0.0)
-            + (0.45 if root_cause_match else 0.0)
+            (0.30 if entity_match else 0.0)
+            + (0.35 if root_cause_match else 0.0)
             + (0.10 * window_iou)
-            + (0.10 * evidence_f1)
+            + (0.15 * evidence_f1)
+            + (0.10 * semantic_similarity)
         )
 
         details = {
@@ -102,6 +130,8 @@ class F1Evaluator:
             "evidence_precision": evidence_precision,
             "evidence_recall": evidence_recall,
             "evidence_f1": evidence_f1,
+            "semantic_similarity": semantic_similarity,
+            "status": "SUCCESS" if (entity_match and root_cause_match and window_iou >= 0.50 and evidence_recall >= 0.70 and composite_score >= 0.80) else ("PARTIAL" if (entity_match and root_cause_match) else "FAILED"),
             "predicted_raw_summary": predicted.raw_summary,
         }
 
@@ -112,6 +142,7 @@ class F1Evaluator:
             evidence_precision=round(evidence_precision, 4),
             evidence_recall=round(evidence_recall, 4),
             evidence_f1=round(evidence_f1, 4),
+            semantic_similarity=round(semantic_similarity, 4),
             composite_score=round(composite_score, 4),
             details=details,
         )

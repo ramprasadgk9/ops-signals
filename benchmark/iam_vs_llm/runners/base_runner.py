@@ -25,21 +25,62 @@ class BenchmarkRunResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+import gc
+import tempfile
+import uuid
+
+
+@dataclass
+class IsolationContext:
+    run_id: str
+    temp_dir: Path
+    started_at: float
+    cleanup_callbacks: list[Any] = field(default_factory=list)
+
+    def register_cleanup(self, callback: Any) -> None:
+        self.cleanup_callbacks.append(callback)
+
+
 @contextmanager
-def state_isolation() -> Generator[dict[str, Any], None, None]:
+def state_isolation() -> Generator[IsolationContext, None, None]:
     """Provides a fresh, isolated execution context per run.
     
-    Guarantees no state leakage, no shared memory across repeated trials,
-    and clean teardown.
+    Guarantees no state leakage, creates an ephemeral temp directory,
+    resets backend DB singletons, and enforces clean teardown.
     """
-    context: dict[str, Any] = {
-        "isolated": True,
-        "started_at": time.perf_counter(),
-    }
-    try:
-        yield context
-    finally:
-        context["completed_at"] = time.perf_counter()
+    import backend.app.models.db as db_module
+
+    # Reset any cached SQLAlchemy singletons
+    prev_engine = db_module._engine
+    prev_session = db_module._SessionLocal
+    db_module._engine = None
+    db_module._SessionLocal = None
+
+    with tempfile.TemporaryDirectory(prefix="iam_bench_") as temp_dir_str:
+        temp_dir = Path(temp_dir_str)
+        ctx = IsolationContext(
+            run_id=uuid.uuid4().hex,
+            temp_dir=temp_dir,
+            started_at=time.perf_counter(),
+        )
+        try:
+            yield ctx
+        finally:
+            for cb in ctx.cleanup_callbacks:
+                try:
+                    cb()
+                except Exception:
+                    pass
+
+            # Restore or cleanly terminate engine
+            if db_module._engine is not None:
+                try:
+                    db_module._engine.dispose()
+                except Exception:
+                    pass
+            db_module._engine = prev_engine
+            db_module._SessionLocal = prev_session
+            gc.collect()
 
 
 class BaseBenchmarkRunner(ABC):

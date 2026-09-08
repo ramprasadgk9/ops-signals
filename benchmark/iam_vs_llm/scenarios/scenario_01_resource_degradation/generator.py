@@ -151,7 +151,7 @@ def generate_scenario_1(
             "memory_usage",
             "cpu_throttled_seconds",
             "trend",
-            "anomaly_zscore",
+            "baseline_shift",
         ],
     }
 

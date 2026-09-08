@@ -20,6 +20,27 @@ class NormalizedRCA:
     raw_summary: str = ""
 
 
+# Direct mapping of IAM Behavior Intelligence rule definitions to canonical RootCauseClass
+BEHAVIOR_RULE_TO_ROOT_CAUSE: dict[str, RootCauseClass] = {
+    "memory_leak": RootCauseClass.MEMORY_LEAK,
+    "cpu_throttling": RootCauseClass.CPU_STARVATION,
+    "server_slow": RootCauseClass.CPU_STARVATION,
+    "config_regression": RootCauseClass.CONFIG_REGRESSION,
+    "pool_exhaustion": RootCauseClass.POOL_EXHAUSTION,
+    "distributed_deadlock": RootCauseClass.DISTRIBUTED_DEADLOCK,
+    "benign_maintenance": RootCauseClass.BENIGN_MAINTENANCE,
+}
+
+# Fallback mapping for raw, un-correlated metric findings (when behavior intelligence is ablated or has no rule match)
+RAW_METRIC_TO_ROOT_CAUSE: dict[str, RootCauseClass] = {
+    "memory_usage": RootCauseClass.MEMORY_LEAK,
+    "container_memory_working_set_bytes": RootCauseClass.MEMORY_LEAK,
+    "cpu_throttled_seconds": RootCauseClass.CPU_STARVATION,
+    "cpu_usage": RootCauseClass.CPU_STARVATION,
+    "db_connections_active": RootCauseClass.POOL_EXHAUSTION,
+}
+
+
 def normalize_iam_findings(
     findings: list[OperationalFinding],
     signals: list[OperationalSignal] | None = None,
@@ -27,7 +48,7 @@ def normalize_iam_findings(
 ) -> NormalizedRCA:
     """Normalizes IAM findings, signals, and behavior findings into a structured NormalizedRCA object.
     
-    Acts as a boundary adapter without modifying core IAM finding schemas.
+    Uses deterministic structural rule identifiers rather than keyword substring heuristics.
     """
     if not findings and not behavior_findings:
         return NormalizedRCA(
@@ -63,51 +84,40 @@ def normalize_iam_findings(
     start_times: list[datetime] = []
     end_times: list[datetime] = []
 
-    for sig_id in top_finding.signal_ids:
-        sig = signals_by_id.get(sig_id)
-        if sig:
-            if sig.start_time:
-                start_times.append(sig.start_time)
-            if sig.end_time:
-                end_times.append(sig.end_time)
+    if top_finding:
+        for sig_id in top_finding.signal_ids:
+            sig = signals_by_id.get(sig_id)
+            if sig:
+                if sig.start_time:
+                    start_times.append(sig.start_time)
+                if sig.end_time:
+                    end_times.append(sig.end_time)
 
     if start_times and end_times:
         fault_window = (min(start_times), max(end_times))
 
-    # Infer RootCauseClass from behavior findings, finding category, metric names, and signal types
-    category = (((top_behavior.category if top_behavior else None) or (top_finding.category if top_finding else None)) or "").lower()
-    title = (((top_behavior.title if top_behavior else None) or (top_finding.title if top_finding else None)) or "").lower()
-    summary = ((top_behavior.summary if top_behavior else None) or (top_finding.summary if top_finding else None)) or ""
-    metric = (top_finding.metric_name if top_finding else "").lower()
-
+    # Structural attribution:
+    # 1. If Behavior Intelligence emitted a causal rule finding, map definition_id directly
+    # 2. If Behavior Intelligence is absent or ablated, map top isolated metric finding (symptom vs cause)
     root_cause = RootCauseClass.UNKNOWN
-
-    # Check for Memory Leak: memory metric/evidence + leak/resource_constraint indicator
-    is_memory_metric = any(m in metric for m in ("memory", "mem", "working_set"))
-    has_memory_evidence = any("memory" in str(k).lower() for k in evidence_keys)
-    has_leak_indicator = any(
-        kw in category or kw in title or kw in summary.lower()
-        for kw in ("leak", "resource_constraint", "performance", "upward", "trend")
-    )
-    if "leak" in title or "leak" in summary.lower() or ((is_memory_metric or has_memory_evidence) and has_leak_indicator):
-        root_cause = RootCauseClass.MEMORY_LEAK
-    elif "throttling" in metric or "cpu_throttling" in category or "cpu" in metric:
-        root_cause = RootCauseClass.CPU_STARVATION
-    elif "config" in category or "timeout" in category:
-        root_cause = RootCauseClass.CONFIG_REGRESSION
-    elif "pool" in category or "connection" in category:
-        root_cause = RootCauseClass.POOL_EXHAUSTION
-    elif "deadlock" in category:
-        root_cause = RootCauseClass.DISTRIBUTED_DEADLOCK
-    elif "maintenance" in category or "backup" in category:
-        root_cause = RootCauseClass.BENIGN_MAINTENANCE
+    if top_behavior and getattr(top_behavior, "definition_id", None) in BEHAVIOR_RULE_TO_ROOT_CAUSE:
+        root_cause = BEHAVIOR_RULE_TO_ROOT_CAUSE[top_behavior.definition_id]
+        title = top_behavior.title or ""
+        summary = top_behavior.summary or ""
+    elif top_finding and top_finding.metric_name in RAW_METRIC_TO_ROOT_CAUSE:
+        root_cause = RAW_METRIC_TO_ROOT_CAUSE[top_finding.metric_name]
+        title = top_finding.title or ""
+        summary = top_finding.summary or ""
+    else:
+        title = top_finding.title if top_finding else "Unknown"
+        summary = top_finding.summary if top_finding else "No detailed summary"
 
     return NormalizedRCA(
         entity=entity,
         root_cause=root_cause,
         fault_window=fault_window,
         evidence_keys=evidence_keys,
-        raw_summary=f"{title}: {summary}",
+        raw_summary=f"{title}: {summary}".strip(),
     )
 
 
