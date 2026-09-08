@@ -1,5 +1,5 @@
 pandas>=3.0.3
-numpy>=2.5.1
+numpy>=2.0.0
 statsmodels>=0.14.6
 stumpy>=1.13.0
 pyod>=3.0.0
