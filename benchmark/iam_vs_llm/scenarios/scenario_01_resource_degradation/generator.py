@@ -147,12 +147,16 @@ def generate_scenario_1(
             "start": (base_time + timedelta(minutes=leak_start_idx)).isoformat(),
             "end": (base_time + timedelta(minutes=crash_idx)).isoformat(),
         },
-        "key_evidence": [
-            "memory_usage",
-            "cpu_throttled_seconds",
-            "trend",
-            "baseline_shift",
-        ],
+        "key_evidence": {
+            "metrics": [
+                "memory_usage",
+                "cpu_throttled_seconds",
+            ],
+            "signals": [
+                "trend",
+                "baseline_shift",
+            ],
+        },
     }
 
     # Write files if output_dir specified

@@ -77,7 +77,15 @@ class F1Evaluator:
             window_iou = 1.0
 
         # 4. Evidence Precision, Recall & F1
-        expected_keys = [str(k).strip().lower() for k in ground_truth.get("key_evidence", [])]
+        raw_evidence = ground_truth.get("key_evidence", [])
+        if isinstance(raw_evidence, dict):
+            expected_keys = [
+                str(k).strip().lower()
+                for sublist in raw_evidence.values()
+                for k in (sublist if isinstance(sublist, list) else [sublist])
+            ]
+        else:
+            expected_keys = [str(k).strip().lower() for k in raw_evidence]
         pred_keys = [str(k).strip().lower() for k in predicted.evidence_keys]
 
         if pred_keys and expected_keys:
@@ -131,11 +139,9 @@ class F1Evaluator:
             "evidence_recall": evidence_recall,
             "evidence_f1": evidence_f1,
             "semantic_similarity": semantic_similarity,
-            "status": "SUCCESS" if (entity_match and root_cause_match and window_iou >= 0.50 and evidence_recall >= 0.70 and composite_score >= 0.80) else ("PARTIAL" if (entity_match and root_cause_match) else "FAILED"),
             "predicted_raw_summary": predicted.raw_summary,
         }
-
-        return F1EvaluationResult(
+        result = F1EvaluationResult(
             entity_match=entity_match,
             root_cause_match=root_cause_match,
             window_iou=round(window_iou, 4),
@@ -146,3 +152,5 @@ class F1Evaluator:
             composite_score=round(composite_score, 4),
             details=details,
         )
+        result.details["status"] = result.status
+        return result

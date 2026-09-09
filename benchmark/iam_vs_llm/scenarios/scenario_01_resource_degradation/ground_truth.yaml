@@ -8,7 +8,9 @@ fault_window:
   start: '2026-09-07T10:30:00+00:00'
   end: '2026-09-07T11:45:00+00:00'
 key_evidence:
-- memory_usage
-- cpu_throttled_seconds
-- trend
-- baseline_shift
+  metrics:
+  - memory_usage
+  - cpu_throttled_seconds
+  signals:
+  - trend
+  - baseline_shift
