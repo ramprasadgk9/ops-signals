@@ -1,0 +1,44 @@
+# IAM vs. LLM Benchmark Configuration Manifest
+# Zero hardcoded model names in code; values resolved dynamically at runtime.
+
+harness:
+  random_seed: 42
+  state_isolation: true
+  max_turns: 10
+
+baselines:
+  baseline_a:
+    name: "Baseline A (Direct ReAct LLM Agent)"
+    model_id: "${BENCHMARK_LLM_MODEL:-mock-frontier-sre}"
+    provider: "${BENCHMARK_LLM_PROVIDER:-mock}"
+    temperature: 0.0
+    max_turns: 10
+    pricing_per_mtok:
+      input: 3.00
+      output: 15.00
+
+  baseline_b:
+    name: "Baseline B (Signals-Augmented LLM Agent)"
+    model_id: "${BENCHMARK_LLM_MODEL:-mock-frontier-sre}"
+    provider: "${BENCHMARK_LLM_PROVIDER:-mock}"
+    temperature: 0.0
+    max_turns: 6
+    pricing_per_mtok:
+      input: 3.00
+      output: 15.00
+
+iam_system:
+  advisor_model_id: "${IAM_ADVISOR_MODEL:-gemma-2-9b-it}"
+  provider: "${IAM_ADVISOR_PROVIDER:-local}"
+  temperature: 0.0
+  pricing_per_mtok:
+    input: 0.20
+    output: 0.20
+
+judge:
+  model_id: "${BENCHMARK_JUDGE_MODEL:-mock-judge-evaluator}"
+  provider: "${BENCHMARK_JUDGE_PROVIDER:-mock}"
+  temperature: 0.0
+  pricing_per_mtok:
+    input: 2.50
+    output: 10.00

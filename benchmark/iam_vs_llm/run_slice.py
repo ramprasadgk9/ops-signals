@@ -4,6 +4,11 @@ import argparse
 import sys
 from pathlib import Path
 
+# Ensure repository root is on sys.path
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 import yaml
 
 from benchmark.iam_vs_llm.evaluators.f1_evaluator import F1Evaluator
