@@ -41,134 +41,205 @@ class MockSREAgent:
     the required structured diagnosis tail.
     """
 
-    def __init__(self, env: MockToolEnvironment, config: ModelRunConfig) -> None:
+class MockSREAgent:
+    """Deterministic simulated SRE agent for offline, zero-token CI testing.
+    
+    Executes a scenario-driven or dynamically derived ReAct sequence against
+    the MockToolEnvironment, verifying tool mechanics, measuring latency, tracking
+    simulated tokens, and emitting the required structured diagnosis tail.
+    """
+
+    def __init__(
+        self,
+        env: MockToolEnvironment,
+        config: ModelRunConfig,
+        scenario_dir: Path | None = None,
+    ) -> None:
         self.env = env
         self.config = config
+        self.scenario_dir = Path(scenario_dir) if scenario_dir else None
 
     def run(self, max_turns: int = 10) -> tuple[str, int, int, list[dict[str, Any]], int]:
-        """Executes simulated ReAct loop.
-        
-        Returns:
-            (final_text, input_tokens, output_tokens, trajectory, tool_calls_count)
-        """
+        """Executes simulated ReAct loop respecting max_turns."""
+        mock_script_path = (self.scenario_dir / "mock_baseline_trajectory.yaml") if self.scenario_dir else None
+        if mock_script_path and mock_script_path.exists():
+            return self._run_scripted_trajectory(mock_script_path, max_turns)
+        return self._run_dynamic_trajectory(max_turns)
+
+    def _run_scripted_trajectory(
+        self,
+        script_path: Path,
+        max_turns: int,
+    ) -> tuple[str, int, int, list[dict[str, Any]], int]:
+        import yaml
+        with script_path.open("r", encoding="utf-8") as f:
+            script_data = yaml.safe_load(f) or {}
+
+        turns = script_data.get("turns", [])
+        final_text = str(script_data.get("final_text", "")).strip()
+
         trajectory: list[dict[str, Any]] = []
         total_in_tokens = 0
         total_out_tokens = 0
         tool_calls_count = 0
-
-        # Base token overhead: System prompt (~200 tokens) + User prompt (~60 tokens)
         current_history_tokens = 260
 
-        # Turn 1: list_services
-        tool_calls_count += 1
+        tool_dispatcher = {
+            "list_services": lambda _: self.env.list_services(),
+            "list_metrics": lambda args: self.env.list_metrics(args.get("service", "")),
+            "query_prometheus": lambda args: self.env.query_prometheus(
+                query=args.get("query", ""),
+                start_time=args.get("start_time"),
+                end_time=args.get("end_time"),
+                step=args.get("step", "5m"),
+            ),
+            "query_k8s_events": lambda args: self.env.query_k8s_events(
+                service=args.get("service"),
+                event_type=args.get("event_type"),
+            ),
+        }
+
+        turn_idx = 0
+        budget_exhausted = False
+
+        for item in turns:
+            turn_idx += 1
+            if turn_idx > max_turns:
+                budget_exhausted = True
+                break
+
+            tool_name = item.get("tool")
+            tool_input = item.get("tool_input", {})
+            thought = item.get("thought", "")
+
+            fn = tool_dispatcher.get(tool_name)
+            output = fn(tool_input) if fn else {"error": f"Unknown tool: {tool_name}"}
+            tool_calls_count += 1
+
+            turn_out = 50
+            turn_in = 70
+            current_history_tokens += turn_out + turn_in
+            total_in_tokens += current_history_tokens
+            total_out_tokens += turn_out
+
+            trajectory.append({
+                "turn": turn_idx,
+                "thought": thought,
+                "tool": tool_name,
+                "tool_input": tool_input,
+                "tool_output": output,
+            })
+
+        if not budget_exhausted and turn_idx < max_turns:
+            # Final synthesis step fits in budget
+            turn_idx += 1
+            synth_out = 160
+            total_in_tokens += current_history_tokens
+            total_out_tokens += synth_out
+            trajectory.append({
+                "turn": turn_idx,
+                "thought": "Synthesizing full investigation into structured diagnosis.",
+                "tool": None,
+                "tool_input": None,
+                "tool_output": None,
+                "response": final_text,
+            })
+            return final_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
+        else:
+            # Budget exhausted, emit early truncated summary
+            forced_text = (
+                "Turn limit reached before investigation could conclude.\n\n"
+                "ROOT_CAUSE: UNKNOWN\n"
+                "ENTITY: unknown\n"
+            )
+            trajectory.append({
+                "turn": turn_idx,
+                "thought": "Turn limit reached; premature termination.",
+                "response": forced_text,
+            })
+            return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
+
+    def _run_dynamic_trajectory(
+        self,
+        max_turns: int,
+    ) -> tuple[str, int, int, list[dict[str, Any]], int]:
+        """Dynamic fallback when no pre-recorded scenario script is present."""
+        trajectory: list[dict[str, Any]] = []
+        total_in_tokens = 0
+        total_out_tokens = 0
+        tool_calls_count = 0
+        current_history_tokens = 260
+
         services = self.env.list_services()
-        t1_out = 45
-        t1_tool_in = 30
-        current_history_tokens += t1_out + t1_tool_in
-        total_in_tokens += current_history_tokens
-        total_out_tokens += t1_out
+        tool_calls_count += 1
         trajectory.append({
             "turn": 1,
-            "thought": "Discovering active services in the cluster to identify investigation targets.",
+            "thought": "Discovering active services.",
             "tool": "list_services",
             "tool_input": {},
             "tool_output": services,
         })
-
-        # Turn 2: query_k8s_events
-        tool_calls_count += 1
-        k8s_events = self.env.query_k8s_events()
-        t2_out = 55
-        t2_tool_in = 65
-        current_history_tokens += t2_out + t2_tool_in
+        current_history_tokens += 75
         total_in_tokens += current_history_tokens
-        total_out_tokens += t2_out
+        total_out_tokens += 45
+
+        k8s_events = self.env.query_k8s_events()
+        tool_calls_count += 1
         trajectory.append({
             "turn": 2,
-            "thought": "Checking Kubernetes events across the cluster for crashes or pod restarts.",
+            "thought": "Checking Kubernetes events for crashes or warnings.",
             "tool": "query_k8s_events",
             "tool_input": {},
             "tool_output": k8s_events,
         })
-
-        # Determine OOM target from events
-        oom_services = [e.get("service") for e in k8s_events if "OOM" in e.get("reason", "") or "OOM" in e.get("message", "")]
-        target_service = oom_services[0] if oom_services else (services[0] if services else "payment-service")
-
-        # Turn 3: list_metrics for target service
-        tool_calls_count += 1
-        metrics = self.env.list_metrics(target_service)
-        t3_out = 40
-        t3_tool_in = 35
-        current_history_tokens += t3_out + t3_tool_in
+        current_history_tokens += 120
         total_in_tokens += current_history_tokens
-        total_out_tokens += t3_out
+        total_out_tokens += 55
+
+        # Find impacted service from warning/error events
+        target_service = None
+        for ev in k8s_events:
+            if ev.get("service") and (ev.get("type") in ("Warning", "Error") or "OOM" in ev.get("reason", "")):
+                target_service = ev.get("service")
+                break
+
+        # If no events indicate an issue, inspect delta across services to identify anomaly
+        if not target_service and services:
+            service_deltas = {}
+            for svc in services:
+                metrics = self.env.list_metrics(svc)
+                for m in metrics:
+                    res = self.env.query_prometheus(f'{m}{{service="{svc}"}}')
+                    delta = abs(res.get("data", {}).get("summary", {}).get("delta", 0.0))
+                    service_deltas[svc] = max(service_deltas.get(svc, 0.0), delta)
+            target_service = max(service_deltas, key=service_deltas.get) if service_deltas else services[0]
+
+        target_service = target_service or "unknown-service"
+
+        # Query metrics for target
+        metrics = self.env.list_metrics(target_service)
+        tool_calls_count += 1
         trajectory.append({
             "turn": 3,
-            "thought": f"Pod termination detected on {target_service}. Inspecting recorded telemetry metrics.",
+            "thought": f"Inspecting metrics for impacted service {target_service}.",
             "tool": "list_metrics",
             "tool_input": {"service": target_service},
             "tool_output": metrics,
         })
-
-        # Turn 4: query_prometheus for memory_usage
-        tool_calls_count += 1
-        mem_res = self.env.query_prometheus(f'memory_usage{{service="{target_service}"}}')
-        t4_out = 60
-        t4_tool_in = 110
-        current_history_tokens += t4_out + t4_tool_in
+        current_history_tokens += 75
         total_in_tokens += current_history_tokens
-        total_out_tokens += t4_out
-        trajectory.append({
-            "turn": 4,
-            "thought": f"Querying memory_usage time-series for {target_service} to assess memory consumption trend.",
-            "tool": "query_prometheus",
-            "tool_input": {"query": f'memory_usage{{service="{target_service}"}}'},
-            "tool_output": mem_res,
-        })
-
-        # Turn 5: query_prometheus for cpu_throttled_seconds
-        tool_calls_count += 1
-        cpu_res = self.env.query_prometheus(f'cpu_throttled_seconds{{service="{target_service}"}}')
-        t5_out = 60
-        t5_tool_in = 110
-        current_history_tokens += t5_out + t5_tool_in
-        total_in_tokens += current_history_tokens
-        total_out_tokens += t5_out
-        trajectory.append({
-            "turn": 5,
-            "thought": f"Checking CPU throttling to verify if GC thrashing coincided with memory saturation.",
-            "tool": "query_prometheus",
-            "tool_input": {"query": f'cpu_throttled_seconds{{service="{target_service}"}}'},
-            "tool_output": cpu_res,
-        })
-
-        # Final Synthesis Turn
-        t6_out = 160
-        total_in_tokens += current_history_tokens
-        total_out_tokens += t6_out
+        total_out_tokens += 40
 
         final_text = (
-            f"Investigation Complete:\n\n"
-            f"Telemetric analysis reveals that {target_service} experienced progressive memory exhaustion "
-            f"starting at 2026-09-07T10:30:00Z with a persistent upward trend in memory_usage. As heap consumption approached "
-            f"the 1000Mi limit, aggressive garbage collection produced a baseline shift and spike in CPU throttling "
-            f"beginning around 2026-09-07T11:15:00Z. The container was finally terminated by Kubernetes OOMKiller at 2026-09-07T11:45:00Z.\n\n"
-            f"ROOT_CAUSE: MEMORY_LEAK\n"
+            f"Investigation Complete for {target_service}.\n\n"
+            f"ROOT_CAUSE: UNKNOWN\n"
             f"ENTITY: {target_service}\n"
-            f"WINDOW: 2026-09-07T10:30:00Z to 2026-09-07T11:45:00Z\n"
-            f"EVIDENCE: memory_usage, cpu_throttled_seconds, trend\n"
         )
-
         trajectory.append({
-            "turn": 6,
-            "thought": "Synthesizing full investigation into structured diagnosis.",
-            "tool": None,
-            "tool_input": None,
-            "tool_output": None,
+            "turn": 4,
+            "thought": "Dynamic fallback synthesis complete.",
             "response": final_text,
         })
-
         return final_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
 
 
@@ -196,7 +267,7 @@ class BaselineARunner(BaseBenchmarkRunner):
 
             provider = self.config.provider.lower().strip()
             if provider == "mock":
-                agent = MockSREAgent(env=env, config=self.config)
+                agent = MockSREAgent(env=env, config=self.config, scenario_dir=scenario_dir)
                 final_text, in_tokens, out_tokens, trajectory, tool_calls = agent.run(
                     max_turns=self.config.max_turns
                 )
@@ -322,9 +393,13 @@ class BaselineARunner(BaseBenchmarkRunner):
             for tc in tool_calls:
                 tool_calls_count += 1
                 fname = tc.function.name
-                fargs = json.loads(tc.function.arguments or "{}")
-                fn = tool_dispatcher.get(fname)
-                result = fn(fargs) if fn else {"error": f"Unknown tool '{fname}'"}
+                try:
+                    fargs = json.loads(tc.function.arguments or "{}")
+                    fn = tool_dispatcher.get(fname)
+                    result = fn(fargs) if fn else {"error": f"Unknown tool '{fname}'"}
+                except (json.JSONDecodeError, TypeError) as err:
+                    fargs = {"raw_arguments": tc.function.arguments}
+                    result = {"error": f"Invalid JSON arguments: {err}"}
 
                 result_str = json.dumps(result, default=str)
                 messages.append({
@@ -354,5 +429,10 @@ class BaselineARunner(BaseBenchmarkRunner):
             if forced_resp.usage:
                 total_in_tokens += forced_resp.usage.prompt_tokens
                 total_out_tokens += forced_resp.usage.completion_tokens
+            trajectory.append({
+                "turn": config.max_turns + 1,
+                "thought": "Turn limit reached; forced summary emitted.",
+                "response": final_text,
+            })
 
         return final_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count

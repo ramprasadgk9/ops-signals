@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
@@ -51,8 +53,10 @@ def test_mock_tool_environment_prometheus_queries(scenario_dir: Path) -> None:
     assert data["metric"] == "memory_usage"
     assert data["service"] == "payment-service"
     summary = data["summary"]
-    assert summary["trend"] == "upward"
+    # Objective statistics (no conclusion leakage)
     assert summary["max"] >= 900.0
+    assert summary["start_value"] < summary["max"]
+    assert "trend" not in summary
     assert len(data["sample_points"]) > 0
 
     # 2. Window-filtered query
@@ -64,12 +68,17 @@ def test_mock_tool_environment_prometheus_queries(scenario_dir: Path) -> None:
     assert res_window["status"] == "success"
     assert res_window["data"]["summary"]["point_count"] < summary["point_count"]
 
-    # 3. Non-existent metric
+    # 3. Resampling with step
+    res_step_5m = env.query_prometheus('memory_usage{service="payment-service"}', step="5m")
+    res_step_30m = env.query_prometheus('memory_usage{service="payment-service"}', step="30m")
+    assert len(res_step_30m["data"]["sample_points"]) < len(res_step_5m["data"]["sample_points"])
+
+    # 4. Non-existent metric
     res_empty = env.query_prometheus("non_existent_metric")
     assert res_empty["status"] == "success"
     assert res_empty["data"]["result"] == []
 
-    # 4. Malformed query
+    # 5. Malformed query
     res_malformed = env.query_prometheus("!!invalid!!")
     assert res_malformed["status"] == "error"
 
@@ -190,9 +199,27 @@ def test_baseline_a_runner_mock_execution(scenario_dir: Path) -> None:
     assert len(meta["trajectory"]) == 6
 
 
+def test_baseline_a_runner_max_turns_truncation(scenario_dir: Path) -> None:
+    """Verifies that MockSREAgent respects max_turns budget and emits early UNKNOWN diagnosis."""
+    manifest = load_manifest()
+    truncated_config = ModelRunConfig(
+        model_id="mock-frontier-sre",
+        provider="mock",
+        temperature=0.0,
+        max_turns=2,  # Truncate after 2 turns
+        pricing=manifest.baseline_a.pricing,
+    )
+    manifest.baseline_a = truncated_config
+    runner = BaselineARunner(manifest=manifest)
+    result = runner.run_react_agent(scenario_dir)
+
+    assert result.normalized_rca.root_cause == RootCauseClass.UNKNOWN
+    assert result.tool_iterations == 2
+    assert "Turn limit reached" in result.normalized_rca.raw_summary
+
+
 def test_baseline_a_runner_unsupported_provider(scenario_dir: Path) -> None:
     manifest = load_manifest()
-    # Create copy of config with unsupported provider
     unsupported_config = ModelRunConfig(
         model_id="test",
         provider="unsupported_provider",
@@ -224,6 +251,183 @@ def test_baseline_a_runner_missing_api_key(monkeypatch: pytest.MonkeyPatch, scen
 
     with pytest.raises(ValueError, match="API key missing"):
         runner.run_react_agent(scenario_dir)
+
+
+def test_baseline_a_runner_openai_react_loop_and_error_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    scenario_dir: Path,
+) -> None:
+    """Tests live OpenAI execution loop, verifying:
+    1. Multi-turn tool execution
+    2. Malformed JSON argument handling (recovery without crashing)
+    3. Unknown tool call handling
+    4. Token usage accounting
+    5. Trajectory recording
+    """
+    manifest = load_manifest()
+    manifest.baseline_a = ModelRunConfig(
+        model_id="gpt-4o-stub",
+        provider="openai",
+        temperature=0.0,
+        max_turns=5,
+        pricing=manifest.baseline_a.pricing,
+    )
+    runner = BaselineARunner(manifest=manifest)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-mock")
+
+    # Helper mock classes for OpenAI responses
+    class FakeUsage:
+        prompt_tokens = 100
+        completion_tokens = 30
+
+    class FakeFunction:
+        def __init__(self, name: str, arguments: str):
+            self.name = name
+            self.arguments = arguments
+
+    class FakeToolCall:
+        def __init__(self, id: str, name: str, arguments: str):
+            self.id = id
+            self.function = FakeFunction(name, arguments)
+
+    class FakeMessage:
+        def __init__(self, content: str | None, tool_calls: list[Any] | None = None):
+            self.content = content
+            self.tool_calls = tool_calls or []
+
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "role": "assistant",
+                "content": self.content,
+                "tool_calls": [
+                    {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in self.tool_calls
+                ],
+            }
+
+    class FakeChoice:
+        def __init__(self, message: FakeMessage):
+            self.message = message
+
+    class FakeCompletion:
+        def __init__(self, message: FakeMessage):
+            self.choices = [FakeChoice(message)]
+            self.usage = FakeUsage()
+
+    # Turn sequence:
+    # Turn 1: Valid tool call `list_services`
+    # Turn 2: Tool call with malformed JSON arguments
+    # Turn 3: Tool call with unknown function name
+    # Turn 4: Final response with structured tail
+    responses = [
+        FakeCompletion(FakeMessage(
+            content=None,
+            tool_calls=[FakeToolCall("call_1", "list_services", "{}")],
+        )),
+        FakeCompletion(FakeMessage(
+            content=None,
+            tool_calls=[FakeToolCall("call_2", "query_prometheus", "{invalid_json,")],
+        )),
+        FakeCompletion(FakeMessage(
+            content=None,
+            tool_calls=[FakeToolCall("call_3", "nonexistent_tool", '{"foo": "bar"}')],
+        )),
+        FakeCompletion(FakeMessage(
+            content=(
+                "Analysis complete.\n\n"
+                "ROOT_CAUSE: MEMORY_LEAK\n"
+                "ENTITY: payment-service\n"
+                "WINDOW: 2026-09-07T10:30:00Z to 2026-09-07T11:45:00Z\n"
+                "EVIDENCE: memory_usage, cpu_throttled_seconds, trend"
+            ),
+            tool_calls=None,
+        )),
+    ]
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = responses
+
+    mock_openai_module = MagicMock()
+    mock_openai_module.OpenAI.return_value = mock_client
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "openai", mock_openai_module)
+
+    result = runner.run_react_agent(scenario_dir)
+
+    assert result.runner_id == "baseline_a_gpt-4o-stub"
+    assert result.normalized_rca.root_cause == RootCauseClass.MEMORY_LEAK
+    assert result.normalized_rca.entity == "payment-service"
+    assert result.tool_iterations == 3
+    # 4 responses * 130 tokens per response
+    assert result.token_usage == 4 * 130
+    assert result.cost_usd > 0.0
+
+    # Verify trajectory captured turns and error recovery
+    traj = result.metadata["trajectory"]
+    assert len(traj) == 4
+    # Turn 2 handled malformed json gracefully
+    assert "Invalid JSON" in str(traj[1]["tool_output"])
+    # Turn 3 handled unknown tool gracefully
+    assert "Unknown tool" in str(traj[2]["tool_output"])
+
+
+def test_baseline_a_runner_openai_max_turns_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+    scenario_dir: Path,
+) -> None:
+    """Verifies that reaching max_turns in OpenAI loop triggers forced summary and records it."""
+    manifest = load_manifest()
+    manifest.baseline_a = ModelRunConfig(
+        model_id="gpt-4o-stub",
+        provider="openai",
+        temperature=0.0,
+        max_turns=2,
+        pricing=manifest.baseline_a.pricing,
+    )
+    runner = BaselineARunner(manifest=manifest)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-mock")
+
+    class FakeUsage:
+        prompt_tokens = 50
+        completion_tokens = 20
+
+    class FakeToolCall:
+        id = "call_loop"
+        function = MagicMock(name="list_services", arguments="{}")
+
+    class FakeMessage:
+        content = None
+        tool_calls = [FakeToolCall()]
+        def to_dict(self):
+            return {"role": "assistant", "content": None, "tool_calls": []}
+
+    class FakeCompletion:
+        def __init__(self, content=None, is_tool=True):
+            if is_tool:
+                self.choices = [MagicMock(message=FakeMessage())]
+            else:
+                self.choices = [MagicMock(message=MagicMock(content=content))]
+            self.usage = FakeUsage()
+
+    # 2 turns requesting tools, then 1 forced completion response
+    responses = [
+        FakeCompletion(is_tool=True),
+        FakeCompletion(is_tool=True),
+        FakeCompletion(content="Forced termination response.\nROOT_CAUSE: UNKNOWN\nENTITY: unknown", is_tool=False),
+    ]
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = responses
+    mock_openai_module = MagicMock()
+    mock_openai_module.OpenAI.return_value = mock_client
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "openai", mock_openai_module)
+
+    result = runner.run_react_agent(scenario_dir)
+
+    assert result.normalized_rca.root_cause == RootCauseClass.UNKNOWN
+    traj = result.metadata["trajectory"]
+    # 2 tool turns + 1 forced summary turn
+    assert len(traj) == 3
+    assert "Turn limit reached" in traj[-1]["thought"]
 
 
 def test_comparative_benchmark_end_to_end(scenario_dir: Path) -> None:

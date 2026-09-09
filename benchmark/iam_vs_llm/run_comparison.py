@@ -122,7 +122,7 @@ def print_comparison_table(results: dict[str, Any]) -> None:
     if iam_run.token_usage == 0:
         print(f"  - Token Efficiency: IAM consumed 0 LLM tokens vs {base_a_run.token_usage:,} tokens for Baseline A.")
     if cost_diff > 0:
-        print(f"  - Financial Advantage: IAM triage cost $0.0000 vs ${base_a_run.cost_usd:.4f} for Baseline A.")
+        print(f"  - Financial Advantage: IAM triage cost ${iam_run.cost_usd:.4f} vs ${base_a_run.cost_usd:.4f} for Baseline A.")
     if iam_run.execution_time_seconds < base_a_run.execution_time_seconds and iam_run.execution_time_seconds > 0:
         speedup = base_a_run.execution_time_seconds / iam_run.execution_time_seconds
         print(f"  - Latency Speedup: IAM executed {speedup:.1f}x faster than Baseline A ReAct loop.")
@@ -189,8 +189,7 @@ def main() -> None:
     # Check if both passed
     iam_pass = results["iam"]["evaluation"].passed
     base_pass = results["baseline_a"]["evaluation"].passed
-    if not iam_pass:
-        sys.exit(1)
+    sys.exit(0 if (iam_pass and base_pass) else 1)
 
 
 if __name__ == "__main__":

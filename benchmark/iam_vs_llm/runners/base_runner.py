@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import gc
+import tempfile
 import time
+import uuid
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -23,11 +26,6 @@ class BenchmarkRunResult:
     cost_usd: float = 0.0
     tool_iterations: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
-
-
-import gc
-import tempfile
-import uuid
 
 
 @dataclass

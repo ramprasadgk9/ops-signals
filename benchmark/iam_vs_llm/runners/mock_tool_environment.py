@@ -38,6 +38,17 @@ class MockToolEnvironment:
         service_df = self.df[self.df["service"] == service]
         return sorted(list(service_df["metric_name"].dropna().unique()))
 
+    @staticmethod
+    def _parse_step_seconds(step: str) -> int:
+        """Parses Prometheus duration string (e.g. '5m', '30s', '1h') into seconds."""
+        match = re.match(r"^(\d+)([smhd])?$", str(step).strip().lower())
+        if not match:
+            return 300
+        val = int(match.group(1))
+        unit = match.group(2) or "s"
+        multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+        return val * multipliers.get(unit, 1)
+
     def query_prometheus(
         self,
         query: str,
@@ -83,28 +94,40 @@ class MockToolEnvironment:
 
         values = filtered["value"].tolist()
         timestamps = filtered["timestamp"].tolist()
-        # Detect trend (accounting for upward leak leading to crash reset)
-        trend = "flat_or_oscillating"
-        if len(values) > 1:
-            if values[-1] > values[0] * 1.5 or (max(values) > min(values) * 1.5 and values.index(max(values)) > 0):
-                trend = "upward"
 
+        # Objective summary statistics without subjective conclusion leakage
+        start_val = round(float(values[0]), 2) if values else 0.0
+        end_val = round(float(values[-1]), 2) if values else 0.0
         summary_stats = {
             "point_count": len(values),
             "min": round(float(min(values)), 2) if values else 0.0,
             "max": round(float(max(values)), 2) if values else 0.0,
             "mean": round(float(sum(values) / len(values)), 2) if values else 0.0,
-            "start_value": round(float(values[0]), 2) if values else 0.0,
-            "end_value": round(float(values[-1]), 2) if values else 0.0,
-            "trend": trend,
+            "start_value": start_val,
+            "end_value": end_val,
+            "delta": round(end_val - start_val, 2),
         }
 
-        # Return a compact representative sample of points
-        step_stride = max(1, len(values) // 10)
-        sample_points = [
-            {"timestamp": timestamps[i], "value": values[i]}
-            for i in range(0, len(values), step_stride)
-        ]
+        # Resample sample points using the requested step interval (e.g. '5m', '1m')
+        step_seconds = self._parse_step_seconds(step)
+        sample_points: list[dict[str, Any]] = []
+        last_dt: datetime | None = None
+
+        for ts_str, val in zip(timestamps, values):
+            try:
+                dt = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+            except Exception:
+                dt = None
+
+            if dt is not None:
+                if last_dt is None or (dt - last_dt).total_seconds() >= step_seconds:
+                    sample_points.append({"timestamp": ts_str, "value": round(float(val), 2)})
+                    last_dt = dt
+            else:
+                sample_points.append({"timestamp": ts_str, "value": round(float(val), 2)})
+
+        if not sample_points and values:
+            sample_points.append({"timestamp": timestamps[0], "value": round(float(values[0]), 2)})
 
         return {
             "status": "success",

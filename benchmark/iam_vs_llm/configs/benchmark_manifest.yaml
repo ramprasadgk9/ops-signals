@@ -4,7 +4,6 @@
 harness:
   random_seed: 42
   state_isolation: true
-  max_turns: 10
 
 baselines:
   baseline_a:

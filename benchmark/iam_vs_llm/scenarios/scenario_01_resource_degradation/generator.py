@@ -159,6 +159,53 @@ def generate_scenario_1(
         },
     }
 
+    # 5. Mock Baseline Trajectory (for deterministic offline baseline execution)
+    mock_trajectory = {
+        "turns": [
+            {
+                "turn": 1,
+                "thought": "Discovering active services in the cluster to identify investigation targets.",
+                "tool": "list_services",
+                "tool_input": {},
+            },
+            {
+                "turn": 2,
+                "thought": "Checking Kubernetes events across the cluster for crashes or pod restarts.",
+                "tool": "query_k8s_events",
+                "tool_input": {},
+            },
+            {
+                "turn": 3,
+                "thought": "Pod termination detected on payment-service. Inspecting recorded telemetry metrics.",
+                "tool": "list_metrics",
+                "tool_input": {"service": "payment-service"},
+            },
+            {
+                "turn": 4,
+                "thought": "Querying memory_usage time-series for payment-service to assess memory consumption trend.",
+                "tool": "query_prometheus",
+                "tool_input": {"query": 'memory_usage{service="payment-service"}'},
+            },
+            {
+                "turn": 5,
+                "thought": "Checking CPU throttling to verify if GC thrashing coincided with memory saturation.",
+                "tool": "query_prometheus",
+                "tool_input": {"query": 'cpu_throttled_seconds{service="payment-service"}'},
+            },
+        ],
+        "final_text": (
+            "Investigation Complete:\n\n"
+            "Telemetric analysis reveals that payment-service experienced progressive memory exhaustion "
+            f"starting at {(base_time + timedelta(minutes=leak_start_idx)).isoformat()} with a persistent upward trend in memory_usage. "
+            "As heap consumption approached the 1000Mi limit, aggressive garbage collection produced a baseline shift and spike in CPU throttling "
+            f"beginning around {(base_time + timedelta(minutes=gc_start_idx)).isoformat()}. The container was finally terminated by Kubernetes OOMKiller at {(base_time + timedelta(minutes=crash_idx)).isoformat()}.\n\n"
+            "ROOT_CAUSE: MEMORY_LEAK\n"
+            "ENTITY: payment-service\n"
+            f"WINDOW: {(base_time + timedelta(minutes=leak_start_idx)).isoformat()} to {(base_time + timedelta(minutes=crash_idx)).isoformat()}\n"
+            "EVIDENCE: memory_usage, cpu_throttled_seconds, trend\n"
+        ),
+    }
+
     # Write files if output_dir specified
     target_dir = Path(output_dir) if output_dir else Path(__file__).parent
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -166,15 +213,18 @@ def generate_scenario_1(
     metrics_csv_path = target_dir / "metrics.csv"
     k8s_json_path = target_dir / "k8s_events.json"
     ground_truth_path = target_dir / "ground_truth.yaml"
+    mock_traj_path = target_dir / "mock_baseline_trajectory.yaml"
 
     df.to_csv(metrics_csv_path, index=False)
     k8s_json_path.write_text(json.dumps(k8s_events, indent=2), encoding="utf-8")
     ground_truth_path.write_text(yaml.safe_dump(ground_truth, sort_keys=False), encoding="utf-8")
+    mock_traj_path.write_text(yaml.safe_dump(mock_trajectory, sort_keys=False), encoding="utf-8")
 
     return {
         "metrics_csv": metrics_csv_path,
         "k8s_events": k8s_json_path,
         "ground_truth": ground_truth_path,
+        "mock_trajectory": mock_traj_path,
     }
 
 
