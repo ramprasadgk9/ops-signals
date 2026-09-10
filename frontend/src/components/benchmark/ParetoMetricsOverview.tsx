@@ -84,7 +84,7 @@ export const ParetoMetricsOverview: React.FC<ParetoMetricsOverviewProps> = ({ re
                 Instant localized triage vs multi-turn LLM inference
               </Typography>
               <Box sx={{ pt: 0.5 }}>
-                <Chip label="Real-time Streaming" size="small" color="warning" variant="outlined" />
+                <Chip label="Deterministic Engine" size="small" color="warning" variant="outlined" />
               </Box>
             </Stack>
           </CardContent>

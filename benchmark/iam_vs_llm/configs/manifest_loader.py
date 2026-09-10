@@ -14,6 +14,16 @@ class PricingConfig:
     input_per_mtok: float
     output_per_mtok: float
 
+    @classmethod
+    def default_for_model(cls, model_id: str) -> PricingConfig:
+        """Returns standard default pricing based on model family."""
+        m = (model_id or "").lower()
+        if "flash" in m:
+            return cls(input_per_mtok=0.10, output_per_mtok=0.40)
+        if "mini" in m or "haiku" in m:
+            return cls(input_per_mtok=0.15, output_per_mtok=0.60)
+        return cls(input_per_mtok=3.00, output_per_mtok=15.00)
+
     def calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Calculates financial cost in USD from input/output token counts."""
         cost_in = (input_tokens / 1_000_000.0) * self.input_per_mtok
@@ -29,6 +39,17 @@ class ModelRunConfig:
     max_turns: int
     pricing: PricingConfig
     name: str = ""
+
+    def update_provider(self, provider: str, model_id: str | None = None) -> None:
+        """Encapsulated helper to update provider and model configurations."""
+        self.provider = provider.lower().strip()
+        if model_id:
+            self.model_id = model_id
+            self.pricing = PricingConfig.default_for_model(model_id)
+        elif self.provider == "gemini":
+            if not self.model_id or self.model_id == "mock-frontier-sre":
+                self.model_id = "gemini-2.0-flash"
+            self.pricing = PricingConfig.default_for_model(self.model_id)
 
 
 @dataclass(slots=True)
@@ -80,32 +101,36 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     iam_data = resolved.get("iam_system", {})
     judge_data = resolved.get("judge", {})
 
-    a_pricing_in = float(a_data.get("pricing_per_mtok", {}).get("input", 0.10 if "flash" in str(a_data.get("model_id", "")).lower() else 3.0))
-    a_pricing_out = float(a_data.get("pricing_per_mtok", {}).get("output", 0.40 if "flash" in str(a_data.get("model_id", "")).lower() else 15.0))
+    a_model = str(a_data.get("model_id", "mock-frontier-sre"))
+    a_pricing_data = a_data.get("pricing_per_mtok")
+    if a_pricing_data and "input" in a_pricing_data and "output" in a_pricing_data:
+        a_pricing = PricingConfig(float(a_pricing_data["input"]), float(a_pricing_data["output"]))
+    else:
+        a_pricing = PricingConfig.default_for_model(a_model)
+
     baseline_a = ModelRunConfig(
         name=str(a_data.get("name", "Baseline A (Direct ReAct LLM Agent)")),
-        model_id=str(a_data.get("model_id", "mock-frontier-sre")),
+        model_id=a_model,
         provider=str(a_data.get("provider", "mock")),
         temperature=float(a_data.get("temperature", 0.0)),
         max_turns=int(a_data.get("max_turns", 10)),
-        pricing=PricingConfig(
-            input_per_mtok=a_pricing_in,
-            output_per_mtok=a_pricing_out,
-        ),
+        pricing=a_pricing,
     )
 
-    b_pricing_in = float(b_data.get("pricing_per_mtok", {}).get("input", 0.10 if "flash" in str(b_data.get("model_id", "")).lower() else 3.0))
-    b_pricing_out = float(b_data.get("pricing_per_mtok", {}).get("output", 0.40 if "flash" in str(b_data.get("model_id", "")).lower() else 15.0))
+    b_model = str(b_data.get("model_id", "mock-frontier-sre"))
+    b_pricing_data = b_data.get("pricing_per_mtok")
+    if b_pricing_data and "input" in b_pricing_data and "output" in b_pricing_data:
+        b_pricing = PricingConfig(float(b_pricing_data["input"]), float(b_pricing_data["output"]))
+    else:
+        b_pricing = PricingConfig.default_for_model(b_model)
+
     baseline_b = ModelRunConfig(
         name=str(b_data.get("name", "Baseline B (Signals-Augmented LLM Agent)")),
-        model_id=str(b_data.get("model_id", "mock-frontier-sre")),
+        model_id=b_model,
         provider=str(b_data.get("provider", "mock")),
         temperature=float(b_data.get("temperature", 0.0)),
         max_turns=int(b_data.get("max_turns", 6)),
-        pricing=PricingConfig(
-            input_per_mtok=b_pricing_in,
-            output_per_mtok=b_pricing_out,
-        ),
+        pricing=b_pricing,
     )
 
     iam_advisor = ModelRunConfig(

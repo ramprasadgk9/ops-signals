@@ -528,3 +528,64 @@ def test_krippendorff_alpha_subject_rater_matrix() -> None:
     alpha_sparse = calculate_krippendorff_alpha(ratings_sparse, level_of_measurement="ordinal")
     assert alpha_sparse == 1.0
 
+
+def test_judge_evaluator_gemini_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that JudgeEvaluator accepts provider: 'gemini' and routes via resolve_llm_client."""
+    from unittest.mock import MagicMock
+    from benchmark.iam_vs_llm.evaluators.judge_evaluator import JudgeEvaluator
+    from benchmark.iam_vs_llm.evaluators.normalization import NormalizedRCA
+    from benchmark.iam_vs_llm.evaluators.taxonomy import RootCauseClass
+    from benchmark.iam_vs_llm.runners.base_runner import BenchmarkRunResult
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    manifest = BenchmarkManifest(
+        random_seed=42,
+        state_isolation=True,
+        baseline_a=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(1.0, 1.0)),
+        baseline_b=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(1.0, 1.0)),
+        iam_advisor=ModelRunConfig("m", "local", 0.0, 1, PricingConfig(1.0, 1.0)),
+        judge=ModelRunConfig(
+            model_id="gemini-2.0-flash",
+            provider="gemini",
+            temperature=0.0,
+            max_turns=1,
+            pricing=PricingConfig(0.10, 0.40),
+        ),
+    )
+    evaluator = JudgeEvaluator(manifest=manifest)
+
+    mock_client = MagicMock()
+    mock_openai_cls = MagicMock(return_value=mock_client)
+    fake_mod = MagicMock(OpenAI=mock_openai_cls)
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "openai", fake_mod)
+
+    class FakeChoice:
+        def __init__(self, content):
+            self.message = MagicMock(content=content)
+
+    class FakeJudgeResp:
+        def __init__(self, content):
+            self.choices = [FakeChoice(content)]
+            self.usage = MagicMock(prompt_tokens=200, completion_tokens=50)
+
+    mock_client.chat.completions.create.return_value = FakeJudgeResp(
+        '{"attribution": 5, "grounding": 5, "actionability": 5, "justification": "Flawless diagnosis."}'
+    )
+
+    run_res = BenchmarkRunResult(
+        runner_id="test",
+        scenario_id="scenario_01",
+        normalized_rca=NormalizedRCA(entity="payment-service", root_cause=RootCauseClass.MEMORY_LEAK),
+        execution_time_seconds=0.1,
+    )
+    gt = {"entity": "payment-service", "root_cause": "MEMORY_LEAK"}
+
+    judge_res = evaluator.evaluate(run_res, gt)
+    assert judge_res.consensus.attribution == 5
+    assert judge_res.consensus.grounding == 5
+    assert judge_res.consensus.actionability == 5
+    mock_openai_cls.assert_called_once_with(
+        api_key="test-gemini-key",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    )
+

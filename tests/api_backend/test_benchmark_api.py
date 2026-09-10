@@ -73,7 +73,7 @@ def test_run_benchmark_validation_errors(client: TestClient, monkeypatch: pytest
         json={"provider": "gemini"},
     )
     assert res_gemini_missing_key.status_code == 400
-    assert "GEMINI_API_KEY is not configured" in res_gemini_missing_key.json()["detail"]
+    assert "GEMINI_API_KEY" in res_gemini_missing_key.json()["detail"]
 
 
 def test_run_benchmark_mock_execution(client: TestClient) -> None:
@@ -89,3 +89,35 @@ def test_run_benchmark_mock_execution(client: TestClient) -> None:
     assert "scenarios" in data
     assert "summary" in data
     assert len(data["scenarios"]) >= 1
+
+
+def test_run_benchmark_partial_run_preserves_other_scenarios(client: TestClient) -> None:
+    # First ensure we have multiple scenarios in the report
+    res_initial = client.get("/api/benchmark/report")
+    initial_count = len(res_initial.json().get("scenarios", []))
+
+    # Trigger run for only scenario_02
+    res_partial = client.post(
+        "/api/benchmark/run",
+        json={
+            "scenarios": ["scenario_02_cascading_failure"],
+            "provider": "mock",
+        },
+    )
+    assert res_partial.status_code == 200
+    data = res_partial.json()
+    # Should still contain all initial scenarios, not truncated to 1
+    if initial_count >= 2:
+        assert len(data["scenarios"]) >= initial_count
+    scen_ids = [s["scenario"] for s in data["scenarios"]]
+    assert "scenario_02_cascading_failure" in scen_ids
+
+
+def test_get_benchmark_report_empty_file_non_mutating(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.app.benchmark.service import BenchmarkService
+    # Create service with non-existent report file
+    service = BenchmarkService(repo_root=tmp_path)
+    res = service.get_latest_report()
+    assert res["scenarios"] == []
+    assert res["generated_at"] is None
+    assert not service.report_file.exists()

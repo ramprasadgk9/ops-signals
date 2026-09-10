@@ -151,12 +151,12 @@ class JudgeEvaluator:
         provider = (self.config.provider or "mock").lower().strip()
         if provider == "mock":
             return self._evaluate_mock(run_result, ground_truth)
-        elif provider in ("openai", "openrouter"):
+        elif provider in ("openai", "openrouter", "gemini"):
             return self._evaluate_live(run_result, ground_truth)
         else:
             raise ValueError(
                 f"Unsupported judge provider '{self.config.provider}'. "
-                "Supported providers: 'mock', 'openai', 'openrouter'."
+                "Supported providers: 'mock', 'openai', 'openrouter', 'gemini'."
             )
 
     def _evaluate_mock(

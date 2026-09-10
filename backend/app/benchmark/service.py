@@ -19,6 +19,7 @@ from benchmark.iam_vs_llm.run_comparison import (
     generate_benchmark_reports,
     run_benchmark_comparison,
 )
+from benchmark.iam_vs_llm.runners.react_base import validate_provider_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +80,12 @@ class BenchmarkService:
     def get_latest_report(self) -> dict[str, Any]:
         """Loads and returns the latest persisted benchmark report with calculated summary metrics."""
         if not self.report_file.exists():
-            # If no report exists, generate initial mock baseline report
-            self.run_benchmark(provider="mock")
+            return {
+                "report_path": str(self.report_file),
+                "generated_at": None,
+                "scenarios": [],
+                "summary": self._calculate_summary([]),
+            }
 
         with self.report_file.open("r", encoding="utf-8") as f:
             scenarios_data = json.load(f)
@@ -132,54 +137,15 @@ class BenchmarkService:
         normalized_provider = provider.lower().strip()
 
         # Validate live provider API key requirements
-        if normalized_provider != "mock":
-            if normalized_provider == "gemini":
-                key = os.environ.get("GEMINI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-                if not key:
-                    raise ValueError(
-                        "GEMINI_API_KEY is not configured in the environment. "
-                        "Please provide a Gemini API key or use provider 'mock'."
-                    )
-            elif normalized_provider == "openrouter":
-                key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-                if not key:
-                    raise ValueError(
-                        "OPENROUTER_API_KEY is not configured in the environment. "
-                        "Please provide an OpenRouter API key or use provider 'mock'."
-                    )
-            elif normalized_provider == "openai":
-                key = os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-                if not key:
-                    raise ValueError(
-                        "OPENAI_API_KEY is not configured in the environment. "
-                        "Please provide an OpenAI API key or use provider 'mock'."
-                    )
-            else:
-                raise ValueError(
-                    f"Unsupported provider '{provider}'. Supported: 'mock', 'gemini', 'openai', 'openrouter'."
-                )
+        validate_provider_api_key(normalized_provider)
 
-        # Apply provider configuration
-        manifest.baseline_a.provider = normalized_provider
-        manifest.baseline_b.provider = normalized_provider
-        if model_id:
-            manifest.baseline_a.model_id = model_id
-            manifest.baseline_b.model_id = model_id
-
-        if normalized_provider == "gemini":
-            if not model_id:
-                manifest.baseline_a.model_id = "gemini-2.0-flash"
-                manifest.baseline_b.model_id = "gemini-2.0-flash"
-            manifest.baseline_a.pricing = PricingConfig(0.10, 0.40)
-            manifest.baseline_b.pricing = PricingConfig(0.10, 0.40)
-
-        # Judge provider configuration
+        # Apply provider configuration via ModelRunConfig encapsulated methods
+        manifest.baseline_a.update_provider(normalized_provider, model_id)
+        manifest.baseline_b.update_provider(normalized_provider, model_id)
         if judge_provider:
-            manifest.judge.provider = judge_provider.lower().strip()
+            manifest.judge.update_provider(judge_provider)
         elif normalized_provider != "mock":
-            manifest.judge.provider = normalized_provider
-            if normalized_provider == "gemini":
-                manifest.judge.model_id = "gemini-2.0-flash"
+            manifest.judge.update_provider(normalized_provider)
 
         # Execute comparison across target scenarios
         all_results: list[dict[str, Any]] = []
@@ -192,10 +158,59 @@ class BenchmarkService:
             )
             all_results.append(res)
 
-        # Write reports
-        generate_benchmark_reports(all_results, output_dir=self.report_dir)
+        # Handle persistent report updates:
+        # If all scenarios were evaluated, regenerate full reports via generate_benchmark_reports
+        if len(unique_dirs) >= len(all_dirs):
+            generate_benchmark_reports(all_results, output_dir=self.report_dir)
+        else:
+            # Merge newly evaluated scenario entries into existing report without wiping prior data
+            self._merge_and_save_scenarios(all_results)
 
         return self.get_latest_report()
+
+    def _merge_and_save_scenarios(self, new_results: list[dict[str, Any]]) -> None:
+        """Merges new scenario benchmark run results into existing report entries."""
+        existing_entries: dict[str, Any] = {}
+        if self.report_file.exists():
+            try:
+                with self.report_file.open("r", encoding="utf-8") as f:
+                    for item in json.load(f):
+                        if isinstance(item, dict) and "scenario" in item:
+                            existing_entries[item["scenario"]] = item
+            except Exception as e:
+                logger.warning("Could not read existing benchmark report: %s", e)
+
+        for res in new_results:
+            scenario_entry: dict[str, Any] = {
+                "scenario": res["scenario"],
+                "ground_truth": res["ground_truth"],
+            }
+            for sys_key in ("iam", "baseline_a", "baseline_b"):
+                if sys_key in res:
+                    run = res[sys_key]["run"]
+                    eval_res = res[sys_key]["evaluation"]
+                    judge = res[sys_key].get("judge")
+                    scenario_entry[sys_key] = {
+                        "runner_id": run.runner_id,
+                        "status": eval_res.status,
+                        "entity": run.normalized_rca.entity,
+                        "root_cause": run.normalized_rca.root_cause.value,
+                        "summary_text": run.normalized_rca.raw_summary,
+                        "window_iou": eval_res.window_iou,
+                        "evidence_f1": eval_res.evidence_f1,
+                        "composite_score": eval_res.composite_score,
+                        "tokens": run.token_usage,
+                        "cost_usd": run.cost_usd,
+                        "execution_time_seconds": run.execution_time_seconds,
+                        "metadata": run.metadata,
+                        "judge": judge.to_dict() if judge else None,
+                    }
+            existing_entries[res["scenario"]] = scenario_entry
+
+        # Write merged list sorted by scenario name
+        merged_list = [existing_entries[k] for k in sorted(existing_entries.keys())]
+        with self.report_file.open("w", encoding="utf-8") as f:
+            json.dump(merged_list, f, indent=2)
 
     def _calculate_summary(self, scenarios_data: list[dict[str, Any]]) -> dict[str, Any]:
         """Calculates aggregate metrics across scenarios for IAM, Baseline A, and Baseline B."""
