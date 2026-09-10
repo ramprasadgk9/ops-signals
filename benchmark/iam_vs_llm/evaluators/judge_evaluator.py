@@ -10,6 +10,7 @@ from benchmark.iam_vs_llm.configs.manifest_loader import BenchmarkManifest, Mode
 from benchmark.iam_vs_llm.evaluators.judge_agreement import calculate_fleiss_kappa, calculate_krippendorff_alpha
 from benchmark.iam_vs_llm.evaluators.taxonomy import RootCauseClass
 from benchmark.iam_vs_llm.runners.base_runner import BenchmarkRunResult
+from benchmark.iam_vs_llm.runners.react_base import resolve_llm_client
 
 
 JUDGE_RUBRIC_PROMPT = """You are an expert Principal Site Reliability Engineer serving as an impartial benchmark judge.
@@ -268,26 +269,7 @@ class JudgeEvaluator:
         ground_truth: dict[str, Any],
     ) -> JudgeEvaluationResult:
         """Live evaluation using frontier LLM judges."""
-        provider = (self.config.provider or "openai").lower().strip()
-        if provider == "openrouter":
-            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-            base_url = os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
-        else:
-            api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-            base_url = os.environ.get("OPENAI_BASE_URL")
-
-        if not api_key:
-            key_name = "OPENROUTER_API_KEY" if provider == "openrouter" else "OPENAI_API_KEY"
-            raise ValueError(
-                f"Judge API key missing. Set {key_name} or BENCHMARK_LLM_API_KEY in environment."
-            )
-
-        try:
-            from openai import OpenAI
-        except ImportError as e:
-            raise ImportError("openai package required for live judge. Run: pip install openai") from e
-
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        client, _ = resolve_llm_client(self.config)
 
         rca = run_result.normalized_rca
         expected_rc, expected_entity, expected_evidence_list = _extract_ground_truth(ground_truth)

@@ -80,6 +80,8 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     iam_data = resolved.get("iam_system", {})
     judge_data = resolved.get("judge", {})
 
+    a_pricing_in = float(a_data.get("pricing_per_mtok", {}).get("input", 0.10 if "flash" in str(a_data.get("model_id", "")).lower() else 3.0))
+    a_pricing_out = float(a_data.get("pricing_per_mtok", {}).get("output", 0.40 if "flash" in str(a_data.get("model_id", "")).lower() else 15.0))
     baseline_a = ModelRunConfig(
         name=str(a_data.get("name", "Baseline A (Direct ReAct LLM Agent)")),
         model_id=str(a_data.get("model_id", "mock-frontier-sre")),
@@ -87,11 +89,13 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
         temperature=float(a_data.get("temperature", 0.0)),
         max_turns=int(a_data.get("max_turns", 10)),
         pricing=PricingConfig(
-            input_per_mtok=float(a_data.get("pricing_per_mtok", {}).get("input", 3.0)),
-            output_per_mtok=float(a_data.get("pricing_per_mtok", {}).get("output", 15.0)),
+            input_per_mtok=a_pricing_in,
+            output_per_mtok=a_pricing_out,
         ),
     )
 
+    b_pricing_in = float(b_data.get("pricing_per_mtok", {}).get("input", 0.10 if "flash" in str(b_data.get("model_id", "")).lower() else 3.0))
+    b_pricing_out = float(b_data.get("pricing_per_mtok", {}).get("output", 0.40 if "flash" in str(b_data.get("model_id", "")).lower() else 15.0))
     baseline_b = ModelRunConfig(
         name=str(b_data.get("name", "Baseline B (Signals-Augmented LLM Agent)")),
         model_id=str(b_data.get("model_id", "mock-frontier-sre")),
@@ -99,8 +103,8 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
         temperature=float(b_data.get("temperature", 0.0)),
         max_turns=int(b_data.get("max_turns", 6)),
         pricing=PricingConfig(
-            input_per_mtok=float(b_data.get("pricing_per_mtok", {}).get("input", 3.0)),
-            output_per_mtok=float(b_data.get("pricing_per_mtok", {}).get("output", 15.0)),
+            input_per_mtok=b_pricing_in,
+            output_per_mtok=b_pricing_out,
         ),
     )
 

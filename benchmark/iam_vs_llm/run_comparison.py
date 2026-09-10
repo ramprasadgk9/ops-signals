@@ -28,11 +28,13 @@ from benchmark.iam_vs_llm.runners.iam_slice_runner import IAMSliceRunner
 def run_benchmark_comparison(
     scenario_dir: Path,
     manifest_path: Path | None = None,
+    manifest: BenchmarkManifest | None = None,
     include_baseline_b: bool = True,
     include_judge: bool = True,
 ) -> dict[str, Any]:
     """Executes IAM, Baseline A, and Baseline B against a designated scenario and evaluates each."""
-    manifest = load_manifest(manifest_path)
+    if manifest is None:
+        manifest = load_manifest(manifest_path)
     random.seed(manifest.random_seed)
     try:
         import numpy as np
@@ -220,12 +222,14 @@ def generate_benchmark_reports(
                     "status": eval_res.status,
                     "entity": run.normalized_rca.entity,
                     "root_cause": run.normalized_rca.root_cause.value,
+                    "summary_text": run.normalized_rca.raw_summary,
                     "window_iou": eval_res.window_iou,
                     "evidence_f1": eval_res.evidence_f1,
                     "composite_score": eval_res.composite_score,
                     "tokens": run.token_usage,
                     "cost_usd": run.cost_usd,
                     "execution_time_seconds": run.execution_time_seconds,
+                    "metadata": run.metadata,
                     "judge": judge.to_dict() if judge else None,
                 }
         json_data.append(scenario_entry)

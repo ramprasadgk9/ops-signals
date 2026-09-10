@@ -25,11 +25,13 @@ import { ZScoreAnomalyLabPage } from '../pages/analyzer-labs/ZScoreAnomalyLabPag
 import { CasesPage } from '../pages/CasesPage';
 import { InvestigationsPage } from '../pages/InvestigationsPage';
 import { SystemPage } from '../pages/SystemPage';
+import { BenchmarkDashboardPage } from '../pages/BenchmarkDashboardPage';
 
 export function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<OverviewPage />} />
+      <Route path="/benchmark" element={<BenchmarkDashboardPage />} />
       <Route path="/autonomous-monitoring" element={<AutonomousMonitoringPage />} />
       <Route path="/investigations" element={<InvestigationsPage />} />
       <Route path="/cases" element={<CasesPage />} />

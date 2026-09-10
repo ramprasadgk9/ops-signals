@@ -669,3 +669,6 @@ export type AssistantChatResponse = {
   sources: AssistantSource[];
   evidence_groups?: AssistantEvidenceGroup[];
 };
+
+export * from './benchmark';
+

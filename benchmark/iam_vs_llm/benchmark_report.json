@@ -29,12 +29,24 @@
       "status": "SUCCESS",
       "entity": "payment-service",
       "root_cause": "MEMORY_LEAK",
+      "summary_text": "Memory leak driving resource degradation: Sustained upward memory trend was accompanied by increased CPU throttling, indicating a memory leak driving resource exhaustion.",
       "window_iou": 0.6522,
       "evidence_f1": 0.8889,
       "composite_score": 0.893,
       "tokens": 0,
       "cost_usd": 0.0,
-      "execution_time_seconds": 0.0843,
+      "execution_time_seconds": 0.0683,
+      "metadata": {
+        "executed_analyzers": [
+          "baseline_shift",
+          "anomaly_zscore",
+          "pyod_outlier",
+          "trend"
+        ],
+        "finding_count": 3,
+        "signal_count": 5,
+        "behavior_finding_count": 1
+      },
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -78,12 +90,329 @@
       "status": "SUCCESS",
       "entity": "payment-service",
       "root_cause": "MEMORY_LEAK",
+      "summary_text": "Investigation Complete:\n\nTelemetric analysis reveals that payment-service experienced progressive memory exhaustion starting at 2026-09-07T10:30:00+00:00 with a persistent upward trend in memory_usage. As heap consumption approached the 1000Mi limit, aggressive garbage collection produced a baseline shift and spike in CPU throttling beginning around 2026-09-07T11:15:00+00:00. The container was finally terminated by Kubernetes OOMKiller at 2026-09-07T11:45:00+00:00.\n\nROOT_CAUSE: MEMORY_LEAK\nENTIT",
       "window_iou": 1.0,
       "evidence_f1": 0.8571,
       "composite_score": 0.9563,
       "tokens": 4240,
       "cost_usd": 0.01752,
-      "execution_time_seconds": 0.0029,
+      "execution_time_seconds": 0.0027,
+      "metadata": {
+        "model_id": "mock-frontier-sre",
+        "provider": "mock",
+        "input_tokens": 3840,
+        "output_tokens": 400,
+        "trajectory_turns": 6,
+        "trajectory": [
+          {
+            "turn": 1,
+            "thought": "Discovering active services in the cluster to identify investigation targets.",
+            "tool": "list_services",
+            "tool_input": {},
+            "tool_output": [
+              "auth-service",
+              "payment-service"
+            ]
+          },
+          {
+            "turn": 2,
+            "thought": "Checking Kubernetes events across the cluster for crashes or pod restarts.",
+            "tool": "query_k8s_events",
+            "tool_input": {},
+            "tool_output": [
+              {
+                "timestamp": "2026-09-07T11:45:00+00:00",
+                "service": "payment-service",
+                "pod": "payment-service-7b9f898-x8z9",
+                "type": "Warning",
+                "reason": "OOMKilled",
+                "message": "Container payment-service exceeded memory limit (1000Mi) and was terminated with exit code 137.",
+                "details": {
+                  "exit_code": 137,
+                  "restart_count": 1,
+                  "limit": "1000Mi"
+                }
+              },
+              {
+                "timestamp": "2026-09-07T11:46:00+00:00",
+                "service": "payment-service",
+                "pod": "payment-service-7b9f898-x8z9",
+                "type": "Warning",
+                "reason": "BackOff",
+                "message": "Back-off restarting failed container payment-service in pod payment-service-7b9f898-x8z9.",
+                "details": {
+                  "status": "CrashLoopBackOff"
+                }
+              }
+            ]
+          },
+          {
+            "turn": 3,
+            "thought": "Pod termination detected on payment-service. Inspecting recorded telemetry metrics.",
+            "tool": "list_metrics",
+            "tool_input": {
+              "service": "payment-service"
+            },
+            "tool_output": [
+              "cpu_throttled_seconds",
+              "cpu_usage",
+              "memory_usage"
+            ]
+          },
+          {
+            "turn": 4,
+            "thought": "Querying memory_usage time-series for payment-service to assess memory consumption trend.",
+            "tool": "query_prometheus",
+            "tool_input": {
+              "query": "memory_usage{service=\"payment-service\"}"
+            },
+            "tool_output": {
+              "status": "success",
+              "data": {
+                "metric": "memory_usage",
+                "service": "payment-service",
+                "summary": {
+                  "point_count": 120,
+                  "min": 194.95,
+                  "max": 958.23,
+                  "mean": 441.54,
+                  "start_value": 200.91,
+                  "end_value": 208.73,
+                  "delta": 7.82
+                },
+                "sample_points": [
+                  {
+                    "timestamp": "2026-09-07T10:00:00+00:00",
+                    "value": 200.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:05:00+00:00",
+                    "value": 198.94
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:10:00+00:00",
+                    "value": 200.87
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:15:00+00:00",
+                    "value": 202.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:20:00+00:00",
+                    "value": 198.87
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:25:00+00:00",
+                    "value": 201.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:30:00+00:00",
+                    "value": 199.37
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:35:00+00:00",
+                    "value": 251.36
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:40:00+00:00",
+                    "value": 302.68
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:45:00+00:00",
+                    "value": 352.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:50:00+00:00",
+                    "value": 401.19
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:55:00+00:00",
+                    "value": 454.88
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:00:00+00:00",
+                    "value": 510.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:05:00+00:00",
+                    "value": 557.59
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:10:00+00:00",
+                    "value": 606.81
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:15:00+00:00",
+                    "value": 665.31
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:20:00+00:00",
+                    "value": 705.95
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:25:00+00:00",
+                    "value": 755.9
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:30:00+00:00",
+                    "value": 807.48
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:35:00+00:00",
+                    "value": 857.31
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:40:00+00:00",
+                    "value": 914.79
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:45:00+00:00",
+                    "value": 958.23
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:50:00+00:00",
+                    "value": 211.16
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:55:00+00:00",
+                    "value": 205.64
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "turn": 5,
+            "thought": "Checking CPU throttling to verify if GC thrashing coincided with memory saturation.",
+            "tool": "query_prometheus",
+            "tool_input": {
+              "query": "cpu_throttled_seconds{service=\"payment-service\"}"
+            },
+            "tool_output": {
+              "status": "success",
+              "data": {
+                "metric": "cpu_throttled_seconds",
+                "service": "payment-service",
+                "summary": {
+                  "point_count": 120,
+                  "min": 0.01,
+                  "max": 3.98,
+                  "mean": 0.86,
+                  "start_value": 0.07,
+                  "end_value": 0.08,
+                  "delta": 0.01
+                },
+                "sample_points": [
+                  {
+                    "timestamp": "2026-09-07T10:00:00+00:00",
+                    "value": 0.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:05:00+00:00",
+                    "value": 0.06
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:10:00+00:00",
+                    "value": 0.02
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:15:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:20:00+00:00",
+                    "value": 0.04
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:25:00+00:00",
+                    "value": 0.03
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:30:00+00:00",
+                    "value": 0.02
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:35:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:40:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:45:00+00:00",
+                    "value": 0.09
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:50:00+00:00",
+                    "value": 0.09
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:55:00+00:00",
+                    "value": 0.03
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:00:00+00:00",
+                    "value": 0.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:05:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:10:00+00:00",
+                    "value": 0.04
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:15:00+00:00",
+                    "value": 2.4
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:20:00+00:00",
+                    "value": 3.53
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:25:00+00:00",
+                    "value": 3.89
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:30:00+00:00",
+                    "value": 3.98
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:35:00+00:00",
+                    "value": 2.74
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:40:00+00:00",
+                    "value": 2.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:45:00+00:00",
+                    "value": 3.25
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:50:00+00:00",
+                    "value": 0.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:55:00+00:00",
+                    "value": 0.09
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "turn": 6,
+            "thought": "Synthesizing investigation into structured diagnosis.",
+            "tool": null,
+            "tool_input": null,
+            "tool_output": null,
+            "response": "Investigation Complete:\n\nTelemetric analysis reveals that payment-service experienced progressive memory exhaustion starting at 2026-09-07T10:30:00+00:00 with a persistent upward trend in memory_usage. As heap consumption approached the 1000Mi limit, aggressive garbage collection produced a baseline shift and spike in CPU throttling beginning around 2026-09-07T11:15:00+00:00. The container was finally terminated by Kubernetes OOMKiller at 2026-09-07T11:45:00+00:00.\n\nROOT_CAUSE: MEMORY_LEAK\nENTITY: payment-service\nWINDOW: 2026-09-07T10:30:00+00:00 to 2026-09-07T11:45:00+00:00\nEVIDENCE: memory_usage, cpu_throttled_seconds, trend"
+          }
+        ]
+      },
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -127,12 +456,302 @@
       "status": "SUCCESS",
       "entity": "payment-service",
       "root_cause": "MEMORY_LEAK",
+      "summary_text": "Investigation Complete:\nTelemetric analysis combined with pre-computed signal extraction reveals that payment-service experienced progressive memory exhaustion starting at 2026-09-07T10:30:00+00:00 with a persistent upward trend in memory_usage. As heap consumption approached the 1000Mi limit, aggressive garbage collection produced a baseline shift and spike in CPU throttling beginning around 2026-09-07T11:15:00+00:00. The container was finally terminated by Kubernetes OOMKiller at 2026-09-07T11",
       "window_iou": 1.0,
       "evidence_f1": 0.8571,
       "composite_score": 0.9452,
       "tokens": 2340,
       "cost_usd": 0.01062,
-      "execution_time_seconds": 0.0018,
+      "execution_time_seconds": 0.0021,
+      "metadata": {
+        "model_id": "mock-frontier-sre",
+        "provider": "mock",
+        "input_tokens": 2040,
+        "output_tokens": 300,
+        "trajectory_turns": 4,
+        "trajectory": [
+          {
+            "turn": 1,
+            "thought": "Querying pre-computed statistical signals across services to identify anomalous indicators.",
+            "tool": "list_signals",
+            "tool_input": {},
+            "tool_output": [
+              {
+                "service": "payment-service",
+                "signal_type": "trend",
+                "metric_name": "memory_usage",
+                "severity": 0.88,
+                "confidence": 0.95,
+                "start_time": "2026-09-07T10:30:00+00:00",
+                "end_time": "2026-09-07T11:45:00+00:00",
+                "details": "Persistent upward linear trend in memory_usage slope=7.24MB/min"
+              },
+              {
+                "service": "payment-service",
+                "signal_type": "baseline_shift",
+                "metric_name": "cpu_throttled_seconds",
+                "severity": 0.85,
+                "confidence": 0.92,
+                "start_time": "2026-09-07T11:15:00+00:00",
+                "end_time": "2026-09-07T11:45:00+00:00",
+                "details": "Abrupt mean shift in cpu_throttled_seconds from 0.05s to 3.20s"
+              }
+            ]
+          },
+          {
+            "turn": 2,
+            "thought": "Top severity signals point to payment-service (trend on memory_usage, baseline shift on cpu_throttled_seconds). Querying memory_usage time-series.",
+            "tool": "query_prometheus",
+            "tool_input": {
+              "query": "memory_usage{service=\"payment-service\"}"
+            },
+            "tool_output": {
+              "status": "success",
+              "data": {
+                "metric": "memory_usage",
+                "service": "payment-service",
+                "summary": {
+                  "point_count": 120,
+                  "min": 194.95,
+                  "max": 958.23,
+                  "mean": 441.54,
+                  "start_value": 200.91,
+                  "end_value": 208.73,
+                  "delta": 7.82
+                },
+                "sample_points": [
+                  {
+                    "timestamp": "2026-09-07T10:00:00+00:00",
+                    "value": 200.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:05:00+00:00",
+                    "value": 198.94
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:10:00+00:00",
+                    "value": 200.87
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:15:00+00:00",
+                    "value": 202.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:20:00+00:00",
+                    "value": 198.87
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:25:00+00:00",
+                    "value": 201.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:30:00+00:00",
+                    "value": 199.37
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:35:00+00:00",
+                    "value": 251.36
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:40:00+00:00",
+                    "value": 302.68
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:45:00+00:00",
+                    "value": 352.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:50:00+00:00",
+                    "value": 401.19
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:55:00+00:00",
+                    "value": 454.88
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:00:00+00:00",
+                    "value": 510.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:05:00+00:00",
+                    "value": 557.59
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:10:00+00:00",
+                    "value": 606.81
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:15:00+00:00",
+                    "value": 665.31
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:20:00+00:00",
+                    "value": 705.95
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:25:00+00:00",
+                    "value": 755.9
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:30:00+00:00",
+                    "value": 807.48
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:35:00+00:00",
+                    "value": 857.31
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:40:00+00:00",
+                    "value": 914.79
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:45:00+00:00",
+                    "value": 958.23
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:50:00+00:00",
+                    "value": 211.16
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:55:00+00:00",
+                    "value": 205.64
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "turn": 3,
+            "thought": "Verifying CPU throttling onset to check if GC thrashing coincided with heap saturation.",
+            "tool": "query_prometheus",
+            "tool_input": {
+              "query": "cpu_throttled_seconds{service=\"payment-service\"}"
+            },
+            "tool_output": {
+              "status": "success",
+              "data": {
+                "metric": "cpu_throttled_seconds",
+                "service": "payment-service",
+                "summary": {
+                  "point_count": 120,
+                  "min": 0.01,
+                  "max": 3.98,
+                  "mean": 0.86,
+                  "start_value": 0.07,
+                  "end_value": 0.08,
+                  "delta": 0.01
+                },
+                "sample_points": [
+                  {
+                    "timestamp": "2026-09-07T10:00:00+00:00",
+                    "value": 0.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:05:00+00:00",
+                    "value": 0.06
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:10:00+00:00",
+                    "value": 0.02
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:15:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:20:00+00:00",
+                    "value": 0.04
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:25:00+00:00",
+                    "value": 0.03
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:30:00+00:00",
+                    "value": 0.02
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:35:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:40:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:45:00+00:00",
+                    "value": 0.09
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:50:00+00:00",
+                    "value": 0.09
+                  },
+                  {
+                    "timestamp": "2026-09-07T10:55:00+00:00",
+                    "value": 0.03
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:00:00+00:00",
+                    "value": 0.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:05:00+00:00",
+                    "value": 0.05
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:10:00+00:00",
+                    "value": 0.04
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:15:00+00:00",
+                    "value": 2.4
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:20:00+00:00",
+                    "value": 3.53
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:25:00+00:00",
+                    "value": 3.89
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:30:00+00:00",
+                    "value": 3.98
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:35:00+00:00",
+                    "value": 2.74
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:40:00+00:00",
+                    "value": 2.91
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:45:00+00:00",
+                    "value": 3.25
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:50:00+00:00",
+                    "value": 0.07
+                  },
+                  {
+                    "timestamp": "2026-09-07T11:55:00+00:00",
+                    "value": 0.09
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "turn": 4,
+            "thought": "Synthesizing investigation into structured diagnosis.",
+            "tool": null,
+            "tool_input": null,
+            "tool_output": null,
+            "response": "Investigation Complete:\nTelemetric analysis combined with pre-computed signal extraction reveals that payment-service experienced progressive memory exhaustion starting at 2026-09-07T10:30:00+00:00 with a persistent upward trend in memory_usage. As heap consumption approached the 1000Mi limit, aggressive garbage collection produced a baseline shift and spike in CPU throttling beginning around 2026-09-07T11:15:00+00:00. The container was finally terminated by Kubernetes OOMKiller at 2026-09-07T11:45:00+00:00.\nROOT_CAUSE: MEMORY_LEAK\nENTITY: payment-service\nWINDOW: 2026-09-07T10:30:00+00:00 to 2026-09-07T11:45:00+00:00\nEVIDENCE: memory_usage, cpu_throttled_seconds, trend"
+          }
+        ]
+      },
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -162,355 +781,6 @@
             "grounding": 4,
             "actionability": 5,
             "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/4). Actionability 5/5."
-          }
-        ],
-        "fleiss_kappa": 1.0,
-        "krippendorff_alpha": 1.0,
-        "calibrated": true,
-        "token_usage": 0,
-        "cost_usd": 0.0
-      }
-    }
-  },
-  {
-    "scenario": "scenario_02_cascading_failure",
-    "ground_truth": {
-      "scenario_id": "02_cascading_failure",
-      "entity": "orders-service",
-      "root_cause": "POOL_EXHAUSTION",
-      "secondary_symptoms": [
-        "GATEWAY_TIMEOUT_504",
-        "HPA_SCALE_UP",
-        "THREAD_POOL_SATURATION"
-      ],
-      "fault_window": {
-        "start": "2026-09-07T14:25:00+00:00",
-        "end": "2026-09-07T15:25:00+00:00"
-      },
-      "key_evidence": {
-        "metrics": [
-          "db_connections_active",
-          "db_connection_wait_seconds",
-          "http_504_rate"
-        ],
-        "signals": [
-          "trend",
-          "saturation"
-        ]
-      }
-    },
-    "iam": {
-      "runner_id": "iam_slice_runner",
-      "status": "SUCCESS",
-      "entity": "orders-service",
-      "root_cause": "POOL_EXHAUSTION",
-      "window_iou": 0.5217,
-      "evidence_f1": 0.8,
-      "composite_score": 0.8472,
-      "tokens": 0,
-      "cost_usd": 0.0,
-      "execution_time_seconds": 0.0689,
-      "judge": {
-        "consensus": {
-          "judge_id": "consensus",
-          "attribution": 5,
-          "grounding": 5,
-          "actionability": 5,
-          "justification": "Consensus across 3 raters."
-        },
-        "scores": [
-          {
-            "judge_id": "judge-rater-1",
-            "attribution": 5,
-            "grounding": 5,
-            "actionability": 5,
-            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-2",
-            "attribution": 5,
-            "grounding": 5,
-            "actionability": 5,
-            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-3",
-            "attribution": 5,
-            "grounding": 5,
-            "actionability": 5,
-            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
-          }
-        ],
-        "fleiss_kappa": 1.0,
-        "krippendorff_alpha": 1.0,
-        "calibrated": true,
-        "token_usage": 0,
-        "cost_usd": 0.0
-      }
-    },
-    "baseline_a": {
-      "runner_id": "baseline_a_mock-frontier-sre",
-      "status": "PARTIAL",
-      "entity": "orders-service",
-      "root_cause": "POOL_EXHAUSTION",
-      "window_iou": 1.0,
-      "evidence_f1": 0.75,
-      "composite_score": 0.9208,
-      "tokens": 4240,
-      "cost_usd": 0.01752,
-      "execution_time_seconds": 0.0025,
-      "judge": {
-        "consensus": {
-          "judge_id": "consensus",
-          "attribution": 5,
-          "grounding": 4,
-          "actionability": 5,
-          "justification": "Consensus across 3 raters."
-        },
-        "scores": [
-          {
-            "judge_id": "judge-rater-1",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-2",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-3",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          }
-        ],
-        "fleiss_kappa": 1.0,
-        "krippendorff_alpha": 1.0,
-        "calibrated": true,
-        "token_usage": 0,
-        "cost_usd": 0.0
-      }
-    },
-    "baseline_b": {
-      "runner_id": "baseline_b_mock-frontier-sre",
-      "status": "PARTIAL",
-      "entity": "orders-service",
-      "root_cause": "POOL_EXHAUSTION",
-      "window_iou": 1.0,
-      "evidence_f1": 0.75,
-      "composite_score": 0.9292,
-      "tokens": 2340,
-      "cost_usd": 0.01062,
-      "execution_time_seconds": 0.0019,
-      "judge": {
-        "consensus": {
-          "judge_id": "consensus",
-          "attribution": 5,
-          "grounding": 4,
-          "actionability": 5,
-          "justification": "Consensus across 3 raters."
-        },
-        "scores": [
-          {
-            "judge_id": "judge-rater-1",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-2",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-3",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          }
-        ],
-        "fleiss_kappa": 1.0,
-        "krippendorff_alpha": 1.0,
-        "calibrated": true,
-        "token_usage": 0,
-        "cost_usd": 0.0
-      }
-    }
-  },
-  {
-    "scenario": "scenario_03_benign_maintenance",
-    "ground_truth": {
-      "scenario_id": "03_benign_maintenance",
-      "entity": "report-service",
-      "root_cause": "BENIGN_MAINTENANCE",
-      "secondary_symptoms": [
-        "CPU_SPIKE",
-        "MEMORY_STEP_INCREASE"
-      ],
-      "fault_window": {
-        "start": "2026-09-07T14:30:00+00:00",
-        "end": "2026-09-07T15:10:00+00:00"
-      },
-      "key_evidence": {
-        "metrics": [
-          "batch_jobs_active",
-          "cpu_usage",
-          "memory_usage"
-        ],
-        "signals": [
-          "trend",
-          "batch_activity"
-        ]
-      }
-    },
-    "iam": {
-      "runner_id": "iam_slice_runner",
-      "status": "PARTIAL",
-      "entity": "report-service",
-      "root_cause": "BENIGN_MAINTENANCE",
-      "window_iou": 0.3478,
-      "evidence_f1": 0.8889,
-      "composite_score": 0.8403,
-      "tokens": 0,
-      "cost_usd": 0.0,
-      "execution_time_seconds": 0.0691,
-      "judge": {
-        "consensus": {
-          "judge_id": "consensus",
-          "attribution": 5,
-          "grounding": 5,
-          "actionability": 5,
-          "justification": "Consensus across 3 raters."
-        },
-        "scores": [
-          {
-            "judge_id": "judge-rater-1",
-            "attribution": 5,
-            "grounding": 5,
-            "actionability": 5,
-            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-2",
-            "attribution": 5,
-            "grounding": 5,
-            "actionability": 5,
-            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-3",
-            "attribution": 5,
-            "grounding": 5,
-            "actionability": 5,
-            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
-          }
-        ],
-        "fleiss_kappa": 1.0,
-        "krippendorff_alpha": 1.0,
-        "calibrated": true,
-        "token_usage": 0,
-        "cost_usd": 0.0
-      }
-    },
-    "baseline_a": {
-      "runner_id": "baseline_a_mock-frontier-sre",
-      "status": "PARTIAL",
-      "entity": "report-service",
-      "root_cause": "BENIGN_MAINTENANCE",
-      "window_iou": 1.0,
-      "evidence_f1": 0.75,
-      "composite_score": 0.9292,
-      "tokens": 4240,
-      "cost_usd": 0.01752,
-      "execution_time_seconds": 0.0028,
-      "judge": {
-        "consensus": {
-          "judge_id": "consensus",
-          "attribution": 5,
-          "grounding": 4,
-          "actionability": 5,
-          "justification": "Consensus across 3 raters."
-        },
-        "scores": [
-          {
-            "judge_id": "judge-rater-1",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-2",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-3",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          }
-        ],
-        "fleiss_kappa": 1.0,
-        "krippendorff_alpha": 1.0,
-        "calibrated": true,
-        "token_usage": 0,
-        "cost_usd": 0.0
-      }
-    },
-    "baseline_b": {
-      "runner_id": "baseline_b_mock-frontier-sre",
-      "status": "PARTIAL",
-      "entity": "report-service",
-      "root_cause": "BENIGN_MAINTENANCE",
-      "window_iou": 1.0,
-      "evidence_f1": 0.75,
-      "composite_score": 0.9292,
-      "tokens": 2340,
-      "cost_usd": 0.01062,
-      "execution_time_seconds": 0.0016,
-      "judge": {
-        "consensus": {
-          "judge_id": "consensus",
-          "attribution": 5,
-          "grounding": 4,
-          "actionability": 5,
-          "justification": "Consensus across 3 raters."
-        },
-        "scores": [
-          {
-            "judge_id": "judge-rater-1",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-2",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
-          },
-          {
-            "judge_id": "judge-rater-3",
-            "attribution": 5,
-            "grounding": 4,
-            "actionability": 5,
-            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
           }
         ],
         "fleiss_kappa": 1.0,

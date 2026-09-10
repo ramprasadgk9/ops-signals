@@ -23,6 +23,7 @@ import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
+import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
 import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
@@ -58,6 +59,7 @@ const navItems: NavItem[] = [
   { label: 'Operational Memory', to: '/operational-memory', icon: <StorageRoundedIcon /> },
   { label: 'Ask Ops Signals', to: '/assistant', icon: <ChatBubbleOutlineRoundedIcon />, badge: 'Beta' },
   { label: 'Experiments', to: '/experiments', icon: <ScienceRoundedIcon /> },
+  { label: 'IAM Benchmark', to: '/benchmark', icon: <CompareArrowsRoundedIcon /> },
   { label: 'New Analysis', to: '/validate-data', icon: <AddRoundedIcon /> },
 ];
 

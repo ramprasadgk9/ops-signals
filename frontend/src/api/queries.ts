@@ -35,6 +35,9 @@ import type {
   TimeseriesPoint,
   OverviewSummaryResponse,
   MemoryStatsResponse,
+  BenchmarkReportResponse,
+  BenchmarkRunRequestPayload,
+  BenchmarkScenarioDescriptor,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -203,4 +206,8 @@ export const api = {
     postJson<typeof payload, PrometheusPreviewResponse>('/api/prometheus/preview', payload),
   runPrometheusAnalysis: (payload: DirectPrometheusAnalysisRequest) =>
     postJson<DirectPrometheusAnalysisRequest, DirectPrometheusAnalysisResponse>('/api/analysis/prometheus', payload),
+  benchmarkScenarios: () => getJson<BenchmarkScenarioDescriptor[]>('/api/benchmark/scenarios'),
+  benchmarkReport: () => getJson<BenchmarkReportResponse>('/api/benchmark/report'),
+  runBenchmark: (payload: BenchmarkRunRequestPayload) =>
+    postJson<BenchmarkRunRequestPayload, BenchmarkReportResponse>('/api/benchmark/run', payload),
 };

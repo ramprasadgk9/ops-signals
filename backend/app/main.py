@@ -21,6 +21,7 @@ from backend.app.api.mcp import router as mcp_router
 from backend.app.api.experiments import router as experiments_router
 from backend.app.api.behavior_definitions import router as behavior_definitions_router
 from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
+from backend.app.api.benchmark import router as benchmark_router
 from backend.app.api.capabilities import router as capabilities_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.findings import router as findings_router
@@ -268,6 +269,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(assistant_router)
     app.include_router(mcp_router)
     app.include_router(testing_router)
+    app.include_router(benchmark_router)
     
     # Register memory router
     app.include_router(memory_router)

@@ -756,6 +756,56 @@ def test_baseline_a_runner_openrouter_provider_isolation(
     )
 
 
+def test_baseline_a_runner_gemini_provider_routing(scenario_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that provider: 'gemini' routes to Google's OpenAI-compatible endpoint with GEMINI_API_KEY."""
+    manifest = BenchmarkManifest(
+        random_seed=42,
+        state_isolation=True,
+        baseline_a=ModelRunConfig(
+            model_id="gemini-2.0-flash",
+            provider="gemini",
+            temperature=0.0,
+            max_turns=1,
+            pricing=PricingConfig(0.10, 0.40),
+        ),
+        baseline_b=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(1.0, 1.0)),
+        iam_advisor=ModelRunConfig("m", "local", 0.0, 1, PricingConfig(0.2, 0.2)),
+        judge=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(2.5, 10.0)),
+    )
+    runner = BaselineARunner(manifest=manifest)
+
+    monkeypatch.setenv("GEMINI_API_KEY", "sk-gemini-test-key")
+    monkeypatch.delenv("BENCHMARK_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_BASE_URL", raising=False)
+
+    mock_openai_cls = MagicMock()
+    mock_client = MagicMock()
+    mock_openai_cls.return_value = mock_client
+
+    class FakeMessage:
+        tool_calls = None
+        content = "Diagnosis.\nROOT_CAUSE: MEMORY_LEAK\nENTITY: payment-service"
+
+    mock_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=FakeMessage())],
+        usage=MagicMock(prompt_tokens=120, completion_tokens=40),
+    )
+
+    fake_openai_mod = MagicMock(OpenAI=mock_openai_cls)
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "openai", fake_openai_mod)
+
+    result = runner.run_react_agent(scenario_dir)
+
+    mock_openai_cls.assert_called_once_with(
+        api_key="sk-gemini-test-key",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    )
+    assert result.token_usage == 160
+    assert result.metadata["input_tokens"] == 120
+    assert result.metadata["output_tokens"] == 40
+    assert result.normalized_rca.root_cause == RootCauseClass.MEMORY_LEAK
+
+
 def test_manifest_loader_name_overrides(tmp_path: Path) -> None:
     """Verifies that user name overrides in YAML for all model configs are respected."""
     manifest_yaml = tmp_path / "custom_names_manifest.yaml"

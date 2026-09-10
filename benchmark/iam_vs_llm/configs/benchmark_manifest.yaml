@@ -1,5 +1,10 @@
 # IAM vs. LLM Benchmark Configuration Manifest
 # Zero hardcoded model names in code; values resolved dynamically at runtime.
+# Supported providers:
+#   - 'mock': Deterministic zero-token CI testing (default).
+#   - 'gemini': Google Gemini models (e.g. gemini-2.0-flash, gemini-1.5-pro) using GEMINI_API_KEY.
+#   - 'openai': OpenAI models (e.g. gpt-4o, gpt-4o-mini) using OPENAI_API_KEY.
+#   - 'openrouter': OpenRouter models (e.g. anthropic/claude-3.5-sonnet) using OPENROUTER_API_KEY.
 
 harness:
   random_seed: 42
