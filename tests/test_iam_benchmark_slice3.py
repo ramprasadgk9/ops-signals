@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+from backend.app.behavior_intelligence.fact_catalog import FACT_KEYS
 from benchmark.iam_vs_llm.configs.manifest_loader import BenchmarkManifest, ModelRunConfig, PricingConfig
 from benchmark.iam_vs_llm.evaluators.f1_evaluator import F1EvaluationResult, F1Evaluator
 from benchmark.iam_vs_llm.evaluators.judge_agreement import calculate_fleiss_kappa, calculate_krippendorff_alpha
@@ -18,6 +19,7 @@ from benchmark.iam_vs_llm.run_comparison import generate_benchmark_reports, run_
 from benchmark.iam_vs_llm.runners.base_runner import BenchmarkRunResult
 from benchmark.iam_vs_llm.runners.baseline_b_runner import BaselineBRunner, MockSignalsAgent
 from benchmark.iam_vs_llm.runners.mock_tool_environment import MockToolEnvironment
+from benchmark.iam_vs_llm.runners.react_base import BaseReActRunner, ReActExecutionResult, USER_TRIAGE_PROMPT
 
 
 @pytest.fixture
@@ -472,3 +474,57 @@ def test_generate_benchmark_reports(tmp_path: Path, scenario_1_dir: Path, scenar
     assert "iam" in json_data[0]
     assert "baseline_a" in json_data[0]
     assert "baseline_b" in json_data[0]
+
+
+def test_react_execution_result_contract() -> None:
+    """Verifies ReActExecutionResult attributes, total_tokens, and 5-tuple unpacking compatibility."""
+    res = ReActExecutionResult(
+        final_text="test conclusion",
+        input_tokens=100,
+        output_tokens=50,
+        trajectory=[{"turn": 1}],
+        tool_calls_count=2,
+    )
+    assert res.final_text == "test conclusion"
+    assert res.input_tokens == 100
+    assert res.output_tokens == 50
+    assert res.total_tokens == 150
+    assert res.trajectory == [{"turn": 1}]
+    assert res.tool_calls_count == 2
+
+    # Backward-compatible 5-tuple unpacking
+    text, in_tok, out_tok, traj, tc = res
+    assert text == "test conclusion"
+    assert in_tok == 100
+    assert out_tok == 50
+    assert traj == [{"turn": 1}]
+    assert tc == 2
+
+
+def test_fact_catalog_trend_present() -> None:
+    """Verifies trend.present is formally registered in the behavioral fact catalog."""
+    assert "trend.present" in FACT_KEYS
+    assert "trend.slope" in FACT_KEYS
+
+
+def test_krippendorff_alpha_subject_rater_matrix() -> None:
+    """Verifies calculate_krippendorff_alpha with (num_subjects, num_raters) matrix."""
+    # 3 subjects evaluated by 3 raters
+    ratings = [
+        [1.0, 1.0, 1.0],
+        [2.0, 2.0, 2.0],
+        [3.0, 3.0, 3.0],
+    ]
+    # Perfect agreement across all subjects
+    alpha = calculate_krippendorff_alpha(ratings, level_of_measurement="ordinal")
+    assert alpha == 1.0
+
+    # With missing data (None)
+    ratings_sparse = [
+        [1.0, 1.0, None],
+        [2.0, None, 2.0],
+        [None, 3.0, 3.0],
+    ]
+    alpha_sparse = calculate_krippendorff_alpha(ratings_sparse, level_of_measurement="ordinal")
+    assert alpha_sparse == 1.0
+

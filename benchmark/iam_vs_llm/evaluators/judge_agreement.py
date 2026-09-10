@@ -65,8 +65,9 @@ def calculate_krippendorff_alpha(
     """Calculates Krippendorff's alpha reliability coefficient supporting missing data.
     
     Args:
-        ratings: Matrix of shape (num_subjects, num_raters) or (num_raters, num_subjects).
-                 Entries can be None to signify missing ratings.
+        ratings: Matrix of shape (num_subjects, num_raters), where each row corresponds
+                 to a subject and columns correspond to raters. Entries can be None to
+                 signify missing ratings.
         level_of_measurement: One of 'nominal', 'ordinal', 'interval'. Default is 'ordinal'.
         
     Returns:
@@ -100,8 +101,8 @@ def calculate_krippendorff_alpha(
     for v in all_values:
         val_frequencies[v_to_idx[v]] += 1
 
-    total_pairs = sum(val_frequencies)
-    if total_pairs <= 1:
+    total_observations = sum(val_frequencies)
+    if total_observations <= 1:
         return 1.0
 
     # Distance function delta^2(v, v')
@@ -124,7 +125,6 @@ def calculate_krippendorff_alpha(
 
     # Observed disagreement D_o
     d_o_sum = 0.0
-    total_m_pairs = 0.0
 
     for row in valid_subjects:
         raters_count = len(row)
@@ -146,9 +146,8 @@ def calculate_krippendorff_alpha(
                 row_diff += count_a * count_b * diff_sq(val_a, val_b)
 
         d_o_sum += row_diff / (raters_count - 1)
-        total_m_pairs += raters_count
 
-    d_o = (2.0 * d_o_sum) / total_pairs if total_pairs > 0 else 0.0
+    d_o = (2.0 * d_o_sum) / total_observations if total_observations > 0 else 0.0
 
     # Expected disagreement D_e
     d_e_sum = 0.0
@@ -160,7 +159,7 @@ def calculate_krippendorff_alpha(
             count_b = val_frequencies[j]
             d_e_sum += count_a * count_b * diff_sq(val_a, val_b)
 
-    d_e = (2.0 * d_e_sum) / (total_pairs * (total_pairs - 1)) if total_pairs > 1 else 0.0
+    d_e = (2.0 * d_e_sum) / (total_observations * (total_observations - 1)) if total_observations > 1 else 0.0
 
     if d_e == 0.0:
         return 1.0

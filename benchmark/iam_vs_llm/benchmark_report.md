@@ -1,18 +1,18 @@
 # IAM vs. Agentic LLM Benchmark Report
-**Generated:** 2026-09-10 02:18:06 UTC  
+**Generated:** 2026-09-10 02:36:01 UTC  
 **Target Milestone:** Slice 3 — Multi-Source Benchmark & Calibrated Judge Evaluation  
 
 ## 1. Executive Summary & Pareto Frontier Scorecard
 
 | Scenario | System | Status | Root Cause | Culprit Entity | Ev-F1 | Judge (Attr/Grd/Act) | Tokens | Cost ($) | Latency (s) |
 |---|---|---|---|---|---|---|---|---|---|
-| `scenario_01_resource_degradation` | IAM (Ops Signals) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.083s |
+| `scenario_01_resource_degradation` | IAM (Ops Signals) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.084s |
 | `scenario_01_resource_degradation` | Baseline A (Raw ReAct) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.86 | 5/4/5 | 4,240 | $0.0175 | 0.003s |
 | `scenario_01_resource_degradation` | Baseline B (Signals ReAct) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.86 | 5/4/5 | 2,340 | $0.0106 | 0.002s |
-| `scenario_02_cascading_failure` | IAM (Ops Signals) | **SUCCESS** | `POOL_EXHAUSTION` | `orders-service` | 0.80 | 5/5/5 | 0 | $0.0000 | 0.083s |
+| `scenario_02_cascading_failure` | IAM (Ops Signals) | **SUCCESS** | `POOL_EXHAUSTION` | `orders-service` | 0.80 | 5/5/5 | 0 | $0.0000 | 0.069s |
 | `scenario_02_cascading_failure` | Baseline A (Raw ReAct) | **PARTIAL** | `POOL_EXHAUSTION` | `orders-service` | 0.75 | 5/4/5 | 4,240 | $0.0175 | 0.003s |
 | `scenario_02_cascading_failure` | Baseline B (Signals ReAct) | **PARTIAL** | `POOL_EXHAUSTION` | `orders-service` | 0.75 | 5/4/5 | 2,340 | $0.0106 | 0.002s |
-| `scenario_03_benign_maintenance` | IAM (Ops Signals) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.070s |
+| `scenario_03_benign_maintenance` | IAM (Ops Signals) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.069s |
 | `scenario_03_benign_maintenance` | Baseline A (Raw ReAct) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.75 | 5/4/5 | 4,240 | $0.0175 | 0.003s |
 | `scenario_03_benign_maintenance` | Baseline B (Signals ReAct) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.75 | 5/4/5 | 2,340 | $0.0106 | 0.002s |
 

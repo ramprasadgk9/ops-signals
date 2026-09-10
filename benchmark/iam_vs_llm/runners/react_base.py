@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from benchmark.iam_vs_llm.configs.manifest_loader import ModelRunConfig
+from benchmark.iam_vs_llm.configs.manifest_loader import BenchmarkManifest, ModelRunConfig, load_manifest
+from benchmark.iam_vs_llm.evaluators.normalization import normalize_structured_text
+from benchmark.iam_vs_llm.runners.base_runner import BaseBenchmarkRunner, BenchmarkRunResult, state_isolation
 from benchmark.iam_vs_llm.runners.mock_tool_environment import MockToolEnvironment
 
 
@@ -300,3 +303,86 @@ def run_live_openai_react_loop(
         trajectory=trajectory,
         tool_calls_count=tool_calls_count,
     )
+
+
+USER_TRIAGE_PROMPT = (
+    "You are an expert site reliability engineer investigating a production incident. "
+    "Investigate available telemetry and identify the root cause and culprit entity."
+)
+
+
+class BaseReActRunner(BaseBenchmarkRunner):
+    """Base benchmark runner orchestrating simulated or live ReAct LLM agents."""
+
+    runner_prefix: str = "baseline"
+
+    def __init__(
+        self,
+        runner_id: str,
+        config: ModelRunConfig,
+        manifest: BenchmarkManifest | None = None,
+    ) -> None:
+        super().__init__(runner_id=runner_id)
+        self.manifest = manifest or load_manifest()
+        self.config = config
+
+    def get_query_environment(self, scenario_dir: Path) -> MockToolEnvironment:
+        return MockToolEnvironment(scenario_dir)
+
+    def execute(self, scenario_dir: Path) -> BenchmarkRunResult:
+        """Polymorphic execution entrypoint; runs the ReAct agent."""
+        return self.run_react_agent(scenario_dir)
+
+    def _create_mock_agent(
+        self,
+        env: MockToolEnvironment,
+        scenario_dir: Path,
+    ) -> BaseMockReActAgent:
+        raise NotImplementedError
+
+    def _run_live_agent(
+        self,
+        env: MockToolEnvironment,
+    ) -> ReActExecutionResult:
+        raise NotImplementedError
+
+    def run_react_agent(self, scenario_dir: Path) -> BenchmarkRunResult:
+        scenario_id = scenario_dir.name
+        env = self.get_query_environment(scenario_dir)
+
+        with state_isolation() as ctx:
+            start_time = time.perf_counter()
+
+            provider = self.config.provider.lower().strip()
+            if provider == "mock":
+                agent = self._create_mock_agent(env, scenario_dir)
+                exec_res = agent.run(max_turns=self.config.max_turns)
+            elif provider in ("openai", "openrouter"):
+                exec_res = self._run_live_agent(env)
+            else:
+                raise ValueError(
+                    f"Unsupported provider '{self.config.provider}'. "
+                    "Supported providers: 'mock', 'openai', 'openrouter'."
+                )
+
+            duration = time.perf_counter() - start_time
+            normalized_rca = normalize_structured_text(exec_res.final_text)
+            cost_usd = self.config.pricing.calculate_cost(exec_res.input_tokens, exec_res.output_tokens)
+
+            return BenchmarkRunResult(
+                runner_id=f"{self.runner_prefix}_{self.config.model_id}",
+                scenario_id=scenario_id,
+                normalized_rca=normalized_rca,
+                execution_time_seconds=round(duration, 4),
+                token_usage=exec_res.total_tokens,
+                cost_usd=cost_usd,
+                tool_iterations=exec_res.tool_calls_count,
+                metadata={
+                    "model_id": self.config.model_id,
+                    "provider": self.config.provider,
+                    "input_tokens": exec_res.input_tokens,
+                    "output_tokens": exec_res.output_tokens,
+                    "trajectory_turns": len(exec_res.trajectory),
+                    "trajectory": exec_res.trajectory,
+                },
+            )

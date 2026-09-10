@@ -10,7 +10,9 @@ from benchmark.iam_vs_llm.runners.base_runner import BaseBenchmarkRunner, Benchm
 from benchmark.iam_vs_llm.runners.mock_tool_environment import MockToolEnvironment
 from benchmark.iam_vs_llm.runners.react_base import (
     BaseMockReActAgent,
+    BaseReActRunner,
     ReActExecutionResult,
+    USER_TRIAGE_PROMPT,
     run_live_openai_react_loop,
 )
 
@@ -29,10 +31,6 @@ ROOT_CAUSE: <one of MEMORY_LEAK, CPU_STARVATION, CONFIG_REGRESSION, POOL_EXHAUST
 ENTITY: <service_name>
 WINDOW: <start_iso_timestamp> to <end_iso_timestamp>
 EVIDENCE: <comma_separated_metric_or_signal_names>
-"""
-
-USER_TRIAGE_PROMPT = """High latency alerts and pod instability have been reported in the cluster over the last two hours.
-Investigate the cluster telemetry and determine the root cause, affected entity, fault window, and key evidence.
 """
 
 
@@ -197,72 +195,35 @@ class MockSREAgent(BaseMockReActAgent):
         )
 
 
-class BaselineARunner(BaseBenchmarkRunner):
+class BaselineARunner(BaseReActRunner):
     """Executes Baseline A: Direct LLM ReAct Agent interacting with observability query tools."""
 
+    runner_prefix: str = "baseline_a"
+
     def __init__(self, manifest: BenchmarkManifest | None = None) -> None:
-        super().__init__(runner_id="baseline_a_react")
-        self.manifest = manifest or load_manifest()
-        self.config = self.manifest.baseline_a
+        manifest = manifest or load_manifest()
+        super().__init__(
+            runner_id="baseline_a_react",
+            config=manifest.baseline_a,
+            manifest=manifest,
+        )
 
-    def get_query_environment(self, scenario_dir: Path) -> MockToolEnvironment:
-        return MockToolEnvironment(scenario_dir)
+    def _create_mock_agent(self, env: MockToolEnvironment, scenario_dir: Path) -> BaseMockReActAgent:
+        return MockSREAgent(env=env, config=self.config, scenario_dir=scenario_dir)
 
-    def execute(self, scenario_dir: Path) -> BenchmarkRunResult:
-        """Polymorphic execution entrypoint; runs the ReAct agent."""
-        return self.run_react_agent(scenario_dir)
-
-    def run_react_agent(self, scenario_dir: Path) -> BenchmarkRunResult:
-        scenario_id = scenario_dir.name
-        env = self.get_query_environment(scenario_dir)
-
-        with state_isolation() as ctx:
-            start_time = time.perf_counter()
-
-            provider = self.config.provider.lower().strip()
-            if provider == "mock":
-                agent = MockSREAgent(env=env, config=self.config, scenario_dir=scenario_dir)
-                exec_res = agent.run(max_turns=self.config.max_turns)
-            elif provider in ("openai", "openrouter"):
-                exec_res = self._run_openai_react(env=env, config=self.config)
-            else:
-                raise ValueError(
-                    f"Unsupported provider '{self.config.provider}'. "
-                    f"Supported providers: 'mock', 'openai', 'openrouter'."
-                )
-
-            duration = time.perf_counter() - start_time
-            normalized_rca = normalize_structured_text(exec_res.final_text)
-            cost_usd = self.config.pricing.calculate_cost(exec_res.input_tokens, exec_res.output_tokens)
-
-            return BenchmarkRunResult(
-                runner_id=f"baseline_a_{self.config.model_id}",
-                scenario_id=scenario_id,
-                normalized_rca=normalized_rca,
-                execution_time_seconds=round(duration, 4),
-                token_usage=exec_res.total_tokens,
-                cost_usd=cost_usd,
-                tool_iterations=exec_res.tool_calls_count,
-                metadata={
-                    "model_id": self.config.model_id,
-                    "provider": self.config.provider,
-                    "input_tokens": exec_res.input_tokens,
-                    "output_tokens": exec_res.output_tokens,
-                    "trajectory_turns": len(exec_res.trajectory),
-                    "trajectory": exec_res.trajectory,
-                },
-            )
-
-    def _run_openai_react(
-        self,
-        env: MockToolEnvironment,
-        config: ModelRunConfig,
-    ) -> ReActExecutionResult:
-        """Executes a live OpenAI/OpenRouter tool-calling loop using shared runner."""
+    def _run_live_agent(self, env: MockToolEnvironment) -> ReActExecutionResult:
         return run_live_openai_react_loop(
             env=env,
-            config=config,
+            config=self.config,
             system_prompt=SYSTEM_PROMPT,
             user_prompt=USER_TRIAGE_PROMPT,
             include_signals=False,
         )
+
+    def _run_openai_react(
+        self,
+        env: MockToolEnvironment,
+        config: ModelRunConfig | None = None,
+    ) -> ReActExecutionResult:
+        """Backward-compatible method for live execution."""
+        return self._run_live_agent(env)

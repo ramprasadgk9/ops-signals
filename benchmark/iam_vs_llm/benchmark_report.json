@@ -34,7 +34,7 @@
       "composite_score": 0.893,
       "tokens": 0,
       "cost_usd": 0.0,
-      "execution_time_seconds": 0.0825,
+      "execution_time_seconds": 0.0843,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -83,7 +83,7 @@
       "composite_score": 0.9563,
       "tokens": 4240,
       "cost_usd": 0.01752,
-      "execution_time_seconds": 0.0031,
+      "execution_time_seconds": 0.0029,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -132,7 +132,7 @@
       "composite_score": 0.9452,
       "tokens": 2340,
       "cost_usd": 0.01062,
-      "execution_time_seconds": 0.0021,
+      "execution_time_seconds": 0.0018,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -209,7 +209,7 @@
       "composite_score": 0.8472,
       "tokens": 0,
       "cost_usd": 0.0,
-      "execution_time_seconds": 0.0829,
+      "execution_time_seconds": 0.0689,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -258,7 +258,7 @@
       "composite_score": 0.9208,
       "tokens": 4240,
       "cost_usd": 0.01752,
-      "execution_time_seconds": 0.0028,
+      "execution_time_seconds": 0.0025,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -383,7 +383,7 @@
       "composite_score": 0.8403,
       "tokens": 0,
       "cost_usd": 0.0,
-      "execution_time_seconds": 0.0703,
+      "execution_time_seconds": 0.0691,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -432,7 +432,7 @@
       "composite_score": 0.9292,
       "tokens": 4240,
       "cost_usd": 0.01752,
-      "execution_time_seconds": 0.0025,
+      "execution_time_seconds": 0.0028,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -481,7 +481,7 @@
       "composite_score": 0.9292,
       "tokens": 2340,
       "cost_usd": 0.01062,
-      "execution_time_seconds": 0.0017,
+      "execution_time_seconds": 0.0016,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
