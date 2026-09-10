@@ -227,3 +227,17 @@ class MockToolEnvironment:
                 event_type=args.get("event_type"),
             ),
         }
+
+    def dispatch(self, tool_name: str, tool_input: dict[str, Any] | None = None) -> Any:
+        """Safely dispatches a tool call by name, catching unknown tools and execution errors."""
+        if tool_input is None:
+            tool_input = {}
+        dispatcher = self.get_dispatcher()
+        handler = dispatcher.get(tool_name)
+        if not handler:
+            return {"error": f"Unknown tool '{tool_name}'"}
+        try:
+            return handler(tool_input)
+        except Exception as err:
+            return {"error": f"Tool execution failed: {err}"}
+

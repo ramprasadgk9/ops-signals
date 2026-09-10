@@ -226,6 +226,9 @@ def test_baseline_a_runner_max_turns_truncation(scenario_dir: Path) -> None:
     assert result.normalized_rca.root_cause == RootCauseClass.UNKNOWN
     assert result.tool_iterations == 2
     assert "Turn limit reached" in result.normalized_rca.raw_summary
+    turns = [t["turn"] for t in result.metadata["trajectory"]]
+    assert turns == list(range(1, len(result.metadata["trajectory"]) + 1))
+
 
 
 def test_baseline_a_runner_unsupported_provider(scenario_dir: Path) -> None:
@@ -583,6 +586,8 @@ def test_mock_sre_agent_dynamic_trajectory_budget(tmp_path: Path, scenario_dir: 
     assert "Turn limit reached" in final_text or "ROOT_CAUSE: UNKNOWN" in final_text
     assert tool_calls <= 2
     assert len(traj) <= 3
+    turns = [t["turn"] for t in traj]
+    assert turns == list(range(1, len(traj) + 1))
 
 
 def test_mock_tool_environment_get_dispatcher(scenario_dir: Path) -> None:
@@ -592,6 +597,32 @@ def test_mock_tool_environment_get_dispatcher(scenario_dir: Path) -> None:
     assert set(dispatcher.keys()) == {"list_services", "list_metrics", "query_prometheus", "query_k8s_events"}
     services = dispatcher["list_services"]({})
     assert "payment-service" in services
+
+
+def test_mock_tool_environment_dispatch(scenario_dir: Path) -> None:
+    """Verifies that MockToolEnvironment.dispatch executes tools safely and handles unknown tools or errors."""
+    from unittest.mock import patch
+
+    env = MockToolEnvironment(scenario_dir)
+
+    # 1. Successful dispatch with and without arguments
+    services = env.dispatch("list_services")
+    assert "payment-service" in services
+
+    metrics = env.dispatch("list_metrics", {"service": "payment-service"})
+    assert "memory_usage" in metrics
+
+    # 2. Unknown tool returns structured error
+    err_res = env.dispatch("non_existent_tool", {})
+    assert "error" in err_res
+    assert "Unknown tool 'non_existent_tool'" in err_res["error"]
+
+    # 3. Tool exception returns structured error
+    with patch.object(env, "list_services", side_effect=RuntimeError("Cluster API down")):
+        fail_res = env.dispatch("list_services")
+        assert "error" in fail_res
+        assert "Tool execution failed: Cluster API down" in fail_res["error"]
+
 
 
 def test_baseline_a_runner_openai_tool_execution_error_separation(

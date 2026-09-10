@@ -77,7 +77,6 @@ class MockSREAgent:
         tool_calls_count = 0
         current_history_tokens = 260
 
-        tool_dispatcher = self.env.get_dispatcher()
         turn_idx = 0
         budget_exhausted = False
 
@@ -91,8 +90,7 @@ class MockSREAgent:
             tool_input = item.get("tool_input", {})
             thought = item.get("thought", "")
 
-            fn = tool_dispatcher.get(tool_name)
-            output = fn(tool_input) if fn else {"error": f"Unknown tool: {tool_name}"}
+            output = self.env.dispatch(tool_name, tool_input)
             tool_calls_count += 1
 
             turn_out = 50
@@ -127,16 +125,18 @@ class MockSREAgent:
         else:
             # Budget exhausted, emit early truncated summary
             forced_text = (
-                "Turn limit reached before investigation could conclude.\n\n"
+                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
                 "ROOT_CAUSE: UNKNOWN\n"
                 "ENTITY: unknown\n"
             )
+            summary_turn = len(trajectory) + 1
             trajectory.append({
-                "turn": turn_idx,
+                "turn": summary_turn,
                 "thought": "Turn limit reached; premature termination.",
                 "response": forced_text,
             })
             return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
+
 
     def _run_dynamic_trajectory(
         self,
@@ -153,9 +153,13 @@ class MockSREAgent:
         # Turn 1: list_services
         turn += 1
         if turn > max_turns:
-            forced_text = "Turn limit reached before investigation could begin.\n\nROOT_CAUSE: UNKNOWN\nENTITY: unknown-service\n"
+            forced_text = (
+                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
+                "ROOT_CAUSE: UNKNOWN\n"
+                "ENTITY: unknown-service\n"
+            )
             trajectory.append({
-                "turn": turn,
+                "turn": len(trajectory) + 1,
                 "thought": "Turn limit reached; premature termination.",
                 "response": forced_text,
             })
@@ -177,9 +181,13 @@ class MockSREAgent:
         # Turn 2: query_k8s_events
         turn += 1
         if turn > max_turns:
-            forced_text = f"Turn limit reached.\n\nROOT_CAUSE: UNKNOWN\nENTITY: {services[0] if services else 'unknown-service'}\n"
+            forced_text = (
+                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
+                "ROOT_CAUSE: UNKNOWN\n"
+                f"ENTITY: {services[0] if services else 'unknown-service'}\n"
+            )
             trajectory.append({
-                "turn": turn,
+                "turn": len(trajectory) + 1,
                 "thought": "Turn limit reached; premature termination.",
                 "response": forced_text,
             })
@@ -273,7 +281,7 @@ class MockSREAgent:
                 f"ENTITY: {target_service}\n"
             )
             trajectory.append({
-                "turn": turn,
+                "turn": len(trajectory) + 1,
                 "thought": "Turn limit reached; premature termination.",
                 "response": final_text,
             })
@@ -285,7 +293,7 @@ class MockSREAgent:
             f"ENTITY: {target_service}\n"
         )
         trajectory.append({
-            "turn": turn + 1,
+            "turn": len(trajectory) + 1,
             "thought": "Dynamic fallback synthesis complete.",
             "response": final_text,
         })
@@ -397,8 +405,6 @@ class BaselineARunner(BaseBenchmarkRunner):
         tool_calls_count = 0
         final_text = ""
 
-        tool_dispatcher = env.get_dispatcher()
-
         for turn in range(1, config.max_turns + 1):
             response = client.chat.completions.create(
                 model=config.model_id,
@@ -449,14 +455,7 @@ class BaselineARunner(BaseBenchmarkRunner):
                     tool_args = {"raw_arguments": tc.function.arguments}
                     result = {"error": f"Invalid JSON arguments: {err}"}
                 else:
-                    handler = tool_dispatcher.get(func_name)
-                    if not handler:
-                        result = {"error": f"Unknown tool '{func_name}'"}
-                    else:
-                        try:
-                            result = handler(tool_args)
-                        except Exception as err:
-                            result = {"error": f"Tool execution failed: {err}"}
+                    result = env.dispatch(func_name, tool_args)
 
                 result_str = json.dumps(result, default=str)
                 messages.append({
