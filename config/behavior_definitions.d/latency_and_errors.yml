@@ -1,0 +1,49 @@
+# Example community-style pattern pack — demonstrates that behavior definitions can live in
+# their own file instead of one shared config/behavior_definitions.yml (see loader.py, which
+# loads every *.yml/*.yaml in this directory). Uses request_latency_p95 and error_rate, both
+# already emitted by dev/mock_prometheus_target.py, so this is testable out of the box.
+behavior_definitions:
+  latency_error_cascade:
+    enabled: true
+    version: 1
+    title: Possible cascading failure
+    description: >
+      Detects rising request latency occurring together with a rising error rate in the
+      same analysis window — a common precursor to timeouts and cascading failures.
+    scope:
+      service: "*"
+    inputs:
+      - alias: latency
+        metric_name: request_latency_p95
+        analyzers:
+          - anomaly_zscore
+          - trend
+      - alias: errors
+        metric_name: error_rate
+        analyzers:
+          - anomaly_zscore
+          - trend
+    conditions:
+      all:
+        - fact: latency.anomaly.present
+          operator: equals
+          value: true
+        - fact: errors.anomaly.present
+          operator: equals
+          value: true
+    correlation:
+      same_analysis_context: true
+      max_time_gap: 10m
+      minimum_overlap: 5m
+    output:
+      category: availability
+      severity: high
+      title: Possible cascading failure detected
+      summary: >
+        Latency and error rate both showed abnormal behavior in the same window —
+        a pattern often seen when timeouts start cascading into failures downstream.
+      evidence:
+        - latency.anomaly.count
+        - latency.anomaly.max_score
+        - errors.anomaly.count
+        - errors.anomaly.max_score

@@ -41,6 +41,66 @@ export type BehaviorDefinition = {
   conditions: Record<string, Array<Record<string, unknown>>>;
   correlation: Record<string, unknown>;
   output: Record<string, unknown>;
+  source_file?: string | null;
+};
+
+export type FactDescriptor = {
+  key: string;
+  description: string;
+  example: unknown;
+};
+
+export type BehaviorConditionInput = {
+  fact: string;
+  operator: string;
+  value: unknown;
+};
+
+export type BehaviorDefinitionDraft = {
+  id: string;
+  enabled?: boolean;
+  version?: number;
+  title: string;
+  description?: string;
+  scope?: Record<string, unknown>;
+  inputs: Array<{ alias: string; metric_name: string; analyzers?: string[] }>;
+  conditions: Record<string, BehaviorConditionInput[]>;
+  correlation?: Record<string, unknown>;
+  output: {
+    category?: string;
+    severity?: string;
+    title: string;
+    summary?: string;
+    evidence?: string[];
+  };
+};
+
+export type ValidationResult = {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+};
+
+export type SaveDraftResult = {
+  saved: boolean;
+  pack_file: string;
+  validation: ValidationResult;
+};
+
+export type BehaviorPatternSuggestion = {
+  id: number;
+  service?: string | null;
+  metric_a: string;
+  metric_b: string;
+  co_occurrence_count: number;
+  metric_a_occasions: number;
+  metric_b_occasions: number;
+  correlation_strength: number;
+  sample_analysis_run_ids: string[];
+  draft_definition_json: Record<string, unknown>;
+  draft_yaml_text: string;
+  status: string;
+  created_at: string;
 };
 
 export type BehaviorFinding = {
@@ -61,6 +121,8 @@ export type BehaviorFinding = {
   confidence: number;
   correlation_json: Record<string, unknown>;
   case_id?: number | null;
+  occurrence_count: number;
+  last_seen_at: string;
   created_at: string;
 };
 

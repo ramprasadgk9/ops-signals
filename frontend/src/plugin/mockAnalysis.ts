@@ -88,6 +88,8 @@ export function buildMockAnalysis(config: GrafanaSourceConfig, runs: AnalysisRun
         overlap: 'strong',
       },
       case_id: null,
+      occurrence_count: 1,
+      last_seen_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
     },
   ];

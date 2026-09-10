@@ -601,7 +601,7 @@ class SignalPipeline:
         self.store.save_question_answers(answers)
 
     def _evaluate_behavior_intelligence(self, signals: list[OperationalSignal], analysis_run_id: str) -> None:
-        behavior_definitions_path = self.base_path / "config" / "behavior_definitions.yml"
+        behavior_definitions_path = self.base_path / "config" / "behavior_definitions.d"
         if not behavior_definitions_path.exists() or not hasattr(self.store, "engine"):
             return
         service = BehaviorIntelligenceService(behavior_definitions_path)

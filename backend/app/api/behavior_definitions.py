@@ -10,5 +10,5 @@ router = APIRouter(prefix="/api/behavior-definitions", tags=["behavior-definitio
 
 @router.get("", response_model=list[BehaviorDefinitionOut])
 def list_behavior_definitions() -> list[BehaviorDefinitionOut]:
-    service = BehaviorIntelligenceService("config/behavior_definitions.yml")
+    service = BehaviorIntelligenceService("config/behavior_definitions.d")
     return [BehaviorDefinitionOut(**definition) for definition in service.list_definitions()]

@@ -6,10 +6,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from uuid import UUID, NAMESPACE_URL, uuid5
 
-import yaml
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
+from backend.app.behavior_intelligence.loader import load_definitions
 from backend.app.capabilities.builtins import BUILTIN_CAPABILITIES
 from backend.app.models.entities import Base
 from backend.app.memory.embedder import Embedder
@@ -303,12 +303,8 @@ class ApplicationKnowledgeBootstrapService:
         )
 
     def _behaviors_overview(self) -> ApplicationKnowledgeDocument:
-        behavior_titles = []
-        behavior_path = self.repo_root / "config" / "behavior_definitions.yml"
-        if behavior_path.exists():
-            raw = yaml.safe_load(behavior_path.read_text(encoding="utf-8")) or {}
-            for behavior_id, definition in (raw.get("behavior_definitions") or {}).items():
-                behavior_titles.append(f"{behavior_id}: {definition.get('title', behavior_id)}")
+        behavior_path = self.repo_root / "config" / "behavior_definitions.d"
+        behavior_titles = [f"{definition.id}: {definition.title}" for definition in load_definitions(behavior_path)]
         content = (
             "Behavior definitions combine evidence from multiple analyzers and metrics to explain higher-level operational conditions. "
             "They evaluate conditions, correlation windows, and output categories. "
