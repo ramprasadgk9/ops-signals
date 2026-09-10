@@ -1,8 +1,8 @@
 # JIRA-456 Analyzer Stabilization Review
 
-Date: 2026-08-30
+Date: 2026-09-04
 
-Scope: static repository review of analyzer execution, routing, labs, configuration, persistence, and tests. No source changes were made as part of this review.
+Scope: analyzer execution, routing, analyzer labs, configuration, persistence, frontend result display, and tests. This updates the original static review with stabilization fixes already landed through commit `e9c2172` (`Stabilize analyzer recommendation execution`).
 
 ## 1. Architecture Map
 
@@ -10,111 +10,112 @@ Analyzer execution currently flows through these layers:
 
 1. Input normalization
    - CSV/API input is normalized by `normalize_timeseries(...)`, then passed to `SignalPipeline.run_normalized(...)`.
-   - Evidence: `intelligence/pipeline.py:67-74`, `backend/app/services/timeseries_routing_service.py:28-40`.
+   - Evidence: `intelligence/pipeline.py:67-80`, `backend/app/services/timeseries_routing_service.py:28-40`.
 
 2. Router profiling and analyzer selection
    - `TimeSeriesRoutingService.route_normalized(...)` profiles the normalized dataframe and calls `UniversalTimeSeriesRouter.recommend_analyzers_for_profile(...)`.
    - Evidence: `backend/app/services/timeseries_routing_service.py:36-51`, `experiments/analyzer_router/router.py:78-86`.
 
 3. Router scoring
-   - Analyzer capability definitions come from `experiments/analyzer_router/analyzer_registry.yaml` plus custom analyzer YAML.
+   - Analyzer capability definitions come from `experiments/analyzer_router/analyzer_registry.yaml` plus promoted custom analyzer YAML.
    - Suitability is computed from base score, scoring rules, and behavioral profile match/mismatch caps.
    - Evidence: `experiments/analyzer_router/router.py:102-115`, `experiments/analyzer_router/router.py:131-148`, `experiments/analyzer_router/router.py:167-174`.
 
-4. Router-to-runtime mapping
-   - Pipeline maps router analyzer IDs to executable pipeline analyzer IDs.
-   - Evidence: `intelligence/pipeline.py:263-283`, `intelligence/pipeline.py:346-358`.
+4. Router-to-runtime selection
+   - Default config now uses `selection_mode: recommended_threshold`.
+   - The pipeline selects only `RECOMMENDED` router decisions at or above the configured threshold, caps execution count, and excludes optional analyzers unless configured otherwise.
+   - Evidence: `config/analyzers.yaml:1-9`, `intelligence/config.py:36-50`, `intelligence/pipeline.py:312-360`.
 
-5. Analyzer construction
+5. Router-to-runtime mapping
+   - Runtime aliasing is intentionally narrow. `trend_regression` maps to executable `trend`; unsupported custom/config-only analyzers are shown as unavailable instead of silently executing a different implementation.
+   - Evidence: `intelligence/pipeline.py:362-453`.
+
+6. Analyzer construction
    - Runtime analyzers are constructed from `config/analyzers.yaml` params and nested `implementation` / `finding_rules`.
-   - Evidence: `intelligence/pipeline.py:158-239`, `intelligence/pipeline.py:360-411`.
+   - Evidence: `intelligence/pipeline.py:197-299`, `intelligence/pipeline.py:462-470`.
 
-6. Analyzer execution
+7. Analyzer execution
    - Each analyzer receives the same normalized dataframe and returns `OperationalSignal` objects.
-   - Evidence: `intelligence/analyzers/base.py:11-23`, `intelligence/pipeline.py:105-110`.
+   - Analyzer failures are isolated per analyzer. One failed analyzer is recorded and does not prevent healthy analyzers from running.
+   - Evidence: `intelligence/analyzers/base.py:11-23`, `intelligence/pipeline.py:112-189`, `backend/app/autonomous/metric_executor.py:107-140`.
 
-7. Signal scoring and finding aggregation
+8. Signal scoring and finding aggregation
    - Signals are scored, persisted, and aggregated into findings.
-   - Evidence: `intelligence/pipeline.py:116-130`, `intelligence/finding_aggregator.py:25-78`.
+   - Evidence: `intelligence/pipeline.py:131-147`, `intelligence/finding_aggregator.py:25-78`.
 
-8. Persistence
-   - Analysis run, normalized points, signals, findings, capabilities, and learning snapshots are persisted through the store.
-   - Evidence: `intelligence/pipeline.py:79-103`, `intelligence/storage/postgres_store.py:41-113`, `intelligence/storage/postgres_store.py:227-233`.
+9. Persistence
+   - Analysis runs are created as `running`, then finalized as `completed`, `completed_with_errors`, or `failed`.
+   - Routing decisions and analyzer execution snapshots are stored in the learning snapshot.
+   - Evidence: `intelligence/pipeline.py:529-565`, `intelligence/storage/postgres_store.py:41-113`, `intelligence/storage/postgres_store.py:227-233`.
 
-9. Labs and Add Analyzer workbench
+10. UI result visibility
+   - New Analysis now shows which analyzers were executed, skipped, failed, or unavailable.
+   - Evidence: `frontend/src/pages/ValidateDataPage.tsx:192`, `frontend/src/pages/ValidateDataPage.tsx:950-956`, `backend/app/api/direct_prometheus.py`, `backend/app/models/prometheus.py`.
+
+11. Labs and Add Analyzer workbench
    - Labs create controlled analyzer scenarios and save config suggestions.
-   - Add Analyzer creates DB drafts, validates routing, promotes custom recommendation-only YAML, and can create adapter stubs.
+   - Add Analyzer creates DB drafts, validates routing, promotes custom recommendation-only YAML, and can create adapter stubs for backend support.
    - Evidence: `backend/app/api/analyzer_labs.py:380-484`, `backend/app/api/analyzer_labs.py:568-640`, `backend/app/api/analyzer_labs.py:643-698`, `backend/app/api/analyzer_labs.py:782-816`.
 
-## 2. Top 10 Highest-Risk Bug Candidates
+## 2. Stabilization Fixes Landed
 
-### 1. HIGH: One analyzer exception can fail the entire run
+### RESOLVED HIGH: One analyzer exception can fail the entire run
 
-Evidence:
-- `intelligence/pipeline.py:105-110`
-- `backend/app/api/ingestion.py:338-343`
-- `intelligence/analyzers/pyod_outlier.py:44-46`
+Status: Fixed in commit `e9c2172`.
 
-Current behavior:
-`SignalPipeline.run_normalized(...)` calls each analyzer without a per-analyzer `try/except`. If one analyzer raises, the whole pipeline exits and the API returns a 500.
-
-Why it may be incorrect:
-A single bad analyzer config, unsupported detector, dependency issue, or data edge case can prevent other healthy analyzers from running and can turn a partial analysis into a total failure.
-
-Minimal scenario:
-Set `pyod_outlier.implementation.detector_type: unknown` and run with `selection_mode: all`.
-
-Expected behavior:
-The PyOD execution should be marked failed, other analyzers should still run, and the run should record partial success/failure metadata.
-
-Recommended test:
-Pipeline contract test with two analyzers: one raises, one returns a signal. Assert API/run result contains the successful signal and a failed execution record for the broken analyzer.
-
-### 2. HIGH: Analysis runs are created as completed before analyzer execution
-
-Evidence:
-- `intelligence/pipeline.py:79`
-- `intelligence/pipeline.py:427-448`
-- `backend/app/autonomous/metric_executor.py:150-155`
+Previous behavior:
+`SignalPipeline.run_normalized(...)` called analyzers without per-analyzer failure isolation. One bad analyzer could make the full run fail.
 
 Current behavior:
-`_create_analysis_run(...)` writes `status: "completed"` before routing, analyzer construction, analyzer execution, finding aggregation, or persistence has completed.
-
-Why it may be incorrect:
-If routing or analyzer execution fails afterward, the stored run can still look completed. This hides operational failures and can confuse dashboards.
-
-Minimal scenario:
-Run a dataset that triggers an analyzer constructor or runtime exception after `_create_analysis_run(...)`.
-
-Expected behavior:
-Run status should start as `running` or `created`, then transition to `completed`, `completed_with_errors`, or `failed`.
-
-Recommended test:
-Force an analyzer exception after run creation and assert persisted `analysis_runs.status` is not `completed`.
-
-### 3. HIGH: Router can recommend one analyzer while pipeline executes another analyzer
+`_run_analyzers(...)` catches analyzer-specific exceptions, records the failed analyzer and error message, continues other analyzers, and finalizes the run as `completed_with_errors` when partial success occurs.
 
 Evidence:
-- `intelligence/pipeline.py:346-358`
-- `intelligence/pipeline.py:290-298`
-- `config/analyzers.yaml:29-43`
+- `intelligence/pipeline.py:112-189`
+- `backend/app/autonomous/metric_executor.py:107-140`
+- `tests/test_csv_pipeline.py:173-248`
+
+Remaining risk:
+Need API-level tests with a real analyzer dependency failure, not only a monkeypatched analyzer.
+
+### RESOLVED HIGH: Analysis runs are created as completed before analyzer execution
+
+Status: Fixed in commit `e9c2172`.
+
+Previous behavior:
+Runs were persisted as `completed` before routing, analyzer execution, finding aggregation, and failure handling completed.
 
 Current behavior:
-Router ID `ruptures` runs `baseline_shift`; `darts` runs `prophet`; `kats` runs several unrelated analyzers; `pyod` runs `anomaly_zscore`.
+Runs are created as `running`; final status is set after analyzer execution. Full success becomes `completed`, partial analyzer failure becomes `completed_with_errors`, and total selected-analyzer failure becomes `failed`.
 
-Why it may be incorrect:
-User-facing routing says one library/analyzer was selected, but execution may use a different implementation. This can make evidence, confidence, and finding attribution misleading.
+Evidence:
+- `intelligence/pipeline.py:529-565`
+- `tests/test_csv_pipeline.py:236-243`
 
-Minimal scenario:
-Route a profile where `darts` is recommended. The pipeline can execute `prophet` instead of Darts.
+Remaining risk:
+Autonomous scheduling and dashboard state transitions should still be verified with an integration test against Postgres.
 
-Expected behavior:
-If Darts/Kats/PyOD are not implemented, they should be `config_only` / `not_executable`, not silently substituted with other analyzers.
+### RESOLVED HIGH: Router can recommend one analyzer while pipeline executes another analyzer
 
-Recommended test:
-For each router ID, assert executed runtime implementation matches declared library, or assert it is skipped with an explicit non-executable reason.
+Status: Fixed in commit `e9c2172`.
 
-### 4. HIGH: Custom recommendation-only analyzers can appear routable but cannot execute
+Previous behavior:
+Router IDs could silently execute different libraries, for example `darts` via `prophet`, `kats` via multiple unrelated analyzers, and `pyod` via z-score.
+
+Current behavior:
+The pipeline runs recommended analyzers using exact/safe runtime IDs only. The only alias retained is `trend_regression -> trend`. Recommendation-only or missing-runtime analyzers are displayed as skipped/unavailable instead of being substituted.
+
+Evidence:
+- `intelligence/pipeline.py:312-360`
+- `intelligence/pipeline.py:362-453`
+- `config/analyzers.yaml:1-9`
+- `tests/test_csv_pipeline.py:122-170`
+
+Remaining risk:
+The router can still rank analyzers that do not have executable backend implementations. This is acceptable only when the UI clearly labels them as recommendation-only or execution unavailable.
+
+## 3. Remaining Top Bug Candidates
+
+### 1. HIGH: Custom recommendation-only analyzers can appear routable but cannot execute
 
 Evidence:
 - `config/custom_analyzers.yaml:1-42`
@@ -123,21 +124,21 @@ Evidence:
 - `backend/app/api/analyzer_labs.py:717-731`
 
 Current behavior:
-`statsforecast_forecast` is routable in custom YAML and has a generated adapter stub, but runtime mapping is `not_implemented` and `analyze(...)` returns an empty list.
+`statsforecast_forecast` can be promoted to custom analyzer YAML and routed as a recommendation-only analyzer. Backend adapter stubs can be created, but runtime mapping remains `not_implemented` until manually wired.
 
 Why it may be incorrect:
-This is acceptable as recommendation-only, but unsafe if any UI/API path labels it executable or treats empty stub execution as success.
+This is safe only if every UI/API surface keeps it clearly marked as recommendation-only and prevents stub output from being treated as real execution.
 
 Minimal scenario:
-Promote a custom analyzer, create backend support, then run an execution test or recommendation flow.
+Promote a custom analyzer, create backend support, then run an execution test or recommendation flow before the adapter is implemented.
 
 Expected behavior:
-Recommendation-only custom analyzers should be clearly marked as unable to emit signals/findings until implementation status is complete and runtime mapping is executable.
+Recommendation-only custom analyzers should never emit real signals/findings until implementation status is complete and runtime mapping is executable.
 
 Recommended test:
 Promoted custom analyzer with `implementation.status: pending` must never produce persisted signals/findings and must not show as execution-ready.
 
-### 5. HIGH: Analyzer-specific finding rules can be bypassed in mixed-signal groups
+### 2. HIGH: Analyzer-specific finding rules can be bypassed in mixed-signal groups
 
 Evidence:
 - `intelligence/finding_aggregator.py:40-46`
@@ -154,12 +155,12 @@ Minimal scenario:
 One trend signal plus one PyOD signal with `finding_rule_matched: false` in the same metric/service group.
 
 Expected behavior:
-The non-matching PyOD signal should be filtered out or excluded from finding evidence.
+The non-matching analyzer signal should be filtered out or excluded from finding evidence.
 
 Recommended test:
 Aggregate `[trend_signal, pyod_signal(finding_rule_matched=False)]` and assert the finding does not include the PyOD signal ID/evidence.
 
-### 6. HIGH: PyOD `finding_rules.window` is recorded but not enforced
+### 3. HIGH: PyOD `finding_rules.window` is recorded but not enforced
 
 Evidence:
 - `config/analyzers.yaml:63-66`
@@ -167,7 +168,7 @@ Evidence:
 - `intelligence/analyzers/pyod_outlier.py:145-153`
 
 Current behavior:
-The PyOD finding rule stores `window: 15m`, but `finding_rule_matched` only checks group point count and confidence. The count window itself is not applied as a sliding or bounded 15-minute window.
+The PyOD finding rule stores `window: 15m`, but `finding_rule_matched` checks grouped point count and confidence. The count window itself is not applied as a sliding or bounded 15-minute window.
 
 Why it may be incorrect:
 The stated rule “more than 8 high-confidence outliers in 15 minutes” can become “more than 8 outliers in whatever group was formed by `grouping_gap`.”
@@ -181,7 +182,7 @@ Rule should match only if the required outlier count occurs inside the configure
 Recommended test:
 Create 8 outliers outside 15 minutes and assert no finding; create 8 inside 15 minutes and assert finding.
 
-### 7. HIGH: Z-score analyzer does not clean NaN/Inf before statistics
+### 4. HIGH: Z-score analyzer does not clean NaN/Inf before statistics
 
 Evidence:
 - `intelligence/analyzers/anomaly_zscore.py:49-57`
@@ -202,7 +203,7 @@ Invalid values should be dropped or rejected consistently before z-score computa
 Recommended test:
 Run z-score with NaN/Inf values and assert deterministic invalid-value handling plus no NaN/Inf in signal evidence.
 
-### 8. HIGH: Feature profiling separates valid values from valid timestamps, which can misalign evidence
+### 5. HIGH: Feature profiling separates valid values from valid timestamps, which can misalign evidence
 
 Evidence:
 - `experiments/analyzer_router/feature_extractor.py:77-82`
@@ -223,7 +224,7 @@ Feature extraction should compute profile features from row-wise valid timestamp
 Recommended test:
 Create rows with valid values but invalid timestamps and assert profile counts, duration, regularity, and detected profiles remain internally consistent.
 
-### 9. MEDIUM: Interpolated sample count reports remaining missing values, not interpolated values
+### 6. MEDIUM: Interpolated sample count reports remaining missing values, not interpolated values
 
 Evidence:
 - `experiments/analyzer_router/feature_extractor.py:61-74`
@@ -244,7 +245,7 @@ Expected behavior:
 Recommended test:
 Profile `[1, NaN, 3]` with interpolation enabled and assert interpolated count is 1.
 
-### 10. MEDIUM: Prophet confidence decreases as deviation increases
+### 7. MEDIUM: Prophet confidence decreases as deviation increases
 
 Evidence:
 - `intelligence/analyzers/prophet.py:83-85`
@@ -266,9 +267,7 @@ Either confidence should increase with deviation strength, or the field should b
 Recommended test:
 Two forecast miss scenarios with increasing relative error should assert intended confidence monotonicity.
 
-## Additional Bug Candidates
-
-### MEDIUM: Duplicate timestamps can make regular sampling appear valid
+### 8. MEDIUM: Duplicate timestamps can make regular sampling appear valid
 
 Evidence:
 - `experiments/analyzer_router/feature_extractor.py:94-101`
@@ -280,7 +279,7 @@ Duplicate timestamps are counted, but eligibility does not reject or penalize du
 Recommended test:
 Profile a dataset with duplicate timestamps and assert analyzers requiring regular sampling are rejected or warned.
 
-### MEDIUM: Baseline/ruptures change index can refer to cleaned series, not original rows
+### 9. MEDIUM: Baseline/ruptures change index can refer to cleaned series, not original rows
 
 Evidence:
 - `intelligence/analyzers/baseline_shift.py:52-55`
@@ -292,7 +291,7 @@ Rows with invalid values are dropped before detection. The returned change-point
 Recommended test:
 Insert missing values before a known change point and assert reported index/timestamp still maps to the original sample.
 
-### MEDIUM: STUMPY fallback ignores `motif_count`
+### 10. MEDIUM: STUMPY fallback ignores `motif_count`
 
 Evidence:
 - `intelligence/analyzers/stumpy.py:37-44`
@@ -303,6 +302,8 @@ Fallback motif detection returns one best pair even when `motif_count` is greate
 
 Recommended test:
 Generate three repeated motifs, run fallback path, and assert either multiple motifs are returned or the limitation is explicit.
+
+## Additional Bug Candidates
 
 ### MEDIUM: STUMPY installed-library exceptions are swallowed
 
@@ -338,24 +339,24 @@ Current behavior:
 Recommended test:
 Run with a subset of analyzers and assert expected capability inventory is not unintentionally reduced.
 
-## 3. Analyzer-by-Analyzer Test-Gap Table
+## 4. Analyzer-by-Analyzer Test-Gap Table
 
 | Analyzer | Implemented Runtime | Key Config Evidence | Current Tests Seen | Highest Test Gap |
 | --- | --- | --- | --- | --- |
-| `baseline_shift` / router `ruptures` | Yes, custom ruptures-backed baseline logic | `config/analyzers.yaml:29-43`, `intelligence/pipeline.py:161-174` | Aggregator precedence tests cover baseline narrative | Missing dirty-data index mapping, duplicate timestamp, off-edge change-point tests |
-| `ruptures` standalone | Yes, but not primary runtime path | `intelligence/analyzers/ruptures.py:67-153` | Not clearly covered in direct tests | Config propagation and line-index correctness |
-| `stumpy` | Yes, optional STUMPY plus fallback | `config/analyzers.yaml:9-19`, `intelligence/analyzers/stumpy.py:29-169` | `tests/test_stumpy_analyzer.py`, aggregator rule tests | Installed-library exception handling, multi-motif correctness, irregular timestamps |
-| `prophet` | Yes, optional Prophet plus fallback | `config/analyzers.yaml:20-28`, `intelligence/analyzers/prophet.py:27-162` | `tests/test_prophet_analyzer.py` | Confidence semantics and forecast-vs-actual time alignment |
+| `ruptures` | Yes | `config/analyzers.yaml:11-12`, `intelligence/pipeline.py:215-223` | CSV pipeline routing/execution tests | Config propagation and dirty-data index mapping |
+| `baseline_shift` | Yes, legacy/custom ruptures-backed baseline logic | `intelligence/pipeline.py:200-213` | Aggregator precedence tests cover baseline narrative | Missing dirty-data index mapping, duplicate timestamp, off-edge change-point tests |
+| `stumpy` | Yes, optional STUMPY plus fallback | `config/analyzers.yaml:13-23`, `intelligence/analyzers/stumpy.py:29-169` | `tests/test_stumpy_analyzer.py`, aggregator rule tests | Installed-library exception handling, multi-motif correctness, irregular timestamps |
+| `prophet` | Yes, optional Prophet plus fallback | `config/analyzers.yaml:24-28`, `intelligence/analyzers/prophet.py:27-162` | `tests/test_prophet_analyzer.py` | Confidence semantics and forecast-vs-actual time alignment |
 | `anomaly_zscore` | Yes, pandas/statistics | `config/analyzers.yaml:44-53`, `intelligence/analyzers/anomaly_zscore.py:10-108` | `tests/test_anomaly_zscore_analyzer.py` | NaN/Inf coercion, constant series, grouped false positives |
 | `pyod_outlier` | Yes, optional PyOD plus fallback | `config/analyzers.yaml:54-66`, `intelligence/analyzers/pyod_outlier.py:27-157` | `tests/test_pyod_outlier_analyzer.py` | `finding_rules.window` enforcement, contamination edge cases, missing dependency behavior |
-| `trend` | Yes, numpy/stats-style regression | `config/analyzers.yaml:67-73`, `intelligence/analyzers/trend.py:12-118` | `tests/test_trend_analyzer.py` | Constant series, NaN/Inf, slope percent denominator near zero |
-| `adtk` router | No direct ADTK runtime, maps to z-score | `intelligence/pipeline.py:355` | Router tests only | Must assert displayed ADTK does not imply ADTK library execution |
-| `pyod` router | No direct PyOD generic runtime, maps to z-score | `intelligence/pipeline.py:356` | Router tests only | Must prevent library/runtime misattribution |
-| `kats` router | No Kats runtime, maps to multiple analyzers | `intelligence/pipeline.py:353` | Router tests only | Must stop silent substituted execution |
-| `darts` router | No Darts runtime, maps to Prophet | `intelligence/pipeline.py:352` | Router tests only | Must stop silent substituted execution |
-| custom `statsforecast_forecast` | Stub only | `config/custom_analyzers.yaml:1-42`, `backend/app/analyzers/custom/statsforecast_forecast.py:37-56` | API lifecycle tests | Must assert pending implementation cannot emit real signals/findings |
+| `trend` / router `trend_regression` | Yes, numpy/stats-style regression | `config/analyzers.yaml:67-73`, `intelligence/pipeline.py:451-453`, `intelligence/analyzers/trend.py:12-118` | `tests/test_trend_analyzer.py`, CSV pipeline routing tests | Constant series, NaN/Inf, slope percent denominator near zero |
+| `adtk` router | No direct ADTK runtime | `intelligence/pipeline.py:451-453` | Router tests only | Must assert displayed ADTK remains recommendation-only unless backend runtime is added |
+| `pyod` router | No direct generic PyOD runtime | `intelligence/pipeline.py:451-453` | Router tests only | Must prevent library/runtime misattribution |
+| `kats` router | No Kats runtime | `intelligence/pipeline.py:451-453` | Router tests only | Must ensure recommended Kats is skipped/unavailable, not silently substituted |
+| `darts` router | No Darts runtime | `intelligence/pipeline.py:451-453` | Router tests only | Must ensure recommended Darts is skipped/unavailable, not silently substituted |
+| custom `statsforecast_forecast` | Stub only | `config/custom_analyzers.yaml:1-42`, `backend/app/analyzers/custom/statsforecast_forecast.py:37-56` | Add Analyzer lifecycle tests | Must assert pending implementation cannot emit real signals/findings |
 
-## 4. Recommended Common Analyzer Contract Test Suite
+## 5. Recommended Common Analyzer Contract Test Suite
 
 Every analyzer runtime should pass the same contract cases:
 
@@ -372,20 +373,20 @@ Every analyzer runtime should pass the same contract cases:
 11. Confidence fields have analyzer-specific monotonicity tests and documented meaning.
 12. Output signals always contain valid `signal_type`, `analyzer_id`, `metric_name`, time range, severity, confidence, summary, and evidence.
 
-## 5. Suggested First 10 Regression Tests
+## 6. Suggested First 10 Regression Tests
 
-1. Pipeline partial failure: one analyzer raises, another succeeds.
-2. Analysis run status transitions to failed/partial when analyzer execution fails.
-3. Router `darts`, `kats`, and `pyod` cannot silently execute substitute implementations.
-4. Custom `statsforecast_forecast` pending implementation is recommendation-only and never persists signals.
-5. PyOD: 8 outliers outside 15 minutes should not match `finding_rules.window`.
-6. PyOD: 8 outliers inside 15 minutes should match `finding_rules.window`.
-7. Aggregator: non-matching PyOD/STUMPY/Prophet/Z-score signal mixed with trend/baseline is excluded from finding evidence.
-8. Z-score: NaN/Inf values are cleaned or rejected without malformed evidence.
-9. Router feature extractor: interpolation count reports filled values, not remaining missing values.
-10. Baseline/ruptures: missing values before a known change point do not shift reported timestamp/index.
+1. [done] Pipeline partial failure: one analyzer raises, another succeeds.
+2. [done] Analysis run status transitions to `completed_with_errors` when one selected analyzer fails.
+3. [done] Router `darts`, `kats`, and `pyod` cannot silently execute substitute implementations.
+4. [done] `recommended_threshold` runs only top `RECOMMENDED` analyzers above `min_score`, capped by `max_analyzers`.
+5. [done] New Analysis response/UI exposes executed, skipped, failed, and unavailable analyzer execution states.
+6. [remaining] Custom `statsforecast_forecast` pending implementation is recommendation-only and never persists signals.
+7. [remaining] PyOD: 8 outliers outside 15 minutes should not match `finding_rules.window`.
+8. [remaining] PyOD: 8 outliers inside 15 minutes should match `finding_rules.window`.
+9. [remaining] Aggregator: non-matching PyOD/STUMPY/Prophet/Z-score signal mixed with trend/baseline is excluded from finding evidence.
+10. [remaining] Z-score: NaN/Inf values are cleaned or rejected without malformed evidence.
 
-## 6. Bugs To Confirm With Existing Analyzer Labs
+## 7. Bugs To Confirm With Existing Analyzer Labs
 
 | Lab | Bug to Confirm | Why Lab Helps |
 | --- | --- | --- |
@@ -398,7 +399,7 @@ Every analyzer runtime should pass the same contract cases:
 | Z-Score Anomaly Lab | NaN/Inf can suppress or corrupt anomaly detection | Lab can inject invalid values into otherwise obvious spikes |
 | Trend Lab | Near-zero baseline makes slope percent unstable | Lab can generate tiny baseline values with small absolute slope |
 
-## 7. Areas Requiring Synthetic Execution
+## 8. Areas Requiring Synthetic Execution
 
 Static review is insufficient for these:
 
@@ -408,7 +409,8 @@ Static review is insufficient for these:
 4. Router profile extraction: detected profiles depend on generated values, interpolation, sampling regularity, and timestamp quality.
 5. Persistence correctness: partial failures and duplicate findings need a real test DB or transaction-backed integration tests.
 6. Frontend lab truth tables: expected-vs-actual labels need API-backed execution to avoid displaying synthetic truth as real analyzer success.
+7. Recommendation-threshold behavior: multi-analyzer execution should be validated on positive and negative lab datasets where more than one analyzer scores above `0.80`.
 
 ## Summary Recommendation
 
-Start stabilization with pipeline failure isolation and truthful runtime attribution. Those two risks affect every analyzer and every UI surface. Then use the analyzer labs as repeatable generators for the top false-positive/false-negative scenarios, especially PyOD window rules, Prophet confidence semantics, STUMPY multi-motif detection, and baseline change-point indexing.
+The first stabilization checkpoint is complete: analyzer failures are isolated, run status is truthful, and router recommendation no longer silently substitutes unrelated runtime analyzers. The next stabilization work should focus on correctness of finding creation: PyOD time-window rules, aggregator filtering of non-matching signals, Z-score invalid-value handling, and synthetic lab regression tests for false positives and false negatives.
