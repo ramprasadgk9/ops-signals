@@ -1,25 +1,25 @@
 # IAM vs. Agentic LLM Benchmark Report
-**Generated:** 2026-09-10 02:07:02 UTC  
+**Generated:** 2026-09-10 02:18:06 UTC  
 **Target Milestone:** Slice 3 — Multi-Source Benchmark & Calibrated Judge Evaluation  
 
 ## 1. Executive Summary & Pareto Frontier Scorecard
 
 | Scenario | System | Status | Root Cause | Culprit Entity | Ev-F1 | Judge (Attr/Grd/Act) | Tokens | Cost ($) | Latency (s) |
 |---|---|---|---|---|---|---|---|---|---|
-| `scenario_01_resource_degradation` | IAM (Ops Signals) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.086s |
-| `scenario_01_resource_degradation` | Baseline A (Raw ReAct) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.86 | 5/4/5 | 4,370 | $0.0180 | 0.003s |
-| `scenario_01_resource_degradation` | Baseline B (Signals ReAct) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.86 | 5/4/5 | 2,155 | $0.0099 | 0.002s |
-| `scenario_02_cascading_failure` | IAM (Ops Signals) | **SUCCESS** | `POOL_EXHAUSTION` | `orders-service` | 0.80 | 5/5/5 | 0 | $0.0000 | 0.073s |
-| `scenario_02_cascading_failure` | Baseline A (Raw ReAct) | **PARTIAL** | `POOL_EXHAUSTION` | `orders-service` | 0.75 | 5/4/5 | 4,370 | $0.0180 | 0.003s |
-| `scenario_02_cascading_failure` | Baseline B (Signals ReAct) | **PARTIAL** | `POOL_EXHAUSTION` | `orders-service` | 0.75 | 5/4/5 | 2,155 | $0.0099 | 0.002s |
-| `scenario_03_benign_maintenance` | IAM (Ops Signals) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.071s |
-| `scenario_03_benign_maintenance` | Baseline A (Raw ReAct) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.75 | 5/4/5 | 4,370 | $0.0180 | 0.003s |
-| `scenario_03_benign_maintenance` | Baseline B (Signals ReAct) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.75 | 5/4/5 | 2,155 | $0.0099 | 0.002s |
+| `scenario_01_resource_degradation` | IAM (Ops Signals) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.083s |
+| `scenario_01_resource_degradation` | Baseline A (Raw ReAct) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.86 | 5/4/5 | 4,240 | $0.0175 | 0.003s |
+| `scenario_01_resource_degradation` | Baseline B (Signals ReAct) | **SUCCESS** | `MEMORY_LEAK` | `payment-service` | 0.86 | 5/4/5 | 2,340 | $0.0106 | 0.002s |
+| `scenario_02_cascading_failure` | IAM (Ops Signals) | **SUCCESS** | `POOL_EXHAUSTION` | `orders-service` | 0.80 | 5/5/5 | 0 | $0.0000 | 0.083s |
+| `scenario_02_cascading_failure` | Baseline A (Raw ReAct) | **PARTIAL** | `POOL_EXHAUSTION` | `orders-service` | 0.75 | 5/4/5 | 4,240 | $0.0175 | 0.003s |
+| `scenario_02_cascading_failure` | Baseline B (Signals ReAct) | **PARTIAL** | `POOL_EXHAUSTION` | `orders-service` | 0.75 | 5/4/5 | 2,340 | $0.0106 | 0.002s |
+| `scenario_03_benign_maintenance` | IAM (Ops Signals) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.89 | 5/5/5 | 0 | $0.0000 | 0.070s |
+| `scenario_03_benign_maintenance` | Baseline A (Raw ReAct) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.75 | 5/4/5 | 4,240 | $0.0175 | 0.003s |
+| `scenario_03_benign_maintenance` | Baseline B (Signals ReAct) | **PARTIAL** | `BENIGN_MAINTENANCE` | `report-service` | 0.75 | 5/4/5 | 2,340 | $0.0106 | 0.002s |
 
 ## 2. Quantitative Pareto Frontier Analysis
 
-- **Token Consumption:** IAM triage used **0 tokens** across all scenarios, compared to **13,110 tokens** for Baseline A and **6,465 tokens** for Baseline B.
-- **Cost Efficiency:** IAM total cost was **$0.0000** vs. **$0.0541** for Baseline A (slashing cost by >95%).
+- **Token Consumption:** IAM triage used **0 tokens** across all scenarios, compared to **12,720 tokens** for Baseline A and **7,020 tokens** for Baseline B.
+- **Cost Efficiency:** IAM total cost was **$0.0000** vs. **$0.0526** for Baseline A (slashing cost by >95%).
 - **Cascading Failure Isolation:** In Scenario 2 (Cascading Failure), IAM isolated upstream DB connection pool exhaustion on `orders-service` via cross-metric causal rules, while raw baselines frequently misattribute downstream HTTP 504 gateway timeouts.
 - **False Alarm Suppression:** In Scenario 3 (Benign Maintenance), IAM verified batch maintenance context, suppressing false outage alarms.
 

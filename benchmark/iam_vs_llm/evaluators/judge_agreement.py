@@ -95,12 +95,12 @@ def calculate_krippendorff_alpha(
     if num_vals <= 1:
         return 1.0
 
-    # Marginal counts n_v
-    n_v = [0] * num_vals
+    # Marginal counts val_frequencies
+    val_frequencies = [0] * num_vals
     for v in all_values:
-        n_v[v_to_idx[v]] += 1
+        val_frequencies[v_to_idx[v]] += 1
 
-    total_pairs = sum(n_v)
+    total_pairs = sum(val_frequencies)
     if total_pairs <= 1:
         return 1.0
 
@@ -113,11 +113,11 @@ def calculate_krippendorff_alpha(
         elif level_of_measurement == "ordinal":
             idx1 = v_to_idx[v1]
             idx2 = v_to_idx[v2]
-            g, h = min(idx1, idx2), max(idx1, idx2)
-            if g == h:
+            rank_low, rank_high = min(idx1, idx2), max(idx1, idx2)
+            if rank_low == rank_high:
                 return 0.0
-            sum_between = sum(n_v[k] for k in range(g, h + 1))
-            delta = sum_between - (n_v[g] + n_v[h]) / 2.0
+            sum_between = sum(val_frequencies[k] for k in range(rank_low, rank_high + 1))
+            delta = sum_between - (val_frequencies[rank_low] + val_frequencies[rank_high]) / 2.0
             return delta ** 2
         else:
             return (v1 - v2) ** 2
@@ -127,8 +127,8 @@ def calculate_krippendorff_alpha(
     total_m_pairs = 0.0
 
     for row in valid_subjects:
-        m_u = len(row)
-        if m_u < 2:
+        raters_count = len(row)
+        if raters_count < 2:
             continue
         # Count frequency of each value in this subject
         subj_counts: dict[float, int] = {}
@@ -138,27 +138,27 @@ def calculate_krippendorff_alpha(
         row_diff = 0.0
         keys = list(subj_counts.keys())
         for i in range(len(keys)):
-            v_a = keys[i]
-            c_a = subj_counts[v_a]
+            val_a = keys[i]
+            count_a = subj_counts[val_a]
             for j in range(i + 1, len(keys)):
-                v_b = keys[j]
-                c_b = subj_counts[v_b]
-                row_diff += c_a * c_b * diff_sq(v_a, v_b)
+                val_b = keys[j]
+                count_b = subj_counts[val_b]
+                row_diff += count_a * count_b * diff_sq(val_a, val_b)
 
-        d_o_sum += row_diff / (m_u - 1)
-        total_m_pairs += m_u
+        d_o_sum += row_diff / (raters_count - 1)
+        total_m_pairs += raters_count
 
     d_o = (2.0 * d_o_sum) / total_pairs if total_pairs > 0 else 0.0
 
     # Expected disagreement D_e
     d_e_sum = 0.0
     for i in range(num_vals):
-        v_a = unique_vals[i]
-        c_a = n_v[i]
+        val_a = unique_vals[i]
+        count_a = val_frequencies[i]
         for j in range(i + 1, num_vals):
-            v_b = unique_vals[j]
-            c_b = n_v[j]
-            d_e_sum += c_a * c_b * diff_sq(v_a, v_b)
+            val_b = unique_vals[j]
+            count_b = val_frequencies[j]
+            d_e_sum += count_a * count_b * diff_sq(val_a, val_b)
 
     d_e = (2.0 * d_e_sum) / (total_pairs * (total_pairs - 1)) if total_pairs > 1 else 0.0
 

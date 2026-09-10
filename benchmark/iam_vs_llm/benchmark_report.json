@@ -34,7 +34,7 @@
       "composite_score": 0.893,
       "tokens": 0,
       "cost_usd": 0.0,
-      "execution_time_seconds": 0.086,
+      "execution_time_seconds": 0.0825,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -81,9 +81,9 @@
       "window_iou": 1.0,
       "evidence_f1": 0.8571,
       "composite_score": 0.9563,
-      "tokens": 4370,
-      "cost_usd": 0.01803,
-      "execution_time_seconds": 0.0028,
+      "tokens": 4240,
+      "cost_usd": 0.01752,
+      "execution_time_seconds": 0.0031,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -130,8 +130,8 @@
       "window_iou": 1.0,
       "evidence_f1": 0.8571,
       "composite_score": 0.9452,
-      "tokens": 2155,
-      "cost_usd": 0.009885,
+      "tokens": 2340,
+      "cost_usd": 0.01062,
       "execution_time_seconds": 0.0021,
       "judge": {
         "consensus": {
@@ -209,7 +209,7 @@
       "composite_score": 0.8472,
       "tokens": 0,
       "cost_usd": 0.0,
-      "execution_time_seconds": 0.0731,
+      "execution_time_seconds": 0.0829,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -256,9 +256,9 @@
       "window_iou": 1.0,
       "evidence_f1": 0.75,
       "composite_score": 0.9208,
-      "tokens": 4370,
-      "cost_usd": 0.01803,
-      "execution_time_seconds": 0.0025,
+      "tokens": 4240,
+      "cost_usd": 0.01752,
+      "execution_time_seconds": 0.0028,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -305,9 +305,9 @@
       "window_iou": 1.0,
       "evidence_f1": 0.75,
       "composite_score": 0.9292,
-      "tokens": 2155,
-      "cost_usd": 0.009885,
-      "execution_time_seconds": 0.0021,
+      "tokens": 2340,
+      "cost_usd": 0.01062,
+      "execution_time_seconds": 0.0019,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -383,7 +383,7 @@
       "composite_score": 0.8403,
       "tokens": 0,
       "cost_usd": 0.0,
-      "execution_time_seconds": 0.0715,
+      "execution_time_seconds": 0.0703,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -430,9 +430,9 @@
       "window_iou": 1.0,
       "evidence_f1": 0.75,
       "composite_score": 0.9292,
-      "tokens": 4370,
-      "cost_usd": 0.01803,
-      "execution_time_seconds": 0.003,
+      "tokens": 4240,
+      "cost_usd": 0.01752,
+      "execution_time_seconds": 0.0025,
       "judge": {
         "consensus": {
           "judge_id": "consensus",
@@ -479,8 +479,8 @@
       "window_iou": 1.0,
       "evidence_f1": 0.75,
       "composite_score": 0.9292,
-      "tokens": 2155,
-      "cost_usd": 0.009885,
+      "tokens": 2340,
+      "cost_usd": 0.01062,
       "execution_time_seconds": 0.0017,
       "judge": {
         "consensus": {

@@ -5,6 +5,7 @@ FACT_KEYS = {
     "anomaly.present",
     "anomaly.count",
     "anomaly.max_score",
+    "trend.present",
     "trend.direction",
     "trend.change_percent",
     "trend.slope",
