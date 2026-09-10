@@ -9,6 +9,7 @@ import { QuestionAnswerPage } from '../pages/QuestionAnswerPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SignalDetailPage } from '../pages/SignalDetailPage';
 import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
+import { BehaviorLabPage } from '../pages/BehaviorLabPage';
 import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
 import { MemoryChatPage } from '../pages/MemoryChatPage';
 import { OperationalMemoryPage } from '../pages/OperationalMemoryPage';
@@ -38,6 +39,7 @@ export function AppRoutes() {
       <Route path="/questions/:questionId" element={<QuestionAnswerPage />} />
       <Route path="/capabilities" element={<CapabilitiesPage />} />
       <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
+      <Route path="/behavior-intelligence/lab" element={<BehaviorLabPage />} />
       <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
       <Route path="/validate-data" element={<ValidateDataPage />} />
       <Route path="/experiments" element={<ExperimentDashboardPage />} />

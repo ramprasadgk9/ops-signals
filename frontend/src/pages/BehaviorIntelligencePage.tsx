@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Box, Button, Grid2 as Grid, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
@@ -7,13 +8,83 @@ import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
 import VerifiedRoundedIcon from '@mui/icons-material/VerifiedRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import { useQuery } from '@tanstack/react-query';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { IconTile, PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
 import { buildBehaviorSummary, toBehaviorRows, toBehaviorRuleRows } from '../standalone/behaviorService';
+
+function SuggestedPatternsTab() {
+  const queryClient = useQueryClient();
+  const suggestionsQuery = useQuery({ queryKey: ['behavior-suggestions'], queryFn: () => api.behaviorSuggestions() });
+  const mineMutation = useMutation({
+    mutationFn: api.mineBehaviorSuggestions,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['behavior-suggestions'] }),
+  });
+  const promoteMutation = useMutation({
+    mutationFn: (id: number) => api.promoteBehaviorSuggestion(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['behavior-suggestions'] }),
+  });
+  const dismissMutation = useMutation({
+    mutationFn: (id: number) => api.dismissBehaviorSuggestion(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['behavior-suggestions'] }),
+  });
+  const suggestions = suggestionsQuery.data ?? [];
+
+  return (
+    <Stack spacing={2}>
+      <WorkspacePanel sx={{ p: 2.5 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Box>
+            <Typography sx={{ fontWeight: 900, fontSize: 18 }}>Suggested Patterns</Typography>
+            <Typography sx={{ color: ui.muted }}>
+              Mined from how often pairs of metrics show activity close together in time — a starting point to review, not a final answer.
+            </Typography>
+          </Box>
+          <Button startIcon={<AutoAwesomeRoundedIcon />} variant="contained" onClick={() => mineMutation.mutate()} disabled={mineMutation.isPending} sx={{ bgcolor: ui.purple, textTransform: 'none', fontWeight: 850 }}>
+            {mineMutation.isPending ? 'Mining…' : 'Mine Suggestions'}
+          </Button>
+        </Stack>
+      </WorkspacePanel>
+
+      {suggestions.length === 0 ? (
+        <WorkspacePanel sx={{ p: 3 }}>
+          <Typography color="text.secondary">
+            No pending suggestions. Click "Mine Suggestions" to scan recent signal history for metric pairs worth turning into a pattern.
+          </Typography>
+        </WorkspacePanel>
+      ) : (
+        suggestions.map((suggestion) => (
+          <WorkspacePanel key={suggestion.id} sx={{ p: 2.5 }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
+              <Box>
+                <Typography sx={{ fontWeight: 900 }}>
+                  {suggestion.metric_a} + {suggestion.metric_b}
+                  {suggestion.service ? ` on ${suggestion.service}` : ''}
+                </Typography>
+                <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.5 }}>
+                  Co-occurred {suggestion.co_occurrence_count} of {Math.min(suggestion.metric_a_occasions, suggestion.metric_b_occasions)} times
+                  ({Math.round(suggestion.correlation_strength * 100)}% correlation strength)
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} alignItems="flex-start">
+                <Button size="small" variant="outlined" onClick={() => dismissMutation.mutate(suggestion.id)} disabled={dismissMutation.isPending} sx={{ textTransform: 'none', fontWeight: 800 }}>
+                  Dismiss
+                </Button>
+                <Button size="small" variant="contained" onClick={() => promoteMutation.mutate(suggestion.id)} disabled={promoteMutation.isPending} sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 800 }}>
+                  Promote to Pack
+                </Button>
+              </Stack>
+            </Stack>
+          </WorkspacePanel>
+        ))
+      )}
+    </Stack>
+  );
+}
 
 export function BehaviorIntelligencePage() {
   const definitionsQuery = useQuery({ queryKey: ['behavior-definitions'], queryFn: api.behaviorDefinitions });
@@ -35,12 +106,13 @@ export function BehaviorIntelligencePage() {
       <PageHeader
         title="Behavior Intelligence"
         subtitle="Detect patterns and behaviors across multiple signals and metrics"
-        action={<Stack direction="row" spacing={1.5}><Button startIcon={<CalendarTodayRoundedIcon />} variant="outlined" disabled sx={{ bgcolor: '#fff', borderColor: ui.border, color: '#334155', textTransform: 'none', fontWeight: 750 }}>Time Window Unavailable</Button><Button startIcon={<AddRoundedIcon />} variant="contained" disabled sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>Rules Managed In YAML</Button></Stack>}
+        action={<Stack direction="row" spacing={1.5}><Button startIcon={<CalendarTodayRoundedIcon />} variant="outlined" disabled sx={{ bgcolor: '#fff', borderColor: ui.border, color: '#334155', textTransform: 'none', fontWeight: 750 }}>Time Window Unavailable</Button><Button component={RouterLink} to="/behavior-intelligence/lab" startIcon={<AddRoundedIcon />} variant="contained" sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>Add Pattern</Button></Stack>}
       />
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ '& .MuiTab-root': { textTransform: 'none', fontWeight: 850 }, '& .Mui-selected': { color: `${ui.purple} !important` }, '& .MuiTabs-indicator': { bgcolor: ui.purple, height: 3 } }}>
         <Tab value="detected" label="Detected Behaviors" />
         <Tab value="rules" label="Rules" />
         <Tab value="library" label="Patterns Library" />
+        <Tab value="suggested" label="Suggested Patterns" />
       </Tabs>
 
       {tab === 'detected' ? (
@@ -53,7 +125,7 @@ export function BehaviorIntelligencePage() {
           </Grid>
           <WorkspacePanel sx={{ overflow: 'hidden' }}>
             <Table>
-              <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Behavior</TableCell><TableCell>Pattern</TableCell><TableCell>Severity</TableCell><TableCell>Confidence</TableCell><TableCell>Impacted Services</TableCell><TableCell>Detected</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+              <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Behavior</TableCell><TableCell>Pattern</TableCell><TableCell>Severity</TableCell><TableCell>Confidence</TableCell><TableCell>Impacted Services</TableCell><TableCell>Occurrences</TableCell><TableCell>Last Seen</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
               <TableBody>
                 {behaviorRows.map((finding) => (
                   <TableRow key={finding.id} hover sx={{ '& td': { py: 2, borderColor: '#f1f5f9' } }}>
@@ -62,7 +134,8 @@ export function BehaviorIntelligencePage() {
                     <TableCell><Pill label={finding.severity} tone="severity" /></TableCell>
                     <TableCell>{finding.confidencePercent}%</TableCell>
                     <TableCell>{finding.impactedServices}</TableCell>
-                    <TableCell>{formatDateTime(finding.detectedAt)}</TableCell>
+                    <TableCell>{finding.occurrenceCount}× since {formatDateTime(finding.detectedAt)}</TableCell>
+                    <TableCell>{relativeTime(finding.lastSeenAt)}</TableCell>
                     <TableCell><Pill label={finding.status} /></TableCell>
                   </TableRow>
                 ))}
@@ -100,9 +173,9 @@ export function BehaviorIntelligencePage() {
       {tab === 'rules' ? (
         <WorkspacePanel sx={{ overflow: 'hidden' }}>
           <Table>
-            <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Rule</TableCell><TableCell>Description</TableCell><TableCell>Version</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+            <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Rule</TableCell><TableCell>Description</TableCell><TableCell>Version</TableCell><TableCell>Source</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
             <TableBody>
-              {ruleRows.map((definition) => <TableRow key={definition.id}><TableCell sx={{ fontWeight: 900 }}>{definition.title}</TableCell><TableCell>{definition.description}</TableCell><TableCell>{definition.version}</TableCell><TableCell><Pill label={definition.status} /></TableCell></TableRow>)}
+              {ruleRows.map((definition) => <TableRow key={definition.id}><TableCell sx={{ fontWeight: 900 }}>{definition.title}</TableCell><TableCell>{definition.description}</TableCell><TableCell>{definition.version}</TableCell><TableCell>{definition.sourceFile}</TableCell><TableCell><Pill label={definition.status} /></TableCell></TableRow>)}
             </TableBody>
           </Table>
         </WorkspacePanel>
@@ -110,9 +183,11 @@ export function BehaviorIntelligencePage() {
 
       {tab === 'library' ? (
         <Grid container spacing={2}>
-          {ruleRows.map((definition) => <Grid key={definition.id} size={{ xs: 12, md: 6, lg: 4 }}><WorkspacePanel sx={{ p: 2.5, minHeight: 170 }}><Typography sx={{ fontWeight: 900, mb: 1 }}>{definition.title}</Typography><Typography sx={{ color: ui.muted }}>{definition.description}</Typography><Pill label={definition.status} /></WorkspacePanel></Grid>)}
+          {ruleRows.map((definition) => <Grid key={definition.id} size={{ xs: 12, md: 6, lg: 4 }}><WorkspacePanel sx={{ p: 2.5, minHeight: 170 }}><Typography sx={{ fontWeight: 900, mb: 1 }}>{definition.title}</Typography><Typography sx={{ color: ui.muted }}>{definition.description}</Typography><Stack direction="row" spacing={1} sx={{ mt: 1 }}><Pill label={definition.status} /><Pill label={definition.sourceFile} /></Stack></WorkspacePanel></Grid>)}
         </Grid>
       ) : null}
+
+      {tab === 'suggested' ? <SuggestedPatternsTab /> : null}
     </Stack>
   );
 }

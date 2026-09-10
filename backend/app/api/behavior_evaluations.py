@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/behavior-evaluations", tags=["behavior-evaluatio
 
 
 def _service() -> BehaviorIntelligenceService:
-    return BehaviorIntelligenceService("config/behavior_definitions.yml")
+    return BehaviorIntelligenceService("config/behavior_definitions.d")
 
 
 @router.get("", response_model=list[BehaviorFindingOut])
@@ -67,7 +67,7 @@ def evaluate_behavior_definitions(
         }
         for row in signals
     ]
-    definitions = load_definitions("config/behavior_definitions.yml")
+    definitions = load_definitions("config/behavior_definitions.d")
     evaluations: list[BehaviorEvaluationOut] = []
     for definition in definitions:
         if not definition.enabled:

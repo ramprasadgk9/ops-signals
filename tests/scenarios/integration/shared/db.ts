@@ -38,6 +38,62 @@ export async function seedNormalizedPoints(params: {
   }
 }
 
+/**
+ * Inserts an ops_operational_signals row directly, bypassing analyzer execution. Behavior
+ * Intelligence's fact extractor (backend/app/behavior_intelligence/fact_extractor.py) groups
+ * signals by signal_type — "anomaly"/"anomaly_zscore" -> anomaly.*, "trend" -> trend.*,
+ * "baseline_shift" -> baseline_shift.*, "ruptures" -> ruptures.* — so seeding a signal with a
+ * specific signal_type deterministically controls which facts a dry-run/evaluate sees, without
+ * depending on which analyzer the live router happens to pick for a given data shape (confirmed
+ * live: the router's own analyzer_registry.yaml has no "anomaly_zscore" entry at all, so ad-hoc
+ * ingestion under selection_mode=recommended_threshold can never select it — only the autonomous
+ * policy path forces it. Seeding directly sidesteps that gap for testing the evaluation engine
+ * itself, same "seed directly, don't wait on the full detector" pattern as seedFinding below).
+ *
+ * Defaults start_time/end_time to a 10-minute window ending now, not a zero-duration instant —
+ * confirmed live that two zero-duration signals even a few seconds apart (as two sequential
+ * `new Date()` calls naturally produce) never overlap, so BehaviorIntelligence's correlation
+ * check (minimum_overlap) always fails between them even though their conditions all pass. Real
+ * analyzer signals span real windows (confirmed live: ~30-40 minutes for a batch analysis run),
+ * so a realistic window is what a seeded signal needs to correlate the way a real one would.
+ */
+export async function seedSignal(params: {
+  runId: string;
+  service: string;
+  metricName: string;
+  signalType: string;
+  analyzerId?: string;
+  importanceScore?: number;
+  evidence?: Record<string, unknown>;
+  startTime?: Date;
+  endTime?: Date;
+}): Promise<string> {
+  const signalId = `integration-signal-${randomUUID()}`;
+  const now = new Date();
+  const defaultStart = new Date(now.getTime() - 10 * 60_000);
+  await pool.query(
+    `insert into ops_operational_signals
+       (signal_id, signal_type, analyzer_id, metric_name, service, confidence, start_time, end_time,
+        summary, evidence_json, importance_score, status, analysis_run_id, created_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'new', $12, now())`,
+    [
+      signalId,
+      params.signalType,
+      params.analyzerId ?? params.signalType,
+      params.metricName,
+      params.service,
+      params.importanceScore ?? 0.85,
+      params.startTime ?? defaultStart,
+      params.endTime ?? now,
+      'Integration suite seeded signal.',
+      JSON.stringify(params.evidence ?? {}),
+      params.importanceScore ?? 0.85,
+      params.runId,
+    ]
+  );
+  return signalId;
+}
+
 export async function seedFinding(params: {
   runId: string;
   service: string;
@@ -75,6 +131,41 @@ export async function seedFinding(params: {
   return findingId;
 }
 
+/** Seeds ops_behavior_findings directly — for testing the occurrence_count/last_seen_at display
+ * on BehaviorIntelligencePage without waiting on a real detection to fire and re-fire. */
+export async function seedBehaviorFinding(params: {
+  service: string;
+  definitionId?: string;
+  title?: string;
+  occurrenceCount?: number;
+  createdAt?: Date;
+  lastSeenAt?: Date;
+}): Promise<number> {
+  const result = await pool.query(
+    `insert into ops_behavior_findings
+       (behavior_id, definition_id, definition_version, title, summary, category, severity, service,
+        input_metrics_json, facts_json, evidence_json, matched_conditions_json, confidence,
+        correlation_json, occurrence_count, last_seen_at, created_at)
+     values ($1, $2, 1, $3, $4, 'integration', 'high', $5, '{}', '{}', '[]', '[]', 0.9, '{}', $6, $7, $8)
+     returning id`,
+    [
+      params.definitionId ?? 'integration_seeded_pattern',
+      params.definitionId ?? 'integration_seeded_pattern',
+      params.title ?? 'Integration suite seeded behavior finding',
+      'Seeded directly for integration test setup.',
+      params.service,
+      params.occurrenceCount ?? 1,
+      params.lastSeenAt ?? new Date(),
+      params.createdAt ?? new Date(),
+    ]
+  );
+  return result.rows[0].id;
+}
+
+export async function cleanupBehaviorFinding(id: number): Promise<void> {
+  await pool.query(`delete from ops_behavior_findings where id = $1`, [id]);
+}
+
 export async function getCaseByFindingId(findingId: number): Promise<Record<string, unknown> | null> {
   const result = await pool.query(`select * from ops_operational_cases where finding_id = $1`, [findingId]);
   return result.rows[0] ?? null;
@@ -109,7 +200,13 @@ export async function cleanupRun(params: { runId: string; findingId?: number | n
     await pool.query(`delete from ops_operational_findings where id = $1`, [id]);
   }
   await pool.query(`delete from ops_normalized_timeseries_points where analysis_run_id = $1`, [runId]);
+  await pool.query(`delete from ops_operational_signals where analysis_run_id = $1`, [runId]);
+  await pool.query(`delete from ops_behavior_findings where analysis_run_id = $1`, [runId]);
   await pool.query(`delete from analysis_runs where id = $1`, [runId]);
+}
+
+export async function cleanupBehaviorPatternSuggestionsForService(service: string): Promise<void> {
+  await pool.query(`delete from behavior_pattern_suggestions where service = $1`, [service]);
 }
 
 export async function closeDb(): Promise<void> {

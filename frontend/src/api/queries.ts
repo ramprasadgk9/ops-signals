@@ -7,9 +7,13 @@ import type {
   AnalyzerRecommendationChatResponse,
   AnalysisRun,
   BehaviorDefinition,
+  BehaviorDefinitionDraft,
   BehaviorEvaluation,
   BehaviorFinding,
+  BehaviorPatternSuggestion,
   Capability,
+  FactDescriptor,
+  SaveDraftResult,
   CsvRunResult,
   Finding,
   MetricAnalyzerRecommendation,
@@ -35,6 +39,7 @@ import type {
   TimeseriesPoint,
   OverviewSummaryResponse,
   MemoryStatsResponse,
+  ValidationResult,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -65,6 +70,29 @@ export const api = {
     const queryString = params.toString();
     return getJson<BehaviorFinding[]>(`/api/behavior-evaluations${queryString ? `?${queryString}` : ''}`);
   },
+  behaviorFacts: () => getJson<FactDescriptor[]>('/api/behavior-definitions/facts'),
+  behaviorAvailableMetrics: () => getJson<string[]>('/api/behavior-definitions/available-metrics'),
+  validateBehaviorDefinition: (draft: BehaviorDefinitionDraft) =>
+    postJson<BehaviorDefinitionDraft, ValidationResult>('/api/behavior-definitions/validate', draft),
+  dryRunBehaviorDefinition: (draft: BehaviorDefinitionDraft, analysisRunId: string, service?: string) =>
+    postJson<{ definition: BehaviorDefinitionDraft; analysis_run_id: string; service?: string }, BehaviorEvaluation>(
+      '/api/behavior-definitions/dry-run',
+      { definition: draft, analysis_run_id: analysisRunId, service }
+    ),
+  saveBehaviorDefinitionToPack: (draft: BehaviorDefinitionDraft, packFile: string) =>
+    postJson<{ definition: BehaviorDefinitionDraft; pack_file: string }, SaveDraftResult>(
+      '/api/behavior-definitions/save-to-pack',
+      { definition: draft, pack_file: packFile }
+    ),
+  mineBehaviorSuggestions: () => postJson<Record<string, never>, BehaviorPatternSuggestion[]>('/api/behavior-definitions/suggestions/mine', {}),
+  behaviorSuggestions: (status: string = 'pending') =>
+    getJson<BehaviorPatternSuggestion[]>(`/api/behavior-definitions/suggestions?status=${encodeURIComponent(status)}`),
+  dismissBehaviorSuggestion: (id: number) =>
+    postJson<Record<string, never>, BehaviorPatternSuggestion>(`/api/behavior-definitions/suggestions/${id}/dismiss`, {}),
+  promoteBehaviorSuggestion: (id: number, packFile?: string) =>
+    postJson<{ pack_file?: string }, BehaviorPatternSuggestion>(`/api/behavior-definitions/suggestions/${id}/promote`, {
+      pack_file: packFile ?? 'suggested_patterns.yml',
+    }),
   behaviorEvaluations: (analysisRunId?: string, service?: string) =>
     getJson<BehaviorEvaluation[]>(
       analysisRunId

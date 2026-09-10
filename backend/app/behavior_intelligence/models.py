@@ -38,6 +38,7 @@ class BehaviorDefinition:
     conditions: dict[str, list[BehaviorCondition]]
     correlation: dict
     output: BehaviorOutput
+    source_file: str | None = None
 
 
 @dataclass(slots=True)

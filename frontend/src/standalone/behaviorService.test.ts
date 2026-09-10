@@ -19,6 +19,8 @@ function behavior(overrides: Partial<BehaviorFinding> = {}): BehaviorFinding {
     matched_conditions_json: [],
     confidence: 0.92,
     correlation_json: {},
+    occurrence_count: 1,
+    last_seen_at: '2026-07-26T00:00:00Z',
     created_at: '2026-07-26T00:00:00Z',
     ...overrides,
   };
