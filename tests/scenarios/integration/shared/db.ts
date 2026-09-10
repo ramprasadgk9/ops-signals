@@ -47,13 +47,15 @@ export async function seedFinding(params: {
   summary?: string;
   category?: string;
   healthStatus?: string;
+  /** Defaults to now() — override to seed a finding outside the 24h window but inside 7d, etc. */
+  createdAt?: Date;
 }): Promise<number> {
   const findingId = params.findingId ?? makeFindingId();
   await pool.query(
     `insert into ops_operational_findings
        (id, analysis_run_id, service, metric_name, title, summary, category, health_status,
         importance_score, investigation_priority, signal_ids, comparison_json, created_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())`,
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, coalesce($13, now()))`,
     [
       findingId,
       params.runId,
@@ -67,6 +69,7 @@ export async function seedFinding(params: {
       2,
       JSON.stringify(['integration-seed-signal']),
       JSON.stringify({ scenario: 'integration' }),
+      params.createdAt ?? null,
     ]
   );
   return findingId;
@@ -77,16 +80,33 @@ export async function getCaseByFindingId(findingId: number): Promise<Record<stri
   return result.rows[0] ?? null;
 }
 
+export async function getCaseById(caseId: number): Promise<Record<string, unknown> | null> {
+  const result = await pool.query(`select * from ops_operational_cases where id = $1`, [caseId]);
+  return result.rows[0] ?? null;
+}
+
+/** Mirrors the real "Create Case" action (POST /api/cases/findings/{id}/create) rather than
+ * hand-inserting a case row — a case's finding_snapshot has more fields than convenient to
+ * replicate by hand, and CaseDetailsPage crashes on an incomplete snapshot (confirmed live). */
+export async function createCaseFromFinding(backendUrl: string, findingId: number): Promise<{ case_id: number }> {
+  const response = await fetch(`${backendUrl}/api/cases/findings/${findingId}/create`, { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`Failed to create case from finding ${findingId}: ${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
 export async function getAnalysisRunStatus(runId: string): Promise<string | null> {
   const result = await pool.query(`select status from analysis_runs where id = $1`, [runId]);
   return result.rows[0]?.status ?? null;
 }
 
-export async function cleanupRun(params: { runId: string; findingId?: number }): Promise<void> {
+export async function cleanupRun(params: { runId: string; findingId?: number | number[] }): Promise<void> {
   const { runId, findingId } = params;
-  if (findingId != null) {
-    await pool.query(`delete from ops_operational_cases where finding_id = $1`, [findingId]);
-    await pool.query(`delete from ops_operational_findings where id = $1`, [findingId]);
+  const findingIds = findingId == null ? [] : Array.isArray(findingId) ? findingId : [findingId];
+  for (const id of findingIds) {
+    await pool.query(`delete from ops_operational_cases where finding_id = $1`, [id]);
+    await pool.query(`delete from ops_operational_findings where id = $1`, [id]);
   }
   await pool.query(`delete from ops_normalized_timeseries_points where analysis_run_id = $1`, [runId]);
   await pool.query(`delete from analysis_runs where id = $1`, [runId]);
