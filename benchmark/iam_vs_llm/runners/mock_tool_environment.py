@@ -28,6 +28,21 @@ class MockToolEnvironment:
 
         self.df = pd.read_csv(metrics_csv)
         self.k8s_events = json.loads(k8s_json.read_text(encoding="utf-8"))
+        self._dispatcher: dict[str, Any] = {
+            "list_services": lambda _: self.list_services(),
+            "list_metrics": lambda args: self.list_metrics(args.get("service", "")),
+            "query_prometheus": lambda args: self.query_prometheus(
+                query=args.get("query", ""),
+                start_time=args.get("start_time"),
+                end_time=args.get("end_time"),
+                step=args.get("step", "5m"),
+            ),
+            "query_k8s_events": lambda args: self.query_k8s_events(
+                service=args.get("service"),
+                event_type=args.get("event_type"),
+            ),
+        }
+
 
     def list_services(self) -> list[str]:
         """Lists all active services discovered in the cluster."""
@@ -213,20 +228,7 @@ class MockToolEnvironment:
 
     def get_dispatcher(self) -> dict[str, Any]:
         """Returns the canonical callable dispatcher mapping tool names to environment methods."""
-        return {
-            "list_services": lambda _: self.list_services(),
-            "list_metrics": lambda args: self.list_metrics(args.get("service", "")),
-            "query_prometheus": lambda args: self.query_prometheus(
-                query=args.get("query", ""),
-                start_time=args.get("start_time"),
-                end_time=args.get("end_time"),
-                step=args.get("step", "5m"),
-            ),
-            "query_k8s_events": lambda args: self.query_k8s_events(
-                service=args.get("service"),
-                event_type=args.get("event_type"),
-            ),
-        }
+        return self._dispatcher
 
     def dispatch(self, tool_name: str, tool_input: dict[str, Any] | None = None) -> Any:
         """Safely dispatches a tool call by name, catching unknown tools and execution errors."""
@@ -240,4 +242,5 @@ class MockToolEnvironment:
             return handler(tool_input)
         except Exception as err:
             return {"error": f"Tool execution failed: {err}"}
+
 

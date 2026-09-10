@@ -381,6 +381,8 @@ def test_baseline_a_runner_openai_react_loop_and_error_recovery(
     assert "Invalid JSON" in str(traj[1]["tool_output"])
     # Turn 3 handled unknown tool gracefully
     assert "Unknown tool" in str(traj[2]["tool_output"])
+    assert [t["turn"] for t in traj] == list(range(1, len(traj) + 1))
+
 
 
 def test_baseline_a_runner_openai_max_turns_truncation(
@@ -441,6 +443,8 @@ def test_baseline_a_runner_openai_max_turns_truncation(
     # 2 tool turns + 1 forced summary turn
     assert len(traj) == 3
     assert "Turn limit reached" in traj[-1]["thought"]
+    assert [t["turn"] for t in traj] == list(range(1, len(traj) + 1))
+
 
 
 def test_comparative_benchmark_end_to_end(scenario_dir: Path) -> None:

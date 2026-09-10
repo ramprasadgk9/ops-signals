@@ -53,6 +53,26 @@ class MockSREAgent:
         self.config = config
         self.scenario_dir = Path(scenario_dir) if scenario_dir else None
 
+    def _terminate_turn_limit(
+        self,
+        trajectory: list[dict[str, Any]],
+        tool_calls_count: int,
+        entity: str = "unknown",
+        total_in_tokens: int = 0,
+        total_out_tokens: int = 0,
+    ) -> tuple[str, int, int, list[dict[str, Any]], int]:
+        forced_text = (
+            f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
+            "ROOT_CAUSE: UNKNOWN\n"
+            f"ENTITY: {entity}\n"
+        )
+        trajectory.append({
+            "turn": len(trajectory) + 1,
+            "thought": "Turn limit reached; premature termination.",
+            "response": forced_text,
+        })
+        return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
+
     def run(self, max_turns: int = 10) -> tuple[str, int, int, list[dict[str, Any]], int]:
         """Executes simulated ReAct loop respecting max_turns."""
         mock_script_path = (self.scenario_dir / "mock_baseline_trajectory.yaml") if self.scenario_dir else None
@@ -100,7 +120,7 @@ class MockSREAgent:
             total_out_tokens += turn_out
 
             trajectory.append({
-                "turn": turn_idx,
+                "turn": len(trajectory) + 1,
                 "thought": thought,
                 "tool": tool_name,
                 "tool_input": tool_input,
@@ -109,12 +129,11 @@ class MockSREAgent:
 
         if not budget_exhausted and turn_idx < max_turns:
             # Final synthesis step fits in budget
-            turn_idx += 1
             synth_out = 160
             total_in_tokens += current_history_tokens
             total_out_tokens += synth_out
             trajectory.append({
-                "turn": turn_idx,
+                "turn": len(trajectory) + 1,
                 "thought": "Synthesizing full investigation into structured diagnosis.",
                 "tool": None,
                 "tool_input": None,
@@ -123,19 +142,14 @@ class MockSREAgent:
             })
             return final_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
         else:
-            # Budget exhausted, emit early truncated summary
-            forced_text = (
-                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
-                "ROOT_CAUSE: UNKNOWN\n"
-                "ENTITY: unknown\n"
+            return self._terminate_turn_limit(
+                trajectory=trajectory,
+                tool_calls_count=tool_calls_count,
+                entity="unknown",
+                total_in_tokens=total_in_tokens,
+                total_out_tokens=total_out_tokens,
             )
-            summary_turn = len(trajectory) + 1
-            trajectory.append({
-                "turn": summary_turn,
-                "thought": "Turn limit reached; premature termination.",
-                "response": forced_text,
-            })
-            return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
+
 
 
     def _run_dynamic_trajectory(
@@ -153,22 +167,16 @@ class MockSREAgent:
         # Turn 1: list_services
         turn += 1
         if turn > max_turns:
-            forced_text = (
-                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
-                "ROOT_CAUSE: UNKNOWN\n"
-                "ENTITY: unknown-service\n"
+            return self._terminate_turn_limit(
+                trajectory, tool_calls_count, "unknown-service", total_in_tokens, total_out_tokens
             )
-            trajectory.append({
-                "turn": len(trajectory) + 1,
-                "thought": "Turn limit reached; premature termination.",
-                "response": forced_text,
-            })
-            return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
 
-        services = self.env.list_services()
+        services = self.env.dispatch("list_services")
+        if isinstance(services, dict) and "error" in services:
+            services = []
         tool_calls_count += 1
         trajectory.append({
-            "turn": turn,
+            "turn": len(trajectory) + 1,
             "thought": "Discovering active services.",
             "tool": "list_services",
             "tool_input": {},
@@ -181,22 +189,16 @@ class MockSREAgent:
         # Turn 2: query_k8s_events
         turn += 1
         if turn > max_turns:
-            forced_text = (
-                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
-                "ROOT_CAUSE: UNKNOWN\n"
-                f"ENTITY: {services[0] if services else 'unknown-service'}\n"
+            return self._terminate_turn_limit(
+                trajectory, tool_calls_count, services[0] if services else "unknown-service", total_in_tokens, total_out_tokens
             )
-            trajectory.append({
-                "turn": len(trajectory) + 1,
-                "thought": "Turn limit reached; premature termination.",
-                "response": forced_text,
-            })
-            return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
 
-        k8s_events = self.env.query_k8s_events()
+        k8s_events = self.env.dispatch("query_k8s_events")
+        if isinstance(k8s_events, dict) and "error" in k8s_events:
+            k8s_events = []
         tool_calls_count += 1
         trajectory.append({
-            "turn": turn,
+            "turn": len(trajectory) + 1,
             "thought": "Checking Kubernetes events for crashes or warnings.",
             "tool": "query_k8s_events",
             "tool_input": {},
@@ -220,11 +222,13 @@ class MockSREAgent:
             for svc in services:
                 if turn >= max_turns:
                     break
-                metrics = self.env.list_metrics(svc)
+                metrics = self.env.dispatch("list_metrics", {"service": svc})
+                if isinstance(metrics, dict) and "error" in metrics:
+                    metrics = []
                 turn += 1
                 tool_calls_count += 1
                 trajectory.append({
-                    "turn": turn,
+                    "turn": len(trajectory) + 1,
                     "thought": f"Listing metrics for candidate service {svc}.",
                     "tool": "list_metrics",
                     "tool_input": {"service": svc},
@@ -239,9 +243,9 @@ class MockSREAgent:
                         break
                     turn += 1
                     tool_calls_count += 1
-                    res = self.env.query_prometheus(f'{m}{{service="{svc}"}}')
+                    res = self.env.dispatch("query_prometheus", {"query": f'{m}{{service="{svc}"}}'})
                     trajectory.append({
-                        "turn": turn,
+                        "turn": len(trajectory) + 1,
                         "thought": f"Querying metric {m} for service {svc}.",
                         "tool": "query_prometheus",
                         "tool_input": {"query": f'{m}{{service="{svc}"}}'},
@@ -250,7 +254,11 @@ class MockSREAgent:
                     current_history_tokens += 90
                     total_in_tokens += current_history_tokens
                     total_out_tokens += 45
-                    delta = abs(res.get("data", {}).get("summary", {}).get("delta", 0.0))
+                    delta = (
+                        abs(res.get("data", {}).get("summary", {}).get("delta", 0.0))
+                        if isinstance(res, dict)
+                        else 0.0
+                    )
                     service_deltas[svc] = max(service_deltas.get(svc, 0.0), delta)
 
             if service_deltas:
@@ -261,10 +269,10 @@ class MockSREAgent:
         # If we have turns left, list metrics for target_service
         if turn < max_turns:
             turn += 1
-            metrics = self.env.list_metrics(target_service)
+            metrics = self.env.dispatch("list_metrics", {"service": target_service})
             tool_calls_count += 1
             trajectory.append({
-                "turn": turn,
+                "turn": len(trajectory) + 1,
                 "thought": f"Inspecting metrics for impacted service {target_service}.",
                 "tool": "list_metrics",
                 "tool_input": {"service": target_service},
@@ -275,17 +283,9 @@ class MockSREAgent:
             total_out_tokens += 40
 
         if turn >= max_turns:
-            final_text = (
-                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
-                f"ROOT_CAUSE: UNKNOWN\n"
-                f"ENTITY: {target_service}\n"
+            return self._terminate_turn_limit(
+                trajectory, tool_calls_count, target_service, total_in_tokens, total_out_tokens
             )
-            trajectory.append({
-                "turn": len(trajectory) + 1,
-                "thought": "Turn limit reached; premature termination.",
-                "response": final_text,
-            })
-            return final_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
 
         final_text = (
             f"Investigation Complete for {target_service}.\n\n"
@@ -424,7 +424,7 @@ class BaselineARunner(BaseBenchmarkRunner):
             if not tool_calls:
                 final_text = msg.content or ""
                 trajectory.append({
-                    "turn": turn,
+                    "turn": len(trajectory) + 1,
                     "thought": "Final diagnosis emitted.",
                     "response": final_text,
                 })
@@ -465,7 +465,7 @@ class BaselineARunner(BaseBenchmarkRunner):
                     "content": result_str,
                 })
                 trajectory.append({
-                    "turn": turn,
+                    "turn": len(trajectory) + 1,
                     "tool": func_name,
                     "tool_input": tool_args,
                     "tool_output": result,
@@ -486,9 +486,10 @@ class BaselineARunner(BaseBenchmarkRunner):
                 total_in_tokens += forced_resp.usage.prompt_tokens
                 total_out_tokens += forced_resp.usage.completion_tokens
             trajectory.append({
-                "turn": config.max_turns + 1,
+                "turn": len(trajectory) + 1,
                 "thought": "Turn limit reached; forced summary emitted.",
                 "response": final_text,
             })
+
 
         return final_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
