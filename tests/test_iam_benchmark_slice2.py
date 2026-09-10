@@ -582,5 +582,175 @@ def test_mock_sre_agent_dynamic_trajectory_budget(tmp_path: Path, scenario_dir: 
     final_text, in_tok, out_tok, traj, tool_calls = agent.run(max_turns=2)
     assert "Turn limit reached" in final_text or "ROOT_CAUSE: UNKNOWN" in final_text
     assert tool_calls <= 2
-    assert len(traj) >= 2
+    assert len(traj) <= 3
+
+
+def test_mock_tool_environment_get_dispatcher(scenario_dir: Path) -> None:
+    """Verifies that MockToolEnvironment provides a canonical callable dispatcher."""
+    env = MockToolEnvironment(scenario_dir)
+    dispatcher = env.get_dispatcher()
+    assert set(dispatcher.keys()) == {"list_services", "list_metrics", "query_prometheus", "query_k8s_events"}
+    services = dispatcher["list_services"]({})
+    assert "payment-service" in services
+
+
+def test_baseline_a_runner_openai_tool_execution_error_separation(
+    scenario_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that internal tool execution exceptions are not mislabeled as JSON parse errors."""
+    from unittest.mock import MagicMock
+    from benchmark.iam_vs_llm.configs.manifest_loader import BenchmarkManifest, ModelRunConfig, PricingConfig
+    from benchmark.iam_vs_llm.runners.baseline_a_runner import BaselineARunner
+
+    manifest = BenchmarkManifest(
+        random_seed=42,
+        state_isolation=True,
+        baseline_a=ModelRunConfig(
+            model_id="mock-frontier-sre",
+            provider="openai",
+            temperature=0.0,
+            max_turns=2,
+            pricing=PricingConfig(3.0, 15.0),
+        ),
+        baseline_b=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(1.0, 1.0)),
+        iam_advisor=ModelRunConfig("m", "local", 0.0, 1, PricingConfig(0.2, 0.2)),
+        judge=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(2.5, 10.0)),
+    )
+    runner = BaselineARunner(manifest=manifest)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+    class FakeToolCall:
+        def __init__(self, tc_id: str, name: str, args: str):
+            self.id = tc_id
+            self.function = MagicMock(name=name, arguments=args)
+            self.function.name = name
+            self.function.arguments = args
+
+    class FakeMessage:
+        def __init__(self, tool_calls=None, content=None):
+            self.tool_calls = tool_calls
+            self.content = content
+
+        def to_dict(self):
+            return {"role": "assistant", "content": self.content, "tool_calls": []}
+
+    class FakeCompletion:
+        def __init__(self, msg):
+            self.choices = [MagicMock(message=msg)]
+            self.usage = MagicMock(prompt_tokens=50, completion_tokens=25)
+
+    # Valid JSON args, but we mock the tool dispatcher to raise a runtime exception
+    t1 = FakeToolCall("tc_1", "query_prometheus", '{"query": "broken"}')
+    m1 = FakeMessage(tool_calls=[t1])
+    m2 = FakeMessage(content="Recovery.\nROOT_CAUSE: UNKNOWN\nENTITY: payment-service")
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [FakeCompletion(m1), FakeCompletion(m2)]
+    mock_openai_module = MagicMock()
+    mock_openai_module.OpenAI.return_value = mock_client
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "openai", mock_openai_module)
+
+    # Patch env.get_dispatcher to throw an error on query_prometheus
+    orig_get_env = runner.get_query_environment
+
+    def patched_get_env(s_dir):
+        real_env = orig_get_env(s_dir)
+        orig_disp = real_env.get_dispatcher()
+        orig_disp["query_prometheus"] = MagicMock(side_effect=RuntimeError("Database connection lost"))
+        real_env.get_dispatcher = lambda: orig_disp
+        return real_env
+
+    monkeypatch.setattr(runner, "get_query_environment", patched_get_env)
+
+    result = runner.run_react_agent(scenario_dir)
+    traj = result.metadata["trajectory"]
+    assert "Tool execution failed: Database connection lost" in traj[0]["tool_output"]["error"]
+
+
+def test_baseline_a_runner_openrouter_provider_isolation(
+    scenario_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that OpenRouter provider resolves canonical endpoint and isolates from OPENAI_BASE_URL."""
+    from unittest.mock import MagicMock
+    from benchmark.iam_vs_llm.configs.manifest_loader import BenchmarkManifest, ModelRunConfig, PricingConfig
+    from benchmark.iam_vs_llm.runners.baseline_a_runner import BaselineARunner
+
+    manifest = BenchmarkManifest(
+        random_seed=42,
+        state_isolation=True,
+        baseline_a=ModelRunConfig(
+            model_id="anthropic/claude-3.5-sonnet",
+            provider="openrouter",
+            temperature=0.0,
+            max_turns=1,
+            pricing=PricingConfig(3.0, 15.0),
+        ),
+        baseline_b=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(1.0, 1.0)),
+        iam_advisor=ModelRunConfig("m", "local", 0.0, 1, PricingConfig(0.2, 0.2)),
+        judge=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(2.5, 10.0)),
+    )
+    runner = BaselineARunner(manifest=manifest)
+
+    # Set both OpenRouter and OpenAI variables
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-be-ignored")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:11434/v1")  # local proxy that must NOT be used
+
+    mock_openai_cls = MagicMock()
+    mock_client = MagicMock()
+    mock_openai_cls.return_value = mock_client
+
+    class FakeMessage:
+        tool_calls = None
+        content = "Diagnosis.\nROOT_CAUSE: UNKNOWN\nENTITY: payment-service"
+
+    mock_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=FakeMessage())],
+        usage=MagicMock(prompt_tokens=100, completion_tokens=50),
+    )
+
+    fake_openai_mod = MagicMock(OpenAI=mock_openai_cls)
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "openai", fake_openai_mod)
+
+    runner.run_react_agent(scenario_dir)
+
+    # Verify OpenAI client initialization arguments
+    mock_openai_cls.assert_called_once_with(
+        api_key="sk-or-test-key",
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def test_manifest_loader_name_overrides(tmp_path: Path) -> None:
+    """Verifies that user name overrides in YAML for all model configs are respected."""
+    manifest_yaml = tmp_path / "custom_names_manifest.yaml"
+    manifest_yaml.write_text(
+        """
+harness:
+  random_seed: 99
+  state_isolation: true
+
+baselines:
+  baseline_a:
+    name: "Custom Baseline A"
+    model_id: "test-model-a"
+  baseline_b:
+    name: "Custom Baseline B"
+    model_id: "test-model-b"
+
+iam_system:
+  name: "Custom IAM Advisor"
+  advisor_model_id: "test-iam-advisor"
+
+judge:
+  name: "Custom Panel Judge"
+  model_id: "test-judge"
+"""
+    )
+    manifest = load_manifest(manifest_yaml)
+    assert manifest.baseline_a.name == "Custom Baseline A"
+    assert manifest.baseline_b.name == "Custom Baseline B"
+    assert manifest.iam_advisor.name == "Custom IAM Advisor"
+    assert manifest.judge.name == "Custom Panel Judge"
+
 

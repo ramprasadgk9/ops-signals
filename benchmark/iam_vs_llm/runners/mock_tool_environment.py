@@ -210,3 +210,20 @@ class MockToolEnvironment:
                 },
             },
         ]
+
+    def get_dispatcher(self) -> dict[str, Any]:
+        """Returns the canonical callable dispatcher mapping tool names to environment methods."""
+        return {
+            "list_services": lambda _: self.list_services(),
+            "list_metrics": lambda args: self.list_metrics(args.get("service", "")),
+            "query_prometheus": lambda args: self.query_prometheus(
+                query=args.get("query", ""),
+                start_time=args.get("start_time"),
+                end_time=args.get("end_time"),
+                step=args.get("step", "5m"),
+            ),
+            "query_k8s_events": lambda args: self.query_k8s_events(
+                service=args.get("service"),
+                event_type=args.get("event_type"),
+            ),
+        }

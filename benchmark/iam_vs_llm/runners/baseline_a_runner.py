@@ -77,21 +77,7 @@ class MockSREAgent:
         tool_calls_count = 0
         current_history_tokens = 260
 
-        tool_dispatcher = {
-            "list_services": lambda _: self.env.list_services(),
-            "list_metrics": lambda args: self.env.list_metrics(args.get("service", "")),
-            "query_prometheus": lambda args: self.env.query_prometheus(
-                query=args.get("query", ""),
-                start_time=args.get("start_time"),
-                end_time=args.get("end_time"),
-                step=args.get("step", "5m"),
-            ),
-            "query_k8s_events": lambda args: self.env.query_k8s_events(
-                service=args.get("service"),
-                event_type=args.get("event_type"),
-            ),
-        }
-
+        tool_dispatcher = self.env.get_dispatcher()
         turn_idx = 0
         budget_exhausted = False
 
@@ -280,6 +266,19 @@ class MockSREAgent:
             total_in_tokens += current_history_tokens
             total_out_tokens += 40
 
+        if turn >= max_turns:
+            final_text = (
+                f"Turn limit reached. Partial diagnosis based on {tool_calls_count} queries:\n\n"
+                f"ROOT_CAUSE: UNKNOWN\n"
+                f"ENTITY: {target_service}\n"
+            )
+            trajectory.append({
+                "turn": turn,
+                "thought": "Turn limit reached; premature termination.",
+                "response": final_text,
+            })
+            return final_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
+
         final_text = (
             f"Investigation Complete for {target_service}.\n\n"
             f"ROOT_CAUSE: UNKNOWN\n"
@@ -366,8 +365,8 @@ class BaselineARunner(BaseBenchmarkRunner):
         """Executes a live OpenAI/OpenRouter tool-calling loop."""
         provider = (config.provider or "openai").lower().strip()
         if provider == "openrouter":
-            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-            base_url = os.environ.get("OPENROUTER_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://openrouter.ai/api/v1"
+            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
+            base_url = os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
         else:
             api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
             base_url = os.environ.get("OPENAI_BASE_URL")
@@ -398,20 +397,7 @@ class BaselineARunner(BaseBenchmarkRunner):
         tool_calls_count = 0
         final_text = ""
 
-        tool_dispatcher = {
-            "list_services": lambda _: env.list_services(),
-            "list_metrics": lambda args: env.list_metrics(args.get("service", "")),
-            "query_prometheus": lambda args: env.query_prometheus(
-                query=args.get("query", ""),
-                start_time=args.get("start_time"),
-                end_time=args.get("end_time"),
-                step=args.get("step", "5m"),
-            ),
-            "query_k8s_events": lambda args: env.query_k8s_events(
-                service=args.get("service"),
-                event_type=args.get("event_type"),
-            ),
-        }
+        tool_dispatcher = env.get_dispatcher()
 
         for turn in range(1, config.max_turns + 1):
             response = client.chat.completions.create(
@@ -454,28 +440,35 @@ class BaselineARunner(BaseBenchmarkRunner):
 
             for tc in tool_calls:
                 tool_calls_count += 1
-                fname = tc.function.name
+                func_name = tc.function.name
                 try:
-                    fargs = json.loads(tc.function.arguments or "{}")
-                    if not isinstance(fargs, dict):
-                        raise TypeError(f"Tool arguments must be a JSON object, got {type(fargs).__name__}")
-                    fn = tool_dispatcher.get(fname)
-                    result = fn(fargs) if fn else {"error": f"Unknown tool '{fname}'"}
-                except (json.JSONDecodeError, TypeError, AttributeError) as err:
-                    fargs = {"raw_arguments": tc.function.arguments}
+                    tool_args = json.loads(tc.function.arguments or "{}")
+                    if not isinstance(tool_args, dict):
+                        raise TypeError(f"Tool arguments must be a JSON object, got {type(tool_args).__name__}")
+                except (json.JSONDecodeError, TypeError) as err:
+                    tool_args = {"raw_arguments": tc.function.arguments}
                     result = {"error": f"Invalid JSON arguments: {err}"}
+                else:
+                    handler = tool_dispatcher.get(func_name)
+                    if not handler:
+                        result = {"error": f"Unknown tool '{func_name}'"}
+                    else:
+                        try:
+                            result = handler(tool_args)
+                        except Exception as err:
+                            result = {"error": f"Tool execution failed: {err}"}
 
                 result_str = json.dumps(result, default=str)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "name": fname,
+                    "name": func_name,
                     "content": result_str,
                 })
                 trajectory.append({
                     "turn": turn,
-                    "tool": fname,
-                    "tool_input": fargs,
+                    "tool": func_name,
+                    "tool_input": tool_args,
                     "tool_output": result,
                 })
         else:

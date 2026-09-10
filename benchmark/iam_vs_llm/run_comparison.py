@@ -45,7 +45,7 @@ def run_benchmark_comparison(
     # 1. Run IAM
     print(f"[*] Executing IAM Slice Runner on {scenario_dir.name}...", file=sys.stderr)
     iam_runner = IAMSliceRunner()
-    iam_run_res: BenchmarkRunResult = iam_runner.run_batch_ingest(scenario_dir)
+    iam_run_res: BenchmarkRunResult = iam_runner.execute(scenario_dir)
     iam_eval: F1EvaluationResult = evaluator.evaluate(iam_run_res.normalized_rca, ground_truth)
 
     # 2. Run Baseline A
@@ -54,7 +54,7 @@ def run_benchmark_comparison(
         file=sys.stderr,
     )
     base_a_runner = BaselineARunner(manifest=manifest)
-    base_a_run_res: BenchmarkRunResult = base_a_runner.run_react_agent(scenario_dir)
+    base_a_run_res: BenchmarkRunResult = base_a_runner.execute(scenario_dir)
     base_a_eval: F1EvaluationResult = evaluator.evaluate(base_a_run_res.normalized_rca, ground_truth)
 
     return {

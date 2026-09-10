@@ -105,7 +105,7 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     )
 
     iam_advisor = ModelRunConfig(
-        name="IAM Incident Advisor",
+        name=str(iam_data.get("name", "IAM Incident Advisor")),
         model_id=str(iam_data.get("advisor_model_id", "gemma-2-9b-it")),
         provider=str(iam_data.get("provider", "local")),
         temperature=float(iam_data.get("temperature", 0.0)),
@@ -117,7 +117,7 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     )
 
     judge = ModelRunConfig(
-        name="Benchmark Evaluation Judge",
+        name=str(judge_data.get("name", "Benchmark Evaluation Judge")),
         model_id=str(judge_data.get("model_id", "mock-judge-evaluator")),
         provider=str(judge_data.get("provider", "mock")),
         temperature=float(judge_data.get("temperature", 0.0)),
