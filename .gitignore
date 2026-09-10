@@ -27,6 +27,8 @@ frontend/dist/
 frontend/dist-admin/
 frontend/.vite/
 frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
 *.tsbuildinfo
 
 # Environment and secrets
