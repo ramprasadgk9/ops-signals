@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from benchmark.iam_vs_llm.configs.manifest_loader import BenchmarkManifest, ModelRunConfig, load_manifest
 from benchmark.iam_vs_llm.evaluators.normalization import NormalizedRCA, normalize_structured_text
 from benchmark.iam_vs_llm.runners.base_runner import BaseBenchmarkRunner, BenchmarkRunResult, state_isolation
@@ -32,14 +34,6 @@ USER_TRIAGE_PROMPT = """High latency alerts and pod instability have been report
 Investigate the cluster telemetry and determine the root cause, affected entity, fault window, and key evidence.
 """
 
-
-class MockSREAgent:
-    """Deterministic simulated SRE agent for offline, zero-token CI testing.
-    
-    Executes a realistic ReAct sequence against the MockToolEnvironment, verifying
-    tool mechanics, measuring latency, tracking simulated tokens, and emitting
-    the required structured diagnosis tail.
-    """
 
 class MockSREAgent:
     """Deterministic simulated SRE agent for offline, zero-token CI testing.
@@ -71,7 +65,6 @@ class MockSREAgent:
         script_path: Path,
         max_turns: int,
     ) -> tuple[str, int, int, list[dict[str, Any]], int]:
-        import yaml
         with script_path.open("r", encoding="utf-8") as f:
             script_data = yaml.safe_load(f) or {}
 
@@ -169,11 +162,23 @@ class MockSREAgent:
         total_out_tokens = 0
         tool_calls_count = 0
         current_history_tokens = 260
+        turn = 0
+
+        # Turn 1: list_services
+        turn += 1
+        if turn > max_turns:
+            forced_text = "Turn limit reached before investigation could begin.\n\nROOT_CAUSE: UNKNOWN\nENTITY: unknown-service\n"
+            trajectory.append({
+                "turn": turn,
+                "thought": "Turn limit reached; premature termination.",
+                "response": forced_text,
+            })
+            return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
 
         services = self.env.list_services()
         tool_calls_count += 1
         trajectory.append({
-            "turn": 1,
+            "turn": turn,
             "thought": "Discovering active services.",
             "tool": "list_services",
             "tool_input": {},
@@ -183,10 +188,21 @@ class MockSREAgent:
         total_in_tokens += current_history_tokens
         total_out_tokens += 45
 
+        # Turn 2: query_k8s_events
+        turn += 1
+        if turn > max_turns:
+            forced_text = f"Turn limit reached.\n\nROOT_CAUSE: UNKNOWN\nENTITY: {services[0] if services else 'unknown-service'}\n"
+            trajectory.append({
+                "turn": turn,
+                "thought": "Turn limit reached; premature termination.",
+                "response": forced_text,
+            })
+            return forced_text, total_in_tokens, total_out_tokens, trajectory, tool_calls_count
+
         k8s_events = self.env.query_k8s_events()
         tool_calls_count += 1
         trajectory.append({
-            "turn": 2,
+            "turn": turn,
             "thought": "Checking Kubernetes events for crashes or warnings.",
             "tool": "query_k8s_events",
             "tool_input": {},
@@ -205,30 +221,64 @@ class MockSREAgent:
 
         # If no events indicate an issue, inspect delta across services to identify anomaly
         if not target_service and services:
-            service_deltas = {}
+            target_service = services[0]
+            service_deltas: dict[str, float] = {}
             for svc in services:
+                if turn >= max_turns:
+                    break
                 metrics = self.env.list_metrics(svc)
+                turn += 1
+                tool_calls_count += 1
+                trajectory.append({
+                    "turn": turn,
+                    "thought": f"Listing metrics for candidate service {svc}.",
+                    "tool": "list_metrics",
+                    "tool_input": {"service": svc},
+                    "tool_output": metrics,
+                })
+                current_history_tokens += 60
+                total_in_tokens += current_history_tokens
+                total_out_tokens += 35
+
                 for m in metrics:
+                    if turn >= max_turns:
+                        break
+                    turn += 1
+                    tool_calls_count += 1
                     res = self.env.query_prometheus(f'{m}{{service="{svc}"}}')
+                    trajectory.append({
+                        "turn": turn,
+                        "thought": f"Querying metric {m} for service {svc}.",
+                        "tool": "query_prometheus",
+                        "tool_input": {"query": f'{m}{{service="{svc}"}}'},
+                        "tool_output": res,
+                    })
+                    current_history_tokens += 90
+                    total_in_tokens += current_history_tokens
+                    total_out_tokens += 45
                     delta = abs(res.get("data", {}).get("summary", {}).get("delta", 0.0))
                     service_deltas[svc] = max(service_deltas.get(svc, 0.0), delta)
-            target_service = max(service_deltas, key=service_deltas.get) if service_deltas else services[0]
+
+            if service_deltas:
+                target_service = max(service_deltas, key=service_deltas.get)
 
         target_service = target_service or "unknown-service"
 
-        # Query metrics for target
-        metrics = self.env.list_metrics(target_service)
-        tool_calls_count += 1
-        trajectory.append({
-            "turn": 3,
-            "thought": f"Inspecting metrics for impacted service {target_service}.",
-            "tool": "list_metrics",
-            "tool_input": {"service": target_service},
-            "tool_output": metrics,
-        })
-        current_history_tokens += 75
-        total_in_tokens += current_history_tokens
-        total_out_tokens += 40
+        # If we have turns left, list metrics for target_service
+        if turn < max_turns:
+            turn += 1
+            metrics = self.env.list_metrics(target_service)
+            tool_calls_count += 1
+            trajectory.append({
+                "turn": turn,
+                "thought": f"Inspecting metrics for impacted service {target_service}.",
+                "tool": "list_metrics",
+                "tool_input": {"service": target_service},
+                "tool_output": metrics,
+            })
+            current_history_tokens += 75
+            total_in_tokens += current_history_tokens
+            total_out_tokens += 40
 
         final_text = (
             f"Investigation Complete for {target_service}.\n\n"
@@ -236,7 +286,7 @@ class MockSREAgent:
             f"ENTITY: {target_service}\n"
         )
         trajectory.append({
-            "turn": 4,
+            "turn": turn + 1,
             "thought": "Dynamic fallback synthesis complete.",
             "response": final_text,
         })
@@ -254,9 +304,13 @@ class BaselineARunner(BaseBenchmarkRunner):
     def get_query_environment(self, scenario_dir: Path) -> MockToolEnvironment:
         return MockToolEnvironment(scenario_dir)
 
-    def run_batch_ingest(self, scenario_dir: Path) -> BenchmarkRunResult:
-        """Baseline A operates via interactive ReAct tool calling; delegates to run_react_agent."""
+    def execute(self, scenario_dir: Path) -> BenchmarkRunResult:
+        """Polymorphic execution entrypoint; runs the ReAct agent."""
         return self.run_react_agent(scenario_dir)
+
+    def run_batch_ingest(self, scenario_dir: Path) -> BenchmarkRunResult:
+        """Baseline A operates via interactive ReAct tool calling; delegates to execute."""
+        return self.execute(scenario_dir)
 
     def run_react_agent(self, scenario_dir: Path) -> BenchmarkRunResult:
         scenario_id = scenario_dir.name
@@ -310,10 +364,18 @@ class BaselineARunner(BaseBenchmarkRunner):
         config: ModelRunConfig,
     ) -> tuple[str, int, int, list[dict[str, Any]], int]:
         """Executes a live OpenAI/OpenRouter tool-calling loop."""
-        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
+        provider = (config.provider or "openai").lower().strip()
+        if provider == "openrouter":
+            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
+            base_url = os.environ.get("OPENROUTER_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://openrouter.ai/api/v1"
+        else:
+            api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
+            base_url = os.environ.get("OPENAI_BASE_URL")
+
         if not api_key:
+            key_name = "OPENROUTER_API_KEY" if provider == "openrouter" else "OPENAI_API_KEY"
             raise ValueError(
-                "API key missing. Set OPENAI_API_KEY or BENCHMARK_LLM_API_KEY in environment "
+                f"API key missing. Set {key_name} or BENCHMARK_LLM_API_KEY in environment "
                 "or configure provider: 'mock' in benchmark_manifest.yaml."
             )
 
@@ -322,7 +384,6 @@ class BaselineARunner(BaseBenchmarkRunner):
         except ImportError as e:
             raise ImportError("openai package required for live LLM execution. Run: pip install openai") from e
 
-        base_url = os.environ.get("OPENAI_BASE_URL")
         client = OpenAI(api_key=api_key, base_url=base_url)
 
         tools = env.get_tool_definitions()
@@ -344,6 +405,7 @@ class BaselineARunner(BaseBenchmarkRunner):
                 query=args.get("query", ""),
                 start_time=args.get("start_time"),
                 end_time=args.get("end_time"),
+                step=args.get("step", "5m"),
             ),
             "query_k8s_events": lambda args: env.query_k8s_events(
                 service=args.get("service"),
@@ -395,9 +457,11 @@ class BaselineARunner(BaseBenchmarkRunner):
                 fname = tc.function.name
                 try:
                     fargs = json.loads(tc.function.arguments or "{}")
+                    if not isinstance(fargs, dict):
+                        raise TypeError(f"Tool arguments must be a JSON object, got {type(fargs).__name__}")
                     fn = tool_dispatcher.get(fname)
                     result = fn(fargs) if fn else {"error": f"Unknown tool '{fname}'"}
-                except (json.JSONDecodeError, TypeError) as err:
+                except (json.JSONDecodeError, TypeError, AttributeError) as err:
                     fargs = {"raw_arguments": tc.function.arguments}
                     result = {"error": f"Invalid JSON arguments: {err}"}
 

@@ -144,7 +144,10 @@ class IAMSliceRunner(BaseBenchmarkRunner):
                 },
             )
 
-    def get_query_environment(self, scenario_dir: Path) -> Any:
-        raise NotImplementedError(
-            "IAM operates via direct batch ingestion and graph evaluation, not interactive tool querying."
-        )
+    def execute(self, scenario_dir: Path) -> BenchmarkRunResult:
+        """Executes telemetry triage via batch ingestion for IAM."""
+        return self.run_batch_ingest(scenario_dir)
+
+    def get_query_environment(self, scenario_dir: Path) -> Any | None:
+        """IAM operates via direct batch ingestion and does not provide an interactive query environment."""
+        return None

@@ -85,6 +85,21 @@ def test_f1_evaluator_mechanics() -> None:
     assert res_perfect.window_iou == 1.0
     assert res_perfect.composite_score >= 0.85
 
+    # Offset-naive datetime handling (must not raise TypeError)
+    naive_pred = NormalizedRCA(
+        entity="payment-service",
+        root_cause=RootCauseClass.MEMORY_LEAK,
+        fault_window=(
+            datetime(2026, 9, 7, 10, 30, 0),  # offset-naive
+            datetime(2026, 9, 7, 11, 45, 0),  # offset-naive
+        ),
+        evidence_keys=["memory_usage", "cpu_throttled_seconds"],
+        raw_summary="Memory leak on payment-service driving CPU throttling",
+    )
+    res_naive = evaluator.evaluate(naive_pred, ground_truth)
+    assert res_naive.window_iou == 1.0
+    assert res_naive.passed is True
+
     # Partial prediction (correct diagnosis, but missing temporal window)
     partial = NormalizedRCA(
         entity="payment-service",

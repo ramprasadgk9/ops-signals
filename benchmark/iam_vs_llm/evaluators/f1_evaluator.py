@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from benchmark.iam_vs_llm.evaluators.normalization import NormalizedRCA
@@ -66,6 +67,16 @@ class F1Evaluator:
             exp_end = datetime.fromisoformat(str(exp_window_dict["end"]).replace("Z", "+00:00"))
             pred_start, pred_end = predicted.fault_window
 
+            # Normalize tzinfo to UTC to avoid offset-naive vs offset-aware comparison crashes
+            if pred_start.tzinfo is None:
+                pred_start = pred_start.replace(tzinfo=timezone.utc)
+            if pred_end.tzinfo is None:
+                pred_end = pred_end.replace(tzinfo=timezone.utc)
+            if exp_start.tzinfo is None:
+                exp_start = exp_start.replace(tzinfo=timezone.utc)
+            if exp_end.tzinfo is None:
+                exp_end = exp_end.replace(tzinfo=timezone.utc)
+
             inter_start = max(pred_start, exp_start)
             inter_end = min(pred_end, exp_end)
 
@@ -106,7 +117,6 @@ class F1Evaluator:
             evidence_f1 = 0.0
 
         # 5. Semantic Concept Similarity (deterministic token overlap against ground truth concepts)
-        import re
         pred_words = set(re.findall(r"[a-zA-Z0-9]+", (predicted.raw_summary or "").lower()))
         exp_concepts = [expected_entity, expected_root_cause.value.lower()] + [
             str(s).lower() for s in ground_truth.get("secondary_symptoms", [])

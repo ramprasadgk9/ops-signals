@@ -91,11 +91,14 @@ class BaseBenchmarkRunner(ABC):
         self.runner_id = runner_id
 
     @abstractmethod
-    def run_batch_ingest(self, scenario_dir: Path) -> BenchmarkRunResult:
-        """Executes telemetry triage via direct batch ingestion (IAM paradigm)."""
+    def execute(self, scenario_dir: Path) -> BenchmarkRunResult:
+        """Polymorphic entrypoint to execute benchmark evaluation for the scenario."""
         pass
 
-    @abstractmethod
-    def get_query_environment(self, scenario_dir: Path) -> Any:
-        """Returns interactive mock tools for agentic queries (Baseline A paradigm)."""
-        pass
+    def run_batch_ingest(self, scenario_dir: Path) -> BenchmarkRunResult:
+        """Executes telemetry triage via batch ingestion. Defaults to execute()."""
+        return self.execute(scenario_dir)
+
+    def get_query_environment(self, scenario_dir: Path) -> Any | None:
+        """Returns interactive mock tools for agentic queries if supported, else None."""
+        return None

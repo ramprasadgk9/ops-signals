@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,12 @@ def run_benchmark_comparison(
 ) -> dict[str, Any]:
     """Executes IAM and Baseline A against the designated scenario and evaluates both."""
     manifest = load_manifest(manifest_path)
+    random.seed(manifest.random_seed)
+    try:
+        import numpy as np
+        np.random.seed(manifest.random_seed)
+    except ImportError:
+        pass
     gt_path = scenario_dir / "ground_truth.yaml"
     if not gt_path.exists():
         raise FileNotFoundError(f"Missing ground truth at {gt_path}")

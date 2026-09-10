@@ -26,7 +26,7 @@ def main() -> int:
     scenario_dir = Path(args.scenario_dir)
     ground_truth_file = scenario_dir / "ground_truth.yaml"
 
-    if args.regenerate or not ground_truth_file.exists():
+    if args.regenerate or not ground_truth_file.exists() or not (scenario_dir / "metrics.csv").exists():
         print(f"Generating synthetic telemetry in {scenario_dir} (seed={args.seed})...")
         generate_scenario_1(output_dir=scenario_dir, seed=args.seed)
 

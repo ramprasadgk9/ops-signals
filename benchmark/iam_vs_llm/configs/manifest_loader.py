@@ -28,6 +28,7 @@ class ModelRunConfig:
     temperature: float
     max_turns: int
     pricing: PricingConfig
+    name: str = ""
 
 
 @dataclass(slots=True)
@@ -40,15 +41,17 @@ class BenchmarkManifest:
     judge: ModelRunConfig
 
 
+ENV_VAR_PATTERN = re.compile(r"\$\{([^:-]+)(?::-([^}]*))?\}")
+
+
 def _expand_env_vars(raw: Any) -> Any:
     """Recursively replaces ${VAR:-default} patterns with environment values."""
     if isinstance(raw, str):
-        pattern = re.compile(r"\$\{([^:-]+)(?::-([^}]*))?\}")
         def replace(match: re.Match) -> str:
             var_name = match.group(1)
             default_val = match.group(2) if match.group(2) is not None else ""
             return os.environ.get(var_name, default_val)
-        return pattern.sub(replace, raw)
+        return ENV_VAR_PATTERN.sub(replace, raw)
     elif isinstance(raw, dict):
         return {k: _expand_env_vars(v) for k, v in raw.items()}
     elif isinstance(raw, list):
@@ -78,6 +81,7 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     judge_data = resolved.get("judge", {})
 
     baseline_a = ModelRunConfig(
+        name=str(a_data.get("name", "Baseline A (Direct ReAct LLM Agent)")),
         model_id=str(a_data.get("model_id", "mock-frontier-sre")),
         provider=str(a_data.get("provider", "mock")),
         temperature=float(a_data.get("temperature", 0.0)),
@@ -89,6 +93,7 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     )
 
     baseline_b = ModelRunConfig(
+        name=str(b_data.get("name", "Baseline B (Signals-Augmented LLM Agent)")),
         model_id=str(b_data.get("model_id", "mock-frontier-sre")),
         provider=str(b_data.get("provider", "mock")),
         temperature=float(b_data.get("temperature", 0.0)),
@@ -100,6 +105,7 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     )
 
     iam_advisor = ModelRunConfig(
+        name="IAM Incident Advisor",
         model_id=str(iam_data.get("advisor_model_id", "gemma-2-9b-it")),
         provider=str(iam_data.get("provider", "local")),
         temperature=float(iam_data.get("temperature", 0.0)),
@@ -111,7 +117,8 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
     )
 
     judge = ModelRunConfig(
-        model_id=str(judge_data.get("model_id", "mock-judge")),
+        name="Benchmark Evaluation Judge",
+        model_id=str(judge_data.get("model_id", "mock-judge-evaluator")),
         provider=str(judge_data.get("provider", "mock")),
         temperature=float(judge_data.get("temperature", 0.0)),
         max_turns=1,

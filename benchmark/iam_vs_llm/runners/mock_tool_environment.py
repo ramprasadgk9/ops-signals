@@ -72,7 +72,7 @@ class MockToolEnvironment:
 
         service_filter = None
         if filter_str:
-            svc_match = re.search(r'service="([^"]+)"', filter_str)
+            svc_match = re.search(r"""service=["']([^"']+)["']""", filter_str)
             if svc_match:
                 service_filter = svc_match.group(1)
 
@@ -188,6 +188,7 @@ class MockToolEnvironment:
                             "query": {"type": "string", "description": "PromQL query, e.g. memory_usage{service=\"payment-service\"} or cpu_usage"},
                             "start_time": {"type": "string", "description": "ISO timestamp for window start (optional)"},
                             "end_time": {"type": "string", "description": "ISO timestamp for window end (optional)"},
+                            "step": {"type": "string", "description": "Query resolution step, e.g. 5m, 1m, 30s (optional)"},
                         },
                         "required": ["query"],
                     },

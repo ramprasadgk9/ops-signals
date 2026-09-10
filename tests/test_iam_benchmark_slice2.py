@@ -59,6 +59,12 @@ def test_mock_tool_environment_prometheus_queries(scenario_dir: Path) -> None:
     assert "trend" not in summary
     assert len(data["sample_points"]) > 0
 
+    # 1b. Single-quoted service filter
+    res_sq = env.query_prometheus("memory_usage{service='payment-service'}")
+    assert res_sq["status"] == "success"
+    assert res_sq["data"]["service"] == "payment-service"
+    assert res_sq["data"]["summary"]["max"] == summary["max"]
+
     # 2. Window-filtered query
     res_window = env.query_prometheus(
         'memory_usage{service="payment-service"}',
@@ -109,6 +115,10 @@ def test_mock_tool_definitions_schema(scenario_dir: Path) -> None:
         assert tool["type"] == "function"
         assert "description" in tool["function"]
         assert "parameters" in tool["function"]
+    
+    # Exposes step parameter
+    prom_tool = next(t for t in tools if t["function"]["name"] == "query_prometheus")
+    assert "step" in prom_tool["function"]["parameters"]["properties"]
 
 
 def test_pricing_config_calculation() -> None:
@@ -459,3 +469,118 @@ def test_comparative_benchmark_end_to_end(scenario_dir: Path) -> None:
     assert base_a_run.token_usage > 0
     assert base_a_run.cost_usd > 0.0
     assert base_a_run.tool_iterations >= 5
+
+
+def test_baseline_a_runner_openai_non_dict_arguments_recovery(
+    scenario_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that non-dict JSON tool arguments (e.g. primitive '123') are gracefully recovered."""
+    from unittest.mock import MagicMock
+    from benchmark.iam_vs_llm.configs.manifest_loader import BenchmarkManifest, ModelRunConfig, PricingConfig
+    from benchmark.iam_vs_llm.runners.baseline_a_runner import BaselineARunner
+
+    manifest = BenchmarkManifest(
+        random_seed=42,
+        state_isolation=True,
+        baseline_a=ModelRunConfig(
+            model_id="mock-frontier-sre",
+            provider="openai",
+            temperature=0.0,
+            max_turns=3,
+            pricing=PricingConfig(input_per_mtok=3.0, output_per_mtok=15.0),
+        ),
+        baseline_b=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(1.0, 1.0)),
+        iam_advisor=ModelRunConfig("m", "local", 0.0, 1, PricingConfig(0.2, 0.2)),
+        judge=ModelRunConfig("m", "mock", 0.0, 1, PricingConfig(2.5, 10.0)),
+    )
+    runner = BaselineARunner(manifest=manifest)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+    class FakeToolCall:
+        def __init__(self, tc_id: str, name: str, args: str):
+            self.id = tc_id
+            self.function = MagicMock(name=name, arguments=args)
+            self.function.name = name
+            self.function.arguments = args
+
+    class FakeMessage:
+        def __init__(self, tool_calls=None, content=None):
+            self.tool_calls = tool_calls
+            self.content = content
+
+        def to_dict(self):
+            return {"role": "assistant", "content": self.content, "tool_calls": []}
+
+    class FakeCompletion:
+        def __init__(self, msg):
+            self.choices = [MagicMock(message=msg)]
+            self.usage = MagicMock(prompt_tokens=50, completion_tokens=25)
+
+    # First turn: model emits primitive integer argument '123' to list_metrics
+    # Second turn: model recovers and emits diagnosis
+    t1 = FakeToolCall("tc_1", "list_metrics", "123")
+    m1 = FakeMessage(tool_calls=[t1])
+    m2 = FakeMessage(content="Recovery complete.\nROOT_CAUSE: UNKNOWN\nENTITY: payment-service")
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [FakeCompletion(m1), FakeCompletion(m2)]
+    mock_openai_module = MagicMock()
+    mock_openai_module.OpenAI.return_value = mock_client
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "openai", mock_openai_module)
+
+    result = runner.run_react_agent(scenario_dir)
+    assert result.normalized_rca.entity == "payment-service"
+    # Trajectory should record error gracefully without crash
+    assert result.tool_iterations == 1
+    traj = result.metadata["trajectory"]
+    assert "error" in traj[0]["tool_output"]
+    assert "Invalid JSON arguments" in traj[0]["tool_output"]["error"]
+
+
+def test_base_benchmark_runner_polymorphic_execute(scenario_dir: Path) -> None:
+    """Verifies that BaseBenchmarkRunner.execute() functions polymorphically on both runners."""
+    from benchmark.iam_vs_llm.runners.base_runner import BaseBenchmarkRunner
+    from benchmark.iam_vs_llm.runners.iam_slice_runner import IAMSliceRunner
+    from benchmark.iam_vs_llm.runners.baseline_a_runner import BaselineARunner
+
+    iam_runner: BaseBenchmarkRunner = IAMSliceRunner()
+    assert iam_runner.get_query_environment(scenario_dir) is None
+    iam_res = iam_runner.execute(scenario_dir)
+    assert iam_res.token_usage == 0
+    assert iam_res.scenario_id == scenario_dir.name
+
+    base_runner: BaseBenchmarkRunner = BaselineARunner()
+    assert base_runner.get_query_environment(scenario_dir) is not None
+    base_res = base_runner.execute(scenario_dir)
+    assert base_res.token_usage > 0
+    assert base_res.scenario_id == scenario_dir.name
+
+
+def test_mock_sre_agent_dynamic_trajectory_budget(tmp_path: Path, scenario_dir: Path) -> None:
+    """Verifies that MockSREAgent._run_dynamic_trajectory enforces max_turns and tracks tools."""
+    import shutil
+    from benchmark.iam_vs_llm.configs.manifest_loader import ModelRunConfig, PricingConfig
+    from benchmark.iam_vs_llm.runners.baseline_a_runner import MockSREAgent
+    from benchmark.iam_vs_llm.runners.mock_tool_environment import MockToolEnvironment
+
+    # Create scenario without mock_baseline_trajectory.yaml to force dynamic trajectory
+    dyn_dir = tmp_path / "dyn_scenario"
+    dyn_dir.mkdir()
+    shutil.copy(scenario_dir / "metrics.csv", dyn_dir / "metrics.csv")
+    shutil.copy(scenario_dir / "k8s_events.json", dyn_dir / "k8s_events.json")
+
+    env = MockToolEnvironment(dyn_dir)
+    config = ModelRunConfig(
+        model_id="mock-frontier-sre",
+        provider="mock",
+        temperature=0.0,
+        max_turns=2,
+        pricing=PricingConfig(3.0, 15.0),
+    )
+    agent = MockSREAgent(env=env, config=config, scenario_dir=dyn_dir)
+
+    final_text, in_tok, out_tok, traj, tool_calls = agent.run(max_turns=2)
+    assert "Turn limit reached" in final_text or "ROOT_CAUSE: UNKNOWN" in final_text
+    assert tool_calls <= 2
+    assert len(traj) >= 2
+
