@@ -589,3 +589,32 @@ def test_judge_evaluator_gemini_provider(monkeypatch: pytest.MonkeyPatch) -> Non
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     )
 
+
+def test_model_run_config_update_provider_judge_and_pricing() -> None:
+    """Verifies that update_provider correctly updates mock-judge-evaluator to gemini-2.0-flash."""
+    judge_config = ModelRunConfig(
+        name="Judge",
+        model_id="mock-judge-evaluator",
+        provider="mock",
+        temperature=0.0,
+        max_turns=1,
+        pricing=PricingConfig(2.50, 10.00),
+    )
+    # Update to Gemini without specifying model_id
+    judge_config.update_provider("gemini")
+    assert judge_config.provider == "gemini"
+    assert judge_config.model_id == "gemini-2.0-flash"
+    assert judge_config.pricing.input_per_mtok == 0.10
+    assert judge_config.pricing.output_per_mtok == 0.40
+
+    # Update to explicit model_id
+    judge_config.update_provider("gemini", model_id="gemini-1.5-pro")
+    assert judge_config.model_id == "gemini-1.5-pro"
+    assert judge_config.pricing.input_per_mtok == 3.00
+    assert judge_config.pricing.output_per_mtok == 15.00
+
+    # Pricing defaults for mini/haiku
+    mini_pricing = PricingConfig.default_for_model("gpt-4o-mini")
+    assert mini_pricing.input_per_mtok == 0.15
+    assert mini_pricing.output_per_mtok == 0.60
+

@@ -9,6 +9,9 @@ from typing import Any
 import yaml
 
 
+MINI_OR_HAIKU_PATTERN = re.compile(r"(?:^|[-_/])(mini|haiku)(?:[-_/]|$)")
+
+
 @dataclass(slots=True)
 class PricingConfig:
     input_per_mtok: float
@@ -17,10 +20,10 @@ class PricingConfig:
     @classmethod
     def default_for_model(cls, model_id: str) -> PricingConfig:
         """Returns standard default pricing based on model family."""
-        m = (model_id or "").lower()
-        if "flash" in m:
+        normalized_model = (model_id or "").lower()
+        if "flash" in normalized_model:
             return cls(input_per_mtok=0.10, output_per_mtok=0.40)
-        if "mini" in m or "haiku" in m:
+        if MINI_OR_HAIKU_PATTERN.search(normalized_model):
             return cls(input_per_mtok=0.15, output_per_mtok=0.60)
         return cls(input_per_mtok=3.00, output_per_mtok=15.00)
 
@@ -47,7 +50,7 @@ class ModelRunConfig:
             self.model_id = model_id
             self.pricing = PricingConfig.default_for_model(model_id)
         elif self.provider == "gemini":
-            if not self.model_id or self.model_id == "mock-frontier-sre":
+            if not self.model_id or self.model_id.startswith("mock-"):
                 self.model_id = "gemini-2.0-flash"
             self.pricing = PricingConfig.default_for_model(self.model_id)
 
@@ -145,16 +148,20 @@ def load_manifest(manifest_path: str | Path | None = None) -> BenchmarkManifest:
         ),
     )
 
+    judge_model = str(judge_data.get("model_id", "mock-judge-evaluator"))
+    judge_pricing_data = judge_data.get("pricing_per_mtok")
+    if judge_pricing_data and "input" in judge_pricing_data and "output" in judge_pricing_data:
+        judge_pricing = PricingConfig(float(judge_pricing_data["input"]), float(judge_pricing_data["output"]))
+    else:
+        judge_pricing = PricingConfig.default_for_model(judge_model)
+
     judge = ModelRunConfig(
         name=str(judge_data.get("name", "Benchmark Evaluation Judge")),
-        model_id=str(judge_data.get("model_id", "mock-judge-evaluator")),
+        model_id=judge_model,
         provider=str(judge_data.get("provider", "mock")),
         temperature=float(judge_data.get("temperature", 0.0)),
         max_turns=1,
-        pricing=PricingConfig(
-            input_per_mtok=float(judge_data.get("pricing_per_mtok", {}).get("input", 2.50)),
-            output_per_mtok=float(judge_data.get("pricing_per_mtok", {}).get("output", 10.00)),
-        ),
+        pricing=judge_pricing,
     )
 
     return BenchmarkManifest(

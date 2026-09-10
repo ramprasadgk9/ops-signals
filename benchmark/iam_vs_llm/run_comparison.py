@@ -196,6 +196,35 @@ def print_multi_scenario_summary_table(all_results: list[dict[str, Any]]) -> Non
     print("=" * 116 + "\n")
 
 
+def serialize_scenario_entry(res: dict[str, Any]) -> dict[str, Any]:
+    """Transforms a benchmark comparison result dictionary into a serializable report entry."""
+    scenario_entry: dict[str, Any] = {
+        "scenario": res["scenario"],
+        "ground_truth": res["ground_truth"],
+    }
+    for sys_key in ("iam", "baseline_a", "baseline_b"):
+        if sys_key in res:
+            run: BenchmarkRunResult = res[sys_key]["run"]
+            eval_res: F1EvaluationResult = res[sys_key]["evaluation"]
+            judge: JudgeEvaluationResult | None = res[sys_key].get("judge")
+            scenario_entry[sys_key] = {
+                "runner_id": run.runner_id,
+                "status": eval_res.status,
+                "entity": run.normalized_rca.entity,
+                "root_cause": run.normalized_rca.root_cause.value,
+                "summary_text": run.normalized_rca.raw_summary,
+                "window_iou": eval_res.window_iou,
+                "evidence_f1": eval_res.evidence_f1,
+                "composite_score": eval_res.composite_score,
+                "tokens": run.token_usage,
+                "cost_usd": run.cost_usd,
+                "execution_time_seconds": run.execution_time_seconds,
+                "metadata": run.metadata,
+                "judge": judge.to_dict() if judge else None,
+            }
+    return scenario_entry
+
+
 def generate_benchmark_reports(
     all_results: list[dict[str, Any]],
     output_dir: Path,
@@ -206,34 +235,7 @@ def generate_benchmark_reports(
     json_path = output_dir / "benchmark_report.json"
 
     # 1. JSON report serialization
-    json_data: list[dict[str, Any]] = []
-    for res in all_results:
-        scenario_entry: dict[str, Any] = {
-            "scenario": res["scenario"],
-            "ground_truth": res["ground_truth"],
-        }
-        for sys_key in ("iam", "baseline_a", "baseline_b"):
-            if sys_key in res:
-                run: BenchmarkRunResult = res[sys_key]["run"]
-                eval_res: F1EvaluationResult = res[sys_key]["evaluation"]
-                judge: JudgeEvaluationResult | None = res[sys_key].get("judge")
-                scenario_entry[sys_key] = {
-                    "runner_id": run.runner_id,
-                    "status": eval_res.status,
-                    "entity": run.normalized_rca.entity,
-                    "root_cause": run.normalized_rca.root_cause.value,
-                    "summary_text": run.normalized_rca.raw_summary,
-                    "window_iou": eval_res.window_iou,
-                    "evidence_f1": eval_res.evidence_f1,
-                    "composite_score": eval_res.composite_score,
-                    "tokens": run.token_usage,
-                    "cost_usd": run.cost_usd,
-                    "execution_time_seconds": run.execution_time_seconds,
-                    "metadata": run.metadata,
-                    "judge": judge.to_dict() if judge else None,
-                }
-        json_data.append(scenario_entry)
-
+    json_data: list[dict[str, Any]] = [serialize_scenario_entry(res) for res in all_results]
     json_path.write_text(json.dumps(json_data, indent=2), encoding="utf-8")
 
     # 2. Markdown report generation

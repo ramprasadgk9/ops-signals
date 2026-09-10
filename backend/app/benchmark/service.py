@@ -18,6 +18,7 @@ from benchmark.iam_vs_llm.configs.manifest_loader import (
 from benchmark.iam_vs_llm.run_comparison import (
     generate_benchmark_reports,
     run_benchmark_comparison,
+    serialize_scenario_entry,
 )
 from benchmark.iam_vs_llm.runners.react_base import validate_provider_api_key
 
@@ -87,8 +88,15 @@ class BenchmarkService:
                 "summary": self._calculate_summary([]),
             }
 
-        with self.report_file.open("r", encoding="utf-8") as f:
-            scenarios_data = json.load(f)
+        scenarios_data: list[dict[str, Any]] = []
+        try:
+            if self.report_file.stat().st_size > 0:
+                with self.report_file.open("r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, list):
+                        scenarios_data = loaded
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("Could not parse benchmark report %s: %s", self.report_file, e)
 
         summary = self._calculate_summary(scenarios_data)
         stat = self.report_file.stat()
@@ -138,6 +146,8 @@ class BenchmarkService:
 
         # Validate live provider API key requirements
         validate_provider_api_key(normalized_provider)
+        if judge_provider:
+            validate_provider_api_key(judge_provider)
 
         # Apply provider configuration via ModelRunConfig encapsulated methods
         manifest.baseline_a.update_provider(normalized_provider, model_id)
@@ -171,40 +181,19 @@ class BenchmarkService:
     def _merge_and_save_scenarios(self, new_results: list[dict[str, Any]]) -> None:
         """Merges new scenario benchmark run results into existing report entries."""
         existing_entries: dict[str, Any] = {}
-        if self.report_file.exists():
+        if self.report_file.exists() and self.report_file.stat().st_size > 0:
             try:
                 with self.report_file.open("r", encoding="utf-8") as f:
-                    for item in json.load(f):
-                        if isinstance(item, dict) and "scenario" in item:
-                            existing_entries[item["scenario"]] = item
-            except Exception as e:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict) and "scenario" in item:
+                                existing_entries[item["scenario"]] = item
+            except (json.JSONDecodeError, ValueError) as e:
                 logger.warning("Could not read existing benchmark report: %s", e)
 
         for res in new_results:
-            scenario_entry: dict[str, Any] = {
-                "scenario": res["scenario"],
-                "ground_truth": res["ground_truth"],
-            }
-            for sys_key in ("iam", "baseline_a", "baseline_b"):
-                if sys_key in res:
-                    run = res[sys_key]["run"]
-                    eval_res = res[sys_key]["evaluation"]
-                    judge = res[sys_key].get("judge")
-                    scenario_entry[sys_key] = {
-                        "runner_id": run.runner_id,
-                        "status": eval_res.status,
-                        "entity": run.normalized_rca.entity,
-                        "root_cause": run.normalized_rca.root_cause.value,
-                        "summary_text": run.normalized_rca.raw_summary,
-                        "window_iou": eval_res.window_iou,
-                        "evidence_f1": eval_res.evidence_f1,
-                        "composite_score": eval_res.composite_score,
-                        "tokens": run.token_usage,
-                        "cost_usd": run.cost_usd,
-                        "execution_time_seconds": run.execution_time_seconds,
-                        "metadata": run.metadata,
-                        "judge": judge.to_dict() if judge else None,
-                    }
+            scenario_entry = serialize_scenario_entry(res)
             existing_entries[res["scenario"]] = scenario_entry
 
         # Write merged list sorted by scenario name

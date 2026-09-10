@@ -170,29 +170,48 @@ class BaseMockReActAgent:
         raise NotImplementedError
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderSpec:
+    key_name: str
+    default_base_url: str | None = None
+    base_url_env: str | None = None
+
+
+LIVE_PROVIDER_SPECS: dict[str, ProviderSpec] = {
+    "gemini": ProviderSpec(
+        key_name="GEMINI_API_KEY",
+        default_base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        base_url_env="GEMINI_BASE_URL",
+    ),
+    "openrouter": ProviderSpec(
+        key_name="OPENROUTER_API_KEY",
+        default_base_url="https://openrouter.ai/api/v1",
+        base_url_env="OPENROUTER_BASE_URL",
+    ),
+    "openai": ProviderSpec(
+        key_name="OPENAI_API_KEY",
+        default_base_url=None,
+        base_url_env="OPENAI_BASE_URL",
+    ),
+}
+
+
 def validate_provider_api_key(provider: str) -> None:
     """Validates that the required environment variable API key is present for the chosen provider."""
-    p = (provider or "").lower().strip()
-    if p == "mock":
+    normalized_provider = (provider or "").lower().strip()
+    if normalized_provider == "mock":
         return
-    if p == "gemini":
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-        key_name = "GEMINI_API_KEY"
-    elif p == "openrouter":
-        key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-        key_name = "OPENROUTER_API_KEY"
-    elif p == "openai":
-        key = os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-        key_name = "OPENAI_API_KEY"
-    else:
+    spec = LIVE_PROVIDER_SPECS.get(normalized_provider)
+    if not spec:
         raise ValueError(
             f"Unsupported provider '{provider}'. "
             "Supported providers: 'mock', 'gemini', 'openai', 'openrouter'."
         )
 
+    key = os.environ.get(spec.key_name) or os.environ.get("BENCHMARK_LLM_API_KEY")
     if not key:
         raise ValueError(
-            f"API key missing. Set {key_name} or BENCHMARK_LLM_API_KEY in environment "
+            f"API key missing. Set {spec.key_name} or BENCHMARK_LLM_API_KEY in environment "
             "or configure provider: 'mock' in benchmark_manifest.yaml."
         )
 
@@ -206,21 +225,18 @@ def resolve_llm_client(config: ModelRunConfig) -> tuple[Any, str]:
       - 'openai': Uses OPENAI_API_KEY (or BENCHMARK_LLM_API_KEY) with OpenAI's endpoint.
     """
     validate_provider_api_key(config.provider)
-    provider = (config.provider or "openai").lower().strip()
-    if provider == "openrouter":
-        api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-        base_url = os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
-    elif provider == "gemini":
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-        base_url = os.environ.get("GEMINI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai/"
-    elif provider == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("BENCHMARK_LLM_API_KEY")
-        base_url = os.environ.get("OPENAI_BASE_URL")
-    else:
+    normalized_provider = (config.provider or "openai").lower().strip()
+    spec = LIVE_PROVIDER_SPECS.get(normalized_provider)
+    if not spec:
         raise ValueError(
             f"Unsupported live provider '{config.provider}'. "
             "Supported live providers: 'gemini', 'openai', 'openrouter'."
         )
+
+    api_key = os.environ.get(spec.key_name) or os.environ.get("BENCHMARK_LLM_API_KEY")
+    base_url = (
+        os.environ.get(spec.base_url_env) if spec.base_url_env else None
+    ) or spec.default_base_url
 
     try:
         from openai import OpenAI
