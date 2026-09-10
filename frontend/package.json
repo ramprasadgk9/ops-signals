@@ -11,7 +11,13 @@
     "build:plugin": "npm run build",
     "build:grafana": "vite build --config vite.plugin.config.ts && cp plugin.json dist/plugin.json && cp README.md dist/README.md && mkdir -p dist/img && cp -R img/. dist/img/",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:web": "vitest run src/test/scenarios/web-ui",
+    "test:plugin": "vitest run src/test/scenarios/plugin-ui",
+    "test:scenarios": "npm run test:web && npm run test:plugin",
+    "test:integration:web": "NODE_PATH=./node_modules playwright test --project=web-ui",
+    "test:integration:plugin": "NODE_PATH=./node_modules playwright test --project=plugin",
+    "test:integration": "NODE_PATH=./node_modules playwright test"
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",
@@ -28,12 +34,17 @@
     "recharts": "^2.13.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "js-yaml": "^4.1.0",
     "jsdom": "^25.0.1",
+    "pg": "^8.13.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "vitest": "^2.1.4"
