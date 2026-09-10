@@ -115,7 +115,12 @@ describe('OverviewPage integration resilience', () => {
     expect(screen.getByText('CPU usage sustained high')).toBeInTheDocument();
     expect(screen.getByText('Autonomous Analysis')).toBeInTheDocument();
     expect(screen.getByText('checkout-api / cpu_usage')).toBeInTheDocument();
-    expect(screen.getByText(/2 findings \\| 0 failed \\| Top finding cpu_usage/)).toBeInTheDocument();
+    expect(screen.getByText('Findings')).toBeInTheDocument();
+    expect(screen.getByText('Generated')).toBeInTheDocument();
+    expect(screen.getByText('Failed Jobs')).toBeInTheDocument();
+    expect(screen.getByText('Execution errors')).toBeInTheDocument();
+    expect(screen.getByText('Top Metric')).toBeInTheDocument();
+    expect(screen.getByText('cpu_usage')).toBeInTheDocument();
     expect(screen.queryByText('Memory Items')).not.toBeInTheDocument();
     expect(screen.queryByText('Finding Severity Trend')).not.toBeInTheDocument();
   });
