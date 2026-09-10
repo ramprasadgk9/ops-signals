@@ -1,0 +1,18 @@
+scenario_id: 02_cascading_failure
+entity: orders-service
+root_cause: POOL_EXHAUSTION
+secondary_symptoms:
+- GATEWAY_TIMEOUT_504
+- HPA_SCALE_UP
+- THREAD_POOL_SATURATION
+fault_window:
+  start: '2026-09-07T14:25:00+00:00'
+  end: '2026-09-07T15:25:00+00:00'
+key_evidence:
+  metrics:
+  - db_connections_active
+  - db_connection_wait_seconds
+  - http_504_rate
+  signals:
+  - trend
+  - saturation

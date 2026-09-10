@@ -1,0 +1,32 @@
+[
+  {
+    "service": "report-service",
+    "signal_type": "batch_activity",
+    "metric_name": "batch_jobs_active",
+    "severity": 0.25,
+    "confidence": 0.99,
+    "start_time": "2026-09-07T14:30:00+00:00",
+    "end_time": "2026-09-07T15:10:00+00:00",
+    "details": "Scheduled batch job activity confirmed active (exit code 0)."
+  },
+  {
+    "service": "report-service",
+    "signal_type": "baseline_shift",
+    "metric_name": "cpu_usage",
+    "severity": 0.6,
+    "confidence": 0.9,
+    "start_time": "2026-09-07T14:30:00+00:00",
+    "end_time": "2026-09-07T15:10:00+00:00",
+    "details": "Transient step increase in CPU usage corresponding to CronJob indexing window."
+  },
+  {
+    "service": "report-service",
+    "signal_type": "baseline_shift",
+    "metric_name": "memory_usage",
+    "severity": 0.5,
+    "confidence": 0.85,
+    "start_time": "2026-09-07T14:30:00+00:00",
+    "end_time": "2026-09-07T15:10:00+00:00",
+    "details": "Controlled memory allocation within container limits during batch execution."
+  }
+]

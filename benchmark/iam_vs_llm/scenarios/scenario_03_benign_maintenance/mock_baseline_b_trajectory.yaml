@@ -1,0 +1,33 @@
+turns:
+- turn: 1
+  thought: Querying pre-computed signals across all cluster services.
+  tool: list_signals
+  tool_input: {}
+- turn: 2
+  thought: Detected batch_activity signal with low severity and 0 error signals on
+    report-service. Querying batch jobs metric.
+  tool: query_prometheus
+  tool_input:
+    query: batch_jobs_active{service="report-service"}
+- turn: 3
+  thought: Correlating batch schedule with zero error rates.
+  tool: query_prometheus
+  tool_input:
+    query: http_error_rate{service="report-service"}
+final_text: 'Investigation Complete:
+
+
+  Signal extraction confirms scheduled batch_activity on report-service with 0 errors.
+  The transient resource surge from 2026-09-07T14:30:00+00:00 to 2026-09-07T15:10:00+00:00
+  is confirmed as benign scheduled maintenance.
+
+
+  ROOT_CAUSE: BENIGN_MAINTENANCE
+
+  ENTITY: report-service
+
+  WINDOW: 2026-09-07T14:30:00+00:00 to 2026-09-07T15:10:00+00:00
+
+  EVIDENCE: batch_jobs_active, cpu_usage, memory_usage
+
+  '

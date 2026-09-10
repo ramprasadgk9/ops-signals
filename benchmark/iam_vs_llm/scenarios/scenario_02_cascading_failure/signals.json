@@ -1,0 +1,42 @@
+[
+  {
+    "service": "orders-service",
+    "signal_type": "saturation",
+    "metric_name": "db_connections_active",
+    "severity": 0.95,
+    "confidence": 0.98,
+    "start_time": "2026-09-07T14:25:00+00:00",
+    "end_time": "2026-09-07T15:25:00+00:00",
+    "details": "Database connection pool saturated at maximum capacity of 100 connections."
+  },
+  {
+    "service": "orders-service",
+    "signal_type": "baseline_shift",
+    "metric_name": "db_connection_wait_seconds",
+    "severity": 0.92,
+    "confidence": 0.94,
+    "start_time": "2026-09-07T14:45:00+00:00",
+    "end_time": "2026-09-07T15:25:00+00:00",
+    "details": "Abrupt mean shift in db_connection_wait_seconds from 5ms to 14.8s."
+  },
+  {
+    "service": "auth-service",
+    "signal_type": "baseline_shift",
+    "metric_name": "thread_pool_active_percent",
+    "severity": 0.75,
+    "confidence": 0.88,
+    "start_time": "2026-09-07T14:48:00+00:00",
+    "end_time": "2026-09-07T15:25:00+00:00",
+    "details": "Downstream thread pool saturation caused by blocking orders-service calls."
+  },
+  {
+    "service": "api-gateway",
+    "signal_type": "spike",
+    "metric_name": "http_504_rate",
+    "severity": 0.8,
+    "confidence": 0.9,
+    "start_time": "2026-09-07T14:50:00+00:00",
+    "end_time": "2026-09-07T15:25:00+00:00",
+    "details": "Downstream HTTP 504 Gateway Timeout spike resulting from upstream connection timeout."
+  }
+]

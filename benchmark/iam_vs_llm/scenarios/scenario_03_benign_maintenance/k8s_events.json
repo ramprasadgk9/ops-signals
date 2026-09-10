@@ -1,0 +1,26 @@
+[
+  {
+    "timestamp": "2026-09-07T14:30:00+00:00",
+    "service": "report-service",
+    "pod": "report-nightly-sync-job-4k2x",
+    "type": "Normal",
+    "reason": "JobStarted",
+    "message": "CronJob report-nightly-sync triggered scheduled batch pod report-nightly-sync-job-4k2x.",
+    "details": {
+      "schedule": "0 2 * * *",
+      "job_name": "report-nightly-sync"
+    }
+  },
+  {
+    "timestamp": "2026-09-07T15:10:00+00:00",
+    "service": "report-service",
+    "pod": "report-nightly-sync-job-4k2x",
+    "type": "Normal",
+    "reason": "JobCompleted",
+    "message": "CronJob report-nightly-sync completed batch indexing successfully with exit code 0.",
+    "details": {
+      "exit_code": 0,
+      "duration_minutes": 40
+    }
+  }
+]

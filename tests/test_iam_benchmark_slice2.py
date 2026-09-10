@@ -598,7 +598,7 @@ def test_mock_tool_environment_get_dispatcher(scenario_dir: Path) -> None:
     """Verifies that MockToolEnvironment provides a canonical callable dispatcher."""
     env = MockToolEnvironment(scenario_dir)
     dispatcher = env.get_dispatcher()
-    assert set(dispatcher.keys()) == {"list_services", "list_metrics", "query_prometheus", "query_k8s_events"}
+    assert {"list_services", "list_metrics", "query_prometheus", "query_k8s_events"}.issubset(set(dispatcher.keys()))
     services = dispatcher["list_services"]({})
     assert "payment-service" in services
 

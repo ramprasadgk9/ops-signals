@@ -1,0 +1,22 @@
+[
+  {
+    "service": "payment-service",
+    "signal_type": "trend",
+    "metric_name": "memory_usage",
+    "severity": 0.88,
+    "confidence": 0.95,
+    "start_time": "2026-09-07T10:30:00+00:00",
+    "end_time": "2026-09-07T11:45:00+00:00",
+    "details": "Persistent upward linear trend in memory_usage slope=7.24MB/min"
+  },
+  {
+    "service": "payment-service",
+    "signal_type": "baseline_shift",
+    "metric_name": "cpu_throttled_seconds",
+    "severity": 0.85,
+    "confidence": 0.92,
+    "start_time": "2026-09-07T11:15:00+00:00",
+    "end_time": "2026-09-07T11:45:00+00:00",
+    "details": "Abrupt mean shift in cpu_throttled_seconds from 0.05s to 3.20s"
+  }
+]

@@ -1,0 +1,524 @@
+[
+  {
+    "scenario": "scenario_01_resource_degradation",
+    "ground_truth": {
+      "scenario_id": "01_resource_degradation",
+      "entity": "payment-service",
+      "root_cause": "MEMORY_LEAK",
+      "secondary_symptoms": [
+        "CPU_THROTTLING",
+        "CONTAINER_OOM_KILLED"
+      ],
+      "fault_window": {
+        "start": "2026-09-07T10:30:00+00:00",
+        "end": "2026-09-07T11:45:00+00:00"
+      },
+      "key_evidence": {
+        "metrics": [
+          "memory_usage",
+          "cpu_throttled_seconds"
+        ],
+        "signals": [
+          "trend",
+          "baseline_shift"
+        ]
+      }
+    },
+    "iam": {
+      "runner_id": "iam_slice_runner",
+      "status": "SUCCESS",
+      "entity": "payment-service",
+      "root_cause": "MEMORY_LEAK",
+      "window_iou": 0.6522,
+      "evidence_f1": 0.8889,
+      "composite_score": 0.893,
+      "tokens": 0,
+      "cost_usd": 0.0,
+      "execution_time_seconds": 0.086,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 5,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/4). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/4). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/4). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    },
+    "baseline_a": {
+      "runner_id": "baseline_a_mock-frontier-sre",
+      "status": "SUCCESS",
+      "entity": "payment-service",
+      "root_cause": "MEMORY_LEAK",
+      "window_iou": 1.0,
+      "evidence_f1": 0.8571,
+      "composite_score": 0.9563,
+      "tokens": 4370,
+      "cost_usd": 0.01803,
+      "execution_time_seconds": 0.0028,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 4,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/4). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/4). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/4). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    },
+    "baseline_b": {
+      "runner_id": "baseline_b_mock-frontier-sre",
+      "status": "SUCCESS",
+      "entity": "payment-service",
+      "root_cause": "MEMORY_LEAK",
+      "window_iou": 1.0,
+      "evidence_f1": 0.8571,
+      "composite_score": 0.9452,
+      "tokens": 2155,
+      "cost_usd": 0.009885,
+      "execution_time_seconds": 0.0021,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 4,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/4). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/4). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/4). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    }
+  },
+  {
+    "scenario": "scenario_02_cascading_failure",
+    "ground_truth": {
+      "scenario_id": "02_cascading_failure",
+      "entity": "orders-service",
+      "root_cause": "POOL_EXHAUSTION",
+      "secondary_symptoms": [
+        "GATEWAY_TIMEOUT_504",
+        "HPA_SCALE_UP",
+        "THREAD_POOL_SATURATION"
+      ],
+      "fault_window": {
+        "start": "2026-09-07T14:25:00+00:00",
+        "end": "2026-09-07T15:25:00+00:00"
+      },
+      "key_evidence": {
+        "metrics": [
+          "db_connections_active",
+          "db_connection_wait_seconds",
+          "http_504_rate"
+        ],
+        "signals": [
+          "trend",
+          "saturation"
+        ]
+      }
+    },
+    "iam": {
+      "runner_id": "iam_slice_runner",
+      "status": "SUCCESS",
+      "entity": "orders-service",
+      "root_cause": "POOL_EXHAUSTION",
+      "window_iou": 0.5217,
+      "evidence_f1": 0.8,
+      "composite_score": 0.8472,
+      "tokens": 0,
+      "cost_usd": 0.0,
+      "execution_time_seconds": 0.0731,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 5,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    },
+    "baseline_a": {
+      "runner_id": "baseline_a_mock-frontier-sre",
+      "status": "PARTIAL",
+      "entity": "orders-service",
+      "root_cause": "POOL_EXHAUSTION",
+      "window_iou": 1.0,
+      "evidence_f1": 0.75,
+      "composite_score": 0.9208,
+      "tokens": 4370,
+      "cost_usd": 0.01803,
+      "execution_time_seconds": 0.0025,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 4,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    },
+    "baseline_b": {
+      "runner_id": "baseline_b_mock-frontier-sre",
+      "status": "PARTIAL",
+      "entity": "orders-service",
+      "root_cause": "POOL_EXHAUSTION",
+      "window_iou": 1.0,
+      "evidence_f1": 0.75,
+      "composite_score": 0.9292,
+      "tokens": 2155,
+      "cost_usd": 0.009885,
+      "execution_time_seconds": 0.0021,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 4,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    }
+  },
+  {
+    "scenario": "scenario_03_benign_maintenance",
+    "ground_truth": {
+      "scenario_id": "03_benign_maintenance",
+      "entity": "report-service",
+      "root_cause": "BENIGN_MAINTENANCE",
+      "secondary_symptoms": [
+        "CPU_SPIKE",
+        "MEMORY_STEP_INCREASE"
+      ],
+      "fault_window": {
+        "start": "2026-09-07T14:30:00+00:00",
+        "end": "2026-09-07T15:10:00+00:00"
+      },
+      "key_evidence": {
+        "metrics": [
+          "batch_jobs_active",
+          "cpu_usage",
+          "memory_usage"
+        ],
+        "signals": [
+          "trend",
+          "batch_activity"
+        ]
+      }
+    },
+    "iam": {
+      "runner_id": "iam_slice_runner",
+      "status": "PARTIAL",
+      "entity": "report-service",
+      "root_cause": "BENIGN_MAINTENANCE",
+      "window_iou": 0.3478,
+      "evidence_f1": 0.8889,
+      "composite_score": 0.8403,
+      "tokens": 0,
+      "cost_usd": 0.0,
+      "execution_time_seconds": 0.0715,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 5,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 5,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 5/5 (evidence overlap=4/5). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    },
+    "baseline_a": {
+      "runner_id": "baseline_a_mock-frontier-sre",
+      "status": "PARTIAL",
+      "entity": "report-service",
+      "root_cause": "BENIGN_MAINTENANCE",
+      "window_iou": 1.0,
+      "evidence_f1": 0.75,
+      "composite_score": 0.9292,
+      "tokens": 4370,
+      "cost_usd": 0.01803,
+      "execution_time_seconds": 0.003,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 4,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    },
+    "baseline_b": {
+      "runner_id": "baseline_b_mock-frontier-sre",
+      "status": "PARTIAL",
+      "entity": "report-service",
+      "root_cause": "BENIGN_MAINTENANCE",
+      "window_iou": 1.0,
+      "evidence_f1": 0.75,
+      "composite_score": 0.9292,
+      "tokens": 2155,
+      "cost_usd": 0.009885,
+      "execution_time_seconds": 0.0017,
+      "judge": {
+        "consensus": {
+          "judge_id": "consensus",
+          "attribution": 5,
+          "grounding": 4,
+          "actionability": 5,
+          "justification": "Consensus across 3 raters."
+        },
+        "scores": [
+          {
+            "judge_id": "judge-rater-1",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 1: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-2",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 2: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          },
+          {
+            "judge_id": "judge-rater-3",
+            "attribution": 5,
+            "grounding": 4,
+            "actionability": 5,
+            "justification": "Rater 3: Attribution 5/5 (rc_match=True, entity_match=True). Grounding 4/5 (evidence overlap=3/5). Actionability 5/5."
+          }
+        ],
+        "fleiss_kappa": 1.0,
+        "krippendorff_alpha": 1.0,
+        "calibrated": true,
+        "token_usage": 0,
+        "cost_usd": 0.0
+      }
+    }
+  }
+]

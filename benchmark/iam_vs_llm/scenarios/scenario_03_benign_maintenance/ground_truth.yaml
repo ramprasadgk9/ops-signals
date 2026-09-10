@@ -1,0 +1,17 @@
+scenario_id: 03_benign_maintenance
+entity: report-service
+root_cause: BENIGN_MAINTENANCE
+secondary_symptoms:
+- CPU_SPIKE
+- MEMORY_STEP_INCREASE
+fault_window:
+  start: '2026-09-07T14:30:00+00:00'
+  end: '2026-09-07T15:10:00+00:00'
+key_evidence:
+  metrics:
+  - batch_jobs_active
+  - cpu_usage
+  - memory_usage
+  signals:
+  - trend
+  - batch_activity

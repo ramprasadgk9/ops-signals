@@ -1,0 +1,28 @@
+[
+  {
+    "timestamp": "2026-09-07T14:45:00+00:00",
+    "service": "orders-service",
+    "pod": "orders-service-9c7f12-v4b2",
+    "type": "Warning",
+    "reason": "PoolExhausted",
+    "message": "HikariPool-1 - Connection is not available, request timed out after 30000ms.",
+    "details": {
+      "active_connections": 100,
+      "max_connections": 100,
+      "waiting_threads": 42
+    }
+  },
+  {
+    "timestamp": "2026-09-07T14:52:00+00:00",
+    "service": "api-gateway",
+    "pod": "api-gateway-3x9a10-m5k1",
+    "type": "Normal",
+    "reason": "SuccessfulRescale",
+    "message": "HorizontalPodAutoscaler scaled up replica set api-gateway from 3 to 8 pods due to request queue length.",
+    "details": {
+      "previous_replicas": 3,
+      "current_replicas": 8,
+      "target_metric": "http_requests_in_flight"
+    }
+  }
+]

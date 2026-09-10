@@ -38,6 +38,8 @@ RAW_METRIC_TO_ROOT_CAUSE: dict[str, RootCauseClass] = {
     "cpu_throttled_seconds": RootCauseClass.CPU_STARVATION,
     "cpu_usage": RootCauseClass.CPU_STARVATION,
     "db_connections_active": RootCauseClass.POOL_EXHAUSTION,
+    "db_connection_wait_seconds": RootCauseClass.POOL_EXHAUSTION,
+    "batch_jobs_active": RootCauseClass.BENIGN_MAINTENANCE,
 }
 
 

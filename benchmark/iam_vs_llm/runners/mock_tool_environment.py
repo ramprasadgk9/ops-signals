@@ -28,9 +28,16 @@ class MockToolEnvironment:
 
         self.df = pd.read_csv(metrics_csv)
         self.k8s_events = json.loads(k8s_json.read_text(encoding="utf-8"))
+        signals_json = self.scenario_dir / "signals.json"
+        self.signals: list[dict[str, Any]] = (
+            json.loads(signals_json.read_text(encoding="utf-8"))
+            if signals_json.exists()
+            else []
+        )
         self._dispatcher: dict[str, Any] = {
             "list_services": lambda _: self.list_services(),
             "list_metrics": lambda args: self.list_metrics(args.get("service", "")),
+            "list_signals": lambda args: self.list_signals(service=args.get("service")),
             "query_prometheus": lambda args: self.query_prometheus(
                 query=args.get("query", ""),
                 start_time=args.get("start_time"),
@@ -52,6 +59,12 @@ class MockToolEnvironment:
         """Lists all available Prometheus metric names recorded for a specific service."""
         service_df = self.df[self.df["service"] == service]
         return sorted(list(service_df["metric_name"].dropna().unique()))
+
+    def list_signals(self, service: str | None = None) -> list[dict[str, Any]]:
+        """Lists structured operational signals extracted for services in the scenario."""
+        if not service:
+            return self.signals
+        return [s for s in self.signals if s.get("service") == service]
 
     @staticmethod
     def _parse_step_seconds(step: str) -> int:
@@ -167,9 +180,9 @@ class MockToolEnvironment:
             events = [e for e in events if e.get("type", "").lower() == event_type.lower() or e.get("reason", "").lower() == event_type.lower()]
         return events
 
-    def get_tool_definitions(self) -> list[dict[str, Any]]:
+    def get_tool_definitions(self, include_signals: bool = False) -> list[dict[str, Any]]:
         """Returns standard JSON Schema tool declarations for LLM function calling."""
-        return [
+        tools = [
             {
                 "type": "function",
                 "function": {
@@ -225,6 +238,24 @@ class MockToolEnvironment:
                 },
             },
         ]
+        if include_signals:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "list_signals",
+                        "description": "Lists structured operational signals extracted by monitoring rules or anomaly detectors for services.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "service": {"type": "string", "description": "Filter signals by service name (optional)"}
+                            },
+                            "required": [],
+                        },
+                    },
+                }
+            )
+        return tools
 
     def get_dispatcher(self) -> dict[str, Any]:
         """Returns the canonical callable dispatcher mapping tool names to environment methods."""

@@ -1,0 +1,35 @@
+turns:
+- turn: 1
+  thought: Querying pre-computed statistical signals across all active services.
+  tool: list_signals
+  tool_input: {}
+- turn: 2
+  thought: Top anomalous signal is saturation on orders-service db_connections_active.
+    Inspecting wait latency metric.
+  tool: query_prometheus
+  tool_input:
+    query: db_connection_wait_seconds{service="orders-service"}
+- turn: 3
+  thought: Correlating pool saturation on orders-service with downstream 504 spike
+    on api-gateway.
+  tool: query_prometheus
+  tool_input:
+    query: http_504_rate{service="api-gateway"}
+final_text: 'Investigation Complete:
+
+
+  Pre-computed signal analysis isolates the primary root cause to orders-service db_connections_active
+  saturation (severity 0.95), which provoked database wait times of ~15s starting
+  at 2026-09-07T14:25:00+00:00. Downstream auth-service thread exhaustion and api-gateway
+  504 spikes are direct causal consequences of the upstream connection bottleneck.
+
+
+  ROOT_CAUSE: POOL_EXHAUSTION
+
+  ENTITY: orders-service
+
+  WINDOW: 2026-09-07T14:25:00+00:00 to 2026-09-07T15:25:00+00:00
+
+  EVIDENCE: db_connections_active, db_connection_wait_seconds, http_504_rate
+
+  '
