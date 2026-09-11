@@ -61,8 +61,8 @@ class AIConfig(BaseModel):
 
 
 class IndexingConfig(BaseModel):
-    automatic_on_case_creation: bool = False
-    automatic_on_case_update: bool = False
+    automatic_on_case_creation: bool = True
+    automatic_on_case_update: bool = True
     include_open_cases: bool = True
     include_resolved_cases: bool = True
 

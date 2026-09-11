@@ -49,6 +49,7 @@ export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
 export type AutonomousQuestionAnswer = {
   headline: string;
   answer: string;
+  ai_synthesis_used?: boolean;
   priority: string;
   confidence: number;
   key_points: string[];

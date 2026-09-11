@@ -726,6 +726,7 @@ export type AssistantChatResponse = {
   routes?: string[];
   knowledge_used?: string[];
   answer: string;
+  ai_synthesis_used?: boolean;
   limitations: string[];
   suggested_questions: string[];
   sources: AssistantSource[];

@@ -102,8 +102,8 @@ memory:
     normalize_embeddings: true
 
   indexing:
-    automatic_on_case_creation: false
-    automatic_on_case_update: false
+    automatic_on_case_creation: true
+    automatic_on_case_update: true
     include_open_cases: true
     include_resolved_cases: true
 

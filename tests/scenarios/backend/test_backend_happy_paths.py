@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from fastapi.testclient import TestClient
 
+from backend.app.api import memory as memory_module
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import FindingEntity, NormalizedPoint
@@ -51,6 +52,9 @@ def test_analyzer_scenario_keeps_stable_cpu_data_from_becoming_false_positive_fi
 
 def test_cases_api_scenario_creates_case_from_finding_and_persists_case_snapshot() -> None:
     app = create_app("sqlite+pysqlite:///:memory:")
+    # This scenario is about case creation, not memory indexing - keep it independent of
+    # whether a real Qdrant happens to be reachable in this environment.
+    app.dependency_overrides[memory_module.get_memory_indexer] = lambda: None
     with TestClient(app) as client:
         session_local = get_session_local()
         with session_local() as db:
