@@ -57,11 +57,17 @@ class OperationalIntelligenceAssistant:
             routes.append("MEMORY_SEARCH")
         if any(keyword in text for keyword in ["analyzer", "stumpy", "ruptures", "prophet", "baseline", "zscore"]):
             routes.append("ANALYZER_SEARCH")
-        if any(keyword in text for keyword in ["architecture", "docs", "documentation", "how does", "configuration", "config", "api", "qdrant", "vector db"]):
+        if any(keyword in text for keyword in ["architecture", "docs", "documentation", "how does", "what does", "what is", "benchmark", "configuration", "config", "api", "qdrant", "vector db"]):
             routes.append("DOCUMENT_SEARCH")
 
         if not routes:
-            routes = ["CASE_SEARCH", "FINDING_SEARCH", "MEMORY_SEARCH"]
+            # A question that matches none of the keyword lists above (informal phrasing, typos,
+            # a first-time user's "what does this app do" question) is exactly the case where
+            # leaning on semantic search over documentation - which doesn't care about exact
+            # wording the way these keyword lists do - is most likely to actually help, not less.
+            # Keyword-patching every new phrasing that reaches this fallback doesn't scale;
+            # including DOCUMENT_SEARCH here does, because it's driven by embeddings, not strings.
+            routes = ["DOCUMENT_SEARCH", "CASE_SEARCH", "FINDING_SEARCH", "MEMORY_SEARCH"]
 
         deduped: list[str] = []
         for route in routes:
@@ -511,7 +517,14 @@ class OperationalIntelligenceAssistant:
         elif "architecture" in lowered or "how does" in lowered:
             query_text = "Operational Intelligence architecture PostgreSQL Qdrant analyzer registry signals findings cases"
         vector = self.services.embedder.encode(query_text)
-        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=max(0.4, payload.minimum_score))
+        # 0.3, not 0.55 (the request schema's default minimum_score) or the 0.4 this used to floor
+        # at - live-verified against this corpus: a short conceptual doc that's a genuinely good
+        # match for a casual, informal question (e.g. "Application Overview" against "whats use of
+        # this application") scores ~0.38 with this embedding model, not 0.5+. A 0.4+ floor was
+        # silently discarding the single most on-topic document in the index. Consistent with the
+        # same empirically-grounded floors already used for finding/behavior/case semantic search
+        # elsewhere in this file.
+        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=max(0.3, payload.minimum_score))
         sources = [
             AssistantSource(
                 source_type="app_documentation",

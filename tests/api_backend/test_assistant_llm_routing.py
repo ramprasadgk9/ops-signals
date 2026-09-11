@@ -48,14 +48,18 @@ _DOC_RESULT = {
 
 
 def test_llm_routing_adds_document_search_for_an_unrecognized_conceptual_question() -> None:
-    # "isolation forest" matches none of the keyword lists, so keyword routing falls through to its
-    # generic CASE/FINDING/MEMORY default (never DOCUMENT_SEARCH). An LLM classifier that understands
-    # it's a documentation question should ADD DOCUMENT_SEARCH on top of that keyword baseline - not
-    # replace it. Routing is additive: the LLM can only broaden coverage, never narrow it, so a model
-    # that under-selects categories for an obvious question can't silently lose evidence.
+    # "Explain baseline shift" matches ANALYZER_SEARCH only - a real keyword category, not the
+    # empty-match fallback (which now includes DOCUMENT_SEARCH itself, so it wouldn't exercise
+    # this path). An LLM classifier that understands it's ALSO a documentation question should ADD
+    # DOCUMENT_SEARCH on top of that keyword baseline - not replace it. Routing is additive: the
+    # LLM can only broaden coverage, never narrow it, so a model that under-selects categories for
+    # an obvious question can't silently lose evidence.
     from types import SimpleNamespace
 
-    client = _ScriptedLLMClient(["DOCUMENT_SEARCH", "Isolation forest is an outlier-detection analyzer."])
+    message = "Explain baseline shift"
+    assert OperationalIntelligenceAssistant.route_intents(message) == ["ANALYZER_SEARCH"]
+
+    client = _ScriptedLLMClient(["DOCUMENT_SEARCH", "Baseline shift is a sustained change in a metric's normal operating level."])
     ai_services = OptionalAIServices(client=client, structured=StructuredLLMService(client))
     assistant = OperationalIntelligenceAssistant(
         AssistantServices(
@@ -70,13 +74,13 @@ def test_llm_routing_adds_document_search_for_an_unrecognized_conceptual_questio
     app.dependency_overrides[assistant_module.get_assistant] = lambda: assistant
 
     with TestClient(app) as test_client:
-        response = test_client.post("/api/assistant/chat", json={"message": "What is isolation forest?", "top_k": 3})
+        response = test_client.post("/api/assistant/chat", json={"message": message, "top_k": 3})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["routes"] == OperationalIntelligenceAssistant.route_intents("What is isolation forest?") + ["DOCUMENT_SEARCH"]
+    assert body["routes"] == OperationalIntelligenceAssistant.route_intents(message) + ["DOCUMENT_SEARCH"]
     assert body["ai_synthesis_used"] is True
-    assert body["answer"] == "Isolation forest is an outlier-detection analyzer."
+    assert body["answer"] == "Baseline shift is a sustained change in a metric's normal operating level."
     assert any(source["source_type"] == "app_documentation" for source in body["sources"])
 
 

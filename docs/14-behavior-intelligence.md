@@ -45,7 +45,8 @@ Signals
 
 ## Current Implementation
 
-- Behavior definitions live in `config/behavior_definitions.yml`
+- Behavior definitions live in `config/behavior_definitions.d/*.yml` - a directory of files (not
+  one shared file), so a new definition pack can be added without editing an existing one
 - The backend exposes behavior definition and evaluation APIs
 - The batch pipeline can evaluate matching behaviors after signals are generated
 - Behavior findings are stored in PostgreSQL
