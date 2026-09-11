@@ -5,6 +5,8 @@ router benchmark suite validates analyzer routing against deterministic
 time-series behaviors and uses the same shared production routing service used
 by CSV upload validation.
 
+Want to add a new scenario? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a step-by-step walkthrough.
+
 ## Source datasets
 
 - 24-hour source: `benchmark/one-host-one-cpu-24h-5m.txt`
@@ -70,6 +72,58 @@ Current scenarios:
 | `cpu_mixed_behavior_v1` | `kats` |
 | `cpu_distribution_drift_v1` | `GAP`: drift profile extraction is not yet implemented |
 | `cpu_online_anomaly_stream_v1` | `GAP`: router has no streaming execution-mode input yet |
+| `cpu_healthy_stable_v1` | Negative control: nothing recommended, no actionable finding |
+
+Three scenarios (`cpu_pure_baseline_shift_v1`, `cpu_pure_baseline_shift_shifted_dates_v1`,
+`cpu_baseline_shift_v1`) also declare an `expected_event` in their `ground_truth.yaml` - when
+present, the benchmark actually runs the required analyzer and checks the produced signal's
+direction, magnitude, and timing against it, not just whether the router recommended it.
+`cpu_healthy_stable_v1` instead declares `expects_no_actionable_findings: true`, which runs every
+real analyzer and checks that finding aggregation doesn't turn any resulting noise into a
+critical/significant alert.
+
+## Behavior Intelligence Scenario Suite
+
+Every scenario above analyzes one metric in isolation and validates the analyzer router. Behavior
+Intelligence works differently - it correlates signals across *multiple* metrics into a single
+cross-metric finding (see `config/behavior_definitions.d/`) - so it needs its own kind of
+scenario. These live in `benchmark/scenarios/behavior_*` and declare `expected_behavior_findings`
+instead of `expected_router` in their `ground_truth.yaml`.
+
+Run every behavior scenario:
+
+```bash
+.venv/bin/python -m benchmark.run_behavior_scenarios
+```
+
+Run one scenario:
+
+```bash
+.venv/bin/python -m benchmark.behavior_benchmark \
+  --scenario benchmark/scenarios/behavior_server_slow_v1
+```
+
+| Scenario | Behavior definition | Metrics |
+| --- | --- | --- |
+| `behavior_server_slow_v1` | `server_slow` | `cpu_usage`, `memory_usage` |
+| `behavior_latency_error_cascade_v1` | `latency_error_cascade` | `request_latency_p95`, `error_rate` |
+
+## Performance Benchmark
+
+Measures how long normalization and each real analyzer take as data volume grows, using the
+24h/7d/30d datasets under `benchmark/normalized/` (the same ones the router benchmark's README
+section above reserves for this). Report-only by design - wall-clock time isn't comparable across
+machines, so there's no pass/fail threshold beyond a deliberately generous tripwire meant only to
+catch a catastrophic algorithmic regression, not to enforce an SLA.
+
+```bash
+.venv/bin/python -m benchmark.performance_benchmark
+```
+
+Writes `benchmark/reports/performance_report.json` and `.md`. Note: some analyzers (stumpy in
+particular, via Numba JIT compilation) pay a one-time ~6s cost on their first call in a process -
+`run_all()` runs an unrecorded warm-up pass on the smallest dataset first so the recorded numbers
+reflect actual data-scaling behavior instead of cold-start noise.
 
 Regenerate scenario datasets:
 

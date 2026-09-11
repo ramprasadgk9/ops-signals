@@ -1,0 +1,27 @@
+scenario:
+  id: behavior_latency_error_cascade_v1
+  name: Correlated Latency + Error Rate Spike (Cascading Failure)
+  description: >
+    request_latency_p95 and error_rate both spike together in the same window, on the same
+    host - shaped to match the "latency_error_cascade" Behavior Intelligence definition in
+    config/behavior_definitions.d/latency_and_errors.yml.
+
+dataset:
+  scenario_dataset: benchmark/scenarios/behavior_latency_error_cascade_v1/dataset.csv
+  metrics:
+    - request_latency_p95
+    - error_rate
+  interval: 5m
+
+expected_behavior_findings:
+  required_matched:
+    - latency_error_cascade
+  forbidden_matched:
+    - server_slow
+    - cpu_throttling
+
+notes:
+  - latency_error_cascade requires latency.anomaly.present == true AND errors.anomaly.present ==
+    true within the same correlation window - both metrics spike at the same indices here.
+  - server_slow and cpu_throttling are forbidden because this dataset has no cpu_usage or
+    memory_usage metric at all.

@@ -22,6 +22,7 @@ expected_event:
   minimum_magnitude: 15
 
 expected_router:
+  strict_precision: true
   required_recommended:
     - ruptures
 

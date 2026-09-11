@@ -17,6 +17,7 @@ expected_behavior:
     - repeating_pattern
 
 expected_router:
+  strict_precision: true
   required_recommended:
     - stumpy
   allowed_optional:

@@ -32,6 +32,7 @@ expected_analyzers:
     - prophet
 
 expected_router:
+  strict_precision: true
   required_recommended:
     - ruptures
 
@@ -39,6 +40,8 @@ expected_router:
     - trend_regression
     - adtk
     - river
+    - kats
+    - alibi_detect
 
   forbidden_recommended:
     - stumpy
@@ -74,3 +77,5 @@ notes:
   - This scenario intentionally suppresses seasonality and motif structure.
   - The primary purpose is to validate Ruptures router recommendation.
   - The original TSBS timestamps and metadata are preserved.
+  - Kats is allowed as optional because it supports baseline-shift analysis but is broader than Ruptures.
+  - Alibi Detect is allowed as optional because it may provide secondary drift or distribution-change analysis.

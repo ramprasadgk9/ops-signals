@@ -18,6 +18,7 @@ expected_behavior:
     - trend
 
 expected_router:
+  strict_precision: true
   required_recommended:
     - prophet
   allowed_optional:

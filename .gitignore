@@ -61,3 +61,7 @@ qdrant_data/
 tmp/
 temp/
 .cache/
+
+# Benchmark reports are generated output (JSON/Markdown written by benchmark/router_benchmark.py
+# on every run) - not source, and re-running the suite locally shouldn't dirty the working tree.
+benchmark/reports/

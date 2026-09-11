@@ -1,0 +1,57 @@
+scenario:
+  id: cpu_healthy_stable_v1
+  name: Healthy Stable CPU (Negative Control)
+  description: >
+    Synthetic stable CPU series with no injected shift, trend, seasonality, or spike - flat
+    baseline plus small random noise only. A negative control: unlike every other scenario in
+    this suite, which validates that a real behavior gets detected, this one validates the
+    opposite - that the system stays quiet when nothing genuinely interesting is happening.
+    False positives here are exactly what causes alert fatigue in production.
+
+dataset:
+  source: benchmark/normalized/healthy_cpu_7d.csv
+  scenario_dataset: benchmark/scenarios/cpu_healthy_stable_v1/dataset.csv
+  metric: cpu.usage_user
+  interval: 5m
+
+expected_router:
+  required_recommended: []
+  # A negative control is exactly the case precision matters most for: the router recommending
+  # ANYTHING here, in any bucket, would itself be the false positive.
+  strict_precision: true
+  forbidden_recommended:
+    - ruptures
+    - stumpy
+    - prophet
+    - trend_regression
+    - pyod
+    - pyod_outlier
+    - kats
+    - darts
+    - adtk
+    - alibi_detect
+    - river
+  allowed_optional: []
+  forbidden_detected_profiles:
+    - baseline_shift
+    - regime_change
+    - trend
+    - seasonal
+    - repeating_pattern
+    - spike
+    - mixed
+
+expects_no_actionable_findings: true
+
+notes:
+  - Negative control - see benchmark/README.md for how this differs from every other scenario.
+  - >
+    Individual analyzers can and do emit some raw statistical noise on this input even though
+    nothing real is happening - pyod_outlier's KNN detector has a nonzero contamination rate by
+    design (roughly 1% of points get flagged on any input), and stumpy/prophet each surface one
+    point of noise too. What actually matters for alert fatigue is whether that noise survives
+    finding aggregation into a critical or significant alert. As of 2026-09-11 it does not -
+    aggregation correctly folds 21 raw signals down to a single "normal" health-status finding
+    with importance_score around 0.2, which is not actionable. This scenario passes today, and is
+    meant to catch a future regression in the finding_rules / importance-scoring layer that would
+    let this kind of noise start reaching users as a real alert.
