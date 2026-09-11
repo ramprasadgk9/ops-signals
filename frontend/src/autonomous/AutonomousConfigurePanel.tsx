@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { buildAutonomousPreviewRequest } from '../grafana/autonomousPreviewModel';
-import type { MonitoringCategory } from '../grafana/contracts';
+import type { AutonomousRunResponse, MonitoringCategory } from '../grafana/contracts';
 
 const categories: Array<{ id: MonitoringCategory; title: string; detail: string }> = [
   { id: 'performance', title: 'Performance', detail: 'Latency, throughput, request rate' },
@@ -19,7 +19,7 @@ const categories: Array<{ id: MonitoringCategory; title: string; detail: string 
 ];
 
 type Props = {
-  onRunComplete: () => void;
+  onRunComplete: (result: AutonomousRunResponse) => void;
 };
 
 export function AutonomousConfigurePanel({ onRunComplete }: Props) {
@@ -69,7 +69,7 @@ export function AutonomousConfigurePanel({ onRunComplete }: Props) {
   const previewMutation = useMutation({ mutationFn: () => api.autonomousPreview(request) });
   const runMutation = useMutation({
     mutationFn: () => api.autonomousRunOnce(request),
-    onSuccess: () => onRunComplete(),
+    onSuccess: (result) => onRunComplete(result),
   });
 
   const toggleCategory = (category: MonitoringCategory) => {
