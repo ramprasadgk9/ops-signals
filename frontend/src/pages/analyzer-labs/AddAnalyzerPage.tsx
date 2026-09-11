@@ -5,8 +5,14 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Collapse,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Divider,
   Drawer,
   FormControl,
@@ -37,6 +43,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteJson, getJson, postJson } from '../../api/client';
 import { PageHeader, WorkspacePanel } from '../../standalone/components';
 import { ui } from '../../standalone/theme';
+import type { MetricSample } from '../../types';
 
 type RuleOperator = 'gte' | 'gt' | 'lte' | 'lt' | 'equals';
 
@@ -152,6 +159,7 @@ type ExecutionTestResult = {
   sample_count: number;
   signal_count: number;
   finding_count: number;
+  data_source?: 'real' | 'synthetic';
 };
 
 type BackendSupportResult = {
@@ -180,6 +188,11 @@ type WorkflowState = 'done' | 'current' | 'waiting' | 'blocked';
 const profileOptions = ['seasonal', 'motif', 'repeating_pattern', 'trend', 'baseline_shift', 'regime_change', 'anomaly', 'outlier', 'spike', 'forecast', 'mixed'];
 const metricOptions = ['sample_count', 'regular_sampling', 'seasonality_strength', 'trend_strength', 'shift_index', 'spikiness', 'missing_percentage', 'irregular_sampling_percentage', 'behavior_mix'];
 const runtimeTypeOptions: RuntimeDesign['type'][] = ['not_implemented', 'internal_python', 'external_http'];
+const runtimeTypeLabels: Record<RuntimeDesign['type'], string> = {
+  not_implemented: 'Custom Python (recommended)',
+  internal_python: 'Reuse an existing built-in (advanced)',
+  external_http: 'External API / Model (coming soon)',
+};
 const labProfileOptions: Array<{ id: LabProfileId; label: string }> = [
   { id: 'zscore_anomaly', label: 'Z-Score anomaly generated data' },
   { id: 'pyod_outlier', label: 'PyOD outlier generated data' },
@@ -195,18 +208,13 @@ const motifTemplate: AnalyzerConfig = {
   template_type: 'Motif / Repeating Pattern',
   library: 'stumpy',
   enabled: true,
-  runtime_mapping: 'stumpy',
+  runtime_mapping: 'not_implemented',
   supported_profiles: ['seasonal', 'motif', 'repeating_pattern'],
   min_samples: 30,
   requires_regular_sampling: true,
   requires_numeric: true,
-  base_score: 0.3,
-  scoring_rules: [
-    { metric: 'seasonality_strength', operator: 'gte', threshold: 0.42, add: 0.2 },
-    { metric: 'seasonality_strength', operator: 'gte', threshold: 0.65, add: 0.22 },
-    { metric: 'regular_sampling', operator: 'equals', threshold: true, add: 0.08 },
-    { metric: 'sample_count', operator: 'gte', threshold: 60, add: 0.04 },
-  ],
+  base_score: 0.5,
+  scoring_rules: [{ metric: 'seasonality_strength', operator: 'gte', threshold: 0.42, add: 0.2 }],
   runtime_params: { window_size: 20, motif_count: 1, profile_threshold: 2.0 },
   selected_explanation: 'The series appears to repeat similar shapes or seasonal motifs.',
   excluded_explanation: 'The series is too irregular or too short for reliable motif discovery.',
@@ -227,6 +235,8 @@ function adapterClassName(analyzerId: string) {
 export function AddAnalyzerPage() {
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [scoringRulesExpanded, setScoringRulesExpanded] = useState(false);
+  const [entryChoice, setEntryChoice] = useState<'python' | 'api' | null>(null);
   const [form, setForm] = useState<AnalyzerConfig>(motifTemplate);
   const [testResult, setTestResult] = useState<TestRouteResult | null>(null);
   const [labProfile, setLabProfile] = useState<LabProfileId>('stumpy_motif');
@@ -309,22 +319,9 @@ export function AddAnalyzerPage() {
     },
   });
 
-  const markRoutingTestMutation = useMutation({
-    mutationFn: (draftId: number) => postJson<Record<string, never>, AnalyzerDraft>(`/api/analyzer-labs/drafts/${draftId}/routing-test`, {}),
-    onSuccess: (draft) => {
-      setSelectedDraft(draft);
-      queryClient.invalidateQueries({ queryKey: ['analyzer-drafts'] });
-    },
-  });
-
   const testMutation = useMutation({
     mutationFn: (payload: AnalyzerConfig) => postJson<AnalyzerConfig, TestRouteResult>('/api/admin/analyzers/test-route', payload),
-    onSuccess: (result) => {
-      setTestResult(result);
-      if (selectedDraft) {
-        markRoutingTestMutation.mutate(selectedDraft.id);
-      }
-    },
+    onSuccess: setTestResult,
   });
 
   const labRoutingMutation = useMutation({
@@ -336,8 +333,23 @@ export function AddAnalyzerPage() {
     onSuccess: setLabRoutingResult,
   });
 
+  const [selectedSampleKey, setSelectedSampleKey] = useState('');
+  const samplesQuery = useQuery({
+    queryKey: ['metric-analyzer-samples'],
+    queryFn: () => getJson<MetricSample[]>('/api/metric-analyzer-recommendations/metrics'),
+  });
+  const sampleOptions = (samplesQuery.data ?? []).filter((sample) => sample.analysis_run_id);
+
   const executionTestMutation = useMutation({
-    mutationFn: (draftId: number) => postJson<Record<string, never>, ExecutionTestResult>(`/api/analyzer-labs/drafts/${draftId}/execution-test`, {}),
+    mutationFn: (draftId: number) => {
+      const sample = sampleOptions.find(
+        (item) => `${item.service}::${item.metric_name}::${item.analysis_run_id ?? ''}` === selectedSampleKey,
+      );
+      return postJson<{ analysis_run_id?: string; service?: string }, ExecutionTestResult>(
+        `/api/analyzer-labs/drafts/${draftId}/execution-test`,
+        sample?.analysis_run_id ? { analysis_run_id: sample.analysis_run_id, service: sample.service } : {},
+      );
+    },
     onSuccess: (result) => {
       setExecutionTestResult(result);
       setExecutionTestStatus(result.status === 'passed' ? 'passed' : result.status === 'failed' ? 'failed' : 'not_run');
@@ -364,10 +376,16 @@ export function AddAnalyzerPage() {
     backendSupportMutation.mutate(draft.id);
   };
 
-  const deleteDraftMutation = useMutation({
-    mutationFn: (draftId: number) => deleteJson<{ deleted: number }>(`/api/analyzer-labs/drafts/${draftId}`),
-    onSuccess: (_, draftId) => {
-      if (selectedDraft?.id === draftId) {
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<string | null>(null);
+  const [deleteCodeFileChecked, setDeleteCodeFileChecked] = useState(false);
+
+  const deleteAnalyzerMutation = useMutation({
+    mutationFn: ({ analyzerId, deleteCodeFile }: { analyzerId: string; deleteCodeFile: boolean }) =>
+      deleteJson<{ analyzer_id: string; draft: boolean; registration: boolean; code_file: boolean }>(
+        `/api/analyzer-labs/analyzers/${encodeURIComponent(analyzerId)}${deleteCodeFile ? '?delete_code_file=true' : ''}`,
+      ),
+    onSuccess: (_, { analyzerId }) => {
+      if (selectedDraft?.analyzer_id === analyzerId || form.analyzer_id === analyzerId) {
         setSelectedDraft(null);
         setTestResult(null);
         setLabRoutingResult(null);
@@ -376,21 +394,10 @@ export function AddAnalyzerPage() {
         setExecutionTestStatus('not_run');
       }
       queryClient.invalidateQueries({ queryKey: ['analyzer-drafts'] });
-    },
-  });
-
-  const deleteCustomAnalyzerMutation = useMutation({
-    mutationFn: (analyzerId: string) => deleteJson<{ deleted: number; analyzer_id: string }>(`/api/admin/analyzers/${encodeURIComponent(analyzerId)}`),
-    onSuccess: (_, analyzerId) => {
-      if (form.analyzer_id === analyzerId && !currentDraft) {
-        setTestResult(null);
-        setLabRoutingResult(null);
-        setLibraryCheckResult(null);
-        setExecutionTestResult(null);
-        setExecutionTestStatus('not_run');
-      }
       queryClient.invalidateQueries({ queryKey: ['admin-analyzers'] });
       queryClient.invalidateQueries({ queryKey: ['analyzer-readiness'] });
+      setDeleteConfirmTarget(null);
+      setDeleteCodeFileChecked(false);
     },
   });
 
@@ -422,7 +429,7 @@ export function AddAnalyzerPage() {
   const activeReadiness = currentDraft ? readiness.data : undefined;
   const nextStep = getNextStep({ currentDraft, testResult, labRoutingResult, readiness: activeReadiness });
   const workflowSteps = getWorkflowSteps({ currentDraft, testResult, labRoutingResult, readiness: activeReadiness });
-  const rulesValidated = Boolean(testResult) || Boolean(currentDraft && currentDraft.status !== 'draft');
+  const rulesValidated = Boolean(currentDraft);
   const step3Done = Boolean(labRoutingResult);
   const step3Expanded = !step3Done || expandedCompletedSteps.step3;
   const draftPromoted = Boolean(currentDraft?.promoted_at);
@@ -444,6 +451,11 @@ export function AddAnalyzerPage() {
         : '');
   const currentAdapterClass =
     backendSupportMutation.data?.class_name ?? currentCustomAnalyzer?.implementation_class_name ?? (currentDraft ? adapterClassName(currentDraft.analyzer_id) : '');
+  const adapterSourceQuery = useQuery({
+    queryKey: ['adapter-source', currentDraft?.id],
+    queryFn: () => getJson<{ analyzer_id: string; adapter_path: string; source: string }>(`/api/analyzer-labs/drafts/${currentDraft?.id}/adapter-source`),
+    enabled: Boolean(backendSupportAdded && currentDraft),
+  });
   const promoteIsNext = !draftPromoted && (nextStep.title === 'Next step: save to custom analyzers' || nextStep.title === 'Ready for promotion review');
   const toggleCompletedStep = (stepId: string) => {
     setExpandedCompletedSteps((current) => ({ ...current, [stepId]: !current[stepId] }));
@@ -466,7 +478,7 @@ export function AddAnalyzerPage() {
             <Chip label="Start here" color="primary" size="small" sx={{ fontWeight: 900, mb: 1 }} />
             <Typography sx={{ fontWeight: 900, fontSize: 22 }}>Analyzer Setup Flow</Typography>
             <Typography sx={{ color: ui.muted }}>
-              Start with a DB draft, validate rules, test with lab data, verify readiness, then explicitly promote to custom_analyzers.yaml.
+              Save a draft — it's validated automatically. Optionally test it, then promote to make it live.
             </Typography>
           </Box>
           <Button
@@ -479,6 +491,7 @@ export function AddAnalyzerPage() {
               setLabRoutingResult(null);
               setExecutionTestStatus('not_run');
               setLibraryCheckResult(null);
+              setEntryChoice(null);
               setDrawerOpen(true);
             }}
             sx={{ textTransform: 'none', fontWeight: 850 }}
@@ -502,29 +515,29 @@ export function AddAnalyzerPage() {
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', lg: 'center' }}>
           <Box>
-            <Chip label="Step 3" size="small" sx={{ fontWeight: 900, mb: 1 }} />
+            <Chip label="Step 2 · Test" size="small" sx={{ fontWeight: 900, mb: 1 }} />
             <Typography sx={{ fontWeight: 900, fontSize: 22 }}>Test With Lab Data</Typography>
             <Typography sx={{ color: ui.muted }}>
               {step3Done
                 ? `Completed with ${labRoutingResult?.recommendation ?? 'result'} at score ${labRoutingResult?.final_score.toFixed(2) ?? 'n/a'}.`
-                : 'Pick generated lab behavior and check whether this analyzer would be recommended for that time-series profile.'}
+                : 'Optional. Pick generated lab behavior and check whether this analyzer would be recommended for that time-series profile.'}
             </Typography>
           </Box>
           {step3Done ? (
             <Button variant="outlined" onClick={() => toggleCompletedStep('step3')} sx={{ textTransform: 'none', fontWeight: 850 }}>
-              {step3Expanded ? 'Collapse Step 3' : 'Review Step 3'}
+              {step3Expanded ? 'Collapse' : 'Review'}
             </Button>
           ) : null}
         </Stack>
         {step3Done && !step3Expanded ? (
           <Alert severity="success" sx={{ mt: 2 }}>
-            Step 3 is done. Continue below to Step 4: Verify Analyzer Readiness.
+            Done. You can also check readiness below, or promote whenever you're ready.
           </Alert>
         ) : null}
         <Collapse in={step3Expanded} timeout="auto" unmountOnExit>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} sx={{ mt: 1.5 }}>
-            <MiniOutcome title="What Step 3 Proves" body="The router recommends this analyzer for a known generated behavior, such as forecast, outlier, motif, trend, or change point." />
-            <MiniOutcome title="What Step 3 Does Not Prove" body="It does not prove the analyzer library is installed or that backend execution code exists." />
+            <MiniOutcome title="What This Proves" body="The router recommends this analyzer for a known generated behavior, such as forecast, outlier, motif, trend, or change point." />
+            <MiniOutcome title="What This Does Not Prove" body="It does not prove the analyzer library is installed or that backend execution code exists." />
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ minWidth: { xs: '100%', lg: 560 }, mt: 2 }}>
               <FormControl fullWidth>
@@ -553,8 +566,8 @@ export function AddAnalyzerPage() {
           ) : (
             <Alert severity={rulesValidated ? 'info' : 'warning'} sx={{ mt: 2 }}>
               {rulesValidated
-                ? 'Ready for Step 3. Select a lab data pattern, then run it to check whether this draft is recommended for that generated behavior.'
-                : 'Before Step 3: save the draft, then open the draft and click Validate Rules. After that, Run on Lab Data becomes available.'}
+                ? 'Select a lab data pattern, then run it to check whether this draft is recommended for that generated behavior.'
+                : 'Save a draft first. Run on Lab Data becomes available immediately after.'}
             </Alert>
           )}
         </Collapse>
@@ -573,6 +586,9 @@ export function AddAnalyzerPage() {
         verifying={verifyLibraryMutation.isPending}
         executionTesting={executionTestMutation.isPending}
         executionTestDisabled={!currentDraft || !activeReadiness?.executable}
+        sampleOptions={sampleOptions}
+        selectedSampleKey={selectedSampleKey}
+        onSelectedSampleKeyChange={setSelectedSampleKey}
       />
 
       <WorkspacePanel
@@ -594,8 +610,8 @@ export function AddAnalyzerPage() {
         </Stack>
         {promoteIsNext ? (
           <Alert severity="success" sx={{ mt: 2 }}>
-            <Typography sx={{ fontWeight: 900 }}>Next action: Save to custom_analyzers.yaml</Typography>
-            <Typography>Step 4 is complete for this recommendation-only analyzer. This button promotes the draft from Postgres into the custom analyzer YAML.</Typography>
+            <Typography sx={{ fontWeight: 900 }}>Next action: Promote this analyzer</Typography>
+            <Typography>Step 4 is complete for this recommendation-only analyzer. This button promotes the draft from Postgres into the real analyzer registry.</Typography>
           </Alert>
         ) : null}
         {draftPromoted ? (
@@ -640,24 +656,57 @@ export function AddAnalyzerPage() {
                 </Stack>
                 {backendSupportAdded ? (
                   <Box sx={{ mt: 2, border: `1px solid ${ui.border}`, borderRadius: 2, p: 1.5, bgcolor: 'white' }}>
-                    <Typography sx={{ fontWeight: 900 }}>Manual implementation required</Typography>
+                    <Typography sx={{ fontWeight: 900 }}>Write your analyze() logic here</Typography>
                     <Typography sx={{ color: ui.muted, mt: 0.5 }}>
-                      Edit the generated adapter and implement the analyzer logic.
+                      Edit the file below in your own editor, then click Refresh to see your changes reflected here.
                     </Typography>
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
-                      <Chip label={`Stub: ${currentAdapterPath}`} sx={{ justifyContent: 'flex-start', maxWidth: '100%' }} />
+                      <Chip label={`File: ${currentAdapterPath}`} sx={{ justifyContent: 'flex-start', maxWidth: '100%' }} />
                       <Chip label={`Class: ${currentAdapterClass}`} color="primary" variant="outlined" />
                     </Stack>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1.5 }}>
+                      <Typography sx={{ fontWeight: 850 }}>Current file contents</Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => adapterSourceQuery.refetch()}
+                        disabled={adapterSourceQuery.isFetching}
+                        sx={{ textTransform: 'none', fontWeight: 800 }}
+                      >
+                        {adapterSourceQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+                      </Button>
+                    </Stack>
+                    <Box
+                      component="pre"
+                      sx={{
+                        mt: 1,
+                        p: 1.5,
+                        bgcolor: '#0f172a',
+                        color: '#e2e8f0',
+                        borderRadius: 2,
+                        fontSize: 12,
+                        overflow: 'auto',
+                        maxHeight: 360,
+                      }}
+                    >
+                      {adapterSourceQuery.isLoading
+                        ? 'Loading...'
+                        : adapterSourceQuery.error
+                          ? String(adapterSourceQuery.error)
+                          : adapterSourceQuery.data?.source ?? ''}
+                    </Box>
                     <Typography sx={{ fontWeight: 850, mt: 1.5 }}>After implementation:</Typography>
                     <Box component="ol" sx={{ mt: 0.5, pl: 3, color: ui.muted }}>
-                      <li>Update the adapter TODO so it returns real OperationalSignal objects.</li>
-                      <li>Add a runtime mapping from this analyzer ID to the adapter class.</li>
-                      <li>Add default runtime parameters in config/analyzers.yaml.</li>
-                      <li>Return here and run Verify Library / readiness checks.</li>
-                      <li>Run Execution Test, then run a benchmark before using it for findings.</li>
+                      <li>Update analyze() so it returns real OperationalSignal objects instead of an empty list.</li>
+                      <li>Click Refresh above to confirm your edit was saved.</li>
+                      <li>Test with a real sample, or run Execution Test with synthetic data.</li>
+                      <li>Promote, if not already promoted - it's live as soon as this file returns real signals.</li>
                     </Box>
                     <Alert severity="info" sx={{ mt: 1.5 }}>
-                      To validate the stub after editing: restart the backend, verify readiness, then run execution test. If the adapter imports and returns valid signals, execution testing can pass.
+                      Python caches imported files in memory - if your dev server runs with auto-reload (the
+                      default for local development), it restarts and picks up your edit automatically. Without
+                      auto-reload (e.g. production), restart the backend process after editing before your change
+                      takes effect.
                     </Alert>
                   </Box>
                 ) : null}
@@ -682,7 +731,7 @@ export function AddAnalyzerPage() {
               <Typography sx={{ color: ui.muted, fontSize: 14 }}>
                 {currentDraft
                   ? canPromoteDraft
-                    ? `${currentDraft.analyzer_id} is selected. This writes to config/custom_analyzers.yaml.`
+                    ? `${currentDraft.analyzer_id} is selected. This registers it with the real analyzer pipeline and router.`
                     : `${currentDraft.analyzer_id} needs a passing routing test before promotion.`
                   : 'Save or select a draft before promoting.'}
               </Typography>
@@ -694,11 +743,11 @@ export function AddAnalyzerPage() {
               onClick={() => currentDraft && promoteDraftMutation.mutate(currentDraft.id)}
               sx={{ textTransform: 'none', fontWeight: 850 }}
             >
-              Save to custom_analyzers.yaml
+              Promote Analyzer
             </Button>
           </Stack>
         ) : (
-          <Alert severity="info">To remove this analyzer, use Remove Custom under Promoted Custom Analyzers.</Alert>
+          <Alert severity="info">To remove this analyzer, use Delete under Promoted Custom Analyzers below.</Alert>
         )}
         <Button
           variant="text"
@@ -727,7 +776,7 @@ export function AddAnalyzerPage() {
                   minRows={8}
                   value={yamlPreview.data?.yaml_text ?? (yamlPreview.isLoading ? 'Loading YAML preview...' : '')}
                   InputProps={{ readOnly: true }}
-                  helperText="Review this before promotion. The promote button writes this analyzer definition to config/custom_analyzers.yaml."
+                  helperText="Review this before promotion. The promote button registers this analyzer definition with the real analyzer pipeline and router."
                 />
               </Box>
             ) : null}
@@ -746,7 +795,7 @@ export function AddAnalyzerPage() {
             </Typography>
             <Typography>
               {currentDraft && !draftPromoted
-                ? 'Now go to Step 3, choose lab data, and click Run on Lab Data.'
+                ? 'Optionally test it, then promote when ready.'
                 : 'Click Add Analyzer to create a new draft, or select an unpromoted draft from this table.'}
             </Typography>
           </Alert>
@@ -794,14 +843,14 @@ export function AddAnalyzerPage() {
                     size="small"
                     color="error"
                     startIcon={<DeleteOutlineRoundedIcon />}
-                    disabled={deleteDraftMutation.isPending}
+                    disabled={deleteAnalyzerMutation.isPending}
                     onClick={(event) => {
                       event.stopPropagation();
-                      deleteDraftMutation.mutate(draft.id);
+                      setDeleteConfirmTarget(draft.analyzer_id);
                     }}
                     sx={{ textTransform: 'none', fontWeight: 800 }}
                   >
-                    Remove
+                    Delete
                   </Button>
                 </TableCell>
               </TableRow>
@@ -813,7 +862,7 @@ export function AddAnalyzerPage() {
             ) : null}
           </TableBody>
         </Table>
-        {deleteDraftMutation.error ? <Alert severity="error" sx={{ m: 2 }}>{String(deleteDraftMutation.error)}</Alert> : null}
+        {deleteAnalyzerMutation.error ? <Alert severity="error" sx={{ m: 2 }}>{String(deleteAnalyzerMutation.error)}</Alert> : null}
       </WorkspacePanel>
 
       <WorkspacePanel sx={{ p: 0, overflow: 'hidden' }}>
@@ -823,11 +872,11 @@ export function AddAnalyzerPage() {
             <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Promoted Custom Analyzers</Typography>
           </Stack>
           <Typography sx={{ color: ui.muted }}>
-            Only analyzers you promoted to custom_analyzers.yaml are shown here. Built-in analyzers are hidden on this page.
+            Only analyzers you've promoted are shown here. Built-in analyzers are hidden on this page.
           </Typography>
         </Box>
         {analyzers.error ? <Alert severity="error" sx={{ m: 2 }}>{String(analyzers.error)}</Alert> : null}
-        {deleteCustomAnalyzerMutation.error ? <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{String(deleteCustomAnalyzerMutation.error)}</Alert> : null}
+        {deleteAnalyzerMutation.error ? <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{String(deleteAnalyzerMutation.error)}</Alert> : null}
         {backendSupportMutation.error ? <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{String(backendSupportMutation.error)}</Alert> : null}
         {backendSupportMutation.data ? (
           <Alert severity="success" sx={{ mx: 2, mb: 2 }}>
@@ -836,9 +885,11 @@ export function AddAnalyzerPage() {
             <Typography sx={{ fontSize: 13, mt: 0.5 }}>Adapter: {backendSupportMutation.data.adapter_path}</Typography>
           </Alert>
         ) : null}
-        {deleteCustomAnalyzerMutation.data ? (
+        {deleteAnalyzerMutation.data ? (
           <Alert severity="success" sx={{ mx: 2, mb: 2 }}>
-            Removed {deleteCustomAnalyzerMutation.data.analyzer_id} from custom_analyzers.yaml.
+            Deleted {deleteAnalyzerMutation.data.analyzer_id}
+            {deleteAnalyzerMutation.data.registration ? ' — no longer live' : ''}
+            {deleteAnalyzerMutation.data.code_file ? ' — code file removed' : ''}.
           </Alert>
         ) : null}
         <Table size="small">
@@ -903,14 +954,14 @@ export function AddAnalyzerPage() {
                       size="small"
                       color="error"
                       startIcon={<DeleteOutlineRoundedIcon />}
-                      disabled={deleteCustomAnalyzerMutation.isPending}
+                      disabled={deleteAnalyzerMutation.isPending}
                       onClick={(event) => {
                         event.stopPropagation();
-                        deleteCustomAnalyzerMutation.mutate(item.analyzer_id);
+                        setDeleteConfirmTarget(item.analyzer_id);
                       }}
                       sx={{ textTransform: 'none', fontWeight: 800 }}
                     >
-                      Remove Custom
+                      Delete
                     </Button>
                   </Stack>
                 </TableCell>
@@ -929,10 +980,54 @@ export function AddAnalyzerPage() {
         <Stack spacing={2.4} sx={{ p: 3 }}>
           <Box>
             <Typography sx={{ fontWeight: 900, fontSize: 22 }}>Add Analyzer</Typography>
-            <Typography sx={{ color: ui.muted }}>Start with the STUMPY-like motif template, then tune routing and runtime settings.</Typography>
+            <Typography sx={{ color: ui.muted }}>
+              {entryChoice ? 'Start with the STUMPY-like motif template, then tune routing and runtime settings.' : 'What are you adding?'}
+            </Typography>
           </Box>
           <Divider />
 
+          {!entryChoice ? (
+            <Stack spacing={1.5}>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setEntryChoice('python');
+                  setForm({ ...form, runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, type: 'not_implemented' }) });
+                }}
+                sx={{ justifyContent: 'flex-start', textTransform: 'none', p: 2, borderRadius: 2 }}
+              >
+                <Box sx={{ textAlign: 'left' }}>
+                  <Typography sx={{ fontWeight: 850, fontSize: 16 }}>I have Python code</Typography>
+                  <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.4 }}>
+                    We'll generate a starter file and show you exactly what to fill in. Fully working today — promote it and it's live.
+                  </Typography>
+                </Box>
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setEntryChoice('api');
+                  setForm({ ...form, runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, type: 'external_http' }) });
+                }}
+                sx={{ justifyContent: 'flex-start', textTransform: 'none', p: 2, borderRadius: 2 }}
+              >
+                <Box sx={{ textAlign: 'left' }}>
+                  <Typography sx={{ fontWeight: 850, fontSize: 16 }}>I have a hosted API or model</Typography>
+                  <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.4 }}>
+                    Point at an endpoint instead of writing Python. Not runnable yet - fields are saved for when this ships.
+                  </Typography>
+                </Box>
+              </Button>
+            </Stack>
+          ) : (
+          <>
+          <Button
+            variant="text"
+            onClick={() => setEntryChoice(null)}
+            sx={{ alignSelf: 'flex-start', px: 0, textTransform: 'none', fontWeight: 800 }}
+          >
+            ← Change path
+          </Button>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField fullWidth label="Analyzer ID" value={form.analyzer_id} onChange={(event) => setForm({ ...form, analyzer_id: event.target.value })} />
             <TextField fullWidth label="Display Name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} />
@@ -952,24 +1047,6 @@ export function AddAnalyzerPage() {
             />
             <TextField fullWidth label="Python Import Name" value={importName} onChange={(event) => setImportName(event.target.value.trim().toLowerCase())} />
           </Stack>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <FormControl fullWidth>
-              <InputLabel>Runtime Mapping</InputLabel>
-              <Select
-                label="Runtime Mapping"
-                value={form.runtime_mapping}
-                onChange={(event) => setForm({ ...form, runtime_mapping: event.target.value })}
-              >
-                {(runtimeMappings.data ?? [{ id: 'not_implemented', label: 'Not Implemented', executable: false, description: 'Config-only analyzer.' }]).map((mapping) => (
-                  <MenuItem key={mapping.id} value={mapping.id}>
-                    {mapping.id} {mapping.executable ? '(executable)' : '(config only)'}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControlLabel control={<Switch checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} />} label="Enabled" />
-          </Stack>
-
           <Typography sx={{ fontWeight: 900 }}>Runtime Design</Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <FormControl fullWidth>
@@ -985,37 +1062,62 @@ export function AddAnalyzerPage() {
                 }
               >
                 {runtimeTypeOptions.map((runtimeType) => (
-                  <MenuItem key={runtimeType} value={runtimeType}>{runtimeType.replace(/_/g, ' ')}</MenuItem>
+                  <MenuItem key={runtimeType} value={runtimeType}>{runtimeTypeLabels[runtimeType]}</MenuItem>
                 ))}
               </Select>
             </FormControl>
-            <TextField
-              fullWidth
-              label="Health Check URL"
-              disabled={runtimeDesign.type !== 'external_http'}
-              value={runtimeDesign.health_check_url ?? ''}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, health_check_url: event.target.value }),
-                })
-              }
-            />
-            <TextField
-              fullWidth
-              label="Analyze URL"
-              disabled={runtimeDesign.type !== 'external_http'}
-              value={runtimeDesign.analyze_url ?? ''}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, analyze_url: event.target.value }),
-                })
-              }
-            />
+            <FormControlLabel control={<Switch checked={form.enabled} onChange={(event) => setForm({ ...form, enabled: event.target.checked })} />} label="Enabled" />
           </Stack>
+          {runtimeDesign.type === 'internal_python' ? (
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <FormControl fullWidth>
+                <InputLabel>Reuse Which Built-in</InputLabel>
+                <Select
+                  label="Reuse Which Built-in"
+                  value={form.runtime_mapping}
+                  onChange={(event) => setForm({ ...form, runtime_mapping: event.target.value })}
+                >
+                  {(runtimeMappings.data ?? [{ id: 'not_implemented', label: 'Not Implemented', executable: false, description: 'Config-only analyzer.' }]).map((mapping) => (
+                    <MenuItem key={mapping.id} value={mapping.id}>
+                      {mapping.id} {mapping.executable ? '(executable)' : '(config only)'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          ) : null}
+          {runtimeDesign.type === 'external_http' ? (
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <TextField
+                fullWidth
+                label="Health Check URL"
+                value={runtimeDesign.health_check_url ?? ''}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, health_check_url: event.target.value }),
+                  })
+                }
+              />
+              <TextField
+                fullWidth
+                label="Analyze URL"
+                value={runtimeDesign.analyze_url ?? ''}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, analyze_url: event.target.value }),
+                  })
+                }
+              />
+            </Stack>
+          ) : null}
           <Alert severity="info">
-            Use internal_python when Ops Signals has backend code. Use external_http to design a future service-backed analyzer. Use not_implemented for recommendation-only drafts.
+            {runtimeDesign.type === 'external_http'
+              ? "External API / Model analyzers aren't wired up to actually run yet — these fields are saved but not called. Pick Custom Python to get a working analyzer today."
+              : runtimeDesign.type === 'internal_python'
+                ? 'Reuses an existing built-in analyzer (e.g. stumpy, trend) with your own routing rules and parameters, instead of your own code.'
+                : "Custom Python is the recommended path: after you promote and add backend support, you'll get a real Python file to write your own analyze() logic in."}
           </Alert>
 
           <FormControl fullWidth>
@@ -1053,27 +1155,41 @@ export function AddAnalyzerPage() {
             <FormControlLabel control={<Switch checked={form.requires_numeric} onChange={(event) => setForm({ ...form, requires_numeric: event.target.checked })} />} label="Requires Numeric Values" />
           </Stack>
 
-          <Typography sx={{ fontWeight: 900 }}>Scoring Rules</Typography>
-          <Stack spacing={1}>
-            {form.scoring_rules.map((rule, index) => (
-              <Stack key={index} direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                <FormControl fullWidth>
-                  <InputLabel>Profile Metric</InputLabel>
-                  <Select label="Profile Metric" value={rule.metric} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { metric: event.target.value }) })}>
-                    {metricOptions.map((metric) => <MenuItem key={metric} value={metric}>{metric}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <FormControl sx={{ minWidth: 110 }}>
-                  <InputLabel>Operator</InputLabel>
-                  <Select label="Operator" value={rule.operator} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { operator: event.target.value as RuleOperator }) })}>
-                    {['gte', 'gt', 'lte', 'lt', 'equals'].map((op) => <MenuItem key={op} value={op}>{op}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <TextField label="Threshold" value={String(rule.threshold)} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { threshold: event.target.value === 'true' ? true : event.target.value === 'false' ? false : Number(event.target.value) }) })} />
-                <TextField label="Score Boost" type="number" value={rule.add} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { add: Number(event.target.value) }) })} />
-              </Stack>
-            ))}
-          </Stack>
+          <Button
+            variant="text"
+            onClick={() => setScoringRulesExpanded((current) => !current)}
+            sx={{ alignSelf: 'flex-start', px: 0, textTransform: 'none', fontWeight: 850 }}
+          >
+            {scoringRulesExpanded ? 'Hide advanced: tune router precision' : 'Advanced: tune router precision'}
+          </Button>
+          {!scoringRulesExpanded ? (
+            <Typography sx={{ color: ui.muted, fontSize: 13 }}>
+              A starting scoring rule is already filled in below. You don't need to touch this to save a working draft — open it later once you want to make the router more or less picky about recommending this analyzer.
+            </Typography>
+          ) : null}
+          <Collapse in={scoringRulesExpanded} timeout="auto" unmountOnExit>
+            <Typography sx={{ fontWeight: 900, mb: 1 }}>Scoring Rules</Typography>
+            <Stack spacing={1}>
+              {form.scoring_rules.map((rule, index) => (
+                <Stack key={index} direction={{ xs: 'column', md: 'row' }} spacing={1}>
+                  <FormControl fullWidth>
+                    <InputLabel>Profile Metric</InputLabel>
+                    <Select label="Profile Metric" value={rule.metric} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { metric: event.target.value }) })}>
+                      {metricOptions.map((metric) => <MenuItem key={metric} value={metric}>{metric}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControl sx={{ minWidth: 110 }}>
+                    <InputLabel>Operator</InputLabel>
+                    <Select label="Operator" value={rule.operator} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { operator: event.target.value as RuleOperator }) })}>
+                      {['gte', 'gt', 'lte', 'lt', 'equals'].map((op) => <MenuItem key={op} value={op}>{op}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <TextField label="Threshold" value={String(rule.threshold)} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { threshold: event.target.value === 'true' ? true : event.target.value === 'false' ? false : Number(event.target.value) }) })} />
+                  <TextField label="Score Boost" type="number" value={rule.add} onChange={(event) => setForm({ ...form, scoring_rules: updateRule(form.scoring_rules, index, { add: Number(event.target.value) }) })} />
+                </Stack>
+              ))}
+            </Stack>
+          </Collapse>
 
           <Typography sx={{ fontWeight: 900 }}>Runtime Parameters</Typography>
           <TextField
@@ -1133,12 +1249,63 @@ export function AddAnalyzerPage() {
                 : `${libraryCheckResult.import_name} is not importable in the backend Python environment. ${libraryCheckResult.suggested_install ?? ''}`}
             </Alert>
           ) : null}
-          {saveDraftMutation.data ? <Alert severity="success">Draft saved to Postgres. Promote it when you are ready to update custom_analyzers.yaml.</Alert> : null}
+          {saveDraftMutation.data ? <Alert severity="success">Draft saved to Postgres. Promote it when you are ready to make it live.</Alert> : null}
           {testResult ? (
             <RoutingResultAlert result={testResult} />
           ) : null}
+          </>
+          )}
         </Stack>
       </Drawer>
+
+      <Dialog
+        open={Boolean(deleteConfirmTarget)}
+        onClose={() => {
+          setDeleteConfirmTarget(null);
+          setDeleteCodeFileChecked(false);
+        }}
+      >
+        <DialogTitle>Delete {deleteConfirmTarget}?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This removes the draft and, if promoted, stops it from being recommended or executed immediately.
+          </DialogContentText>
+          <FormControlLabel
+            sx={{ mt: 1.5 }}
+            control={
+              <Checkbox
+                checked={deleteCodeFileChecked}
+                onChange={(event) => setDeleteCodeFileChecked(event.target.checked)}
+              />
+            }
+            label="Also delete the generated Python file (uncheck to keep your code for later)"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDeleteConfirmTarget(null);
+              setDeleteCodeFileChecked(false);
+            }}
+            sx={{ textTransform: 'none' }}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={deleteAnalyzerMutation.isPending}
+            onClick={() => {
+              if (deleteConfirmTarget) {
+                deleteAnalyzerMutation.mutate({ analyzerId: deleteConfirmTarget, deleteCodeFile: deleteCodeFileChecked });
+              }
+            }}
+            sx={{ textTransform: 'none', fontWeight: 800 }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }
@@ -1256,10 +1423,9 @@ function getDrawerNextMessage({
   if (validating) return 'Validating router rules against a synthetic profile...';
   if (verifying) return 'Checking whether the backend Python environment can import the library...';
   if (!currentDraft) return 'Next inside this popup: click Save Draft.';
-  if (!testResult && currentDraft.status === 'draft') return 'Saved. Next inside this popup: click Validate Rules.';
-  if (!libraryCheckResult) return 'Rules validated. Optional next inside this popup: click Verify Library, then close this popup and run Step 3 on the parent page.';
+  if (!libraryCheckResult) return 'Saved. Optional next inside this popup: click Verify Library, then close this popup and test on the parent page.';
   if (!libraryCheckResult.installed) return 'Library check completed: missing. You can still keep this as config-only, or install the library before execution support.';
-  return 'Draft saved, rules validated, and library verified. Close this popup and continue with Step 3: Test With Lab Data.';
+  return 'Draft saved and library verified. Close this popup and continue testing, or promote when ready.';
 }
 
 function getNextStep({
@@ -1282,16 +1448,9 @@ function getNextStep({
   }
   if (currentDraft.promoted_at) {
     return {
-      title: 'Analyzer saved to custom config',
-      body: 'This draft has already been promoted to custom_analyzers.yaml. Select another draft or add backend runtime support if you want it to execute.',
+      title: 'Analyzer promoted',
+      body: 'This draft has already been promoted and registered with the real analyzer pipeline and router. Select another draft or add backend runtime support if you want it to execute.',
       severity: 'success',
-    };
-  }
-  if (!testResult && currentDraft.status === 'draft') {
-    return {
-      title: 'Next step: validate rules',
-      body: 'Open the draft and click Validate Rules. This confirms the router can understand the definition using a synthetic sample profile.',
-      severity: 'info',
     };
   }
   if (!labRoutingResult) {
@@ -1306,13 +1465,6 @@ function getNextStep({
       title: 'Needs tuning before promotion',
       body: 'The lab-data test did not recommend this analyzer. Adjust supported profiles, scoring rules, or minimum samples, then test again.',
       severity: 'warning',
-    };
-  }
-  if (readiness?.library_importable && readiness.runtime_mapping_status === 'not_implemented') {
-    return {
-      title: 'Next step: save to custom analyzers',
-      body: 'This is recommendation-only and the library check passed. Skip execution test for now and click Save to custom_analyzers.yaml when you are ready.',
-      severity: 'success',
     };
   }
   if (!readiness?.library_importable) {
@@ -1331,7 +1483,7 @@ function getNextStep({
   }
   return {
     title: 'Ready for promotion review',
-    body: 'Review the YAML preview, then promote only when you want to write this analyzer definition to custom_analyzers.yaml.',
+    body: 'Review the YAML preview, then promote only when you want to register this analyzer with the real pipeline and router.',
     severity: 'success',
   };
 }
@@ -1348,7 +1500,6 @@ function getWorkflowSteps({
   readiness?: AnalyzerReadiness;
 }): Array<{ step: string; title: string; body: string; state: WorkflowState }> {
   const draftDone = Boolean(currentDraft);
-  const rulesDone = Boolean(testResult) || Boolean(currentDraft && currentDraft.status !== 'draft');
   const labDone = Boolean(labRoutingResult);
   const labBlocked = Boolean(labRoutingResult && ['NOT_RECOMMENDED', 'REJECTED'].includes(labRoutingResult.recommendation));
   const recommendationOnlyReady = Boolean(labDone && readiness?.library_importable && readiness.runtime_mapping_status === 'not_implemented');
@@ -1360,33 +1511,21 @@ function getWorkflowSteps({
   return [
     {
       step: '1',
-      title: 'Save Draft',
-      body: 'Store the analyzer definition in Postgres without changing YAML.',
+      title: 'Save & Validate',
+      body: 'Saving structurally validates the definition automatically - Promote is available right after this.',
       state: draftDone ? 'done' : 'current',
     },
     {
       step: '2',
-      title: 'Validate Rules',
-      body: 'Check that router rules are valid with a synthetic profile.',
-      state: rulesDone ? 'done' : draftDone ? 'current' : 'waiting',
+      title: 'Test (optional but recommended)',
+      body: 'Preview router eligibility with lab data, and check library/backend readiness. Neither blocks promotion.',
+      state: labBlocked ? 'blocked' : readinessDone ? 'done' : draftDone ? 'current' : 'waiting',
     },
     {
       step: '3',
-      title: 'Test With Lab Data',
-      body: 'Use generated lab behavior to verify recommendation fit.',
-      state: labBlocked ? 'blocked' : labDone ? 'done' : rulesDone ? 'current' : 'waiting',
-    },
-    {
-      step: '4',
-      title: 'Verify Readiness',
-      body: 'Check library, config, runtime mapping, and backend code.',
-      state: readinessDone ? 'done' : labDone ? 'current' : 'waiting',
-    },
-    {
-      step: '5',
-      title: 'Promote Config',
-      body: 'Review YAML and explicitly write custom_analyzers.yaml.',
-      state: promoted ? 'done' : canPromote && readinessDone && !labBlocked ? 'current' : 'waiting',
+      title: 'Promote',
+      body: 'Review the YAML preview, then promote to register it with the real pipeline and router.',
+      state: promoted ? 'done' : canPromote && !labBlocked ? 'current' : 'waiting',
     },
   ];
 }
@@ -1413,6 +1552,9 @@ function ReadinessPanel({
   verifying,
   executionTesting,
   executionTestDisabled,
+  sampleOptions,
+  selectedSampleKey,
+  onSelectedSampleKeyChange,
 }: {
   readiness?: AnalyzerReadiness;
   isLoading: boolean;
@@ -1426,6 +1568,9 @@ function ReadinessPanel({
   verifying: boolean;
   executionTesting: boolean;
   executionTestDisabled: boolean;
+  sampleOptions: MetricSample[];
+  selectedSampleKey: string;
+  onSelectedSampleKeyChange: (value: string) => void;
 }) {
   const readinessNext = getReadinessNextAction(readiness, executionTestResult);
   const [showDetails, setShowDetails] = useState(false);
@@ -1490,7 +1635,7 @@ function ReadinessPanel({
     <WorkspacePanel sx={{ p: 2.5 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
         <Box>
-          <Chip label="Step 4" size="small" sx={{ fontWeight: 900, mb: 1 }} />
+          <Chip label="Step 2 · Test" size="small" sx={{ fontWeight: 900, mb: 1 }} />
           <Stack direction="row" spacing={1} alignItems="center">
             <FactCheckRoundedIcon sx={{ color: ui.green }} />
             <Typography sx={{ fontWeight: 900, fontSize: 22 }}>Verify Analyzer Readiness</Typography>
@@ -1505,25 +1650,50 @@ function ReadinessPanel({
             <Chip label="Execution test skipped for config-only" sx={{ fontWeight: 850 }} />
           </Stack>
         ) : (
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button
-              variant={readinessNext.action === 'verify_library' ? 'contained' : 'outlined'}
-              startIcon={<VerifiedRoundedIcon />}
-              onClick={onVerifyLibrary}
-              disabled={verifying || isLoading}
-              sx={{ textTransform: 'none', fontWeight: 850 }}
+          <Stack spacing={1.2}>
+            <TextField
+              select
+              size="small"
+              label="Test against (optional)"
+              value={selectedSampleKey}
+              onChange={(event) => onSelectedSampleKeyChange(event.target.value)}
+              helperText={
+                selectedSampleKey
+                  ? 'Runs your analyze() against these real historical points instead of synthetic data.'
+                  : 'Defaults to synthetic data. Pick a real sample to test against actual history.'
+              }
+              sx={{ maxWidth: 480 }}
             >
-              {verifying ? 'Checking...' : 'Verify Library'}
-            </Button>
-            <Button
-              variant={readinessNext.action === 'run_execution_test' ? 'contained' : 'outlined'}
-              startIcon={<PlayArrowRoundedIcon />}
-              onClick={onRunExecutionTest}
-              disabled={executionTesting || executionTestDisabled}
-              sx={{ textTransform: 'none', fontWeight: 850 }}
-            >
-              {executionTesting ? 'Running...' : 'Run Execution Test'}
-            </Button>
+              <MenuItem value="">Synthetic data (default)</MenuItem>
+              {sampleOptions.map((sample) => (
+                <MenuItem
+                  key={`${sample.service}-${sample.metric_name}-${sample.analysis_run_id ?? 'none'}`}
+                  value={`${sample.service}::${sample.metric_name}::${sample.analysis_run_id ?? ''}`}
+                >
+                  {sample.service} / {sample.metric_name} ({sample.sample_count} points)
+                </MenuItem>
+              ))}
+            </TextField>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button
+                variant={readinessNext.action === 'verify_library' ? 'contained' : 'outlined'}
+                startIcon={<VerifiedRoundedIcon />}
+                onClick={onVerifyLibrary}
+                disabled={verifying || isLoading}
+                sx={{ textTransform: 'none', fontWeight: 850 }}
+              >
+                {verifying ? 'Checking...' : 'Verify Library'}
+              </Button>
+              <Button
+                variant={readinessNext.action === 'run_execution_test' ? 'contained' : 'outlined'}
+                startIcon={<PlayArrowRoundedIcon />}
+                onClick={onRunExecutionTest}
+                disabled={executionTesting || executionTestDisabled}
+                sx={{ textTransform: 'none', fontWeight: 850 }}
+              >
+                {executionTesting ? 'Running...' : 'Run Execution Test'}
+              </Button>
+            </Stack>
           </Stack>
         )}
       </Stack>
@@ -1569,8 +1739,8 @@ function getReadinessNextAction(readiness?: AnalyzerReadiness, executionTestResu
 } {
   if (!readiness) {
     return {
-      title: 'Waiting for Step 3',
-      body: 'Finish Test With Lab Data first. Then this section will tell you whether to verify the library, run execution test, or promote as config-only.',
+      title: 'Try Test With Lab Data',
+      body: 'Optional, but useful first - this section will then tell you whether to verify the library, run execution test, or promote as config-only.',
       action: 'none',
       severity: 'info',
     };
@@ -1583,14 +1753,6 @@ function getReadinessNextAction(readiness?: AnalyzerReadiness, executionTestResu
       severity: 'warning',
     };
   }
-  if (readiness.runtime_mapping_status === 'not_implemented') {
-    return {
-      title: 'Step 4 complete for recommendation-only',
-      body: 'The library is verified, but runtime mapping is config-only. Do not run execution test. Next click: Save to custom_analyzers.yaml in Step 5.',
-      action: 'promote',
-      severity: 'success',
-    };
-  }
   if (readiness.executable && executionTestResult?.status !== 'passed') {
     return {
       title: 'Click next: Run Execution Test',
@@ -1599,9 +1761,17 @@ function getReadinessNextAction(readiness?: AnalyzerReadiness, executionTestResu
       severity: 'info',
     };
   }
+  if (!readiness.executable) {
+    return {
+      title: 'Step 4 complete for recommendation-only',
+      body: "This analyzer isn't backend-supported yet, so it can be recommended but can't run. Promote it now to keep it recommendation-only, or add backend support first so you can test real execution.",
+      action: 'promote',
+      severity: 'success',
+    };
+  }
   return {
     title: 'Step 4 complete',
-    body: 'Readiness is verified. Next click: Save to custom_analyzers.yaml in Step 5.',
+    body: 'Readiness is verified. Next click: Promote in Step 3.',
     action: 'promote',
     severity: 'success',
   };
