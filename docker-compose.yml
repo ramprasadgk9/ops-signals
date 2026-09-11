@@ -59,6 +59,39 @@ services:
       - mock-metrics
     restart: unless-stopped
 
+  # Local LLM for the Ask Ops Signals assistant - fully self-hosted, no API key, no cloud calls.
+  # Opt-in (not started by a plain `docker compose up`) since the model pull is a ~2GB one-time
+  # download: run `docker compose --profile ai up` to include it.
+  # Then enable it in the backend with OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ops-signals-ollama
+    profiles: ["ai"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot: pulls the default model into the ollama volume, then exits. Safe to re-run;
+  # skips the download if the model is already cached.
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ops-signals-ollama-init
+    profiles: ["ai"]
+    environment:
+      OLLAMA_HOST: "ollama:11434"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c", "ollama pull ${OPS_SIGNALS_OLLAMA_MODEL:-qwen2.5:3b}"]
+    restart: "no"
+
   grafana:
     image: grafana/grafana:13.1.0
     container_name: ops-signals-grafana
@@ -84,3 +117,4 @@ volumes:
   postgres_data:
   qdrant_data:
   prometheus_data:
+  ollama_data:

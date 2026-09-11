@@ -196,6 +196,13 @@ function KnowledgeUsed({ response }: { response?: AssistantChatResponse }) {
   return (
     <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap sx={{ mb: 0.8 }}>
       <Chip size="small" label={`Intent: ${response?.intent ?? 'routing'}`} variant="outlined" />
+      {used.length ? (
+        <Chip
+          size="small"
+          label={response?.ai_synthesis_used ? 'AI-generated' : 'Evidence summary (no AI)'}
+          sx={response?.ai_synthesis_used ? { bgcolor: '#f5f3ff', color: '#6d28d9', fontWeight: 750 } : { bgcolor: '#f1f5f9', color: '#475569', fontWeight: 750 }}
+        />
+      ) : null}
       {used.length ? used.map((item) => <Chip key={item} size="small" label={`✓ ${item}`} sx={{ bgcolor: '#ecfdf5', color: '#047857', fontWeight: 750 }} />) : <Chip size="small" label="No operational evidence found" color="warning" />}
     </Stack>
   );

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.api.memory import get_memory_config, get_memory_indexer
+from backend.app.config import MemoryConfig
+from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.models.api_schema import (
     CaseCreateResponse,
     CaseOut,
@@ -17,7 +21,51 @@ from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
 from backend.app.services.analyzer_learning_service import AnalyzerLearningService, LearningOutcomeError
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/cases", tags=["cases"])
+
+
+def _auto_index_new_case(
+    case: OperationalCaseEntity,
+    db: Session,
+    indexer: CaseMemoryIndexer | None,
+    config: MemoryConfig | None,
+) -> None:
+    """Index a freshly created case into operational memory, if enabled.
+
+    Best-effort: indexing failures must never block case creation. The indexer
+    already records the failure on the case (memory_status="failed").
+    """
+    if not config or not config.enabled or not config.indexing.automatic_on_case_creation or not indexer:
+        return
+    try:
+        indexer.index_case(case, db)
+    except Exception as exc:
+        logger.warning("Automatic memory indexing failed for case %s: %s", case.id, exc)
+
+
+def _refresh_case_memory(
+    case: OperationalCaseEntity,
+    db: Session,
+    indexer: CaseMemoryIndexer | None,
+    config: MemoryConfig | None,
+) -> None:
+    """Keep an already-indexed case's memory entry in sync after an update.
+
+    Re-indexes immediately when automatic updates are enabled; otherwise falls
+    back to marking the entry stale so a manual re-index can pick it up later.
+    """
+    if case.memory_status != "indexed":
+        return
+    if config and config.enabled and config.indexing.automatic_on_case_update and indexer:
+        try:
+            indexer.index_case(case, db)
+            return
+        except Exception as exc:
+            logger.warning("Automatic memory re-indexing failed for case %s: %s", case.id, exc)
+    case.memory_status = "stale"
+    db.commit()
 
 
 def _compute_case_status(case: OperationalCaseEntity) -> tuple[str, str]:
@@ -118,7 +166,12 @@ def get_case(case_id: int, db: Session = Depends(get_db)) -> CaseOut:
 
 
 @router.post("/findings/{finding_id}/create", response_model=CaseCreateResponse)
-def create_case_from_finding(finding_id: int, db: Session = Depends(get_db)) -> CaseCreateResponse:
+def create_case_from_finding(
+    finding_id: int,
+    db: Session = Depends(get_db),
+    indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> CaseCreateResponse:
     # Load finding
     finding = db.execute(select(FindingEntity).where(FindingEntity.id == finding_id)).scalar_one_or_none()
     if finding is None:
@@ -172,23 +225,15 @@ def create_case_from_finding(finding_id: int, db: Session = Depends(get_db)) -> 
     db.add(case)
     db.commit()
     db.refresh(case)
-    
+
+    _auto_index_new_case(case, db, indexer, config)
+
     return CaseCreateResponse(
         case_id=case.id,
         finding_id=finding_id,
         case_status=case.case_status,
         memory_status=case.memory_status,
     )
-
-
-def _mark_memory_stale_if_needed(case: OperationalCaseEntity, db: Session) -> None:
-    """Mark case memory as stale if it was previously indexed.
-    
-    Call this after updating RCA, resolution, or corrective action.
-    """
-    if case.memory_status == "indexed":
-        case.memory_status = "stale"
-        db.commit()
 
 
 @router.patch("/{case_id}/investigation", response_model=CaseOut)
@@ -224,23 +269,23 @@ def update_root_cause_analysis(
     case_id: int,
     payload: RCAUpdateRequest,
     db: Session = Depends(get_db),
+    indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
+    config: MemoryConfig | None = Depends(get_memory_config),
 ) -> CaseOut:
     case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
-    
+
     case.root_cause_status = payload.root_cause_status
     case.root_cause_summary = payload.root_cause_summary
     case.root_cause_confidence = payload.root_cause_confidence
     case.root_cause_verified = payload.root_cause_verified
     case.updated_at = datetime.utcnow()
-    
-    # Mark memory as stale if it was indexed
-    _mark_memory_stale_if_needed(case, db)
-    
     db.commit()
     db.refresh(case)
-    
+
+    _refresh_case_memory(case, db, indexer, config)
+
     return _to_case_out(case)
 
 
@@ -249,6 +294,8 @@ def update_resolution(
     case_id: int,
     payload: ResolutionUpdateRequest,
     db: Session = Depends(get_db),
+    indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
+    config: MemoryConfig | None = Depends(get_memory_config),
 ) -> CaseOut:
     case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
     if case is None:
@@ -265,10 +312,6 @@ def update_resolution(
     case.outcome_summary = payload.outcome_summary
     case.corrective_action = payload.corrective_action
     case.updated_at = datetime.utcnow()
-    
-    # Mark memory as stale if it was indexed
-    if case.memory_status == "indexed":
-        case.memory_status = "stale"
 
     if payload.outcome_status in final_states and payload.learning_outcome_status:
         try:
@@ -286,8 +329,10 @@ def update_resolution(
             if str(exc) in {"case not found", "analysis run not found"}:
                 status_code = 404
             raise HTTPException(status_code=status_code, detail=str(exc))
-    
+
     db.commit()
     db.refresh(case)
-    
+
+    _refresh_case_memory(case, db, indexer, config)
+
     return _to_case_out(case)

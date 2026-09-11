@@ -222,7 +222,11 @@ class ApplicationKnowledgeBootstrapService:
         content = (
             "Ops Signals is a vendor-neutral Operational Intelligence framework. "
             "It transforms normalized time-series data into signals, findings, behavior findings, cases, and searchable operational memory. "
-            "The application is designed to be explainable, deterministic, and self-hosted."
+            "The application is designed to be explainable, deterministic, and self-hosted.\n\n"
+            "Example: a metric like checkout-api's cpu_usage is normalized, analyzed for a baseline shift, "
+            "turned into a Finding ('CPU usage baseline shifted'), and can be promoted into a Case where "
+            "someone records the root cause and resolution - which then becomes searchable operational memory "
+            "for the next time a similar issue happens."
         )
         return ApplicationKnowledgeDocument(
             document_id="application-overview",
@@ -239,7 +243,11 @@ class ApplicationKnowledgeBootstrapService:
         content = (
             "Analyzers inspect normalized metric time-series data and produce lower-level operational signals. "
             "Their outputs feed findings and behavior definitions. "
-            f"Registered analyzers currently include: {analyzer_names}."
+            f"Registered analyzers currently include: {analyzer_names}.\n\n"
+            "Example: the ruptures analyzer scans a metric's time series for a persistent change point - "
+            "e.g. checkout-api cpu_usage sitting near 42% for hours, then jumping to a new baseline near 79% "
+            "and staying there. It emits a baseline_shift signal with the change point, the percent change, "
+            "and a confidence score, which downstream findings and behaviors can then use as evidence."
         )
         return ApplicationKnowledgeDocument(
             document_id="analyzers-overview",
@@ -249,9 +257,6 @@ class ApplicationKnowledgeBootstrapService:
             content=content,
             related_components=["analyzer registry", "signals", "findings", "behaviors"],
             source_path="generated://concepts/analyzers-overview",
-            metadata={
-                "document_id": "concept-analyzers-overview",
-            },
         )
 
     def _analyzer_types_overview(self) -> ApplicationKnowledgeDocument:
@@ -275,7 +280,11 @@ class ApplicationKnowledgeBootstrapService:
         content = (
             "Signals are analyzer outputs stored as operational evidence. "
             "They include analyzer ID, metric name, service metadata, severity, confidence, summary, evidence payloads, and importance scores. "
-            "Signals are inputs to findings and behavior evaluation."
+            "Signals are inputs to findings and behavior evaluation.\n\n"
+            "Example: one baseline_shift signal on its own is just one analyzer's opinion about one metric. "
+            "A Finding is what groups one or more signals (say, a baseline_shift on cpu_usage plus a related "
+            "anomaly on request_latency) into a single higher-level, investigatable item with its own title "
+            "and importance score."
         )
         return ApplicationKnowledgeDocument(
             document_id="signals-overview",
@@ -290,7 +299,10 @@ class ApplicationKnowledgeBootstrapService:
     def _findings_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Findings are aggregated operational interpretations that group signals into higher-level insights. "
-            "They include title, summary, category, health status, importance score, and supporting signal IDs."
+            "They include title, summary, category, health status, importance score, and supporting signal IDs.\n\n"
+            "Example: a Finding titled 'CPU usage baseline shifted' on checkout-api, category behavior_change, "
+            "health_status critical, importance_score 0.94 - built from the baseline_shift signal that detected "
+            "the change point. From the Findings page, that item can be promoted into a Case for investigation."
         )
         return ApplicationKnowledgeDocument(
             document_id="findings-overview",
@@ -309,6 +321,9 @@ class ApplicationKnowledgeBootstrapService:
             "Behavior definitions combine evidence from multiple analyzers and metrics to explain higher-level operational conditions. "
             "They evaluate conditions, correlation windows, and output categories. "
             + ("Current behaviors include: " + "; ".join(behavior_titles) if behavior_titles else "")
+            + "\n\nExample: a 'cascading failure' behavior might require a latency anomaly AND an error-rate "
+            "anomaly on the same service within a 10-minute correlation window before it fires - so one noisy "
+            "metric alone won't trigger it, but a real incident with multiple corroborating signals will."
         )
         return ApplicationKnowledgeDocument(
             document_id="behaviors-overview",
@@ -323,7 +338,11 @@ class ApplicationKnowledgeBootstrapService:
     def _cases_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Operational cases preserve investigation context, root-cause analysis, corrective action, and outcomes. "
-            "Cases are the long-lived operational record and can be indexed into memory for similarity search."
+            "Cases are the long-lived operational record and can be indexed into memory for similarity search.\n\n"
+            "Example: promoting the 'CPU usage baseline shifted' finding creates a case where an engineer records "
+            "the root cause ('deploy at 14:02 raised worker pool size'), the corrective action taken, and the "
+            "outcome. Once indexed, the next similar cpu_usage regression can find this case as a match and "
+            "reuse the same fix instead of starting from scratch."
         )
         return ApplicationKnowledgeDocument(
             document_id="cases-overview",
@@ -337,7 +356,13 @@ class ApplicationKnowledgeBootstrapService:
 
     def _architecture_overview(self) -> ApplicationKnowledgeDocument:
         content = (
-            "The architecture flows from canonical time-series inputs to normalization, PostgreSQL, analyzer registry, signals, findings, cases, behavior intelligence, embeddings, Qdrant, and the React UI."
+            "The architecture flows from canonical time-series inputs to normalization, PostgreSQL, analyzer registry, "
+            "signals, findings, cases, behavior intelligence, embeddings, Qdrant, and the React UI.\n\n"
+            "Example, end to end: a Prometheus metric or CSV row is normalized into a canonical point -> "
+            "stored in PostgreSQL -> handed to every analyzer registered for its profile (e.g. ruptures, stumpy) -> "
+            "each analyzer that finds something emits a Signal -> signals aggregate into a Finding -> a Finding "
+            "can be promoted into a Case -> a resolved Case gets embedded and stored in Qdrant so it's retrievable "
+            "the next time someone asks the assistant 'have we seen this before?' in the React UI."
         )
         return ApplicationKnowledgeDocument(
             document_id="architecture-overview",
@@ -352,7 +377,11 @@ class ApplicationKnowledgeBootstrapService:
     def _data_flow_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Data flows from CSV ingestion or provider-specific inputs through validation and normalization into the analysis pipeline. "
-            "Analyzers emit signals, signals aggregate into findings, findings can promote to cases, and cases can be indexed for retrieval."
+            "Analyzers emit signals, signals aggregate into findings, findings can promote to cases, and cases can be indexed for retrieval.\n\n"
+            "Example: an autonomous monitoring run pulls a metric from Prometheus, validates it (rejecting rows "
+            "with gaps or negative values where that's not expected), normalizes it into the shared schema, then "
+            "hands it to the analyzer registry - the same pipeline a CSV upload or a manual analysis run goes "
+            "through."
         )
         return ApplicationKnowledgeDocument(
             document_id="data-flow-overview",
@@ -367,7 +396,11 @@ class ApplicationKnowledgeBootstrapService:
     def _storage_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "PostgreSQL is the system of record for normalized points, signals, findings, cases, capabilities, and question answers. "
-            "Qdrant is the retrieval index for case and documentation embeddings."
+            "Qdrant is the retrieval index for case and documentation embeddings.\n\n"
+            "Example: a case's root-cause text and status live in PostgreSQL and are always authoritative. A "
+            "copy of that same case, converted into an embedding vector, also lives in Qdrant purely so it can "
+            "be found by semantic similarity - if the Qdrant copy were lost, it could be rebuilt entirely from "
+            "PostgreSQL by re-indexing; the reverse is not true."
         )
         return ApplicationKnowledgeDocument(
             document_id="storage-overview",
@@ -382,7 +415,11 @@ class ApplicationKnowledgeBootstrapService:
     def _vector_database_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Qdrant stores embeddings plus metadata for semantic retrieval. "
-            "The assistant uses separate collections for operational cases and application knowledge so historical evidence and documentation stay distinct."
+            "The assistant uses separate collections for operational cases and application knowledge so historical evidence and documentation stay distinct.\n\n"
+            "Example: asking 'have we seen this before?' searches the operational_cases collection (real past "
+            "incidents); asking 'how does Behavior Intelligence work?' searches the operational_intelligence_docs "
+            "collection (generated concept docs and repo documentation) instead - same underlying vector search, "
+            "different collection depending on what kind of question it is."
         )
         return ApplicationKnowledgeDocument(
             document_id="vector-database-overview",
