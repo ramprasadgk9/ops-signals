@@ -8,7 +8,7 @@ import re
 import tempfile
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 import pandas as pd
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
@@ -18,11 +18,14 @@ import yaml
 from backend.app.api.admin_analyzers import AnalyzerConfigIn, _ui_to_registry, _validate_analyzer, _write_yaml
 from backend.app.api.ingestion import PreviewPipelineStore
 from backend.app.models.db import get_db
-from backend.app.models.entities import AnalyzerConfigSuggestionEntity, AnalyzerDraftEntity
+from backend.app.models.entities import AnalyzerConfigSuggestionEntity, AnalyzerDraftEntity, NormalizedPoint
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
 from experiments.analyzer_router.models import SeriesProfile
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
+from intelligence.analyzer_registry import instantiate as instantiate_analyzer, load_registrations
+from intelligence.config import InputConfig
+from intelligence.normalize.normalizer import normalize_timeseries
 from intelligence.pipeline import SignalPipeline
 
 router = APIRouter(prefix="/api/analyzer-labs", tags=["analyzer-labs"])
@@ -39,6 +42,13 @@ REGISTRY_PATH = Path("experiments/analyzer_router/analyzer_registry.yaml")
 CUSTOM_ANALYZERS_PATH = Path("config/custom_analyzers.yaml")
 ANALYZERS_CONFIG_PATH = Path("config/analyzers.yaml")
 CUSTOM_ANALYZER_ADAPTER_DIR = Path("backend/app/analyzers/custom")
+# Where Promote / Add backend support actually register a custom analyzer with the real
+# pipeline+router (see intelligence/analyzer_registry.py and
+# experiments/analyzer_router/analyzer_registry.py's additive merge) - CUSTOM_ANALYZERS_PATH
+# above is legacy: nothing in production reads it, it only still exists for
+# backend/app/api/admin_analyzers.py's older simple CRUD surface. One file per analyzer avoids
+# read-modify-write races between concurrent promotions.
+CUSTOM_ANALYZER_REGISTRY_DIR = Path("config/analyzer_registry.d")
 PYTHON_IMPORT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 EXECUTABLE_ANALYZER_IDS = {
@@ -150,6 +160,12 @@ class BackendSupportOut(BaseModel):
     message: str
 
 
+class AdapterSourceOut(BaseModel):
+    analyzer_id: str
+    adapter_path: str
+    source: str
+
+
 class ExecutionTestOut(BaseModel):
     analyzer_id: str
     available: bool
@@ -159,6 +175,15 @@ class ExecutionTestOut(BaseModel):
     sample_count: int = 0
     signal_count: int = 0
     finding_count: int = 0
+    data_source: Literal["real", "synthetic"] = "synthetic"
+
+
+class ExecutionTestIn(BaseModel):
+    """Optional real sample to test against instead of synthetic data - same (service, metric,
+    analysis_run_id) tuple the metric-analyzer-recommendations sample picker already surfaces."""
+
+    analysis_run_id: str | None = None
+    service: str | None = None
 
 
 class LabRoutingTestIn(BaseModel):
@@ -196,13 +221,88 @@ def _registry_definitions() -> dict[str, tuple[dict, SourceStatus]]:
     custom = _read_yaml(CUSTOM_ANALYZERS_PATH).get("analyzers", {})
     if isinstance(custom, dict):
         definitions.update({key: (value or {}, "custom") for key, value in custom.items()})
+
+    for registration in _load_custom_registrations():
+        definitions[registration.analyzer_id] = (
+            {
+                "display_name": registration.display_name,
+                "supported_profiles": registration.router.supported_profiles,
+                "eligibility_rules": registration.router.eligibility_rules,
+                "scoring_rules": registration.router.scoring_rules,
+                "explanation_templates": registration.router.explanation_templates,
+            },
+            "custom",
+        )
     return definitions
 
 
 def _configured_analyzers() -> set[str]:
     config = _read_yaml(ANALYZERS_CONFIG_PATH)
     analyzers = config.get("analysis", {}).get("analyzers", {})
-    return set(analyzers.keys()) if isinstance(analyzers, dict) else set()
+    ids = set(analyzers.keys()) if isinstance(analyzers, dict) else set()
+    ids.update(registration.analyzer_id for registration in _load_custom_registrations())
+    return ids
+
+
+def _load_custom_registrations() -> list:
+    """Everything in config/analyzer_registry.d/ except builtin.yml, which holds the 7 real
+    built-in analyzers, not anything a user promoted through this wizard."""
+    if not CUSTOM_ANALYZER_REGISTRY_DIR.exists():
+        return []
+    return [reg for reg in load_registrations(CUSTOM_ANALYZER_REGISTRY_DIR) if reg.source_file != "builtin.yml"]
+
+
+def _custom_registration_path(analyzer_id: str) -> Path:
+    return CUSTOM_ANALYZER_REGISTRY_DIR / f"custom_{analyzer_id}.yml"
+
+
+def _custom_adapter_path(analyzer_id: str) -> Path:
+    return CUSTOM_ANALYZER_ADAPTER_DIR / f"{analyzer_id}.py"
+
+
+def _custom_registration_for(analyzer_id: str):
+    """Only returns a registration if this analyzer_id was actually promoted (has a real entry
+    in config/analyzer_registry.d/) - deliberately does NOT just check whether a same-named file
+    happens to exist under CUSTOM_ANALYZER_ADAPTER_DIR, since that directory can contain
+    legitimately committed example adapters (e.g. backend/app/analyzers/custom/
+    statsforecast_forecast.py) that were never promoted through this specific draft at all."""
+    return next(
+        (reg for reg in _load_custom_registrations() if reg.analyzer_id == analyzer_id),
+        None,
+    )
+
+
+def _config_to_registration_dict(config: AnalyzerConfigIn) -> dict:
+    """Builds the config/analyzer_registry.d/ registration for a custom analyzer authored
+    through the Add Analyzer wizard - the shape intelligence/analyzer_registry.py's loader (and,
+    for its router block, experiments/analyzer_router/analyzer_registry.py's additive merge)
+    expects. Reuses _ui_to_registry's already-validated eligibility/scoring rule flattening
+    rather than re-deriving it."""
+    legacy_shape = _ui_to_registry(config)
+    return {
+        "display_name": legacy_shape["display_name"],
+        "enabled": config.enabled,
+        "class_path": f"backend.app.analyzers.custom.{config.analyzer_id}.{_adapter_class_name(config.analyzer_id)}",
+        "router": {
+            "supported_profiles": legacy_shape["supported_profiles"],
+            "eligibility_rules": legacy_shape["eligibility_rules"],
+            "scoring_rules": legacy_shape["scoring_rules"],
+            "explanation_templates": legacy_shape["explanation_templates"],
+        },
+        "runtime_params": dict(config.runtime_params or {}),
+    }
+
+
+def _executable_analyzer_ids() -> set[str]:
+    """The static 7 built-ins, plus any custom analyzer whose adapter stub file has actually
+    been created (Add backend support) - matching what SignalPipeline._build_analyzers() would
+    really be able to construct, instead of the old fixed set that could never include a custom
+    analyzer no matter how far through the wizard it had progressed."""
+    ids = set(EXECUTABLE_ANALYZER_IDS)
+    for registration in _load_custom_registrations():
+        if _custom_adapter_path(registration.analyzer_id).exists():
+            ids.add(registration.analyzer_id)
+    return ids
 
 
 def _runtime_mappings() -> list[RuntimeMappingOut]:
@@ -532,7 +632,13 @@ def get_analyzer_readiness(
 
     configured = _configured_analyzers()
     config_exists = analyzer_id in configured or executable_mapping in configured
-    backend_implementation_exists = executable_mapping in EXECUTABLE_ANALYZER_IDS
+    executable_ids = _executable_analyzer_ids()
+    # "not_implemented" is the sentinel a self-implemented custom analyzer's runtime_mapping
+    # carries (see _config_to_registration_dict - it always points class_path at the analyzer's
+    # own id, ignoring runtime_mapping). Checking analyzer_id directly first means a genuinely
+    # backend-supported custom analyzer is recognized as executable even though its own
+    # runtime_mapping field is still the "not_implemented" sentinel, not a real builtin id.
+    backend_implementation_exists = analyzer_id in executable_ids or executable_mapping in executable_ids
     runtime_status: RuntimeMappingStatus = "executable" if backend_implementation_exists else "not_implemented"
     if raw_runtime_mapping and raw_runtime_mapping != executable_mapping and not backend_implementation_exists:
         runtime_status = "mapped_to_missing_runtime"
@@ -578,13 +684,21 @@ def save_analyzer_draft(payload: AnalyzerDraftIn, db: Session = Depends(get_db))
         select(AnalyzerDraftEntity).where(AnalyzerDraftEntity.analyzer_id == payload.config.analyzer_id)
     ).scalar_one_or_none()
     now = datetime.utcnow()
+    # _validate_analyzer above already raised if this config were structurally invalid, so
+    # reaching this point means it's already validated - there used to be a separate
+    # "Validate Rules" step/endpoint after this one that did nothing but flip this same status
+    # unconditionally (see git history: mark_routing_tested). Landing directly on
+    # "routing_tested" here means Promote is available right after Save, with one less click
+    # that never actually checked anything additional.
+    routing_test_json = {"status": "passed", "message": "Structural validation passed when the draft was saved."}
     if existing is None:
         row = AnalyzerDraftEntity(
             analyzer_id=payload.config.analyzer_id,
             display_name=payload.config.display_name,
-            status="draft",
+            status="routing_tested",
             config_json=payload.config.model_dump(),
             readiness_json=readiness,
+            routing_test_json=routing_test_json,
             created_by=payload.created_by,
             updated_at=now,
         )
@@ -594,21 +708,9 @@ def save_analyzer_draft(payload: AnalyzerDraftIn, db: Session = Depends(get_db))
         row.display_name = payload.config.display_name
         row.config_json = payload.config.model_dump()
         row.readiness_json = readiness
-        row.status = "draft" if row.status not in {"executable", "benchmark_passed"} else row.status
+        row.routing_test_json = routing_test_json
+        row.status = "routing_tested" if row.status not in {"executable", "benchmark_passed"} else row.status
         row.updated_at = now
-    db.commit()
-    db.refresh(row)
-    return _draft_to_out(row)
-
-
-@router.post("/drafts/{draft_id}/routing-test", response_model=AnalyzerDraftOut)
-def mark_routing_tested(draft_id: int, db: Session = Depends(get_db)) -> AnalyzerDraftOut:
-    row = db.get(AnalyzerDraftEntity, draft_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Analyzer draft not found")
-    row.routing_test_json = {"status": "passed", "message": "Routing test passed from Add Analyzer workbench."}
-    row.status = "routing_tested"
-    row.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(row)
     return _draft_to_out(row)
@@ -616,15 +718,28 @@ def mark_routing_tested(draft_id: int, db: Session = Depends(get_db)) -> Analyze
 
 @router.post("/drafts/{draft_id}/promote", response_model=AnalyzerDraftOut)
 def promote_analyzer_draft(draft_id: int, db: Session = Depends(get_db)) -> AnalyzerDraftOut:
+    """Registers the draft with the real pipeline and router by writing
+    config/analyzer_registry.d/custom_{analyzer_id}.yml (see intelligence/analyzer_registry.py
+    and the additive merge in experiments/analyzer_router/analyzer_registry.py). This is what
+    makes the analyzer real - construction and routing both read from this directory now, not
+    the old config/custom_analyzers.yaml file that nothing outside this API ever read.
+
+    class_path is written pointing at the adapter stub location even though the stub file may
+    not exist yet (that happens in add_backend_support below) - if something tries to actually
+    construct this analyzer before the stub exists, instantiate() raises a clear import error
+    that SignalPipeline._build_analyzers() already catches and skips, same as any other
+    misconfigured analyzer. Nothing crashes; it's simply not executable until the stub is there.
+    """
     row = db.get(AnalyzerDraftEntity, draft_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Analyzer draft not found")
     config = AnalyzerConfigIn(**(row.config_json or {}))
     _validate_analyzer(config)
-    custom = _read_yaml(CUSTOM_ANALYZERS_PATH)
-    analyzers = custom.setdefault("analyzers", {})
-    analyzers[config.analyzer_id] = _registry_with_pending_implementation(config)
-    _write_yaml(CUSTOM_ANALYZERS_PATH, custom)
+    CUSTOM_ANALYZER_REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+    _write_yaml(
+        _custom_registration_path(config.analyzer_id),
+        {"analyzers": {config.analyzer_id: _config_to_registration_dict(config)}},
+    )
     readiness = get_analyzer_readiness(
         analyzer_id=config.analyzer_id,
         library=config.library,
@@ -651,16 +766,16 @@ def add_backend_support(draft_id: int, db: Session = Depends(get_db)) -> Backend
     config = AnalyzerConfigIn(**(row.config_json or {}))
     _validate_analyzer(config)
 
-    custom = _read_yaml(CUSTOM_ANALYZERS_PATH)
-    analyzers = custom.setdefault("analyzers", {})
-    existing = analyzers.get(config.analyzer_id)
-    if not isinstance(existing, dict):
-        raise HTTPException(status_code=404, detail="Promoted custom analyzer not found in custom_analyzers.yaml.")
-
+    registration_path = _custom_registration_path(config.analyzer_id)
+    if not registration_path.exists():
+        raise HTTPException(status_code=404, detail="Promoted custom analyzer registration not found. Promote it first.")
+    # Re-write to keep the registration in sync with the current draft config (e.g. if it changed
+    # since promote) - class_path is already correct from promote, this just refreshes the rest.
+    _write_yaml(
+        registration_path,
+        {"analyzers": {config.analyzer_id: _config_to_registration_dict(config)}},
+    )
     implementation = _implementation_metadata(config, status="pending")
-    existing["implementation"] = implementation
-    analyzers[config.analyzer_id] = existing
-    _write_yaml(CUSTOM_ANALYZERS_PATH, custom)
 
     CUSTOM_ANALYZER_ADAPTER_DIR.mkdir(parents=True, exist_ok=True)
     init_path = CUSTOM_ANALYZER_ADAPTER_DIR / "__init__.py"
@@ -708,13 +823,129 @@ def preview_analyzer_draft_yaml(draft_id: int, db: Session = Depends(get_db)) ->
     return AnalyzerDraftYamlPreviewOut(analyzer_id=config.analyzer_id, yaml_text=_draft_yaml_text(config))
 
 
+@router.get("/drafts/{draft_id}/adapter-source", response_model=AdapterSourceOut)
+def get_adapter_source(draft_id: int, db: Session = Depends(get_db)) -> AdapterSourceOut:
+    """Shows the generated adapter file's current contents right in the wizard, so implementing
+    analyze() doesn't require leaving the browser to go find the file - refetch after editing to
+    see your own changes reflected here."""
+    row = db.get(AnalyzerDraftEntity, draft_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Analyzer draft not found")
+    config = AnalyzerConfigIn(**(row.config_json or {}))
+    adapter_path = _custom_adapter_path(config.analyzer_id)
+    if not adapter_path.exists():
+        raise HTTPException(status_code=404, detail="Adapter file not found. Add backend support first.")
+    return AdapterSourceOut(
+        analyzer_id=config.analyzer_id,
+        adapter_path=str(adapter_path),
+        source=adapter_path.read_text(encoding="utf-8"),
+    )
+
+
 @router.post("/drafts/{draft_id}/execution-test", response_model=ExecutionTestOut)
-def run_execution_test(draft_id: int, db: Session = Depends(get_db)) -> ExecutionTestOut:
+def run_execution_test(draft_id: int, payload: ExecutionTestIn = Body(default=ExecutionTestIn()), db: Session = Depends(get_db)) -> ExecutionTestOut:
     row = db.get(AnalyzerDraftEntity, draft_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Analyzer draft not found")
     config = AnalyzerConfigIn(**(row.config_json or {}))
     runtime_mapping = _resolve_runtime_mapping(config.runtime_mapping, config.analyzer_id)
+    registration = _custom_registration_for(config.analyzer_id)
+    has_own_adapter = registration is not None and _custom_adapter_path(config.analyzer_id).exists()
+
+    if has_own_adapter:
+        # A genuinely new analyzer (Promote + Add backend support already run) - construct it
+        # for real via the same loader/instantiate() the production pipeline uses, and call its
+        # own analyze() directly, instead of routing through the CSV pipeline machinery built
+        # around the 7 static built-in ids.
+        #
+        # If a real sample was picked (payload.analysis_run_id), use its actual normalized
+        # points - already-normalized rows from a real ingestion run, queried as-is - instead of
+        # a synthetic ramp. A clean run against synthetic data only proves "the code doesn't
+        # crash"; running against real history proves it actually catches (or doesn't catch)
+        # the pattern it was written for.
+        data_source: Literal["real", "synthetic"] = "synthetic"
+        if payload.analysis_run_id:
+            query = select(NormalizedPoint).where(NormalizedPoint.analysis_run_id == payload.analysis_run_id)
+            if payload.service:
+                query = query.where(NormalizedPoint.service == payload.service)
+            points = db.execute(query.order_by(NormalizedPoint.timestamp)).scalars().all()
+            if not points:
+                return ExecutionTestOut(
+                    analyzer_id=config.analyzer_id,
+                    available=True,
+                    status="failed",
+                    reason=f"No normalized points found for analysis_run_id '{payload.analysis_run_id}'.",
+                    runtime_mapping=config.runtime_mapping,
+                    data_source="real",
+                )
+            normalized = pd.DataFrame(
+                [
+                    {
+                        "timestamp": point.timestamp,
+                        "value": point.value,
+                        "metric_name": point.metric_name,
+                        "service": point.service,
+                        "env": point.env,
+                    }
+                    for point in points
+                ]
+            )
+            data_source = "real"
+        else:
+            sample_count = max(config.min_samples, 90)
+            timestamps = pd.date_range(end=pd.Timestamp.utcnow(), periods=sample_count, freq="5min")
+            raw = pd.DataFrame(
+                {
+                    "timestamp": timestamps,
+                    "value": [50.0 + (idx * 0.08) for idx in range(sample_count)],
+                    "metric_name": f"{config.analyzer_id}_execution_test",
+                    "service": "execution-test",
+                }
+            )
+            input_config = InputConfig(
+                source_type="csv",
+                file_path="",
+                history="1d",
+                interval="5m",
+                timestamp_column="timestamp",
+                value_column="value",
+                metric_column="metric_name",
+                required_columns=["timestamp", "metric_name", "value"],
+                optional_columns=["service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"],
+                service="execution-test",
+                metric_name=f"{config.analyzer_id}_execution_test",
+            )
+            normalized = normalize_timeseries(raw, input_config)
+
+        try:
+            analyzer_instance = instantiate_analyzer(registration, overrides=config.runtime_params or {})
+            signals = analyzer_instance.analyze(normalized)
+            result = ExecutionTestOut(
+                analyzer_id=config.analyzer_id,
+                available=True,
+                status="passed",
+                reason=f"Execution test passed - ran your analyzer's own analyze() directly against {data_source} data.",
+                runtime_mapping=config.runtime_mapping,
+                sample_count=len(normalized),
+                signal_count=len(signals),
+                finding_count=0,
+                data_source=data_source,
+            )
+        except Exception as exc:  # pragma: no cover - custom analyzer code varies
+            result = ExecutionTestOut(
+                analyzer_id=config.analyzer_id,
+                available=True,
+                status="failed",
+                reason=f"Execution test failed: {exc}",
+                runtime_mapping=config.runtime_mapping,
+                sample_count=len(normalized),
+                data_source=data_source,
+            )
+        row.execution_test_json = result.model_dump()
+        row.updated_at = datetime.utcnow()
+        db.commit()
+        return result
+
     if runtime_mapping not in EXECUTABLE_ANALYZER_IDS:
         if runtime_mapping == "not_implemented":
             reason = (
@@ -816,14 +1047,50 @@ def test_routing_with_lab_data(payload: LabRoutingTestIn) -> LabRoutingTestOut:
         temp_path.unlink(missing_ok=True)
 
 
-@router.delete("/drafts/{draft_id}", response_model=dict)
-def delete_analyzer_draft(draft_id: int, db: Session = Depends(get_db)) -> dict:
-    row = db.get(AnalyzerDraftEntity, draft_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Analyzer draft not found")
-    db.delete(row)
-    db.commit()
-    return {"deleted": 1}
+@router.delete("/analyzers/{analyzer_id}", response_model=dict)
+def delete_analyzer_completely(
+    analyzer_id: str,
+    delete_code_file: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Deletes everything this wizard created for one analyzer, in one action, regardless of
+    which stage it's at - a draft still in Postgres, a promoted registration, or a fully
+    backend-supported one. Replaces the old split delete (a drafts-only endpoint plus
+    admin_analyzers.py's registry-only endpoint) that left orphaned rows behind: deleting only
+    the registry file used to leave the Postgres draft invisible but still marked
+    'executable', so re-saving the same analyzer_id later silently inherited that stale status
+    instead of starting over as an unverified draft.
+
+    delete_code_file defaults to false - keeping the generated Python file is the safer default
+    if you're planning to fix and re-promote under the same id; pass true for a clean slate.
+    """
+    if analyzer_id in EXECUTABLE_ANALYZER_IDS:
+        raise HTTPException(status_code=400, detail="Built-in analyzers cannot be deleted.")
+
+    deleted = {"draft": False, "registration": False, "code_file": False}
+
+    draft_row = db.execute(
+        select(AnalyzerDraftEntity).where(AnalyzerDraftEntity.analyzer_id == analyzer_id)
+    ).scalar_one_or_none()
+    if draft_row is not None:
+        db.delete(draft_row)
+        db.commit()
+        deleted["draft"] = True
+
+    registration_path = _custom_registration_path(analyzer_id)
+    if registration_path.exists():
+        registration_path.unlink()
+        deleted["registration"] = True
+
+    if delete_code_file:
+        adapter_path = _custom_adapter_path(analyzer_id)
+        if adapter_path.exists():
+            adapter_path.unlink()
+            deleted["code_file"] = True
+
+    if not any(deleted.values()):
+        raise HTTPException(status_code=404, detail="Nothing found to delete for this analyzer_id.")
+    return {"analyzer_id": analyzer_id, **deleted}
 
 
 @router.get("/config-suggestions", response_model=list[AnalyzerConfigSuggestionOut])

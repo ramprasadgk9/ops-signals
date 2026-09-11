@@ -10,16 +10,14 @@ import pandas as pd
 
 from backend.app.services.timeseries_routing_service import TimeSeriesRoutingService
 from intelligence.adapters.csv_adapter import CSVAdapter
-from intelligence.analyzers import (
-    BaselineShiftAnalyzer,
-    ProphetAnalyzer,
-    PyODOutlierAnalyzer,
-    RupturesAnalyzer,
-    STUMPYAnalyzer,
-    TrendAnalyzer,
-    ZScoreAnomalyAnalyzer,
+from intelligence.analyzer_registry import (
+    AnalyzerRegistration,
+    AnalyzerRegistrationError,
+    instantiate,
+    load_registrations,
 )
-from intelligence.config import AppConfig
+from intelligence.analyzers.base import Analyzer
+from intelligence.config import AnalyzerConfig, AppConfig
 from intelligence.daily_report import OperationalIntelligenceReport, build_daily_report
 from intelligence.finding_aggregator import FindingAggregator
 from intelligence.embeddings.embedder import SummaryEmbedder
@@ -37,6 +35,13 @@ logger = logging.getLogger(__name__)
 
 ROUTER_VERSION = "1.0"
 FEATURE_EXTRACTOR_VERSION = "1.0"
+
+# Repo root, for locating top-level config/ directories (analyzer_registry.d,
+# behavior_definitions.d) that live alongside config/, not relative to whichever specific config
+# file (e.g. config/providers/prometheus.yaml) was loaded for a given run - self.base_path below
+# is the *active config file's own directory*, which is right for resolving relative CSV
+# file_path values but wrong for these, since it varies per provider/config path.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @dataclass(slots=True)
@@ -194,98 +199,56 @@ class SignalPipeline:
         adapter = CSVAdapter(self.config.input, self.base_path)
         return adapter.load()
 
-    def _build_analyzers(self, analyzer_routing: list[dict[str, object]] | None = None) -> list:
+    def _build_analyzers(self, analyzer_routing: list[dict[str, object]] | None = None) -> list[Analyzer]:
+        """Loads every analyzer registration from config/analyzer_registry.d/ (including the 7
+        built-ins, migrated here from a hardcoded if/elif chain per one analyzer - see
+        docs/19-analyzer-router-gap-work-items.md Work Item 1) and constructs the ones that are
+        enabled, selected by the router, and construct without error.
+
+        config/analyzers.yaml's `analysis.analyzers` block is still consulted, but now only as an
+        *override* source - it's what lets config-file toggling (`enabled: false`) and Analyzer
+        Labs' "run with custom params" execution-test flow (TimeSeriesRoutingService's
+        analyzer_overrides) keep working exactly as before. The registry file's own values are
+        the defaults when no override config entry exists for a given analyzer_id.
+        """
         allowed = self._allowed_pipeline_analyzers(analyzer_routing or [])
-        analyzers = []
-        baseline_cfg = self.config.analysis.analyzers.get("baseline_shift")
-        if baseline_cfg and baseline_cfg.enabled and self._should_run_analyzer("baseline_shift", allowed):
-            baseline_params = self._baseline_shift_params(baseline_cfg.params)
-            analyzers.append(
-                BaselineShiftAnalyzer(
-                    threshold_percent=baseline_params["threshold_percent"],
-                    min_segment_size=int(baseline_params["min_segment_size"]),
-                    change_threshold=baseline_params["change_threshold"],
-                    ruptures_algorithm=str(baseline_params["ruptures_algorithm"]),
-                    ruptures_model=str(baseline_params["ruptures_model"]),
-                    ruptures_jump=int(baseline_params["ruptures_jump"]),
-                    ruptures_n_bkps=int(baseline_params["ruptures_n_bkps"]),
+        registrations: list[AnalyzerRegistration] = load_registrations(_REPO_ROOT / "config" / "analyzer_registry.d")
+        analyzers: list[Analyzer] = []
+        for registration in registrations:
+            override_cfg = self.config.analysis.analyzers.get(registration.analyzer_id)
+            enabled = override_cfg.enabled if override_cfg is not None else registration.enabled
+            if not enabled or not self._should_run_analyzer(registration.analyzer_id, allowed):
+                continue
+            overrides = self._override_params_for(registration.analyzer_id, override_cfg)
+            try:
+                analyzers.append(instantiate(registration, overrides=overrides))
+            except AnalyzerRegistrationError as exc:
+                logger.error(
+                    "Skipping analyzer '%s' from %s: %s",
+                    registration.analyzer_id,
+                    registration.source_file,
+                    exc,
                 )
-            )
-
-        ruptures_cfg = self.config.analysis.analyzers.get("ruptures")
-        if ruptures_cfg and ruptures_cfg.enabled and self._should_run_analyzer("ruptures", allowed):
-            ruptures_params = self._baseline_shift_params(ruptures_cfg.params)
-            analyzers.append(
-                RupturesAnalyzer(
-                    min_segment_size=int(ruptures_params["min_segment_size"]),
-                    change_threshold=ruptures_params["change_threshold"],
-                )
-            )
-
-        anomaly_cfg = self.config.analysis.analyzers.get("anomaly_zscore")
-        if anomaly_cfg and anomaly_cfg.enabled and self._should_run_analyzer("anomaly_zscore", allowed):
-            anomaly_impl = self._analyzer_implementation(anomaly_cfg.params) or {}
-            analyzers.append(
-                ZScoreAnomalyAnalyzer(
-                    zscore_threshold=float(anomaly_impl.get("zscore_threshold", anomaly_cfg.params.get("zscore_threshold", 3.0))),
-                    grouping_gap=str(anomaly_impl.get("grouping_gap", anomaly_cfg.params.get("grouping_gap", "15m"))),
-                    finding_rules=self._analyzer_finding_rules(anomaly_cfg.params),
-                    implementation=anomaly_impl,
-                )
-            )
-
-        pyod_outlier_cfg = self.config.analysis.analyzers.get("pyod_outlier")
-        if pyod_outlier_cfg and pyod_outlier_cfg.enabled and self._should_run_analyzer("pyod_outlier", allowed):
-            pyod_impl = self._analyzer_implementation(pyod_outlier_cfg.params) or {}
-            analyzers.append(
-                PyODOutlierAnalyzer(
-                    detector_type=str(pyod_impl.get("detector_type", pyod_outlier_cfg.params.get("detector_type", "knn"))),
-                    contamination=float(pyod_impl.get("contamination", pyod_outlier_cfg.params.get("contamination", 0.05))),
-                    grouping_gap=str(pyod_impl.get("grouping_gap", pyod_outlier_cfg.params.get("grouping_gap", "15m"))),
-                    min_samples=int(pyod_impl.get("min_samples", pyod_outlier_cfg.params.get("min_samples", 50))),
-                    finding_rule=self._analyzer_finding_rules(pyod_outlier_cfg.params),
-                    implementation=pyod_impl,
-                )
-            )
-
-        trend_cfg = self.config.analysis.analyzers.get("trend")
-        if trend_cfg and trend_cfg.enabled and self._should_run_analyzer("trend", allowed):
-            analyzers.append(
-                TrendAnalyzer(
-                    min_slope_percent=float(trend_cfg.params["min_slope_percent"])
-                    if "min_slope_percent" in trend_cfg.params
-                    else None,
-                    finding_rules=self._analyzer_finding_rules(trend_cfg.params),
-                    implementation=self._analyzer_implementation(trend_cfg.params),
-                )
-            )
-
-        stumpy_cfg = self.config.analysis.analyzers.get("stumpy")
-        if stumpy_cfg and stumpy_cfg.enabled and self._should_run_analyzer("stumpy", allowed):
-            stumpy_impl = self._analyzer_implementation(stumpy_cfg.params) or {}
-            analyzers.append(
-                STUMPYAnalyzer(
-                    window_size=int(stumpy_impl.get("window_size", stumpy_cfg.params.get("window_size", 20))),
-                    motif_count=int(stumpy_impl.get("motif_count", stumpy_cfg.params.get("motif_count", 1))),
-                    profile_threshold=float(stumpy_impl.get("profile_threshold", stumpy_cfg.params.get("profile_threshold", 2.0))),
-                    finding_rules=self._analyzer_finding_rules(stumpy_cfg.params),
-                    implementation=stumpy_impl,
-                )
-            )
-
-        prophet_cfg = self.config.analysis.analyzers.get("prophet")
-        if prophet_cfg and prophet_cfg.enabled and self._should_run_analyzer("prophet", allowed):
-            prophet_impl = self._analyzer_implementation(prophet_cfg.params) or {}
-            analyzers.append(
-                ProphetAnalyzer(
-                    horizon_points=int(prophet_impl.get("horizon_points", prophet_cfg.params.get("horizon_points", 10))),
-                    changepoint_prior_scale=float(prophet_impl.get("changepoint_prior_scale", prophet_cfg.params.get("changepoint_prior_scale", 0.05))),
-                    uncertainty_threshold=float(prophet_impl.get("uncertainty_threshold", prophet_cfg.params.get("uncertainty_threshold", 0.15))),
-                    finding_rules=self._analyzer_finding_rules(prophet_cfg.params),
-                    implementation=prophet_impl,
-                )
-            )
         return analyzers
+
+    def _override_params_for(self, analyzer_id: str, override_cfg: AnalyzerConfig | None) -> dict[str, object]:
+        """Translates config/analyzers.yaml's per-analyzer `params` override into the kwarg shape
+        each analyzer's constructor actually expects. Most built-in analyzers accept
+        `implementation`/`finding_rules` dicts directly, so the raw params dict already matches -
+        but baseline_shift and ruptures still take flattened scalar kwargs (a shape inherited
+        from the old hardcoded _build_analyzers() chain; see _baseline_shift_params). This is
+        narrowly-scoped glue for those two legacy analyzers only - new analyzers registered
+        through config/analyzer_registry.d/ should use flat runtime_params from the start and
+        won't need any special-casing here.
+        """
+        if override_cfg is None:
+            return {}
+        if analyzer_id == "baseline_shift":
+            return self._baseline_shift_params(override_cfg.params)
+        if analyzer_id == "ruptures":
+            flat = self._baseline_shift_params(override_cfg.params)
+            return {"min_segment_size": flat["min_segment_size"], "change_threshold": flat["change_threshold"]}
+        return override_cfg.params
 
     def _route_analyzers(self, normalized: pd.DataFrame) -> tuple[list[dict[str, object]], dict[str, object], str | None]:
         if normalized.empty:
@@ -601,7 +564,7 @@ class SignalPipeline:
         self.store.save_question_answers(answers)
 
     def _evaluate_behavior_intelligence(self, signals: list[OperationalSignal], analysis_run_id: str) -> None:
-        behavior_definitions_path = self.base_path / "config" / "behavior_definitions.d"
+        behavior_definitions_path = _REPO_ROOT / "config" / "behavior_definitions.d"
         if not behavior_definitions_path.exists() or not hasattr(self.store, "engine"):
             return
         service = BehaviorIntelligenceService(behavior_definitions_path)
