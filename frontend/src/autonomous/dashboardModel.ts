@@ -1,6 +1,8 @@
 import type { AnalysisRun, BehaviorFinding, Finding } from '../types';
 import type { AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
 
+export type { AutonomousRunResponse };
+
 export type AutonomousPolicyRun = {
   id: string;
   policy_run_id?: string;
