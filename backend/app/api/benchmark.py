@@ -25,7 +25,7 @@ class BenchmarkRunRequest(BaseModel):
     )
     model_id: str | None = Field(
         default=None,
-        description="Frontier model ID (e.g. 'gemini-2.0-flash', 'gpt-4o', 'anthropic/claude-3.5-sonnet').",
+        description="Frontier model ID (e.g. 'gemini-3.8-flash', 'gemini-3.5-flash', 'gpt-4o').",
     )
     judge_provider: str | None = Field(
         default=None,

@@ -45,7 +45,7 @@ export const BenchmarkRunControls: React.FC<BenchmarkRunControlsProps> = ({
   const handleProviderChange = (newProvider: 'mock' | 'gemini' | 'openai' | 'openrouter') => {
     setProvider(newProvider);
     if (newProvider === 'gemini') {
-      setModelId('gemini-2.0-flash');
+      setModelId('gemini-3.8-flash');
     } else if (newProvider === 'openai') {
       setModelId('gpt-4o');
     } else if (newProvider === 'openrouter') {
@@ -126,7 +126,7 @@ export const BenchmarkRunControls: React.FC<BenchmarkRunControlsProps> = ({
                   onChange={(e) => setModelId(e.target.value)}
                   helperText={
                     provider === 'gemini'
-                      ? 'e.g. gemini-2.0-flash, gemini-1.5-pro'
+                      ? 'e.g. gemini-3.8-flash, gemini-3.5-flash, gemini-3-pro'
                       : provider === 'openai'
                       ? 'e.g. gpt-4o, gpt-4o-mini'
                       : 'Model name or mock alias'

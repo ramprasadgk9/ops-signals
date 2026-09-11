@@ -2,7 +2,7 @@
 # Zero hardcoded model names in code; values resolved dynamically at runtime.
 # Supported providers:
 #   - 'mock': Deterministic zero-token CI testing (default).
-#   - 'gemini': Google Gemini models (e.g. gemini-2.0-flash, gemini-1.5-pro) using GEMINI_API_KEY.
+#   - 'gemini': Google Gemini models (e.g. gemini-3.8-flash, gemini-3.5-flash) using GEMINI_API_KEY.
 #   - 'openai': OpenAI models (e.g. gpt-4o, gpt-4o-mini) using OPENAI_API_KEY.
 #   - 'openrouter': OpenRouter models (e.g. anthropic/claude-3.5-sonnet) using OPENROUTER_API_KEY.
 

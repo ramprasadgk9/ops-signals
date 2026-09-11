@@ -591,7 +591,7 @@ def test_judge_evaluator_gemini_provider(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_model_run_config_update_provider_judge_and_pricing() -> None:
-    """Verifies that update_provider correctly updates mock-judge-evaluator to gemini-2.0-flash."""
+    """Verifies that update_provider correctly updates mock-judge-evaluator to gemini-3.8-flash."""
     judge_config = ModelRunConfig(
         name="Judge",
         model_id="mock-judge-evaluator",
@@ -603,9 +603,14 @@ def test_model_run_config_update_provider_judge_and_pricing() -> None:
     # Update to Gemini without specifying model_id
     judge_config.update_provider("gemini")
     assert judge_config.provider == "gemini"
-    assert judge_config.model_id == "gemini-2.0-flash"
+    assert judge_config.model_id == "gemini-3.8-flash"
     assert judge_config.pricing.input_per_mtok == 0.10
     assert judge_config.pricing.output_per_mtok == 0.40
+
+    # Pricing defaults for gemini-3.5-flash
+    flash_35_pricing = PricingConfig.default_for_model("gemini-3.5-flash")
+    assert flash_35_pricing.input_per_mtok == 0.10
+    assert flash_35_pricing.output_per_mtok == 0.40
 
     # Update to explicit model_id
     judge_config.update_provider("gemini", model_id="gemini-1.5-pro")

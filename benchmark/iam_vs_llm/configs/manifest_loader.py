@@ -51,7 +51,7 @@ class ModelRunConfig:
             self.pricing = PricingConfig.default_for_model(model_id)
         elif self.provider == "gemini":
             if not self.model_id or self.model_id.startswith("mock-"):
-                self.model_id = "gemini-2.0-flash"
+                self.model_id = "gemini-3.8-flash"
             self.pricing = PricingConfig.default_for_model(self.model_id)
 
 
