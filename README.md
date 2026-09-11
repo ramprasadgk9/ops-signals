@@ -107,18 +107,33 @@ Historical similarity does not prove two cases share the same root cause.
 
 - Canonical CSV ingestion
 - Normalization into PostgreSQL
-- Analyzer registry and capability-driven question model
+- Config-driven analyzer registry, extensible without touching core code - see [Analyzer Plugin Framework](docs/04-analyzer-plugin-framework.md)
 - Signal generation and aggregation into findings
 - Behavior intelligence for cross-metric operational patterns
 - Operational case lifecycle fields for investigation, RCA, corrective action, and outcome
-- Qdrant-based operational memory for similar-case retrieval
+- Qdrant-based operational memory for similar-case retrieval, with automatic indexing on case create/update
 - Analyzer recommendation flow for profiling metric samples and ranking analyzers
+- Autonomous Prometheus monitoring - configure scope and policy, run once, see results inline
+- A benchmark suite validating router accuracy, detection accuracy, false-positive behavior, and Behavior Intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
 - React UI for findings, questions, signals, cases, and history
 
 ## Operational Intelligence Assistant
 
-Ops Signals includes a single chat interface that routes questions across historical cases and application knowledge.
-The assistant should be treated as a retrieval and explanation layer, not as an oracle.
+Ops Signals includes a single chat interface ("Ask Ops Signals") that routes questions across
+historical cases, current findings, behaviors, analyzers, and application documentation. The
+assistant should be treated as a retrieval and explanation layer, not as an oracle.
+
+By default it runs on deterministic retrieval and template answers - no AI required. Point it at
+a local model (self-hosted via Ollama, `docker compose --profile ai up`; no API key, no cloud
+calls) and it additionally gets:
+
+- LLM-synthesized answers grounded in the same retrieved evidence, instead of a fixed template
+- LLM-assisted question routing on top of (never instead of) the deterministic keyword router, so
+  a weaker model can only add coverage, never lose it
+- Semantic search over cases, findings, and behaviors, not just keyword matching
+
+Every response labels which mode produced it (`ai_synthesis_used`), so it's never ambiguous
+whether an answer came from a model or from a template.
 
 ### What users can expect
 

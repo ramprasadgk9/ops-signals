@@ -243,3 +243,33 @@ def test_cases_fall_back_to_keyword_search_when_case_similarity_is_unavailable()
             )
 
     assert any(source.source_type == "case" for source in group.sources)
+
+
+def test_document_search_score_floor_does_not_exclude_a_genuinely_relevant_short_doc() -> None:
+    # Regression test: live-verified gap - "Application Overview" (a real generated doc) scores
+    # ~0.38 against a casual question like "whats use of this application" with the real
+    # embedding model. The old score_threshold floor (max(0.4, minimum_score)) silently discarded
+    # it even when the caller (the real frontend) asked for minimum_score=0.35 - the single most
+    # on-topic document in the whole index never had a chance to be returned.
+    from backend.app.assistant.schemas import AssistantChatRequest
+
+    class _RecordingDocsStore:
+        def __init__(self, results: list[dict]) -> None:
+            self.results = results
+            self.last_score_threshold: float | None = None
+
+        def search(self, vector, limit=5, score_threshold=0.0, filters=None):
+            self.last_score_threshold = score_threshold
+            return [row for row in self.results if row["score"] >= score_threshold]
+
+    docs_store = _RecordingDocsStore(
+        [{"score": 0.384, "payload": {"title": "Application Overview", "reference": "", "summary": "...", "source_type": "generated"}}]
+    )
+    assistant = OperationalIntelligenceAssistant(
+        AssistantServices(embedder=_FakeEmbedder(), case_similarity=_DEFAULT_CASE_SIMILARITY, docs_store=docs_store, ai_services=None)
+    )
+
+    sources, _ = assistant._answer_application(AssistantChatRequest(message="whats use of this application", top_k=6, minimum_score=0.35))
+
+    assert docs_store.last_score_threshold <= 0.35
+    assert any(source.title == "Application Overview" for source in sources)

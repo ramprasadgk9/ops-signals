@@ -2,18 +2,59 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from uuid import UUID, NAMESPACE_URL, uuid5
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 
 from backend.app.behavior_intelligence.loader import load_definitions
 from backend.app.capabilities.builtins import BUILTIN_CAPABILITIES
 from backend.app.models.entities import Base
 from backend.app.memory.embedder import Embedder
 from intelligence.analyzers import BaselineShiftAnalyzer, RupturesAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
+
+# Kept well under the embedder's practical input limit so a chunk's meaning isn't diluted by
+# being crammed against the model's context ceiling.
+CHUNK_SIZE = 6000
+CHUNK_OVERLAP = 200
+# Generous headroom - large enough that no real document in this repo needs more chunks than
+# this (the largest doc as of this writing is ~31K chars, i.e. 6 chunks), used only to bound how
+# many stale chunk-slot ids get cleared before each document's current chunks are written.
+MAX_CHUNKS_PER_DOCUMENT = 25
+
+
+def _split_into_chunks(content: str) -> list[str]:
+    """Splits long content into embeddable chunks instead of silently truncating past
+    CHUNK_SIZE characters - the previous behavior made everything past the first ~1,600 words of
+    a long document permanently unsearchable. Prefers splitting on markdown "## " section
+    headers so each chunk stays a coherent unit; falls back to fixed-size windows (with overlap,
+    so a fact split across the boundary isn't lost entirely) for a section that's itself too long
+    or for content with no headers at all."""
+    if len(content) <= CHUNK_SIZE:
+        return [content]
+
+    sections = re.split(r"\n(?=## )", content)
+    chunks: list[str] = []
+    current = ""
+    for section in sections:
+        if len(current) + len(section) <= CHUNK_SIZE:
+            current += section
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        if len(section) <= CHUNK_SIZE:
+            current = section
+        else:
+            step = CHUNK_SIZE - CHUNK_OVERLAP
+            for start in range(0, len(section), step):
+                chunks.append(section[start : start + CHUNK_SIZE])
+    if current:
+        chunks.append(current)
+    return chunks[:MAX_CHUNKS_PER_DOCUMENT]
 
 
 @dataclass(slots=True)
@@ -84,25 +125,58 @@ class ApplicationKnowledgeBootstrapService:
         created = 0
         updated = 0
 
-        for doc in documents:
-            point_id = self._point_id(doc.document_id)
-            payload = {
-                "document_id": doc.document_id,
-                "document_type": doc.document_type,
-                "topic": doc.topic,
-                "title": doc.title,
-                "related_components": doc.related_components,
-                "source_type": doc.source_type,
-                "source_path": doc.source_path,
-                "version": doc.version,
-                "summary": doc.content[:1200],
-                **doc.metadata,
-            }
-            vector = self.embedder.encode(doc.content[:8000])
-            self.client.upsert(
+        # A document that's no longer produced at all - moved to docs/archive/, renamed, deleted -
+        # would otherwise stay indexed forever: this loop only ever upserts what _build_documents()
+        # currently returns, it never previously deleted anything. Confirmed live, not
+        # hypothetical: docs/release-review.md kept scoring as a top search result after being
+        # moved into the excluded archive/ directory, because its old points were simply never
+        # removed.
+        current_ids = {doc.document_id for doc in documents}
+        for removed_id in set(existing) - current_ids:
+            self.client.delete(
                 collection_name=self.COLLECTION_NAME,
-                points=[PointStruct(id=point_id, vector=vector, payload=payload)],
+                points_selector=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=removed_id))]),
             )
+
+        for doc in documents:
+            chunks = _split_into_chunks(doc.content)
+
+            # Only pay for a clear when this document is actually chunked this run (bootstrap()
+            # runs on every app startup, including in the test suite, so a clear call for every
+            # one of ~70 mostly-short documents adds real, measurable overhead for no benefit in
+            # the common case). This leaves one accepted edge case: if a document's chunk COUNT
+            # shrinks between runs (e.g. it's trimmed from 3 chunks to 2), the now-unused slot's
+            # old point is left behind as a low-relevance stale candidate rather than deleted -
+            # a real but minor tradeoff against re-clearing 25 slots for every document, every
+            # startup, for content that in practice changes rarely.
+            if len(chunks) > 1:
+                stale_ids = [self._point_id(doc.document_id)] + [
+                    self._point_id(f"{doc.document_id}:chunk:{slot}") for slot in range(MAX_CHUNKS_PER_DOCUMENT)
+                ]
+                self.client.delete(collection_name=self.COLLECTION_NAME, points_selector=stale_ids)
+
+            for index, chunk_text in enumerate(chunks):
+                chunk_document_id = doc.document_id if len(chunks) == 1 else f"{doc.document_id}:chunk:{index}"
+                point_id = self._point_id(chunk_document_id)
+                payload = {
+                    "document_id": doc.document_id,
+                    "chunk_index": index,
+                    "chunk_count": len(chunks),
+                    "document_type": doc.document_type,
+                    "topic": doc.topic,
+                    "title": doc.title,
+                    "related_components": doc.related_components,
+                    "source_type": doc.source_type,
+                    "source_path": doc.source_path,
+                    "version": doc.version,
+                    "summary": chunk_text[:1200],
+                    **doc.metadata,
+                }
+                vector = self.embedder.encode(chunk_text)
+                self.client.upsert(
+                    collection_name=self.COLLECTION_NAME,
+                    points=[PointStruct(id=point_id, vector=vector, payload=payload)],
+                )
             if doc.document_id in existing:
                 updated += 1
             else:
@@ -199,7 +273,15 @@ class ApplicationKnowledgeBootstrapService:
 
     def _repo_docs(self) -> list[ApplicationKnowledgeDocument]:
         docs: list[ApplicationKnowledgeDocument] = []
-        for path in [self.repo_root / "README.md", *sorted((self.repo_root / "docs").glob("*.md"))]:
+        docs_dir = self.repo_root / "docs"
+        # Recursive, not docs_dir.glob("*.md") - a flat glob silently skipped docs/adr/*.md
+        # entirely for as long as this method existed. "archive" is excluded so dated,
+        # point-in-time review docs don't compete with living documentation in search results.
+        nested_docs = sorted(
+            path for path in docs_dir.rglob("*.md")
+            if "archive" not in path.relative_to(docs_dir).parts
+        )
+        for path in [self.repo_root / "README.md", *nested_docs]:
             if not path.exists():
                 continue
             text = path.read_text(encoding="utf-8")
