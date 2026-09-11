@@ -10,7 +10,15 @@ from benchmark.router_benchmark import PROJECT_ROOT, RouterBenchmarkExecutionErr
 
 
 def discover_scenarios(root: Path) -> list[Path]:
-    return sorted(path for path in root.iterdir() if path.is_dir() and (path / "ground_truth.yaml").exists())
+    return sorted(path for path in root.iterdir() if path.is_dir() and _is_router_scenario(path))
+
+
+def _is_router_scenario(scenario_dir: Path) -> bool:
+    ground_truth_path = scenario_dir / "ground_truth.yaml"
+    if not ground_truth_path.exists():
+        return False
+    ground_truth = yaml.safe_load(ground_truth_path.read_text(encoding="utf-8")) or {}
+    return isinstance(ground_truth, dict) and "expected_router" in ground_truth
 
 
 def run_suite(scenarios_root: Path) -> list[RouterEvaluation]:

@@ -45,6 +45,48 @@ def test_optional_router_analyzers_do_not_fail_evaluation() -> None:
     assert result.unexpected_optional == []
 
 
+def test_strict_precision_is_off_by_default_even_with_unexpected_recommendations() -> None:
+    expected = {"required_recommended": ["ruptures"]}
+    actual = {
+        "recommended": [{"analyzer": "ruptures", "eligible": True}, {"analyzer": "kats", "eligible": True}],
+        "optional": [{"analyzer": "alibi_detect", "eligible": True}],
+        "not_recommended": [],
+    }
+
+    result = evaluate_router_output("scenario", expected, actual, profile={})
+
+    assert result.status == "PASS"
+    assert "no_unexpected_recommendations" not in result.checks
+
+
+def test_strict_precision_fails_when_an_unexpected_analyzer_is_recommended_or_optional() -> None:
+    expected = {"required_recommended": ["ruptures"], "allowed_optional": ["trend_regression"], "strict_precision": True}
+    actual = {
+        "recommended": [{"analyzer": "ruptures", "eligible": True}, {"analyzer": "kats", "eligible": True}],
+        "optional": [{"analyzer": "trend_regression", "eligible": True}],
+        "not_recommended": [],
+    }
+
+    result = evaluate_router_output("scenario", expected, actual, profile={})
+
+    assert result.status == "FAIL"
+    assert result.checks["no_unexpected_recommendations"] is False
+
+
+def test_strict_precision_passes_when_only_required_and_allowed_optional_appear() -> None:
+    expected = {"required_recommended": ["ruptures"], "allowed_optional": ["trend_regression"], "strict_precision": True}
+    actual = {
+        "recommended": [{"analyzer": "ruptures", "eligible": True}],
+        "optional": [{"analyzer": "trend_regression", "eligible": True}],
+        "not_recommended": [],
+    }
+
+    result = evaluate_router_output("scenario", expected, actual, profile={})
+
+    assert result.status == "PASS"
+    assert result.checks["no_unexpected_recommendations"] is True
+
+
 def test_forbidden_recommended_router_analyzer_fails_evaluation() -> None:
     expected = {
         "required_recommended": ["ruptures"],
@@ -76,10 +118,11 @@ expected_router:
         encoding="utf-8",
     )
 
-    result = run_benchmark(scenario_dir)
+    result = run_benchmark(scenario_dir, reports_dir=tmp_path / "reports")
 
     assert result.status == "ERROR"
     assert "dataset is missing" in str(result.execution_error)
+    assert (tmp_path / "reports" / "missing_dataset_router.json").exists()
 
 
 def test_phase_one_generated_profiles_are_behaviorally_distinct() -> None:
@@ -195,6 +238,7 @@ def test_router_suite_runner_returns_success_for_phase_one_scenarios() -> None:
             "cpu_seasonal_forecast_v1",
             "cpu_complex_forecast_v1",
             "cpu_mixed_behavior_v1",
+            "cpu_healthy_stable_v1",
         ]
     ]
 
@@ -216,6 +260,7 @@ def test_suite_runner_discovers_scenario_directories() -> None:
         "cpu_mixed_behavior_v1",
         "cpu_distribution_drift_v1",
         "cpu_online_anomaly_stream_v1",
+        "cpu_healthy_stable_v1",
     }
 
 
@@ -230,6 +275,22 @@ def test_context_dependent_advanced_scenarios_are_documented_gaps() -> None:
     assert river.status == "GAP"
     assert "execution_mode=streaming" in str(river.documented_gap)
     assert exit_code([drift, river]) == 0
+
+
+def test_healthy_stable_scenario_stays_quiet_on_data_with_nothing_interesting_happening() -> None:
+    scenarios_root = PROJECT_ROOT / "benchmark" / "scenarios"
+
+    evaluation = run_benchmark(scenarios_root / "cpu_healthy_stable_v1")
+
+    assert evaluation.status == "PASS"
+    assert evaluation.actual["recommended"] == []
+    # Individual analyzers are allowed to emit raw statistical noise (pyod_outlier's contamination
+    # rate in particular) - what must not happen is that noise surviving into an actionable,
+    # user-facing finding. Pinning the actual counts here means a future change to the
+    # finding_rules/importance-scoring layer that lets this noise start reaching users shows up as
+    # a specific, understandable failure instead of a silent regression.
+    assert evaluation.detection_details["total_raw_signals"] > 0
+    assert evaluation.detection_details["actionable_findings"] == []
 
 
 def _load_generator(scenario_id: str):
