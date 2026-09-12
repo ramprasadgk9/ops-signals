@@ -201,9 +201,42 @@ describe('BenchmarkDashboardPage', () => {
     expect(screen.getAllByText(/\$0\.00/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/100% cost reduction vs LLM agents/i)).toBeInTheDocument();
     expect(screen.getByText(/Multi-Scenario Pareto Frontier Scorecard/i)).toBeInTheDocument();
-    expect(screen.getByText(/IAM Engine/i)).toBeInTheDocument();
-    expect(screen.getByText(/Baseline A/i)).toBeInTheDocument();
-    expect(screen.getByText(/Baseline B/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/IAM Engine/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Baseline A/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Baseline B/i).length).toBeGreaterThanOrEqual(1);
+
+    // Verify Benchmark Analysis Card and Rating
+    expect(screen.getByText(/Benchmark Analysis & Architectural Insights/i)).toBeInTheDocument();
+    expect(screen.getByText(/9\.2 \/ 10/i)).toBeInTheDocument();
+    expect(screen.getByText(/Grade: A-/i)).toBeInTheDocument();
+  });
+
+  it('navigates through architectural analysis tabs', async () => {
+    vi.mocked(api.benchmarkScenarios).mockResolvedValue(mockScenarios);
+    vi.mocked(api.benchmarkReport).mockResolvedValue(mockReport);
+
+    renderBenchmarkDashboard();
+
+    expect(await screen.findByText(/Benchmark Analysis & Architectural Insights/i)).toBeInTheDocument();
+
+    // Default tab: Pareto Frontier & Efficiency
+    expect(screen.getByText(/Core Takeaways on the Efficiency Frontier/i)).toBeInTheDocument();
+
+    // Switch to Tab 2: Causal Attribution Under Stress
+    const causalTab = screen.getByRole('tab', { name: /2\. Causal Attribution Under Stress/i });
+    fireEvent.click(causalTab);
+
+    expect(await screen.findByText(/Cascading Failure & Connection Pool Exhaustion/i)).toBeInTheDocument();
+    expect(screen.getByText(/Benign Batch Maintenance \(False-Alarm Suppression\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/IAM Topology & Causal Traversal/i)).toBeInTheDocument();
+
+    // Switch to Tab 3: Hybrid Architecture Blueprint
+    const hybridTab = screen.getByRole('tab', { name: /3\. Hybrid Architecture Blueprint/i });
+    fireEvent.click(hybridTab);
+
+    expect(await screen.findByText(/Recommended Production Pipeline: Deterministic Triage Feeding an LLM Advisor/i)).toBeInTheDocument();
+    expect(screen.getByText(/Deterministic IAM Algorithmic Triage Engine/i)).toBeInTheDocument();
+    expect(screen.getByText(/Layer 4: LLM Incident Advisor/i)).toBeInTheDocument();
   });
 
   it('opens trajectory drawer when clicking inspect details', async () => {

@@ -16,6 +16,7 @@ import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded';
 import { api } from '../api/queries';
 import { ParetoMetricsOverview } from '../components/benchmark/ParetoMetricsOverview';
 import { ParetoScorecardTable } from '../components/benchmark/ParetoScorecardTable';
+import { BenchmarkAnalysisCard } from '../components/benchmark/BenchmarkAnalysisCard';
 import { ScenarioTrajectoryDrawer } from '../components/benchmark/ScenarioTrajectoryDrawer';
 import { BenchmarkRunControls } from '../components/benchmark/BenchmarkRunControls';
 import type {
@@ -138,6 +139,9 @@ export function BenchmarkDashboardPage() {
         scenarios={report.scenarios}
         onSelectRun={handleSelectRun}
       />
+
+      {/* Benchmark Architectural Analysis & Strategic Insights */}
+      <BenchmarkAnalysisCard report={report} />
 
       {/* Trajectory Drawer */}
       <ScenarioTrajectoryDrawer
