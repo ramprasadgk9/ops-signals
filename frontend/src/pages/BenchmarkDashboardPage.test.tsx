@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { BenchmarkDashboardPage } from './BenchmarkDashboardPage';
+import { calculateBenchmarkRating } from '../components/benchmark/BenchmarkAnalysisCard';
 import { api } from '../api/queries';
 import type { BenchmarkReportResponse, BenchmarkScenarioDescriptor } from '../types/benchmark';
 
@@ -237,6 +238,8 @@ describe('BenchmarkDashboardPage', () => {
     expect(await screen.findByText(/Recommended Production Pipeline: Deterministic Triage Feeding an LLM Advisor/i)).toBeInTheDocument();
     expect(screen.getByText(/Deterministic IAM Algorithmic Triage Engine/i)).toBeInTheDocument();
     expect(screen.getByText(/Layer 4: LLM Incident Advisor/i)).toBeInTheDocument();
+    expect(screen.getByText(/Layer 5: SRE On-Call Resolution & Automated Remediation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Closed-Loop Action/i)).toBeInTheDocument();
   });
 
   it('opens trajectory drawer when clicking inspect details', async () => {
@@ -253,5 +256,32 @@ describe('BenchmarkDashboardPage', () => {
     fireEvent.click(inspectButtons[0]);
 
     expect(await screen.findByText(/Diagnosis & Benchmark Evaluation/i)).toBeInTheDocument();
+  });
+
+  it('calculates benchmark rating dynamically from summary report', () => {
+    // Standard mock report with 0.89 F1 and 5.0 judge ratings
+    const standardRating = calculateBenchmarkRating(mockReport.summary);
+    expect(standardRating.scoreText).toBe('9.2 / 10');
+    expect(standardRating.grade).toBe('Grade: A-');
+    expect(standardRating.scoreValue).toBe(9.2);
+
+    // Fallback when summary is undefined
+    const fallbackRating = calculateBenchmarkRating(undefined);
+    expect(fallbackRating.scoreText).toBe('9.2 / 10');
+    expect(fallbackRating.grade).toBe('Grade: A-');
+
+    // Dynamic lower score when IAM experiences degraded metrics
+    const degradedSummary: any = {
+      ...mockReport.summary,
+      iam: {
+        ...mockReport.summary.iam,
+        avg_evidence_f1: 0.60,
+        avg_judge_attribution: 3.5,
+        avg_judge_actionability: 3.5,
+      },
+    };
+    const degradedRating = calculateBenchmarkRating(degradedSummary);
+    expect(degradedRating.scoreValue).toBeLessThan(8.0);
+    expect(degradedRating.grade).toBe('Grade: D');
   });
 });
