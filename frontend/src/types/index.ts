@@ -610,10 +610,34 @@ export type AnalyzerRecommendation = {
   parameters_tested: Record<string, unknown>;
 };
 
+export type AIAnalyzerPick = {
+  analyzer_id: string;
+  recommendation: 'recommended' | 'optional' | 'not_recommended';
+  rank?: number | null;
+  confidence: number;
+  reason: string;
+};
+
+// Independent second opinion from an optional LLM advisor, computed alongside - never instead of -
+// the deterministic `recommendations` above. available=false whenever AI is off or the advisor
+// call fails; the deterministic recommendations remain complete and correct either way.
+export type AIAnalyzerOpinion = {
+  available: boolean;
+  best_analyzer_id?: string | null;
+  rationale?: string | null;
+  recommended: AIAnalyzerPick[];
+  not_recommended: AIAnalyzerPick[];
+  caveats: string[];
+  diverges_from_router: boolean;
+  router_top_analyzer_id?: string | null;
+  unavailable_reason?: string | null;
+};
+
 export type MetricAnalyzerRecommendation = {
   sample: MetricSample;
   profile: MetricProfile;
   recommendations: AnalyzerRecommendation[];
+  ai_opinion: AIAnalyzerOpinion;
 };
 
 export type TimeValuePoint = {
@@ -664,6 +688,7 @@ export type AnalyzerRecommendationChatResponse = {
   context_version: number;
   normalized_goals: Array<{ goal_id: string; display_name: string; source_text: string }>;
   stale: boolean;
+  ai_opinion: AIAnalyzerOpinion;
 };
 
 export type MemoryChatRequest = {
