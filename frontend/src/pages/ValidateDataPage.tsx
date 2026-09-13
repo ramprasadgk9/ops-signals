@@ -66,6 +66,26 @@ const PRESETS: Array<{ id: TimePreset; label: string; ms: number | null }> = [
   { id: 'custom', label: 'Custom', ms: null },
 ];
 
+// Mirrors config/providers/*.yaml's required_columns/provider_mappings - shown before upload so
+// a user knows what their file needs to look like instead of learning it from a validation error
+// after the fact. Keep in sync if those YAML files change.
+const PROVIDER_FORMAT_GUIDANCE: Record<Provider, { columns: string; example: string; note?: string }> = {
+  generic: {
+    columns: 'timestamp, metric_name, value',
+    example: 'timestamp,metric_name,value\n2026-01-01T00:00:00Z,cpu_usage,42.5',
+  },
+  prometheus: {
+    columns: 'timestamp, metric, value',
+    example: 'timestamp,metric,value\n2026-01-01T00:00:00Z,cpu_usage,42.5',
+    note: '"metric" is mapped to metric_name automatically.',
+  },
+  datadog: {
+    columns: 'ts_epoch_ms, metric_name, value',
+    example: 'ts_epoch_ms,metric_name,value\n1767225600000,cpu_usage,42.5',
+    note: '"ts_epoch_ms" (epoch milliseconds) is mapped to timestamp automatically.',
+  },
+};
+
 const LAB_SCENARIOS = [
   { label: 'Baseline shift', service: 'ruptures-lab', metric: 'ops_signal_lab_value', analyzer: 'ruptures' },
   { label: 'Trend', service: 'trend-lab', metric: 'ops_signal_lab_value', analyzer: 'trend' },
@@ -584,6 +604,17 @@ export function ValidateDataPage() {
                 <TextField fullWidth label="Metric" value={metricName} onChange={(e) => setMetricName(e.target.value)} />
                 <TextField fullWidth label="Interval" value={interval} onChange={(e) => setInterval(e.target.value)} />
               </Stack>
+              <Alert severity="info" sx={{ '& .MuiAlert-message': { width: '100%' } }}>
+                <Typography sx={{ fontWeight: 800, fontSize: 13 }}>
+                  Expected columns for {provider}: {PROVIDER_FORMAT_GUIDANCE[provider].columns}
+                </Typography>
+                <Box component="pre" sx={{ m: '4px 0 0', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                  {PROVIDER_FORMAT_GUIDANCE[provider].example}
+                </Box>
+                {PROVIDER_FORMAT_GUIDANCE[provider].note ? (
+                  <Typography sx={{ fontSize: 12, mt: 0.5, color: 'text.secondary' }}>{PROVIDER_FORMAT_GUIDANCE[provider].note}</Typography>
+                ) : null}
+              </Alert>
               <Box><Button variant="outlined" component="label">{file ? `Selected: ${file.name}` : 'Choose CSV File'}<input hidden type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button></Box>
               <Box><Button variant="contained" disabled={csvMutation.isPending || !file} onClick={() => { setMessage(null); setError(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button></Box>
               {message ? <Alert severity="success">{message}</Alert> : null}

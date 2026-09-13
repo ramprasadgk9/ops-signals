@@ -15,7 +15,11 @@ Base config
 
 - `config/config.yaml`: shared output, storage, embeddings, UI, capabilities, and question defaults
 - `config/analyzers.yaml`: shared analysis mode, window, and analyzer defaults
-- `config/providers/*.yaml`: provider-specific input configuration and any rare provider overrides
+- `config/providers/*.yaml`: provider-specific input configuration and any rare provider overrides.
+  Editing an existing provider's `provider_mappings`/`required_columns` here takes effect on both
+  the CLI run path and the CSV upload API. Adding a brand-new provider file alone is not yet
+  enough to make it selectable through the upload API - `backend/app/api/ingestion.py` currently
+  only accepts `generic`, `prometheus`, or `datadog` as the `provider` form field.
 
 ## Backward Compatibility
 
