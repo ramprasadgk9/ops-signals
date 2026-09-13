@@ -113,6 +113,13 @@ export const api = {
   signals: (service: string, metric: string, runId: string) =>
     getJson<Signal[]>(`/api/signals?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
   signalDetail: (signalId: string) => getJson<Signal>(`/api/signals/${signalId}`),
+  signalsByRunIds: async (analysisRunIds: string[]): Promise<Signal[]> => {
+    const uniqueRunIds = Array.from(new Set(analysisRunIds));
+    const results = await Promise.all(
+      uniqueRunIds.map((runId) => getJson<Signal[]>(`/api/signals?analysis_run_id=${encodeURIComponent(runId)}`))
+    );
+    return results.flat();
+  },
   findings: (service?: string, metric?: string, runId?: string, window?: FindingsWindow) => {
     const params = new URLSearchParams();
     if (service) params.append('service', service);
