@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -23,6 +24,25 @@ from backend.app.services.timeseries_routing_service import build_csv_routing_co
 from intelligence.pipeline import SignalPipeline
 
 router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
+
+# `await file.read()` below loads the entire upload into memory with no cap unless we check it
+# ourselves - reject oversized uploads before that read is even fully buffered/written to disk.
+# Row count (intelligence/adapters/csv_adapter.py::MAX_CSV_ROWS) is the second layer: byte size
+# alone doesn't catch a small-looking file with an enormous row count.
+MAX_UPLOAD_BYTES = int(os.getenv("OPS_SIGNALS_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+
+async def _read_upload_within_limit(file: UploadFile) -> bytes:
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"CSV upload of {len(data)} bytes exceeds the configured limit of "
+                f"{MAX_UPLOAD_BYTES} bytes (set OPS_SIGNALS_MAX_UPLOAD_BYTES to change)."
+            ),
+        )
+    return data
 
 
 class PreviewPipelineStore:
@@ -190,13 +210,14 @@ async def run_csv_analysis(
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="only .csv uploads are supported")
 
+    data = await _read_upload_within_limit(file)
+
     upload_dir = _repo_root() / ".tmp_uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = Path(file.filename).suffix or ".csv"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=upload_dir) as handle:
         temp_path = Path(handle.name)
-        data = await file.read()
         handle.write(data)
 
     try:
@@ -252,13 +273,14 @@ async def validate_csv_analysis(
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="only .csv uploads are supported")
 
+    data = await _read_upload_within_limit(file)
+
     upload_dir = _repo_root() / ".tmp_uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = Path(file.filename).suffix or ".csv"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=upload_dir) as handle:
         temp_path = Path(handle.name)
-        data = await file.read()
         handle.write(data)
 
     try:
