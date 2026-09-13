@@ -14,7 +14,7 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     working = _apply_provider_mappings(working, config)
     working = _apply_core_renames(working, config)
 
-    _validate_required_columns(working)
+    _validate_required_columns(working, config)
     _apply_datadog_tags(working, config)
 
     working["timestamp"] = _parse_timestamps(working["timestamp"], config.provider)
@@ -150,11 +150,28 @@ def _apply_core_renames(dataframe: pd.DataFrame, config: InputConfig) -> pd.Data
     return dataframe
 
 
-def _validate_required_columns(dataframe: pd.DataFrame) -> None:
+def _validate_required_columns(dataframe: pd.DataFrame, config: InputConfig) -> None:
     required = ["timestamp", "metric_name", "value"]
     missing = [column for column in required if column not in dataframe.columns]
-    if missing:
-        raise ValueError(f"CSV missing canonical required columns after mapping: {missing}")
+    if not missing:
+        return
+
+    # A configured provider_mappings entry that never matched a real column is the most likely
+    # cause of a missing required column, but was previously silently skipped (see
+    # _apply_provider_mappings) with no trace of it in the resulting error - naming the specific
+    # mapping and what it expected turns "guess what's wrong" into "here's exactly what to fix".
+    mapping = config.provider_mappings or {}
+    mapping_hints = [
+        f"'{canonical_name}' was expected to come from a column named '{mapping[canonical_name]}' "
+        "(per the configured provider mapping), but no such column was found in the uploaded file."
+        for canonical_name in missing
+        if canonical_name in mapping
+    ]
+    hint_text = " " + " ".join(mapping_hints) if mapping_hints else ""
+    raise ValueError(
+        f"CSV missing canonical required columns after mapping: {missing}. "
+        f"Columns found in the file: {list(dataframe.columns)}.{hint_text}"
+    )
 
 
 def _parse_timestamps(series: pd.Series, provider: str) -> pd.Series:

@@ -73,15 +73,6 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def provider_defaults(provider: str) -> tuple[dict[str, str], list[str]]:
-    provider_lower = provider.lower()
-    if provider_lower == "prometheus":
-        return ({"metric_name": "metric", "host": "instance"}, ["timestamp", "metric", "value"])
-    if provider_lower == "datadog":
-        return ({"timestamp": "ts_epoch_ms"}, ["ts_epoch_ms", "metric_name", "value"])
-    return ({}, ["timestamp", "metric_name", "value"])
-
-
 def load_routing_app_config(provider: str = "prometheus") -> AppConfig:
     root = repo_root()
     provider_file = root / "config" / "providers" / f"{provider}.yaml"
@@ -102,7 +93,14 @@ def build_csv_routing_config(
     analyzer_overrides: dict[str, dict[str, object]] | None = None,
 ) -> AppConfig:
     provider_lower = provider.lower()
-    mapping_defaults, required_defaults = provider_defaults(provider_lower)
+    # provider_mappings and required_columns are NOT overridden here - they come from whatever
+    # load_routing_app_config() loaded out of config/providers/<provider>.yaml (falling back to
+    # config/config.yaml for an unrecognized provider). That YAML file is the single source of
+    # truth for both the CLI run path (intelligence.cli, which loads it directly) and this API
+    # upload path - previously this function silently replaced both fields with a second,
+    # hardcoded copy that happened to agree with the YAML for prometheus/datadog, but meant
+    # editing the YAML had zero effect here, and adding a new provider needed a Python change,
+    # not just a new YAML file.
     config = copy.deepcopy(load_routing_app_config(provider_lower))
     config.input.source_type = "csv"
     config.input.provider = provider_lower
@@ -110,8 +108,6 @@ def build_csv_routing_config(
     config.input.interval = interval
     config.input.service = service
     config.input.metric_name = metric_name
-    config.input.provider_mappings = mapping_defaults
-    config.input.required_columns = required_defaults
     config.input.timestamp_column = "timestamp"
     config.input.value_column = "value"
     config.input.metric_column = "metric_name"
