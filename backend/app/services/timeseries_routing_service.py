@@ -91,6 +91,7 @@ def build_csv_routing_config(
     analyzer_id: str = "all",
     preview: bool = True,
     analyzer_overrides: dict[str, dict[str, object]] | None = None,
+    column_mapping: dict[str, str] | None = None,
 ) -> AppConfig:
     provider_lower = provider.lower()
     # provider_mappings and required_columns are NOT overridden here - they come from whatever
@@ -111,6 +112,13 @@ def build_csv_routing_config(
     config.input.timestamp_column = "timestamp"
     config.input.value_column = "value"
     config.input.metric_column = "metric_name"
+    if column_mapping:
+        # An ad-hoc, one-time column mapping typed in by the user at upload time (the
+        # "Custom / Other" provider) - never persisted anywhere, applies to this single upload
+        # only. Replaces the provider's base mapping/required_columns entirely: these 3 canonical
+        # fields are exactly what the user told us their raw file actually calls them.
+        config.input.provider_mappings = dict(column_mapping)
+        config.input.required_columns = list(column_mapping.values())
     config.output.save_normalized_data = True
     config.output.save_signals = True
     config.output.save_question_answers = not preview

@@ -42,7 +42,7 @@ import { api } from '../api/queries';
 import { panelSx, ui } from '../standalone/theme';
 import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
 
-type Provider = 'generic' | 'prometheus' | 'datadog';
+type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
 type TimePreset = '1h' | '6h' | '24h' | '3d' | '7d' | 'custom';
 
@@ -69,7 +69,7 @@ const PRESETS: Array<{ id: TimePreset; label: string; ms: number | null }> = [
 // Mirrors config/providers/*.yaml's required_columns/provider_mappings - shown before upload so
 // a user knows what their file needs to look like instead of learning it from a validation error
 // after the fact. Keep in sync if those YAML files change.
-const PROVIDER_FORMAT_GUIDANCE: Record<Provider, { columns: string; example: string; note?: string }> = {
+const PROVIDER_FORMAT_GUIDANCE: Record<Exclude<Provider, 'custom'>, { columns: string; example: string; note?: string }> = {
   generic: {
     columns: 'timestamp, metric_name, value',
     example: 'timestamp,metric_name,value\n2026-01-01T00:00:00Z,cpu_usage,42.5',
@@ -319,6 +319,11 @@ function buildDataQualityMessage(result: DirectPrometheusAnalysisResponse | null
 export function ValidateDataPage() {
   const [mode, setMode] = useState<Mode>('csv');
   const [provider, setProvider] = useState<Provider>('prometheus');
+  // Typed in for the "Custom / Other" provider only - sent with each upload, never saved, so the
+  // user has to re-enter these every time (see the notice rendered next to these fields below).
+  const [customTimestampColumn, setCustomTimestampColumn] = useState('');
+  const [customValueColumn, setCustomValueColumn] = useState('');
+  const [customMetricColumn, setCustomMetricColumn] = useState('');
   const [analyzerId, setAnalyzerId] = useState('all');
   const [service, setService] = useState('ruptures-lab');
   const [metricName, setMetricName] = useState('ops_signal_lab_value');
@@ -389,6 +394,7 @@ export function ValidateDataPage() {
     return Math.floor((selectedRange.end.getTime() - selectedRange.start.getTime()) / stepMs) + 1;
   }, [rangeValid, selectedRange.end, selectedRange.start, step]);
   const belowRouterMinimum = typeof estimatedSamples === 'number' && estimatedSamples < 30;
+  const customMappingIncomplete = provider === 'custom' && (!customTimestampColumn.trim() || !customValueColumn.trim() || !customMetricColumn.trim());
 
   const csvMutation = useMutation({
     mutationFn: async () => {
@@ -400,6 +406,11 @@ export function ValidateDataPage() {
       form.set('service', service);
       form.set('metric_name', metricName);
       form.set('interval', interval);
+      if (provider === 'custom') {
+        form.set('custom_timestamp_column', customTimestampColumn.trim());
+        form.set('custom_value_column', customValueColumn.trim());
+        form.set('custom_metric_name_column', customMetricColumn.trim());
+      }
       return api.runCsvValidation(form);
     },
     onSuccess: (result) => {
@@ -598,25 +609,62 @@ export function ValidateDataPage() {
             <Stack spacing={2}>
               <Typography variant="h6">CSV Upload</Typography>
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                <FormControl fullWidth><InputLabel>Provider</InputLabel><Select value={provider} label="Provider" onChange={(e) => setProvider(e.target.value as Provider)}><MenuItem value="prometheus">Prometheus CSV</MenuItem><MenuItem value="datadog">Datadog CSV</MenuItem><MenuItem value="generic">Generic CSV</MenuItem></Select></FormControl>
+                <FormControl fullWidth><InputLabel>Provider</InputLabel><Select value={provider} label="Provider" onChange={(e) => setProvider(e.target.value as Provider)}><MenuItem value="prometheus">Prometheus CSV</MenuItem><MenuItem value="datadog">Datadog CSV</MenuItem><MenuItem value="generic">Generic CSV</MenuItem><MenuItem value="custom">Custom / Other</MenuItem></Select></FormControl>
                 <FormControl fullWidth><InputLabel>Analyzer</InputLabel><Select value={analyzerId} label="Analyzer" onChange={(e) => setAnalyzerId(e.target.value)}>{analyzerOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}</Select></FormControl>
                 <TextField fullWidth label="Service" value={service} onChange={(e) => setService(e.target.value)} />
                 <TextField fullWidth label="Metric" value={metricName} onChange={(e) => setMetricName(e.target.value)} />
                 <TextField fullWidth label="Interval" value={interval} onChange={(e) => setInterval(e.target.value)} />
               </Stack>
-              <Alert severity="info" sx={{ '& .MuiAlert-message': { width: '100%' } }}>
-                <Typography sx={{ fontWeight: 800, fontSize: 13 }}>
-                  Expected columns for {provider}: {PROVIDER_FORMAT_GUIDANCE[provider].columns}
-                </Typography>
-                <Box component="pre" sx={{ m: '4px 0 0', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                  {PROVIDER_FORMAT_GUIDANCE[provider].example}
-                </Box>
-                {PROVIDER_FORMAT_GUIDANCE[provider].note ? (
-                  <Typography sx={{ fontSize: 12, mt: 0.5, color: 'text.secondary' }}>{PROVIDER_FORMAT_GUIDANCE[provider].note}</Typography>
-                ) : null}
-              </Alert>
+              {provider === 'custom' ? (
+                <Stack spacing={1.5}>
+                  <Alert severity="warning">
+                    <Typography sx={{ fontWeight: 800, fontSize: 13 }}>
+                      These column names apply to this upload only - they are not saved. You'll need to enter them again the next time you upload a file in this format.
+                    </Typography>
+                  </Alert>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                    <TextField
+                      fullWidth
+                      label="Timestamp column name"
+                      placeholder="e.g. event_time"
+                      value={customTimestampColumn}
+                      onChange={(e) => setCustomTimestampColumn(e.target.value)}
+                      helperText="What your file calls the timestamp column"
+                    />
+                    <TextField
+                      fullWidth
+                      label="Value column name"
+                      placeholder="e.g. measurement"
+                      value={customValueColumn}
+                      onChange={(e) => setCustomValueColumn(e.target.value)}
+                      helperText="What your file calls the numeric value column"
+                    />
+                    <TextField
+                      fullWidth
+                      label="Metric name column"
+                      placeholder="e.g. metric"
+                      value={customMetricColumn}
+                      onChange={(e) => setCustomMetricColumn(e.target.value)}
+                      helperText="What your file calls the metric-name column"
+                    />
+                  </Stack>
+                </Stack>
+              ) : (
+                <Alert severity="info" sx={{ '& .MuiAlert-message': { width: '100%' } }}>
+                  <Typography sx={{ fontWeight: 800, fontSize: 13 }}>
+                    Expected columns for {provider}: {PROVIDER_FORMAT_GUIDANCE[provider].columns}
+                  </Typography>
+                  <Box component="pre" sx={{ m: '4px 0 0', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {PROVIDER_FORMAT_GUIDANCE[provider].example}
+                  </Box>
+                  {PROVIDER_FORMAT_GUIDANCE[provider].note ? (
+                    <Typography sx={{ fontSize: 12, mt: 0.5, color: 'text.secondary' }}>{PROVIDER_FORMAT_GUIDANCE[provider].note}</Typography>
+                  ) : null}
+                </Alert>
+              )}
               <Box><Button variant="outlined" component="label">{file ? `Selected: ${file.name}` : 'Choose CSV File'}<input hidden type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button></Box>
-              <Box><Button variant="contained" disabled={csvMutation.isPending || !file} onClick={() => { setMessage(null); setError(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button></Box>
+              <Box><Button variant="contained" disabled={csvMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button></Box>
+              {customMappingIncomplete ? <Alert severity="warning">Fill in all 3 column names above before validating.</Alert> : null}
               {message ? <Alert severity="success">{message}</Alert> : null}
               {error ? <Alert severity="error">{error}</Alert> : null}
             </Stack>

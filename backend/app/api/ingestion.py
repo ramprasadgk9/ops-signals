@@ -45,6 +45,27 @@ async def _read_upload_within_limit(file: UploadFile) -> bytes:
     return data
 
 
+def _build_custom_column_mapping(
+    provider: str,
+    custom_timestamp_column: str | None,
+    custom_value_column: str | None,
+    custom_metric_name_column: str | None,
+) -> dict[str, str] | None:
+    """Ad-hoc, one-time column mapping for the "custom" provider - typed in by the user on the
+    upload form, never persisted anywhere, applies to this single upload only. All 3 are required
+    together: a partial mapping would just fail later with a confusing "missing columns" error."""
+    if provider != "custom":
+        return None
+    fields = {"timestamp": custom_timestamp_column, "value": custom_value_column, "metric_name": custom_metric_name_column}
+    missing = [canonical for canonical, raw in fields.items() if not raw or not raw.strip()]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"provider 'custom' requires all 3 column names to be provided; missing: {missing}",
+        )
+    return {canonical: raw.strip() for canonical, raw in fields.items()}  # type: ignore[union-attr]
+
+
 class PreviewPipelineStore:
     def __init__(self) -> None:
         self.analysis_run: dict[str, object] | None = None
@@ -202,14 +223,20 @@ async def run_csv_analysis(
     service: str = Form(default="uploaded-service"),
     metric_name: str = Form(default="uploaded_metric"),
     interval: str = Form(default="5m"),
+    custom_timestamp_column: str | None = Form(default=None),
+    custom_value_column: str | None = Form(default=None),
+    custom_metric_name_column: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> CsvRunOut:
     provider_lower = provider.lower()
-    if provider_lower not in {"generic", "prometheus", "datadog"}:
-        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog")
+    if provider_lower not in {"generic", "prometheus", "datadog", "custom"}:
+        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog, custom")
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="only .csv uploads are supported")
 
+    column_mapping = _build_custom_column_mapping(
+        provider_lower, custom_timestamp_column, custom_value_column, custom_metric_name_column
+    )
     data = await _read_upload_within_limit(file)
 
     upload_dir = _repo_root() / ".tmp_uploads"
@@ -229,6 +256,7 @@ async def run_csv_analysis(
             interval=interval,
             analyzer_id="all",
             preview=False,
+            column_mapping=column_mapping,
         )
 
         result = SignalPipeline(config).run(run_metadata={"file_name": file.filename})
@@ -266,13 +294,19 @@ async def validate_csv_analysis(
     metric_name: str = Form(default="uploaded_metric"),
     interval: str = Form(default="5m"),
     analyzer_overrides: str | None = Form(default=None),
+    custom_timestamp_column: str | None = Form(default=None),
+    custom_value_column: str | None = Form(default=None),
+    custom_metric_name_column: str | None = Form(default=None),
 ) -> CsvValidationOut:
     provider_lower = provider.lower()
-    if provider_lower not in {"generic", "prometheus", "datadog"}:
-        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog")
+    if provider_lower not in {"generic", "prometheus", "datadog", "custom"}:
+        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog, custom")
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="only .csv uploads are supported")
 
+    column_mapping = _build_custom_column_mapping(
+        provider_lower, custom_timestamp_column, custom_value_column, custom_metric_name_column
+    )
     data = await _read_upload_within_limit(file)
 
     upload_dir = _repo_root() / ".tmp_uploads"
@@ -295,6 +329,7 @@ async def validate_csv_analysis(
             analyzer_id=requested_analyzer_id,
             preview=True,
             analyzer_overrides=parsed_overrides,
+            column_mapping=column_mapping,
         )
 
         result = SignalPipeline(config, store=PreviewPipelineStore()).run(
