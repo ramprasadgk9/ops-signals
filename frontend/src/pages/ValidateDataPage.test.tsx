@@ -57,4 +57,21 @@ describe('ValidateDataPage source modes', () => {
     expect(api.prometheusLabelValues).toHaveBeenCalledWith('__name__', 'default');
     expect(screen.queryByText('Choose CSV File')).not.toBeInTheDocument();
   });
+
+  it('shows the expected CSV columns for the selected provider and updates when the provider changes', async () => {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
+    vi.mocked(api.prometheusLabelValues).mockResolvedValue({ connection_id: 'default', label: 'service', values: [] });
+
+    renderPage();
+
+    expect(await screen.findByText(/Expected columns for prometheus/)).toBeInTheDocument();
+    expect(screen.getByText(/timestamp,metric,value/)).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByText('Prometheus CSV'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Datadog CSV' }));
+
+    expect(await screen.findByText(/Expected columns for datadog/)).toBeInTheDocument();
+    expect(screen.getByText(/ts_epoch_ms,metric_name,value/)).toBeInTheDocument();
+  });
 });
