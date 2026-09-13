@@ -70,5 +70,5 @@ class BehaviorIntelligenceService:
                 confidence=evaluation.confidence,
                 correlation_json=evaluation.correlation,
             )
-            created.append(repository.save(record))
+            created.append(repository.save_or_bump(record))
         return created

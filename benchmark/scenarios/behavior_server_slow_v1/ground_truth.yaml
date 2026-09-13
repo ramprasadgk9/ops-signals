@@ -1,0 +1,28 @@
+scenario:
+  id: behavior_server_slow_v1
+  name: Correlated CPU Anomaly + Memory Growth (Server Slow)
+  description: >
+    Two correlated metrics in one analysis window - a short CPU anomaly burst and a steadily
+    rising memory trend on the same host - shaped to match the "server_slow" Behavior
+    Intelligence definition in config/behavior_definitions.d/core.yml. Every other scenario in
+    this suite analyzes one metric in isolation; Behavior Intelligence specifically correlates
+    signals across metrics, so it needs its own kind of scenario to validate at all.
+
+dataset:
+  scenario_dataset: benchmark/scenarios/behavior_server_slow_v1/dataset.csv
+  metrics:
+    - cpu_usage
+    - memory_usage
+  interval: 5m
+
+expected_behavior_findings:
+  required_matched:
+    - server_slow
+  forbidden_matched:
+    - cpu_throttling
+
+notes:
+  - server_slow requires cpu.anomaly.present == true AND (memory.trend.direction == upward OR
+    memory.baseline_shift.present == true) - the dataset is built to satisfy both sides.
+  - cpu_throttling is listed as forbidden because this dataset has no cpu_throttled_seconds
+    metric at all, so it should never be able to match regardless of the CPU anomaly.

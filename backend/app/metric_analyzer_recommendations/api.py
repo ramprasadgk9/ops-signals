@@ -10,7 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import yaml
 
+from backend.app.api.assistant import get_assistant
+from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.metric_analyzer_recommendations.schemas import (
+    AIAnalyzerOpinionOut,
     AnalyzerRecommendationChatResponseOut,
     AnalyzerRecommendationRequestIn,
     AnalyzerRecommendationOut,
@@ -40,6 +43,7 @@ def list_metric_samples(db: Session = Depends(get_db)) -> list[MetricSampleOut]:
 def evaluate_metric_sample(
     payload: dict,
     db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
 ) -> RecommendationResponseOut:
     service_name = str(payload.get("service", "")).strip()
     metric_name = str(payload.get("metric_name", "")).strip()
@@ -49,7 +53,7 @@ def evaluate_metric_sample(
     if not service_name or not metric_name:
         raise HTTPException(status_code=400, detail="service and metric_name are required")
     try:
-        profile, _ = service.profile_sample(db, service_name, metric_name, analysis_run_id)
+        profile, timeseries = service.profile_sample(db, service_name, metric_name, analysis_run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -65,10 +69,15 @@ def evaluate_metric_sample(
     selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
     selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])
     recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers)]
+    ai_services = assistant.services.ai_services if assistant else None
+    ai_opinion = AIAnalyzerOpinionOut(
+        **service.recommend_ai_opinion(profile, timeseries, ai_services, metric_context={"service": service_name, "metric_name": metric_name})
+    )
     return RecommendationResponseOut(
         sample=MetricSampleOut(**selected),
         profile=MetricProfileOut(**asdict(profile)),
         recommendations=recommendations,
+        ai_opinion=ai_opinion,
     )
 
 
@@ -76,6 +85,7 @@ def evaluate_metric_sample(
 def chat_metric_analyzer_recommendation(
     payload: AnalyzerRecommendationRequestIn,
     db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
 ) -> AnalyzerRecommendationChatResponseOut:
     conversation_id = payload.conversation_id or f"conversation-{next(_conversation_counter)}"
     context = payload.metric_context
@@ -87,6 +97,7 @@ def chat_metric_analyzer_recommendation(
 
     sample = None
     profile = None
+    timeseries: list[tuple[Any, float]] = []
     recommendations: list[AnalyzerRecommendationOut] = []
     recommendation_mode: str = "preliminary"
     evaluation_id: int | None = None
@@ -107,7 +118,7 @@ def chat_metric_analyzer_recommendation(
                 None,
             )
             if context.sample_id is not None and sample is not None:
-                profile, _ = service.profile_sample(db, sample["service"], sample["metric_name"], sample.get("analysis_run_id"))
+                profile, timeseries = service.profile_sample(db, sample["service"], sample["metric_name"], sample.get("analysis_run_id"))
                 recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers)]
                 recommendation_mode = "evaluated"
                 evaluation_id = next(_evaluation_counter)
@@ -117,6 +128,16 @@ def chat_metric_analyzer_recommendation(
     if sample is None:
         recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(_preliminary_profile(context), selection_mode, selected_analyzers)]
         recommendation_mode = "preliminary"
+
+    if recommendation_mode == "evaluated" and profile is not None:
+        ai_services = assistant.services.ai_services if assistant else None
+        ai_opinion = AIAnalyzerOpinionOut(
+            **service.recommend_ai_opinion(
+                profile, timeseries, ai_services, metric_context={"metric_name": context.metric_name, "operational_purpose": context.operational_purpose}
+            )
+        )
+    else:
+        ai_opinion = AIAnalyzerOpinionOut(available=False, unavailable_reason="No historical sample evaluated yet")
 
     assistant_message = {
         "headline": _headline_for(recommendations, recommendation_mode),
@@ -140,6 +161,7 @@ def chat_metric_analyzer_recommendation(
         ],
         context_hash=context_hash,
         context_version=1,
+        ai_opinion=ai_opinion,
         normalized_goals=[_to_goal_out(goal) for goal in normalized_goals],
         stale=stale,
     )

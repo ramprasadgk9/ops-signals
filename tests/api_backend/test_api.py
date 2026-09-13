@@ -146,7 +146,7 @@ def test_csv_validation_uses_router_pipeline() -> None:
     assert res.status_code == 200
     payload = res.json()
     assert payload['analyzer_id'] == 'router'
-    assert payload['analyzer_selection_mode'] in {'recommended_only', 'recommended_threshold'}
+    assert payload['analyzer_selection_mode'] == 'recommended_threshold'
     assert payload['analyzer_routing']
     assert payload['executed_analyzers']
     assert any(decision['analyzer_id'] == 'ruptures' for decision in payload['analyzer_routing'])

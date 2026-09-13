@@ -39,6 +39,7 @@ class AssistantChatResponse(BaseModel):
     routes: list[str] = Field(default_factory=list)
     knowledge_used: list[str] = Field(default_factory=list)
     answer: str
+    ai_synthesis_used: bool = False
     limitations: list[str]
     suggested_questions: list[str]
     sources: list[AssistantSource]

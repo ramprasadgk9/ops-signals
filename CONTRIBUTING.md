@@ -28,6 +28,12 @@ Thanks for helping improve Ops Signals.
 - `pytest -q`
 - `cd frontend && npm test`
 
+## Adding a Benchmark Scenario
+
+If your change affects analyzer routing, detection accuracy, or Behavior Intelligence, consider
+adding a benchmark scenario alongside it - see
+[`benchmark/CONTRIBUTING.md`](benchmark/CONTRIBUTING.md) for a walkthrough.
+
 ## Reporting Issues
 
 If you find a bug, include:

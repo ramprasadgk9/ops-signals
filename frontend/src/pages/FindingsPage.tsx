@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Box, Button, Chip, Grid2 as Grid, Stack, Typography } from '@mui/material';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import CategoryRoundedIcon from '@mui/icons-material/CategoryRounded';
@@ -5,10 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/queries';
+import { FindingDetailsDrawer } from '../components/FindingDetailsDrawer';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { TopFindingsList } from '../components/TopFindingsList';
 import { WorkspacePanel } from '../standalone/components';
 import { titleCase, ui } from '../standalone/theme';
+import type { Finding } from '../types';
 
 type FindingsWindow = '24h' | '7d';
 
@@ -27,6 +30,33 @@ export function FindingsPage() {
   const window = windowFromParams(searchParams.get('window'));
   const findingsQuery = useQuery({ queryKey: ['findings', window], queryFn: () => api.findings(undefined, undefined, undefined, window) });
   const summaryQuery = useQuery({ queryKey: ['overview-summary', window], queryFn: () => api.overviewSummary(window) });
+  // Findings only carry signal_ids, not the signals themselves - without this, every card's
+  // "Evidence" section has nothing to match against and always shows 0 supporting signals,
+  // regardless of how many signals the finding actually has.
+  const runIds = (findingsQuery.data ?? [])
+    .map((finding) => finding.analysis_run_id)
+    .filter((id): id is string => Boolean(id));
+  const signalsQuery = useQuery({
+    queryKey: ['findings-signals', ...runIds],
+    queryFn: () => api.signalsByRunIds(runIds),
+    enabled: runIds.length > 0,
+  });
+
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // Re-fetches this one finding on open so ai_summary (computed and cached lazily, on first
+  // detail view, by the backend) has a chance to populate - the list endpoint above never
+  // triggers that computation, so the list-provided finding always has ai_summary: null.
+  const findingDetailQuery = useQuery({
+    queryKey: ['finding-detail', selectedFinding?.id],
+    queryFn: () => api.getFinding(selectedFinding!.id!),
+    enabled: drawerOpen && Boolean(selectedFinding?.id),
+  });
+
+  const handleViewDetails = (finding: Finding) => {
+    setSelectedFinding(finding);
+    setDrawerOpen(true);
+  };
 
   if (findingsQuery.isLoading || summaryQuery.isLoading) return <LoadingSkeleton />;
 
@@ -152,11 +182,18 @@ export function FindingsPage() {
         {findingsQuery.error ? (
           <Typography color="error">Findings unavailable.</Typography>
         ) : findings.length ? (
-          <TopFindingsList findings={findings} />
+          <TopFindingsList findings={findings} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} />
         ) : (
           <Typography color="text.secondary">No findings returned for this window.</Typography>
         )}
       </WorkspacePanel>
+
+      <FindingDetailsDrawer
+        open={drawerOpen}
+        finding={findingDetailQuery.data ?? selectedFinding}
+        signals={signalsQuery.data ?? []}
+        onClose={() => setDrawerOpen(false)}
+      />
     </Stack>
   );
 }

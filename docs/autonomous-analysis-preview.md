@@ -95,6 +95,15 @@ Run-once behavior:
 
 For local mock Prometheus data, prefer `All environments`, service `ruptures-lab`, category `Capacity`, and a `6h` analysis window. A `24h` window can include sparse sample gaps and may be rejected by the existing time-series validator.
 
+## Results Dashboard
+
+The web UI's Autonomous Analysis Configure page renders results inline, in place, right after a
+run completes - it doesn't just show a status banner and leave you to go find the results
+elsewhere. The same `AutonomousRunResponse` returned by `run-once` drives a dashboard showing
+discovery/selection counts, execution summary, top findings by importance, behavior distribution,
+execution history, and recent cases, reusing the query keys the Overview page already invalidates
+so both stay in sync.
+
 ## Non-Goals
 
 This implementation intentionally does not:

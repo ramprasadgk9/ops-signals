@@ -123,7 +123,11 @@ function AskOpsPanel({ askOps }: { askOps: NonNullable<Props['askOps']> }) {
           <div className="auto-answer-head">
             <div>
               <div className="auto-row-title">{askOps.answer.headline}</div>
-              <div className="auto-row-meta">Priority {askOps.answer.priority} · confidence {(askOps.answer.confidence * 100).toFixed(0)}%</div>
+              <div className="auto-row-meta">
+                Priority {askOps.answer.priority} · confidence {(askOps.answer.confidence * 100).toFixed(0)}%
+                {' · '}
+                {askOps.answer.ai_synthesis_used ? 'AI-generated' : 'Evidence summary (no AI)'}
+              </div>
             </div>
             <div className="auto-evidence-chips" aria-label="Answer evidence">
               <span>{evidenceCount(askOps.answer, 'finding_ids')} findings</span>

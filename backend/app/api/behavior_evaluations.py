@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.ai.services.narrative_service import synthesize_narrative
+from backend.app.api.assistant import get_assistant
+from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.behavior_intelligence.condition_evaluator import evaluate_conditions
 from backend.app.behavior_intelligence.confidence import calculate_confidence
 from backend.app.behavior_intelligence.fact_extractor import extract_facts
@@ -18,7 +21,43 @@ router = APIRouter(prefix="/api/behavior-evaluations", tags=["behavior-evaluatio
 
 
 def _service() -> BehaviorIntelligenceService:
-    return BehaviorIntelligenceService("config/behavior_definitions.yml")
+    return BehaviorIntelligenceService("config/behavior_definitions.d")
+
+
+def _ensure_ai_explanation(finding: BehaviorFindingEntity, db: Session, assistant: OperationalIntelligenceAssistant | None) -> None:
+    """Best-effort, cached plain-English rewrite of the structured facts/conditions that already
+    explain why this behavior matched. Additive only - `summary`, `facts_json`, and
+    `matched_conditions_json` stay exactly as they've always been; a missing AI service or any
+    failure here just leaves `ai_explanation` as None."""
+    if finding.ai_explanation or not assistant or not assistant.services.ai_services:
+        return
+    evidence_text = (
+        f"Title: {finding.title}\n"
+        f"Summary: {finding.summary}\n"
+        f"Category: {finding.category}\n"
+        f"Severity: {finding.severity}\n"
+        f"Confidence: {finding.confidence}\n"
+        f"Matched facts: {finding.facts_json or {}}\n"
+        f"Matched conditions: {finding.matched_conditions_json or []}\n"
+        f"Correlation: {finding.correlation_json or {}}"
+    )
+    try:
+        explanation = synthesize_narrative(
+            assistant.services.ai_services,
+            instruction=(
+                "Explain in 1-3 plain-language sentences why this cross-metric behavior finding matched, "
+                "for an on-call engineer, using ONLY the facts and conditions given - do not invent metrics, "
+                "numbers, or causes not present in the evidence."
+            ),
+            evidence_text=evidence_text,
+            max_tokens=150,
+        )
+    except Exception:
+        return
+    if not explanation:
+        return
+    finding.ai_explanation = explanation
+    db.commit()
 
 
 @router.get("", response_model=list[BehaviorFindingOut])
@@ -27,6 +66,7 @@ def list_behavior_findings(
     service: str | None = None,
     analysis_run_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
 ) -> list[BehaviorFindingOut]:
     query = select(BehaviorFindingEntity)
     if definition_id:
@@ -36,6 +76,8 @@ def list_behavior_findings(
     if analysis_run_id:
         query = query.where(BehaviorFindingEntity.analysis_run_id == analysis_run_id)
     rows = db.execute(query.order_by(BehaviorFindingEntity.created_at.desc())).scalars().all()
+    for row in rows:
+        _ensure_ai_explanation(row, db, assistant)
     return [BehaviorFindingOut.model_validate(row, from_attributes=True) for row in rows]
 
 
@@ -67,7 +109,7 @@ def evaluate_behavior_definitions(
         }
         for row in signals
     ]
-    definitions = load_definitions("config/behavior_definitions.yml")
+    definitions = load_definitions("config/behavior_definitions.d")
     evaluations: list[BehaviorEvaluationOut] = []
     for definition in definitions:
         if not definition.enabled:

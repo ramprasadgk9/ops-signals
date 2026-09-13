@@ -106,6 +106,8 @@ export function buildMockAnalysis(target: GrafanaQueryTarget, runs: AnalysisRun[
     analysis_run_id: runId,
     input_metrics_json: { primary: target.metric },
     facts_json: { trend: 'shifted', confidence: 0.86 },
+    occurrence_count: 1,
+    last_seen_at: new Date().toISOString(),
     evidence_json: ['signal.evidence.datasource', 'signal.evidence.source'],
     matched_conditions_json: [
       { fact: 'trend', operator: 'equals', value: 'shifted', passed: true, group: 'all' },

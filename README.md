@@ -107,18 +107,33 @@ Historical similarity does not prove two cases share the same root cause.
 
 - Canonical CSV ingestion
 - Normalization into PostgreSQL
-- Analyzer registry and capability-driven question model
+- Config-driven analyzer registry, extensible without touching core code - see [Analyzer Plugin Framework](docs/04-analyzer-plugin-framework.md)
 - Signal generation and aggregation into findings
 - Behavior intelligence for cross-metric operational patterns
 - Operational case lifecycle fields for investigation, RCA, corrective action, and outcome
-- Qdrant-based operational memory for similar-case retrieval
+- Qdrant-based operational memory for similar-case retrieval, with automatic indexing on case create/update
 - Analyzer recommendation flow for profiling metric samples and ranking analyzers
+- Autonomous Prometheus monitoring - configure scope and policy, run once, see results inline
+- A benchmark suite validating router accuracy, detection accuracy, false-positive behavior, and Behavior Intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
 - React UI for findings, questions, signals, cases, and history
 
 ## Operational Intelligence Assistant
 
-Ops Signals includes a single chat interface that routes questions across historical cases and application knowledge.
-The assistant should be treated as a retrieval and explanation layer, not as an oracle.
+Ops Signals includes a single chat interface ("Ask Ops Signals") that routes questions across
+historical cases, current findings, behaviors, analyzers, and application documentation. The
+assistant should be treated as a retrieval and explanation layer, not as an oracle.
+
+By default it runs on deterministic retrieval and template answers - no AI required. Point it at
+a local model (self-hosted via Ollama, `docker compose --profile ai up`; no API key, no cloud
+calls) and it additionally gets:
+
+- LLM-synthesized answers grounded in the same retrieved evidence, instead of a fixed template
+- LLM-assisted question routing on top of (never instead of) the deterministic keyword router, so
+  a weaker model can only add coverage, never lose it
+- Semantic search over cases, findings, and behaviors, not just keyword matching
+
+Every response labels which mode produced it (`ai_synthesis_used`), so it's never ambiguous
+whether an answer came from a model or from a template.
 
 ### What users can expect
 
@@ -157,6 +172,81 @@ Canonical CSV
 
 ## Quick Start
 
+### Prerequisites
+
+- **Git**
+- **Docker**, with Compose v2 (the `docker compose` command, not the older standalone `docker-compose`) - runs PostgreSQL/TimescaleDB and Qdrant for you
+- **Python 3.11, 3.12, or 3.14** - 3.13 is explicitly not supported by `scripts/setup.sh`
+- **Node.js 20+** and npm - for the React frontend
+- *(Optional)* **Ollama** - only needed for local AI-assisted answers (see [Operational Intelligence Assistant](#operational-intelligence-assistant)); everything works without it
+- macOS or Linux (the scripts are bash-based; on Windows, use WSL)
+
+Check what you already have installed:
+
+```bash
+docker compose version
+python3 --version
+node --version
+```
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/ramprasadgk9/operational-intelligence.git
+cd operational-intelligence
+```
+
+### 2. Run setup
+
+```bash
+./scripts/setup.sh
+```
+
+This creates a Python virtualenv and installs dependencies, runs `npm install` for the frontend, starts PostgreSQL and Qdrant in Docker, waits for both to report healthy, and initializes the database schema. First run pulls Docker images and packages, so expect it to take a few minutes. You'll see `Setup complete.` printed at the end.
+
+### 3. Start the app
+
+```bash
+./scripts/run_all.sh
+```
+
+This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command.
+
+### 4. Open it
+
+Go to **http://localhost:5174** in your browser. You should see the Overview dashboard:
+
+![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
+
+Findings will be empty on a fresh install - that's expected, nothing has been analyzed yet. Go to **New Analysis** to upload a CSV or connect to Prometheus and generate your first findings; see [Canonical CSV Input](#canonical-csv-input) below for the expected format.
+
+### 5. (Optional) Enable local AI
+
+By default, Ask Ops Signals and the analyzer recommendation advisor run on deterministic retrieval and templates - no AI, no API key, no network calls out. To add local LLM-assisted answers on top of that (never instead of it - the deterministic behavior stays the fallback):
+
+```bash
+docker compose --profile ai up -d
+```
+
+This starts a local Ollama container and pulls a small default model (`qwen2.5:3b`, ~2GB, one-time download). Then point the backend at it:
+
+```bash
+OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh
+```
+
+See [Operational Intelligence Assistant](#operational-intelligence-assistant) for exactly what changes when this is on.
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `docker is required` | Docker isn't installed, or the daemon isn't running | Install/start Docker Desktop (or Docker Engine on Linux) |
+| `Unsupported Python version selected: 3.13` | System Python is 3.13, which `setup.sh` rejects | Install 3.11, 3.12, or 3.14, then run `PYTHON_BIN=python3.12 ./scripts/setup.sh` |
+| `npm is required to install frontend dependencies` | Node.js/npm isn't installed | Install Node.js 20+ |
+| `postgres did not become ready in time` or `qdrant did not become ready in time` | Docker is still starting, or the port is already taken | `docker compose ps` and `docker compose logs postgres` (or `qdrant`); confirm ports `5432`/`6333` are free |
+| A port (`8001`, `5174`, `9090`) is already in use | Another process is bound to it | Stop that process, or see `scripts/run_all.sh` for the ports it uses |
+| `permission denied` running a script | The script isn't marked executable | `chmod +x scripts/*.sh` |
+
 ### Scripts
 
 | Script | What it does | When to use it | Ports |
@@ -167,22 +257,7 @@ Canonical CSV
 | `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
 | `MCP_MODE=mcp-write ./scripts/test_mcp.sh` | Verifies the write-enabled MCP tool list. | Confirming write-capable tools are exposed. | None; stdio only |
 
-### Local Development
-
-Use this path for the standalone app:
-
-```bash
-./scripts/setup.sh
-./scripts/run_all.sh
-```
-
-The normal app dev server now uses:
-
-- backend: `8001`
-- frontend: `5174`
-- Prometheus: `9090`
-
-`3000` is reserved for Grafana.
+`3000` is reserved for Grafana, `8002` for the Grafana/plugin backend - they don't conflict with the standalone app's `8001`/`5174`.
 
 ### Grafana / Plugin
 
@@ -292,7 +367,7 @@ See [Standalone Prometheus Analysis](docs/18-standalone-prometheus-analysis.md) 
 
 ## Screenshots
 
-No screenshots are checked into this repository yet. Add UI captures here when stable screenshots are available.
+See [Product Preview](#product-preview) above, or the [complete screenshot gallery](docs/screenshots.md) for every UI surface, standalone and Grafana plugin.
 
 ## Current Limitations
 

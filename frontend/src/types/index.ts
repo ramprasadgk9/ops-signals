@@ -41,6 +41,66 @@ export type BehaviorDefinition = {
   conditions: Record<string, Array<Record<string, unknown>>>;
   correlation: Record<string, unknown>;
   output: Record<string, unknown>;
+  source_file?: string | null;
+};
+
+export type FactDescriptor = {
+  key: string;
+  description: string;
+  example: unknown;
+};
+
+export type BehaviorConditionInput = {
+  fact: string;
+  operator: string;
+  value: unknown;
+};
+
+export type BehaviorDefinitionDraft = {
+  id: string;
+  enabled?: boolean;
+  version?: number;
+  title: string;
+  description?: string;
+  scope?: Record<string, unknown>;
+  inputs: Array<{ alias: string; metric_name: string; analyzers?: string[] }>;
+  conditions: Record<string, BehaviorConditionInput[]>;
+  correlation?: Record<string, unknown>;
+  output: {
+    category?: string;
+    severity?: string;
+    title: string;
+    summary?: string;
+    evidence?: string[];
+  };
+};
+
+export type ValidationResult = {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+};
+
+export type SaveDraftResult = {
+  saved: boolean;
+  pack_file: string;
+  validation: ValidationResult;
+};
+
+export type BehaviorPatternSuggestion = {
+  id: number;
+  service?: string | null;
+  metric_a: string;
+  metric_b: string;
+  co_occurrence_count: number;
+  metric_a_occasions: number;
+  metric_b_occasions: number;
+  correlation_strength: number;
+  sample_analysis_run_ids: string[];
+  draft_definition_json: Record<string, unknown>;
+  draft_yaml_text: string;
+  status: string;
+  created_at: string;
 };
 
 export type BehaviorFinding = {
@@ -61,6 +121,8 @@ export type BehaviorFinding = {
   confidence: number;
   correlation_json: Record<string, unknown>;
   case_id?: number | null;
+  occurrence_count: number;
+  last_seen_at: string;
   created_at: string;
 };
 
@@ -101,6 +163,7 @@ export type Finding = {
   metric_name: string;
   title: string;
   summary: string;
+  ai_summary?: string | null;
   category: string;
   health_status: string;
   importance_score: number;
@@ -547,10 +610,34 @@ export type AnalyzerRecommendation = {
   parameters_tested: Record<string, unknown>;
 };
 
+export type AIAnalyzerPick = {
+  analyzer_id: string;
+  recommendation: 'recommended' | 'optional' | 'not_recommended';
+  rank?: number | null;
+  confidence: number;
+  reason: string;
+};
+
+// Independent second opinion from an optional LLM advisor, computed alongside - never instead of -
+// the deterministic `recommendations` above. available=false whenever AI is off or the advisor
+// call fails; the deterministic recommendations remain complete and correct either way.
+export type AIAnalyzerOpinion = {
+  available: boolean;
+  best_analyzer_id?: string | null;
+  rationale?: string | null;
+  recommended: AIAnalyzerPick[];
+  not_recommended: AIAnalyzerPick[];
+  caveats: string[];
+  diverges_from_router: boolean;
+  router_top_analyzer_id?: string | null;
+  unavailable_reason?: string | null;
+};
+
 export type MetricAnalyzerRecommendation = {
   sample: MetricSample;
   profile: MetricProfile;
   recommendations: AnalyzerRecommendation[];
+  ai_opinion: AIAnalyzerOpinion;
 };
 
 export type TimeValuePoint = {
@@ -601,6 +688,7 @@ export type AnalyzerRecommendationChatResponse = {
   context_version: number;
   normalized_goals: Array<{ goal_id: string; display_name: string; source_text: string }>;
   stale: boolean;
+  ai_opinion: AIAnalyzerOpinion;
 };
 
 export type MemoryChatRequest = {
@@ -664,6 +752,7 @@ export type AssistantChatResponse = {
   routes?: string[];
   knowledge_used?: string[];
   answer: string;
+  ai_synthesis_used?: boolean;
   limitations: string[];
   suggested_questions: string[];
   sources: AssistantSource[];

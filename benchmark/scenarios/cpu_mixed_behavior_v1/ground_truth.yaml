@@ -21,6 +21,7 @@ expected_behavior:
     - mixed
 
 expected_router:
+  strict_precision: true
   required_recommended:
     - kats
   allowed_optional:

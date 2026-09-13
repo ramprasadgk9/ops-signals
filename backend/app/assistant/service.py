@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from uuid import uuid4
@@ -11,12 +12,16 @@ from sqlalchemy.orm import Session
 
 from backend.app.ai.factory import OptionalAIServices
 from backend.app.ai.services.intent_service import IntentService
+from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.assistant.schemas import AssistantChatRequest, AssistantChatResponse, AssistantEvidenceGroup, AssistantSource
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.embedder import Embedder
+from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -25,6 +30,8 @@ class AssistantServices:
     case_similarity: SimilarityService
     docs_store: VectorStore
     ai_services: OptionalAIServices | None = None
+    findings_indexer: EvidenceMemoryIndexer | None = None
+    behaviors_indexer: EvidenceMemoryIndexer | None = None
 
 
 class OperationalIntelligenceAssistant:
@@ -49,11 +56,17 @@ class OperationalIntelligenceAssistant:
             routes.append("MEMORY_SEARCH")
         if any(keyword in text for keyword in ["analyzer", "stumpy", "ruptures", "prophet", "baseline", "zscore"]):
             routes.append("ANALYZER_SEARCH")
-        if any(keyword in text for keyword in ["architecture", "docs", "documentation", "how does", "configuration", "config", "api", "qdrant", "vector db"]):
+        if any(keyword in text for keyword in ["architecture", "docs", "documentation", "how does", "what does", "what is", "benchmark", "configuration", "config", "api", "qdrant", "vector db"]):
             routes.append("DOCUMENT_SEARCH")
 
         if not routes:
-            routes = ["CASE_SEARCH", "FINDING_SEARCH", "MEMORY_SEARCH"]
+            # A question that matches none of the keyword lists above (informal phrasing, typos,
+            # a first-time user's "what does this app do" question) is exactly the case where
+            # leaning on semantic search over documentation - which doesn't care about exact
+            # wording the way these keyword lists do - is most likely to actually help, not less.
+            # Keyword-patching every new phrasing that reaches this fallback doesn't scale;
+            # including DOCUMENT_SEARCH here does, because it's driven by embeddings, not strings.
+            routes = ["DOCUMENT_SEARCH", "CASE_SEARCH", "FINDING_SEARCH", "MEMORY_SEARCH"]
 
         deduped: list[str] = []
         for route in routes:
@@ -62,8 +75,7 @@ class OperationalIntelligenceAssistant:
         return deduped
 
     @staticmethod
-    def detect_intent(message: str) -> str:
-        routes = OperationalIntelligenceAssistant.route_intents(message)
+    def _intent_from_routes(routes: list[str]) -> str:
         if "DOCUMENT_SEARCH" in routes and routes[0] == "DOCUMENT_SEARCH":
             return "documentation"
         if "CASE_SEARCH" in routes:
@@ -73,6 +85,27 @@ class OperationalIntelligenceAssistant:
         if "BEHAVIOR_SEARCH" in routes:
             return "behavior_intelligence"
         return "general"
+
+    @staticmethod
+    def detect_intent(message: str) -> str:
+        return OperationalIntelligenceAssistant._intent_from_routes(OperationalIntelligenceAssistant.route_intents(message))
+
+    def _route(self, message: str) -> list[str]:
+        """Union of keyword routing (always available, deterministic) and LLM-classified
+        routing (when AI is enabled). The LLM adds routes keyword-matching misses (e.g. a
+        concept not in the keyword list); keyword routing stays a floor the LLM can only
+        add to, never shrink - a small local model under-selecting categories for an
+        obvious question (e.g. dropping DOCUMENT_SEARCH for "how does X work") must not
+        silently lose evidence that deterministic routing would have found."""
+        keyword_routes = self.route_intents(message)
+        llm_routes = self.intent_service.classify_routes(message)
+        if not llm_routes:
+            return keyword_routes
+        merged = list(keyword_routes)
+        for route in llm_routes:
+            if route not in merged:
+                merged.append(route)
+        return merged
 
     @staticmethod
     def _dedupe_sources(sources: list[AssistantSource]) -> list[AssistantSource]:
@@ -87,8 +120,8 @@ class OperationalIntelligenceAssistant:
         return deduped
 
     def chat(self, payload: AssistantChatRequest, db: Session) -> AssistantChatResponse:
-        routes = self.route_intents(payload.message)
-        intent = self.detect_intent(payload.message)
+        routes = self._route(payload.message)
+        intent = self._intent_from_routes(routes)
         sources: list[AssistantSource] = []
         groups: list[AssistantEvidenceGroup] = []
 
@@ -115,9 +148,9 @@ class OperationalIntelligenceAssistant:
         sources = self._dedupe_sources(sources)
         knowledge_used = [group.label for group in groups]
 
-        answer = self._compose_operational_answer(payload.message, groups)
+        answer, ai_synthesis_used = self._compose_answer(payload.message, groups)
 
-        suggested_questions = self._suggest_followups(routes, bool(sources))
+        suggested_questions = self._suggest_followups(routes, sources)
 
         return AssistantChatResponse(
             conversation_id=payload.conversation_id or uuid4(),
@@ -125,6 +158,7 @@ class OperationalIntelligenceAssistant:
             routes=routes,
             knowledge_used=knowledge_used,
             answer=answer,
+            ai_synthesis_used=ai_synthesis_used,
             limitations=[
                 "Answers are grounded in retrieved operational records and documentation.",
                 "The assistant does not perform remediation.",
@@ -136,8 +170,42 @@ class OperationalIntelligenceAssistant:
         )
 
     def _search_cases(self, payload: AssistantChatRequest, db: Session) -> AssistantEvidenceGroup:
-        terms = _query_terms(payload.message)
         rows = db.execute(select(OperationalCaseEntity).order_by(OperationalCaseEntity.updated_at.desc()).limit(200)).scalars().all()
+        semantic_sources = self._search_cases_semantic(payload, rows)
+        sources = semantic_sources if semantic_sources is not None else self._search_cases_keyword(payload, rows)
+        return AssistantEvidenceGroup(source_type="case", label="Cases", count=len(sources), sources=sources)
+
+    def _search_cases_semantic(self, payload: AssistantChatRequest, rows: list[OperationalCaseEntity]) -> list[AssistantSource] | None:
+        case_similarity = self.services.case_similarity
+        if not case_similarity or not rows:
+            return None
+        try:
+            vector = self.services.embedder.encode(payload.message)
+            results = case_similarity.vector_store.search(vector=vector, limit=payload.top_k, score_threshold=0.3)
+        except Exception as exc:
+            logger.warning("Semantic case search failed, falling back to keyword search: %s", exc)
+            return None
+        by_id = {case.id: case for case in rows}
+        sources: list[AssistantSource] = []
+        for result in results:
+            case = by_id.get(result["payload"].get("case_id"))
+            if not case:
+                continue
+            snapshot = case.finding_snapshot or {}
+            sources.append(AssistantSource(
+                source_type="case",
+                title=case.case_title,
+                score=float(result["score"]),
+                reference=f"/cases/{case.id}",
+                service=snapshot.get("service"),
+                metric_name=snapshot.get("metric_name"),
+                summary=case.root_cause_summary or case.outcome_summary or snapshot.get("summary"),
+            ))
+        return sources
+
+    @staticmethod
+    def _search_cases_keyword(payload: AssistantChatRequest, rows: list[OperationalCaseEntity]) -> list[AssistantSource]:
+        terms = _query_terms(payload.message)
         sources: list[AssistantSource] = []
         for case in rows:
             haystack = " ".join([
@@ -160,12 +228,33 @@ class OperationalIntelligenceAssistant:
                 metric_name=snapshot.get("metric_name"),
                 summary=case.root_cause_summary or case.outcome_summary or snapshot.get("summary"),
             ))
-        sources = sorted(sources, key=lambda item: item.score, reverse=True)[: payload.top_k]
-        return AssistantEvidenceGroup(source_type="case", label="Cases", count=len(sources), sources=sources)
+        return sorted(sources, key=lambda item: item.score, reverse=True)[: payload.top_k]
 
     def _search_findings(self, payload: AssistantChatRequest, db: Session) -> AssistantEvidenceGroup:
-        terms = _query_terms(payload.message)
         rows = db.execute(select(FindingEntity).order_by(FindingEntity.created_at.desc()).limit(200)).scalars().all()
+        semantic_sources = self._search_evidence_semantic(
+            payload,
+            rows,
+            indexer=self.services.findings_indexer,
+            id_fn=lambda finding: finding.id,
+            text_fn=lambda finding: " ".join([finding.title, finding.summary, finding.category, finding.health_status, finding.metric_name, finding.service or ""]),
+            payload_fn=lambda finding: {"row_id": finding.id},
+            to_source=lambda finding, score: AssistantSource(
+                source_type="finding",
+                title=finding.title,
+                score=score,
+                reference="/findings?window=7d",
+                service=finding.service,
+                metric_name=finding.metric_name,
+                summary=f"{finding.health_status} · {finding.category} · {finding.summary}",
+            ),
+        )
+        sources = semantic_sources if semantic_sources is not None else self._search_findings_keyword(payload, rows)
+        return AssistantEvidenceGroup(source_type="finding", label="Findings", count=len(sources), sources=sources)
+
+    @staticmethod
+    def _search_findings_keyword(payload: AssistantChatRequest, rows: list[FindingEntity]) -> list[AssistantSource]:
+        terms = _query_terms(payload.message)
         sources: list[AssistantSource] = []
         for finding in rows:
             haystack = " ".join([finding.title, finding.summary, finding.category, finding.health_status, finding.metric_name, finding.service or ""]).lower()
@@ -176,17 +265,37 @@ class OperationalIntelligenceAssistant:
                 source_type="finding",
                 title=finding.title,
                 score=score or 0.35,
-                reference=f"/findings?window=7d",
+                reference="/findings?window=7d",
                 service=finding.service,
                 metric_name=finding.metric_name,
                 summary=f"{finding.health_status} · {finding.category} · {finding.summary}",
             ))
-        sources = sorted(sources, key=lambda item: item.score, reverse=True)[: payload.top_k]
-        return AssistantEvidenceGroup(source_type="finding", label="Findings", count=len(sources), sources=sources)
+        return sorted(sources, key=lambda item: item.score, reverse=True)[: payload.top_k]
 
     def _search_behaviors(self, payload: AssistantChatRequest, db: Session) -> AssistantEvidenceGroup:
-        terms = _query_terms(payload.message)
         rows = db.execute(select(BehaviorFindingEntity).order_by(BehaviorFindingEntity.created_at.desc()).limit(200)).scalars().all()
+        semantic_sources = self._search_evidence_semantic(
+            payload,
+            rows,
+            indexer=self.services.behaviors_indexer,
+            id_fn=lambda behavior: behavior.id,
+            text_fn=lambda behavior: " ".join([behavior.title, behavior.summary, behavior.category, behavior.severity, behavior.service or ""]),
+            payload_fn=lambda behavior: {"row_id": behavior.id},
+            to_source=lambda behavior, score: AssistantSource(
+                source_type="behavior",
+                title=behavior.title,
+                score=score,
+                reference="/behavior-intelligence",
+                service=behavior.service,
+                summary=f"{behavior.severity} · {behavior.category} · {behavior.summary}",
+            ),
+        )
+        sources = semantic_sources if semantic_sources is not None else self._search_behaviors_keyword(payload, rows)
+        return AssistantEvidenceGroup(source_type="behavior", label="Behavior Intelligence", count=len(sources), sources=sources)
+
+    @staticmethod
+    def _search_behaviors_keyword(payload: AssistantChatRequest, rows: list[BehaviorFindingEntity]) -> list[AssistantSource]:
+        terms = _query_terms(payload.message)
         sources: list[AssistantSource] = []
         for behavior in rows:
             haystack = " ".join([behavior.title, behavior.summary, behavior.category, behavior.severity, behavior.service or ""]).lower()
@@ -201,11 +310,86 @@ class OperationalIntelligenceAssistant:
                 service=behavior.service,
                 summary=f"{behavior.severity} · {behavior.category} · {behavior.summary}",
             ))
-        sources = sorted(sources, key=lambda item: item.score, reverse=True)[: payload.top_k]
-        return AssistantEvidenceGroup(source_type="behavior", label="Behavior Intelligence", count=len(sources), sources=sources)
+        return sorted(sources, key=lambda item: item.score, reverse=True)[: payload.top_k]
+
+    def _search_evidence_semantic(
+        self,
+        payload: AssistantChatRequest,
+        rows: list,
+        *,
+        indexer: EvidenceMemoryIndexer | None,
+        id_fn,
+        text_fn,
+        payload_fn,
+        to_source,
+    ) -> list[AssistantSource] | None:
+        if not indexer or not rows:
+            return None
+        try:
+            indexer.ensure_indexed(rows, id_fn=id_fn, text_fn=text_fn, payload_fn=payload_fn)
+            vector = self.services.embedder.encode(payload.message)
+            results = indexer.vector_store.search(vector=vector, limit=payload.top_k, score_threshold=0.2)
+        except Exception as exc:
+            logger.warning("Semantic evidence search against %s failed, falling back to keyword search: %s", indexer.collection_name, exc)
+            return None
+        by_id = {id_fn(row): row for row in rows}
+        sources: list[AssistantSource] = []
+        for result in results:
+            row = by_id.get(result["payload"].get("row_id"))
+            if not row:
+                continue
+            sources.append(to_source(row, float(result["score"])))
+        return sources
+
+    def _compose_answer(self, message: str, groups: list[AssistantEvidenceGroup]) -> tuple[str, bool]:
+        if not groups:
+            return self._template_answer(message, groups), False
+        if self.services.ai_services:
+            synthesized = self._synthesize_with_llm(message, groups)
+            if synthesized:
+                return synthesized, True
+        return self._template_answer(message, groups), False
+
+    def _synthesize_with_llm(self, message: str, groups: list[AssistantEvidenceGroup]) -> str | None:
+        return self.synthesize_from_evidence(message, self._format_evidence_for_prompt(groups))
+
+    def synthesize_from_evidence(self, question: str, evidence_text: str) -> str | None:
+        """Shared LLM answer-synthesis entry point - any endpoint with its own retrieved
+        evidence (not just this assistant's own search methods, e.g. the autonomous-run
+        Q&A endpoint) can reuse this instead of hand-writing a second answer template.
+
+        Returns None when AI is disabled, there's no evidence to ground an answer in, or
+        the call fails - callers should fall back to their own deterministic answer.
+        """
+        return synthesize_narrative(
+            self.services.ai_services,
+            instruction=(
+                "You are the Ops Signals operational assistant. Answer the user's question using ONLY "
+                "the evidence provided below - never invent services, metrics, numbers, or facts that "
+                "are not in the evidence. If the evidence only partially answers the question, say so "
+                "plainly instead of filling the gap yourself. Write 2-4 concise sentences in a plain "
+                "operational tone, referencing evidence by its title where relevant. Do not suggest "
+                "remediation actions or claim to have made any changes."
+            ),
+            evidence_text=f"Question: {question}\n\nEvidence:\n{evidence_text}",
+            max_tokens=400,
+            timeout_seconds=20,
+        )
 
     @staticmethod
-    def _compose_operational_answer(message: str, groups: list[AssistantEvidenceGroup]) -> str:
+    def _format_evidence_for_prompt(groups: list[AssistantEvidenceGroup]) -> str:
+        lines: list[str] = []
+        for group in groups:
+            lines.append(f"{group.label}:")
+            for source in group.sources[:5]:
+                summary = (source.summary or "").strip()
+                if len(summary) > 500:
+                    summary = summary[:500] + "..."
+                lines.append(f'- "{source.title}" (relevance {source.score:.2f}): {summary}')
+        return "\n".join(lines)
+
+    @staticmethod
+    def _template_answer(message: str, groups: list[AssistantEvidenceGroup]) -> str:
         if not groups:
             return "Summary\nI could not find strong operational evidence for that question.\n\nRecommended Next Step\nTry narrowing the question to a service, metric, analyzer, finding, or case."
         total = sum(group.count for group in groups)
@@ -232,18 +416,42 @@ class OperationalIntelligenceAssistant:
         return "\n".join(lines)
 
     @staticmethod
-    def _suggest_followups(routes: list[str], has_sources: bool) -> list[str]:
-        if not has_sources:
-            return ["Show recent findings", "Search operational memory", "Explain analyzers"]
+    def _suggest_followups(routes: list[str], sources: list[AssistantSource]) -> list[str]:
+        """Generate topical follow-up questions grounded in the top retrieved source, instead of
+        generic instruction phrases. Generic phrases like "Show related cases" carry no real
+        search terms - a real question with a service/metric/title in it gives the next search
+        (keyword or semantic) something concrete to match against."""
+        if not sources:
+            return ["Show recent findings", "Explain analyzers", "How does Behavior Intelligence work?"]
+
+        top = sources[0]
+        suggestions: list[str] = []
+
         if "CASE_SEARCH" in routes or "MEMORY_SEARCH" in routes:
-            return ["Open related cases", "Show RCA", "Show timeline", "Show only production cases", "Compare findings"]
+            suggestions.append(f"Show the RCA for {top.title}")
+            if top.service:
+                suggestions.append(f"Have we seen similar {top.service} issues before?")
         if "FINDING_SEARCH" in routes:
-            return ["Compare findings", "What analyzer detected this?", "Show related cases", "Search operational memory"]
+            if top.metric_name:
+                suggestions.append(f"What analyzer detected the {top.metric_name} change?")
+            if top.service:
+                suggestions.append(f"Any related cases for {top.service}?")
+        if "BEHAVIOR_SEARCH" in routes and top.service:
+            suggestions.append(f"What signals contributed to this on {top.service}?")
         if "DOCUMENT_SEARCH" in routes or "ANALYZER_SEARCH" in routes:
-            return ["Explain analyzer", "Show configuration", "How does this work?", "Show related findings"]
-        return ["Search cases", "Search findings", "Search operational memory"]
+            suggestions.append(f"Give an example of {top.title}")
+
+        deduped: list[str] = []
+        for suggestion in suggestions:
+            if suggestion not in deduped:
+                deduped.append(suggestion)
+        if not deduped:
+            deduped.append(f"Tell me more about {top.title}")
+        return deduped[:4]
 
     def _answer_historical(self, payload: AssistantChatRequest, db: Session) -> tuple[list[AssistantSource], str]:
+        if not self.services.case_similarity:
+            return [], "Operational memory is not available."
         current_case = None
         if payload.case_id is not None:
             current_case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == payload.case_id)).scalar_one_or_none()
@@ -289,7 +497,14 @@ class OperationalIntelligenceAssistant:
         elif "architecture" in lowered or "how does" in lowered:
             query_text = "Operational Intelligence architecture PostgreSQL Qdrant analyzer registry signals findings cases"
         vector = self.services.embedder.encode(query_text)
-        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=max(0.4, payload.minimum_score))
+        # 0.3, not 0.55 (the request schema's default minimum_score) or the 0.4 this used to floor
+        # at - live-verified against this corpus: a short conceptual doc that's a genuinely good
+        # match for a casual, informal question (e.g. "Application Overview" against "whats use of
+        # this application") scores ~0.38 with this embedding model, not 0.5+. A 0.4+ floor was
+        # silently discarding the single most on-topic document in the index. Consistent with the
+        # same empirically-grounded floors already used for finding/behavior/case semantic search
+        # elsewhere in this file.
+        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=max(0.3, payload.minimum_score))
         sources = [
             AssistantSource(
                 source_type="app_documentation",

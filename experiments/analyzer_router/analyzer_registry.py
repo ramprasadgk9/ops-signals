@@ -19,6 +19,12 @@ class AnalyzerCapability:
 
 
 DEFAULT_REGISTRY_PATH = Path("experiments/analyzer_router/analyzer_registry.yaml")
+# Where new analyzers register themselves (see intelligence/analyzer_registry.py) - merged in
+# additively below, never overriding an id already present in the legacy file above. Existing
+# routing behavior for every analyzer already in analyzer_registry.yaml is untouched by this;
+# this only makes a *new* analyzer's own `router:` block visible to the real production router,
+# which previously had no way to see anything registered outside this one file.
+DEFAULT_CUSTOM_REGISTRY_DIR = Path("config/analyzer_registry.d")
 
 DEFAULT_REGISTRY = {
     "analyzers": {
@@ -42,10 +48,48 @@ DEFAULT_REGISTRY = {
 
 
 class AnalyzerRegistry:
-    def __init__(self, config_path: str | Path | None = None) -> None:
+    def __init__(self, config_path: str | Path | None = None, *, merge_custom: bool = True) -> None:
         self.config_path = Path(config_path) if config_path else None
         self.registry_version = "default"
         self._registry = self._load()
+        if merge_custom and self.config_path is None:
+            self._merge_custom_registrations()
+
+    def _merge_custom_registrations(self) -> None:
+        """Additively merges in analyzers registered via DEFAULT_CUSTOM_REGISTRY_DIR that declare
+        a non-empty `router` block, so a newly added analyzer becomes visible to the real
+        production router without needing a hand-added entry in the legacy
+        analyzer_registry.yaml file. Only used for the default (no explicit config_path)
+        instantiation - preview/test paths that pass an explicit path (e.g. admin_analyzers.py's
+        test_route, or a tmp_path in tests) are unaffected, same as before this existed.
+
+        Deliberately additive-only: an id already present in the legacy file is left exactly as
+        that file defines it, never overridden here. This keeps every analyzer already in
+        analyzer_registry.yaml routing exactly as it did before - this only ever *adds* ids that
+        weren't there.
+        """
+        if not DEFAULT_CUSTOM_REGISTRY_DIR.exists():
+            return
+        from intelligence.analyzer_registry import load_registrations
+
+        added: list[str] = []
+        for registration in load_registrations(DEFAULT_CUSTOM_REGISTRY_DIR):
+            if registration.analyzer_id in self._registry:
+                continue
+            if not registration.router.supported_profiles and not registration.router.scoring_rules:
+                continue  # no router opt-in declared for this analyzer; stays construction-only
+            self._registry[registration.analyzer_id] = AnalyzerCapability(
+                analyzer=registration.analyzer_id,
+                display_name=registration.display_name,
+                supported_profiles=list(registration.router.supported_profiles),
+                eligibility_rules=dict(registration.router.eligibility_rules),
+                suitability_rules={},
+                scoring_rules=dict(registration.router.scoring_rules),
+                explanation_templates=dict(registration.router.explanation_templates),
+            )
+            added.append(registration.analyzer_id)
+        if added:
+            self.registry_version = f"{self.registry_version}+custom({','.join(sorted(added))})"
 
     def _load(self) -> dict[str, AnalyzerCapability]:
         raw: dict[str, Any] = {}

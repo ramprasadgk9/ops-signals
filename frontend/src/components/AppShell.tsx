@@ -56,6 +56,7 @@ const navItems: NavItem[] = [
   { label: 'Findings', to: '/findings', icon: <CrisisAlertRoundedIcon /> },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
   { label: 'Behavior Intelligence', to: '/behavior-intelligence', icon: <HubRoundedIcon /> },
+  { label: 'Behavior Lab', to: '/behavior-intelligence/lab', icon: <ScienceRoundedIcon /> },
   { label: 'Operational Memory', to: '/operational-memory', icon: <StorageRoundedIcon /> },
   { label: 'Ask Ops Signals', to: '/assistant', icon: <ChatBubbleOutlineRoundedIcon />, badge: 'Beta' },
   { label: 'Experiments', to: '/experiments', icon: <ScienceRoundedIcon /> },

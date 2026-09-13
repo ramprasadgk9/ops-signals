@@ -27,6 +27,8 @@ frontend/dist/
 frontend/dist-admin/
 frontend/.vite/
 frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
 *.tsbuildinfo
 
 # Environment and secrets
@@ -62,3 +64,7 @@ temp/
 .aider*
 .agents/
 skills-lock.json
+
+# Benchmark reports are generated output (JSON/Markdown written by benchmark/router_benchmark.py
+# on every run) - not source, and re-running the suite locally shouldn't dirty the working tree.
+benchmark/reports/

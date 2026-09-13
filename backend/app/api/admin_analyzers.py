@@ -10,12 +10,19 @@ from pydantic import BaseModel, Field
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
 from experiments.analyzer_router.models import SeriesProfile
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
+from intelligence.analyzer_registry import AnalyzerRegistration, load_registrations
 
 
 router = APIRouter(prefix="/api/admin/analyzers", tags=["admin-analyzers"])
 
 REGISTRY_PATH = Path("experiments/analyzer_router/analyzer_registry.yaml")
 CUSTOM_ANALYZERS_PATH = Path("config/custom_analyzers.yaml")
+# Where backend/app/api/analyzer_labs.py's Promote/Add backend support actually write now (see
+# that module's CUSTOM_ANALYZER_REGISTRY_DIR/CUSTOM_ANALYZER_ADAPTER_DIR) - duplicated here as
+# plain Path constants rather than imported, to avoid a circular import (analyzer_labs.py already
+# imports several helpers from this module).
+CUSTOM_ANALYZER_REGISTRY_DIR = Path("config/analyzer_registry.d")
+CUSTOM_ANALYZER_ADAPTER_DIR = Path("backend/app/analyzers/custom")
 SUPPORTED_PROFILE_METRICS = {
     "sample_count",
     "regular_sampling",
@@ -174,6 +181,49 @@ def _merged_registry() -> dict[str, Any]:
     return merged
 
 
+def _new_registration_to_ui(registration: AnalyzerRegistration) -> AnalyzerConfigOut:
+    """Converts a config/analyzer_registry.d/ registration (the real, connected location
+    analyzer_labs.py's Promote/Add backend support write to) into the same AnalyzerConfigOut
+    shape _registry_analyzer_to_ui produces for the legacy custom_analyzers.yaml, so both sources
+    show up together in this list instead of a newly-promoted analyzer silently not appearing
+    here even though it's genuinely live."""
+    adapter_exists = (CUSTOM_ANALYZER_ADAPTER_DIR / f"{registration.analyzer_id}.py").exists()
+    module, _, class_name = (registration.class_path or "").rpartition(".")
+    return AnalyzerConfigOut(
+        analyzer_id=registration.analyzer_id,
+        display_name=registration.display_name,
+        template_type="Custom",
+        library=registration.analyzer_id,
+        enabled=registration.enabled,
+        runtime_mapping=registration.analyzer_id if registration.class_path else "not_implemented",
+        supported_profiles=list(registration.router.supported_profiles),
+        min_samples=int(registration.router.eligibility_rules.get("min_samples", 30)),
+        requires_regular_sampling=bool(registration.router.eligibility_rules.get("requires_regular_sampling", False)),
+        requires_numeric=bool(registration.router.eligibility_rules.get("requires_numeric", True)),
+        base_score=float(registration.router.scoring_rules.get("base", 0.3)),
+        scoring_rules=[_registry_rule_to_ui(rule) for rule in registration.router.scoring_rules.get("rules", [])],
+        runtime_params=dict(registration.runtime_params),
+        selected_explanation=str(registration.router.explanation_templates.get("selected", "")),
+        excluded_explanation=str(registration.router.explanation_templates.get("excluded", "")),
+        source="custom",
+        routable=True,
+        executable=adapter_exists,
+        implementation_status="verified" if adapter_exists else "pending",
+        implementation_module=module or None,
+        implementation_class_name=class_name or None,
+    )
+
+
+def _load_new_custom_registrations() -> list[AnalyzerRegistration]:
+    """Everything in config/analyzer_registry.d/ except builtin.yml - that file holds the 7 real
+    built-in analyzers (migrated there from the old hardcoded pipeline construction; see
+    intelligence/pipeline.py), which this "Promoted Custom Analyzers" list should never show
+    alongside things a user actually promoted through the wizard."""
+    if not CUSTOM_ANALYZER_REGISTRY_DIR.exists():
+        return []
+    return [reg for reg in load_registrations(CUSTOM_ANALYZER_REGISTRY_DIR) if reg.source_file != "builtin.yml"]
+
+
 @router.get("")
 def list_analyzers() -> list[AnalyzerConfigOut]:
     builtin = _read_yaml(REGISTRY_PATH).get("analyzers", {})
@@ -186,6 +236,7 @@ def list_analyzers() -> list[AnalyzerConfigOut]:
         _registry_analyzer_to_ui(analyzer_id, data, "custom")
         for analyzer_id, data in custom.items()
     )
+    items.extend(_new_registration_to_ui(registration) for registration in _load_new_custom_registrations())
     return sorted(items, key=lambda item: (item.source, item.analyzer_id))
 
 
@@ -207,6 +258,11 @@ def save_analyzer(data: AnalyzerConfigIn) -> AnalyzerConfigOut:
 
 @router.delete("/{analyzer_id}")
 def delete_custom_analyzer(analyzer_id: str) -> dict[str, Any]:
+    new_registration_path = CUSTOM_ANALYZER_REGISTRY_DIR / f"custom_{analyzer_id}.yml"
+    if new_registration_path.exists():
+        new_registration_path.unlink()
+        return {"deleted": 1, "analyzer_id": analyzer_id}
+
     custom = _read_yaml(CUSTOM_ANALYZERS_PATH)
     custom_analyzers = custom.get("analyzers", {})
     if not isinstance(custom_analyzers, dict) or analyzer_id not in custom_analyzers:

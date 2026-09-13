@@ -14,7 +14,7 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     working = _apply_provider_mappings(working, config)
     working = _apply_core_renames(working, config)
 
-    _validate_required_columns(working)
+    _validate_required_columns(working, config)
     _apply_datadog_tags(working, config)
 
     working["timestamp"] = _parse_timestamps(working["timestamp"], config.provider)
@@ -44,10 +44,11 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     for keys, group in working.groupby(group_columns, dropna=False):
         group = group.sort_values("timestamp")
         freq_str = config.interval.replace('m', 'min') if config.interval.endswith('m') else config.interval
+        aggregation = "last" if _is_running_total(group) else "mean"
         resampled = (
             group.set_index("timestamp")
-            .resample(freq_str)
-            .mean(numeric_only=True)
+            .resample(freq_str)["value"]
+            .agg(aggregation)
             .reset_index()
         )
 
@@ -92,6 +93,25 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     return normalized
 
 
+def _is_running_total(group: pd.DataFrame) -> bool:
+    """Averaging a cumulative running total (e.g. a request/error counter) within a resample
+    bucket blurs a real spike into a meaningless middle value instead of preserving it - taking
+    the last reading in the bucket is the correct way to downsample a running total. Prefers an
+    explicit metric_type label (every row in `group` shares one value for it, since it's already
+    a groupby key); falls back to detecting a monotonically non-decreasing series when the label
+    is absent, since metric_type is optional and most uploads leave it blank. Doesn't attempt to
+    detect a counter that has reset (dropped back to zero) mid-series - that shows up as a
+    negative jump instead, which is itself a legitimate signal worth surfacing, not hiding."""
+    if "metric_type" in group.columns:
+        declared = group["metric_type"].dropna()
+        if not declared.empty:
+            return str(declared.iloc[0]).strip().lower() == "counter"
+    values = group["value"].dropna()
+    if len(values) < 2:
+        return False
+    return bool((values.diff().dropna() >= 0).all())
+
+
 def _apply_provider_mappings(dataframe: pd.DataFrame, config: InputConfig) -> pd.DataFrame:
     working = dataframe.copy()
     provider = (config.provider or "generic").lower()
@@ -130,11 +150,28 @@ def _apply_core_renames(dataframe: pd.DataFrame, config: InputConfig) -> pd.Data
     return dataframe
 
 
-def _validate_required_columns(dataframe: pd.DataFrame) -> None:
+def _validate_required_columns(dataframe: pd.DataFrame, config: InputConfig) -> None:
     required = ["timestamp", "metric_name", "value"]
     missing = [column for column in required if column not in dataframe.columns]
-    if missing:
-        raise ValueError(f"CSV missing canonical required columns after mapping: {missing}")
+    if not missing:
+        return
+
+    # A configured provider_mappings entry that never matched a real column is the most likely
+    # cause of a missing required column, but was previously silently skipped (see
+    # _apply_provider_mappings) with no trace of it in the resulting error - naming the specific
+    # mapping and what it expected turns "guess what's wrong" into "here's exactly what to fix".
+    mapping = config.provider_mappings or {}
+    mapping_hints = [
+        f"'{canonical_name}' was expected to come from a column named '{mapping[canonical_name]}' "
+        "(per the configured provider mapping), but no such column was found in the uploaded file."
+        for canonical_name in missing
+        if canonical_name in mapping
+    ]
+    hint_text = " " + " ".join(mapping_hints) if mapping_hints else ""
+    raise ValueError(
+        f"CSV missing canonical required columns after mapping: {missing}. "
+        f"Columns found in the file: {list(dataframe.columns)}.{hint_text}"
+    )
 
 
 def _parse_timestamps(series: pd.Series, provider: str) -> pd.Series:

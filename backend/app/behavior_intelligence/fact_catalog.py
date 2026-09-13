@@ -1,22 +1,43 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 
-FACT_KEYS = {
-    "anomaly.present",
-    "anomaly.count",
-    "anomaly.max_score",
-    "trend.present",
-    "trend.direction",
-    "trend.change_percent",
-    "trend.slope",
-    "baseline_shift.present",
-    "baseline_shift.change_percent",
-    "ruptures.present",
-    "ruptures.change_percent",
-    "ruptures.change_point_index",
-    "signal.count",
-    "signal.types",
-    "signal.metric_names",
-    "signal.window_start",
-    "signal.window_end",
-}
+@dataclass(frozen=True, slots=True)
+class FactDescriptor:
+    key: str
+    description: str
+    example: object
+
+
+# Every fact a behavior definition condition can reference, under an input alias
+# (e.g. "cpu.anomaly.present" = alias "cpu" + fact key "anomaly.present"). Produced by
+# fact_extractor.extract_facts() per metric. Kept as the single source of truth for both the
+# `/api/behavior-definitions/facts` endpoint and definition validation, so the two can't drift.
+FACT_DESCRIPTORS: list[FactDescriptor] = [
+    FactDescriptor("anomaly.present", "Whether any anomaly signal was found for this metric in the window.", True),
+    FactDescriptor("anomaly.count", "How many anomaly signals were found.", 2),
+    FactDescriptor("anomaly.max_score", "The highest importance score among the anomaly signals (0-1).", 0.82),
+    FactDescriptor("trend.present", "Whether a trend signal was found for this metric in the window.", True),
+    FactDescriptor("trend.direction", "Which way the metric is moving overall.", "upward"),
+    FactDescriptor("trend.change_percent", "Magnitude of the trend change, as an absolute percentage.", 34.5),
+    FactDescriptor("trend.slope", "Raw trend slope value from the analyzer's regression.", 0.12),
+    FactDescriptor("baseline_shift.present", "Whether a baseline/regime shift was detected for this metric.", False),
+    FactDescriptor("baseline_shift.change_percent", "Size of the detected baseline shift, as an absolute percentage.", 40.0),
+    FactDescriptor("ruptures.present", "Whether a ruptures change-point signal was found for this metric.", False),
+    FactDescriptor("ruptures.change_percent", "Size of the detected change point, as an absolute percentage.", 25.0),
+    FactDescriptor("ruptures.change_point_index", "Sample index where the change point was detected.", 80),
+    FactDescriptor("signal.count", "Total number of signals of any type found for this metric.", 3),
+    FactDescriptor("signal.types", "Distinct signal_type values present for this metric.", ["anomaly_zscore", "trend"]),
+    FactDescriptor("signal.metric_names", "Distinct metric names associated with signals in the window.", ["cpu_usage", "memory_usage"]),
+    FactDescriptor("signal.window_start", "Earliest signal start_time for this metric in the window.", "2026-09-10T00:00:00+00:00"),
+    FactDescriptor("signal.window_end", "Latest signal end_time for this metric in the window.", "2026-09-10T02:00:00+00:00"),
+]
+
+FACT_KEYS: set[str] = {descriptor.key for descriptor in FACT_DESCRIPTORS}
+
+
+def fact_root(fact_path: str) -> str | None:
+    """Given a full condition fact path like "cpu.anomaly.present", return the fact key
+    ("anomaly.present") with the alias stripped — the part that must exist in FACT_KEYS."""
+    parts = fact_path.split(".", 1)
+    return parts[1] if len(parts) == 2 else None

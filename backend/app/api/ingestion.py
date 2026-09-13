@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -23,6 +24,46 @@ from backend.app.services.timeseries_routing_service import build_csv_routing_co
 from intelligence.pipeline import SignalPipeline
 
 router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
+
+# `await file.read()` below loads the entire upload into memory with no cap unless we check it
+# ourselves - reject oversized uploads before that read is even fully buffered/written to disk.
+# Row count (intelligence/adapters/csv_adapter.py::MAX_CSV_ROWS) is the second layer: byte size
+# alone doesn't catch a small-looking file with an enormous row count.
+MAX_UPLOAD_BYTES = int(os.getenv("OPS_SIGNALS_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+
+async def _read_upload_within_limit(file: UploadFile) -> bytes:
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"CSV upload of {len(data)} bytes exceeds the configured limit of "
+                f"{MAX_UPLOAD_BYTES} bytes (set OPS_SIGNALS_MAX_UPLOAD_BYTES to change)."
+            ),
+        )
+    return data
+
+
+def _build_custom_column_mapping(
+    provider: str,
+    custom_timestamp_column: str | None,
+    custom_value_column: str | None,
+    custom_metric_name_column: str | None,
+) -> dict[str, str] | None:
+    """Ad-hoc, one-time column mapping for the "custom" provider - typed in by the user on the
+    upload form, never persisted anywhere, applies to this single upload only. All 3 are required
+    together: a partial mapping would just fail later with a confusing "missing columns" error."""
+    if provider != "custom":
+        return None
+    fields = {"timestamp": custom_timestamp_column, "value": custom_value_column, "metric_name": custom_metric_name_column}
+    missing = [canonical for canonical, raw in fields.items() if not raw or not raw.strip()]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"provider 'custom' requires all 3 column names to be provided; missing: {missing}",
+        )
+    return {canonical: raw.strip() for canonical, raw in fields.items()}  # type: ignore[union-attr]
 
 
 class PreviewPipelineStore:
@@ -182,13 +223,21 @@ async def run_csv_analysis(
     service: str = Form(default="uploaded-service"),
     metric_name: str = Form(default="uploaded_metric"),
     interval: str = Form(default="5m"),
+    custom_timestamp_column: str | None = Form(default=None),
+    custom_value_column: str | None = Form(default=None),
+    custom_metric_name_column: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> CsvRunOut:
     provider_lower = provider.lower()
-    if provider_lower not in {"generic", "prometheus", "datadog"}:
-        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog")
+    if provider_lower not in {"generic", "prometheus", "datadog", "custom"}:
+        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog, custom")
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="only .csv uploads are supported")
+
+    column_mapping = _build_custom_column_mapping(
+        provider_lower, custom_timestamp_column, custom_value_column, custom_metric_name_column
+    )
+    data = await _read_upload_within_limit(file)
 
     upload_dir = _repo_root() / ".tmp_uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -196,7 +245,6 @@ async def run_csv_analysis(
     suffix = Path(file.filename).suffix or ".csv"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=upload_dir) as handle:
         temp_path = Path(handle.name)
-        data = await file.read()
         handle.write(data)
 
     try:
@@ -208,6 +256,7 @@ async def run_csv_analysis(
             interval=interval,
             analyzer_id="all",
             preview=False,
+            column_mapping=column_mapping,
         )
 
         result = SignalPipeline(config).run(run_metadata={"file_name": file.filename})
@@ -245,12 +294,20 @@ async def validate_csv_analysis(
     metric_name: str = Form(default="uploaded_metric"),
     interval: str = Form(default="5m"),
     analyzer_overrides: str | None = Form(default=None),
+    custom_timestamp_column: str | None = Form(default=None),
+    custom_value_column: str | None = Form(default=None),
+    custom_metric_name_column: str | None = Form(default=None),
 ) -> CsvValidationOut:
     provider_lower = provider.lower()
-    if provider_lower not in {"generic", "prometheus", "datadog"}:
-        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog")
+    if provider_lower not in {"generic", "prometheus", "datadog", "custom"}:
+        raise HTTPException(status_code=400, detail="provider must be one of: generic, prometheus, datadog, custom")
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="only .csv uploads are supported")
+
+    column_mapping = _build_custom_column_mapping(
+        provider_lower, custom_timestamp_column, custom_value_column, custom_metric_name_column
+    )
+    data = await _read_upload_within_limit(file)
 
     upload_dir = _repo_root() / ".tmp_uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -258,7 +315,6 @@ async def validate_csv_analysis(
     suffix = Path(file.filename).suffix or ".csv"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=upload_dir) as handle:
         temp_path = Path(handle.name)
-        data = await file.read()
         handle.write(data)
 
     try:
@@ -273,6 +329,7 @@ async def validate_csv_analysis(
             analyzer_id=requested_analyzer_id,
             preview=True,
             analyzer_overrides=parsed_overrides,
+            column_mapping=column_mapping,
         )
 
         result = SignalPipeline(config, store=PreviewPipelineStore()).run(

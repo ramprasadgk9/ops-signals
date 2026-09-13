@@ -441,7 +441,7 @@ class MetricAnalysisExecutor:
         return snapshots
 
     def _evaluate_behavior_intelligence(self, signals: list[OperationalSignal], analysis_run_id: str, db: Session | None = None) -> None:
-        behavior_definitions_path = self._repo_root() / "config" / "behavior_definitions.yml"
+        behavior_definitions_path = self._repo_root() / "config" / "behavior_definitions.d"
         if not behavior_definitions_path.exists():
             return
         service = BehaviorIntelligenceService(behavior_definitions_path)

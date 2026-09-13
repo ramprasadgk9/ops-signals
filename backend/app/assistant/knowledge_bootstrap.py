@@ -2,18 +2,59 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from uuid import UUID, NAMESPACE_URL, uuid5
 
-import yaml
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 
+from backend.app.behavior_intelligence.loader import load_definitions
 from backend.app.capabilities.builtins import BUILTIN_CAPABILITIES
 from backend.app.models.entities import Base
 from backend.app.memory.embedder import Embedder
 from intelligence.analyzers import BaselineShiftAnalyzer, RupturesAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
+
+# Kept well under the embedder's practical input limit so a chunk's meaning isn't diluted by
+# being crammed against the model's context ceiling.
+CHUNK_SIZE = 6000
+CHUNK_OVERLAP = 200
+# Generous headroom - large enough that no real document in this repo needs more chunks than
+# this (the largest doc as of this writing is ~31K chars, i.e. 6 chunks), used only to bound how
+# many stale chunk-slot ids get cleared before each document's current chunks are written.
+MAX_CHUNKS_PER_DOCUMENT = 25
+
+
+def _split_into_chunks(content: str) -> list[str]:
+    """Splits long content into embeddable chunks instead of silently truncating past
+    CHUNK_SIZE characters - the previous behavior made everything past the first ~1,600 words of
+    a long document permanently unsearchable. Prefers splitting on markdown "## " section
+    headers so each chunk stays a coherent unit; falls back to fixed-size windows (with overlap,
+    so a fact split across the boundary isn't lost entirely) for a section that's itself too long
+    or for content with no headers at all."""
+    if len(content) <= CHUNK_SIZE:
+        return [content]
+
+    sections = re.split(r"\n(?=## )", content)
+    chunks: list[str] = []
+    current = ""
+    for section in sections:
+        if len(current) + len(section) <= CHUNK_SIZE:
+            current += section
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        if len(section) <= CHUNK_SIZE:
+            current = section
+        else:
+            step = CHUNK_SIZE - CHUNK_OVERLAP
+            for start in range(0, len(section), step):
+                chunks.append(section[start : start + CHUNK_SIZE])
+    if current:
+        chunks.append(current)
+    return chunks[:MAX_CHUNKS_PER_DOCUMENT]
 
 
 @dataclass(slots=True)
@@ -84,25 +125,58 @@ class ApplicationKnowledgeBootstrapService:
         created = 0
         updated = 0
 
-        for doc in documents:
-            point_id = self._point_id(doc.document_id)
-            payload = {
-                "document_id": doc.document_id,
-                "document_type": doc.document_type,
-                "topic": doc.topic,
-                "title": doc.title,
-                "related_components": doc.related_components,
-                "source_type": doc.source_type,
-                "source_path": doc.source_path,
-                "version": doc.version,
-                "summary": doc.content[:1200],
-                **doc.metadata,
-            }
-            vector = self.embedder.encode(doc.content[:8000])
-            self.client.upsert(
+        # A document that's no longer produced at all - moved to docs/archive/, renamed, deleted -
+        # would otherwise stay indexed forever: this loop only ever upserts what _build_documents()
+        # currently returns, it never previously deleted anything. Confirmed live, not
+        # hypothetical: docs/release-review.md kept scoring as a top search result after being
+        # moved into the excluded archive/ directory, because its old points were simply never
+        # removed.
+        current_ids = {doc.document_id for doc in documents}
+        for removed_id in set(existing) - current_ids:
+            self.client.delete(
                 collection_name=self.COLLECTION_NAME,
-                points=[PointStruct(id=point_id, vector=vector, payload=payload)],
+                points_selector=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=removed_id))]),
             )
+
+        for doc in documents:
+            chunks = _split_into_chunks(doc.content)
+
+            # Only pay for a clear when this document is actually chunked this run (bootstrap()
+            # runs on every app startup, including in the test suite, so a clear call for every
+            # one of ~70 mostly-short documents adds real, measurable overhead for no benefit in
+            # the common case). This leaves one accepted edge case: if a document's chunk COUNT
+            # shrinks between runs (e.g. it's trimmed from 3 chunks to 2), the now-unused slot's
+            # old point is left behind as a low-relevance stale candidate rather than deleted -
+            # a real but minor tradeoff against re-clearing 25 slots for every document, every
+            # startup, for content that in practice changes rarely.
+            if len(chunks) > 1:
+                stale_ids = [self._point_id(doc.document_id)] + [
+                    self._point_id(f"{doc.document_id}:chunk:{slot}") for slot in range(MAX_CHUNKS_PER_DOCUMENT)
+                ]
+                self.client.delete(collection_name=self.COLLECTION_NAME, points_selector=stale_ids)
+
+            for index, chunk_text in enumerate(chunks):
+                chunk_document_id = doc.document_id if len(chunks) == 1 else f"{doc.document_id}:chunk:{index}"
+                point_id = self._point_id(chunk_document_id)
+                payload = {
+                    "document_id": doc.document_id,
+                    "chunk_index": index,
+                    "chunk_count": len(chunks),
+                    "document_type": doc.document_type,
+                    "topic": doc.topic,
+                    "title": doc.title,
+                    "related_components": doc.related_components,
+                    "source_type": doc.source_type,
+                    "source_path": doc.source_path,
+                    "version": doc.version,
+                    "summary": chunk_text[:1200],
+                    **doc.metadata,
+                }
+                vector = self.embedder.encode(chunk_text)
+                self.client.upsert(
+                    collection_name=self.COLLECTION_NAME,
+                    points=[PointStruct(id=point_id, vector=vector, payload=payload)],
+                )
             if doc.document_id in existing:
                 updated += 1
             else:
@@ -199,7 +273,15 @@ class ApplicationKnowledgeBootstrapService:
 
     def _repo_docs(self) -> list[ApplicationKnowledgeDocument]:
         docs: list[ApplicationKnowledgeDocument] = []
-        for path in [self.repo_root / "README.md", *sorted((self.repo_root / "docs").glob("*.md"))]:
+        docs_dir = self.repo_root / "docs"
+        # Recursive, not docs_dir.glob("*.md") - a flat glob silently skipped docs/adr/*.md
+        # entirely for as long as this method existed. "archive" is excluded so dated,
+        # point-in-time review docs don't compete with living documentation in search results.
+        nested_docs = sorted(
+            path for path in docs_dir.rglob("*.md")
+            if "archive" not in path.relative_to(docs_dir).parts
+        )
+        for path in [self.repo_root / "README.md", *nested_docs]:
             if not path.exists():
                 continue
             text = path.read_text(encoding="utf-8")
@@ -222,7 +304,11 @@ class ApplicationKnowledgeBootstrapService:
         content = (
             "Ops Signals is a vendor-neutral Operational Intelligence framework. "
             "It transforms normalized time-series data into signals, findings, behavior findings, cases, and searchable operational memory. "
-            "The application is designed to be explainable, deterministic, and self-hosted."
+            "The application is designed to be explainable, deterministic, and self-hosted.\n\n"
+            "Example: a metric like checkout-api's cpu_usage is normalized, analyzed for a baseline shift, "
+            "turned into a Finding ('CPU usage baseline shifted'), and can be promoted into a Case where "
+            "someone records the root cause and resolution - which then becomes searchable operational memory "
+            "for the next time a similar issue happens."
         )
         return ApplicationKnowledgeDocument(
             document_id="application-overview",
@@ -239,7 +325,11 @@ class ApplicationKnowledgeBootstrapService:
         content = (
             "Analyzers inspect normalized metric time-series data and produce lower-level operational signals. "
             "Their outputs feed findings and behavior definitions. "
-            f"Registered analyzers currently include: {analyzer_names}."
+            f"Registered analyzers currently include: {analyzer_names}.\n\n"
+            "Example: the ruptures analyzer scans a metric's time series for a persistent change point - "
+            "e.g. checkout-api cpu_usage sitting near 42% for hours, then jumping to a new baseline near 79% "
+            "and staying there. It emits a baseline_shift signal with the change point, the percent change, "
+            "and a confidence score, which downstream findings and behaviors can then use as evidence."
         )
         return ApplicationKnowledgeDocument(
             document_id="analyzers-overview",
@@ -249,9 +339,6 @@ class ApplicationKnowledgeBootstrapService:
             content=content,
             related_components=["analyzer registry", "signals", "findings", "behaviors"],
             source_path="generated://concepts/analyzers-overview",
-            metadata={
-                "document_id": "concept-analyzers-overview",
-            },
         )
 
     def _analyzer_types_overview(self) -> ApplicationKnowledgeDocument:
@@ -275,7 +362,11 @@ class ApplicationKnowledgeBootstrapService:
         content = (
             "Signals are analyzer outputs stored as operational evidence. "
             "They include analyzer ID, metric name, service metadata, severity, confidence, summary, evidence payloads, and importance scores. "
-            "Signals are inputs to findings and behavior evaluation."
+            "Signals are inputs to findings and behavior evaluation.\n\n"
+            "Example: one baseline_shift signal on its own is just one analyzer's opinion about one metric. "
+            "A Finding is what groups one or more signals (say, a baseline_shift on cpu_usage plus a related "
+            "anomaly on request_latency) into a single higher-level, investigatable item with its own title "
+            "and importance score."
         )
         return ApplicationKnowledgeDocument(
             document_id="signals-overview",
@@ -290,7 +381,10 @@ class ApplicationKnowledgeBootstrapService:
     def _findings_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Findings are aggregated operational interpretations that group signals into higher-level insights. "
-            "They include title, summary, category, health status, importance score, and supporting signal IDs."
+            "They include title, summary, category, health status, importance score, and supporting signal IDs.\n\n"
+            "Example: a Finding titled 'CPU usage baseline shifted' on checkout-api, category behavior_change, "
+            "health_status critical, importance_score 0.94 - built from the baseline_shift signal that detected "
+            "the change point. From the Findings page, that item can be promoted into a Case for investigation."
         )
         return ApplicationKnowledgeDocument(
             document_id="findings-overview",
@@ -303,16 +397,15 @@ class ApplicationKnowledgeBootstrapService:
         )
 
     def _behaviors_overview(self) -> ApplicationKnowledgeDocument:
-        behavior_titles = []
-        behavior_path = self.repo_root / "config" / "behavior_definitions.yml"
-        if behavior_path.exists():
-            raw = yaml.safe_load(behavior_path.read_text(encoding="utf-8")) or {}
-            for behavior_id, definition in (raw.get("behavior_definitions") or {}).items():
-                behavior_titles.append(f"{behavior_id}: {definition.get('title', behavior_id)}")
+        behavior_path = self.repo_root / "config" / "behavior_definitions.d"
+        behavior_titles = [f"{definition.id}: {definition.title}" for definition in load_definitions(behavior_path)]
         content = (
             "Behavior definitions combine evidence from multiple analyzers and metrics to explain higher-level operational conditions. "
             "They evaluate conditions, correlation windows, and output categories. "
             + ("Current behaviors include: " + "; ".join(behavior_titles) if behavior_titles else "")
+            + "\n\nExample: a 'cascading failure' behavior might require a latency anomaly AND an error-rate "
+            "anomaly on the same service within a 10-minute correlation window before it fires - so one noisy "
+            "metric alone won't trigger it, but a real incident with multiple corroborating signals will."
         )
         return ApplicationKnowledgeDocument(
             document_id="behaviors-overview",
@@ -327,7 +420,11 @@ class ApplicationKnowledgeBootstrapService:
     def _cases_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Operational cases preserve investigation context, root-cause analysis, corrective action, and outcomes. "
-            "Cases are the long-lived operational record and can be indexed into memory for similarity search."
+            "Cases are the long-lived operational record and can be indexed into memory for similarity search.\n\n"
+            "Example: promoting the 'CPU usage baseline shifted' finding creates a case where an engineer records "
+            "the root cause ('deploy at 14:02 raised worker pool size'), the corrective action taken, and the "
+            "outcome. Once indexed, the next similar cpu_usage regression can find this case as a match and "
+            "reuse the same fix instead of starting from scratch."
         )
         return ApplicationKnowledgeDocument(
             document_id="cases-overview",
@@ -341,7 +438,13 @@ class ApplicationKnowledgeBootstrapService:
 
     def _architecture_overview(self) -> ApplicationKnowledgeDocument:
         content = (
-            "The architecture flows from canonical time-series inputs to normalization, PostgreSQL, analyzer registry, signals, findings, cases, behavior intelligence, embeddings, Qdrant, and the React UI."
+            "The architecture flows from canonical time-series inputs to normalization, PostgreSQL, analyzer registry, "
+            "signals, findings, cases, behavior intelligence, embeddings, Qdrant, and the React UI.\n\n"
+            "Example, end to end: a Prometheus metric or CSV row is normalized into a canonical point -> "
+            "stored in PostgreSQL -> handed to every analyzer registered for its profile (e.g. ruptures, stumpy) -> "
+            "each analyzer that finds something emits a Signal -> signals aggregate into a Finding -> a Finding "
+            "can be promoted into a Case -> a resolved Case gets embedded and stored in Qdrant so it's retrievable "
+            "the next time someone asks the assistant 'have we seen this before?' in the React UI."
         )
         return ApplicationKnowledgeDocument(
             document_id="architecture-overview",
@@ -356,7 +459,11 @@ class ApplicationKnowledgeBootstrapService:
     def _data_flow_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Data flows from CSV ingestion or provider-specific inputs through validation and normalization into the analysis pipeline. "
-            "Analyzers emit signals, signals aggregate into findings, findings can promote to cases, and cases can be indexed for retrieval."
+            "Analyzers emit signals, signals aggregate into findings, findings can promote to cases, and cases can be indexed for retrieval.\n\n"
+            "Example: an autonomous monitoring run pulls a metric from Prometheus, validates it (rejecting rows "
+            "with gaps or negative values where that's not expected), normalizes it into the shared schema, then "
+            "hands it to the analyzer registry - the same pipeline a CSV upload or a manual analysis run goes "
+            "through."
         )
         return ApplicationKnowledgeDocument(
             document_id="data-flow-overview",
@@ -371,7 +478,11 @@ class ApplicationKnowledgeBootstrapService:
     def _storage_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "PostgreSQL is the system of record for normalized points, signals, findings, cases, capabilities, and question answers. "
-            "Qdrant is the retrieval index for case and documentation embeddings."
+            "Qdrant is the retrieval index for case and documentation embeddings.\n\n"
+            "Example: a case's root-cause text and status live in PostgreSQL and are always authoritative. A "
+            "copy of that same case, converted into an embedding vector, also lives in Qdrant purely so it can "
+            "be found by semantic similarity - if the Qdrant copy were lost, it could be rebuilt entirely from "
+            "PostgreSQL by re-indexing; the reverse is not true."
         )
         return ApplicationKnowledgeDocument(
             document_id="storage-overview",
@@ -386,7 +497,11 @@ class ApplicationKnowledgeBootstrapService:
     def _vector_database_overview(self) -> ApplicationKnowledgeDocument:
         content = (
             "Qdrant stores embeddings plus metadata for semantic retrieval. "
-            "The assistant uses separate collections for operational cases and application knowledge so historical evidence and documentation stay distinct."
+            "The assistant uses separate collections for operational cases and application knowledge so historical evidence and documentation stay distinct.\n\n"
+            "Example: asking 'have we seen this before?' searches the operational_cases collection (real past "
+            "incidents); asking 'how does Behavior Intelligence work?' searches the operational_intelligence_docs "
+            "collection (generated concept docs and repo documentation) instead - same underlying vector search, "
+            "different collection depending on what kind of question it is."
         )
         return ApplicationKnowledgeDocument(
             document_id="vector-database-overview",

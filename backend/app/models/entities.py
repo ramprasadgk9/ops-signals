@@ -259,6 +259,10 @@ class FindingEntity(Base):
     signal_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     comparison_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # Optional, lazily-computed AI-polished rewrite of `summary`. Never a replacement: `summary`
+    # stays the deterministic field this app has always had; ai_summary is additive and only used
+    # when present, so a finding is fully functional identically to before if AI is never enabled.
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class QuestionAnswerEntity(Base):
@@ -379,4 +383,35 @@ class BehaviorFindingEntity(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     correlation_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     case_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # Optional, lazily-computed plain-English rewrite of the structured facts/conditions already
+    # shown for this behavior finding. Additive only - the existing summary and the raw
+    # facts_json/matched_conditions_json evidence stay exactly as they are either way.
+    ai_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class BehaviorPatternSuggestionEntity(Base):
+    """A candidate behavior definition mined from historical signal co-occurrence, awaiting human
+    review — same "system proposes, human approves" shape as AnalyzerConfigSuggestionEntity."""
+
+    __tablename__ = "behavior_pattern_suggestions"
+    __table_args__ = (
+        Index("idx_behavior_pattern_suggestions_service", "service"),
+        Index("idx_behavior_pattern_suggestions_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    service: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metric_a: Mapped[str] = mapped_column(Text, nullable=False)
+    metric_b: Mapped[str] = mapped_column(Text, nullable=False)
+    co_occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    metric_a_occasions: Mapped[int] = mapped_column(Integer, nullable=False)
+    metric_b_occasions: Mapped[int] = mapped_column(Integer, nullable=False)
+    correlation_strength: Mapped[float] = mapped_column(Float, nullable=False)
+    sample_analysis_run_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    draft_definition_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    draft_yaml_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

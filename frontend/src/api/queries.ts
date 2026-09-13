@@ -7,9 +7,13 @@ import type {
   AnalyzerRecommendationChatResponse,
   AnalysisRun,
   BehaviorDefinition,
+  BehaviorDefinitionDraft,
   BehaviorEvaluation,
   BehaviorFinding,
+  BehaviorPatternSuggestion,
   Capability,
+  FactDescriptor,
+  SaveDraftResult,
   CsvRunResult,
   Finding,
   MetricAnalyzerRecommendation,
@@ -38,6 +42,7 @@ import type {
   BenchmarkReportResponse,
   BenchmarkRunRequestPayload,
   BenchmarkScenarioDescriptor,
+  ValidationResult,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -47,6 +52,7 @@ export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
 export type AutonomousQuestionAnswer = {
   headline: string;
   answer: string;
+  ai_synthesis_used?: boolean;
   priority: string;
   confidence: number;
   key_points: string[];
@@ -68,6 +74,29 @@ export const api = {
     const queryString = params.toString();
     return getJson<BehaviorFinding[]>(`/api/behavior-evaluations${queryString ? `?${queryString}` : ''}`);
   },
+  behaviorFacts: () => getJson<FactDescriptor[]>('/api/behavior-definitions/facts'),
+  behaviorAvailableMetrics: () => getJson<string[]>('/api/behavior-definitions/available-metrics'),
+  validateBehaviorDefinition: (draft: BehaviorDefinitionDraft) =>
+    postJson<BehaviorDefinitionDraft, ValidationResult>('/api/behavior-definitions/validate', draft),
+  dryRunBehaviorDefinition: (draft: BehaviorDefinitionDraft, analysisRunId: string, service?: string) =>
+    postJson<{ definition: BehaviorDefinitionDraft; analysis_run_id: string; service?: string }, BehaviorEvaluation>(
+      '/api/behavior-definitions/dry-run',
+      { definition: draft, analysis_run_id: analysisRunId, service }
+    ),
+  saveBehaviorDefinitionToPack: (draft: BehaviorDefinitionDraft, packFile: string) =>
+    postJson<{ definition: BehaviorDefinitionDraft; pack_file: string }, SaveDraftResult>(
+      '/api/behavior-definitions/save-to-pack',
+      { definition: draft, pack_file: packFile }
+    ),
+  mineBehaviorSuggestions: () => postJson<Record<string, never>, BehaviorPatternSuggestion[]>('/api/behavior-definitions/suggestions/mine', {}),
+  behaviorSuggestions: (status: string = 'pending') =>
+    getJson<BehaviorPatternSuggestion[]>(`/api/behavior-definitions/suggestions?status=${encodeURIComponent(status)}`),
+  dismissBehaviorSuggestion: (id: number) =>
+    postJson<Record<string, never>, BehaviorPatternSuggestion>(`/api/behavior-definitions/suggestions/${id}/dismiss`, {}),
+  promoteBehaviorSuggestion: (id: number, packFile?: string) =>
+    postJson<{ pack_file?: string }, BehaviorPatternSuggestion>(`/api/behavior-definitions/suggestions/${id}/promote`, {
+      pack_file: packFile ?? 'suggested_patterns.yml',
+    }),
   behaviorEvaluations: (analysisRunId?: string, service?: string) =>
     getJson<BehaviorEvaluation[]>(
       analysisRunId
@@ -87,6 +116,13 @@ export const api = {
   signals: (service: string, metric: string, runId: string) =>
     getJson<Signal[]>(`/api/signals?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
   signalDetail: (signalId: string) => getJson<Signal>(`/api/signals/${signalId}`),
+  signalsByRunIds: async (analysisRunIds: string[]): Promise<Signal[]> => {
+    const uniqueRunIds = Array.from(new Set(analysisRunIds));
+    const results = await Promise.all(
+      uniqueRunIds.map((runId) => getJson<Signal[]>(`/api/signals?analysis_run_id=${encodeURIComponent(runId)}`))
+    );
+    return results.flat();
+  },
   findings: (service?: string, metric?: string, runId?: string, window?: FindingsWindow) => {
     const params = new URLSearchParams();
     if (service) params.append('service', service);
@@ -105,6 +141,7 @@ export const api = {
     if (params.metric_name) queryParams.append('metric_name', params.metric_name);
     return getJson<Finding[]>(`/api/findings/search?${queryParams.toString()}`);
   },
+  getFinding: (findingId: number) => getJson<Finding>(`/api/findings/${findingId}`),
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),

@@ -47,7 +47,7 @@ describe('overview model', () => {
     const summary = buildOverviewSummary(
       [finding(1, 'payments-api', 'behavior_change'), finding(2, 'checkout-api', 'anomaly')],
       [operationalCase(1, 1, 'resolved', 'resolved', 'indexed')],
-      [{ id: 1, title: 'Behavior', summary: '', behavior_id: 'b1', definition_id: 'd1', definition_version: 1, category: 'behavior_change', severity: 'high', input_metrics_json: {}, facts_json: {}, evidence_json: [], matched_conditions_json: [], confidence: 0.8, correlation_json: {}, created_at: '2026-07-26T00:00:00Z' } as BehaviorFinding]
+      [{ id: 1, title: 'Behavior', summary: '', behavior_id: 'b1', definition_id: 'd1', definition_version: 1, category: 'behavior_change', severity: 'high', input_metrics_json: {}, facts_json: {}, evidence_json: [], matched_conditions_json: [], confidence: 0.8, correlation_json: {}, occurrence_count: 1, last_seen_at: '2026-07-26T00:00:00Z', created_at: '2026-07-26T00:00:00Z' } as BehaviorFinding]
     );
 
     expect(summary).toEqual({

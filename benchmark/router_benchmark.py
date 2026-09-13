@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +11,12 @@ import pandas as pd
 import yaml
 
 from backend.app.services.timeseries_routing_service import TimeSeriesRoutingService, build_csv_routing_config
+from intelligence.analyzer_registry import AnalyzerRegistrationError, instantiate, load_registrations
+from intelligence.finding_aggregator import FindingAggregator
+
+# health_status values a finding can carry (see FindingAggregator._health_status) that should be
+# treated as an actionable, user-facing alert rather than background noise.
+ACTIONABLE_HEALTH_STATUSES = {"critical", "significant"}
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -20,9 +26,31 @@ OPTIONAL = "OPTIONAL"
 NOT_RECOMMENDED = "NOT_RECOMMENDED"
 REJECTED = "REJECTED"
 
+# Router-facing analyzer ids that resolve to a differently-named pipeline analyzer at runtime -
+# mirrors intelligence.pipeline.SignalPipeline._router_to_pipeline_analyzers. Router ids not
+# listed here are assumed to equal their pipeline analyzer_id directly.
+ROUTER_TO_PIPELINE_ANALYZER_ID = {"trend_regression": "trend"}
+
+DEFAULT_ANALYZER_REGISTRY_DIR = PROJECT_ROOT / "config" / "analyzer_registry.d"
+
 
 class RouterBenchmarkExecutionError(RuntimeError):
     """Raised when router benchmark execution cannot produce routing decisions."""
+
+
+@dataclass(slots=True)
+class DetectionEvaluation:
+    """Result of actually running the recommended analyzer and checking what it found against
+    a scenario's expected_event, when the scenario's ground truth declares one."""
+
+    analyzer_id: str
+    checks: dict[str, bool]
+    details: dict[str, Any] = field(default_factory=dict)
+    execution_error: str | None = None
+
+    @property
+    def passed(self) -> bool:
+        return all(self.checks.values())
 
 
 @dataclass(slots=True)
@@ -41,6 +69,8 @@ class RouterEvaluation:
     profile: dict[str, Any]
     execution_error: str | None = None
     documented_gap: str | None = None
+    detection_checks: dict[str, bool] = field(default_factory=dict)
+    detection_details: dict[str, Any] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -62,7 +92,7 @@ def load_scenario_dataframe(scenario_dir: Path) -> pd.DataFrame:
     return dataframe
 
 
-def run_router(scenario_dir: Path) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
+def run_router(scenario_dir: Path) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any], pd.DataFrame]:
     dataframe = load_scenario_dataframe(scenario_dir)
     config = build_csv_routing_config(
         provider="prometheus",
@@ -76,7 +106,7 @@ def run_router(scenario_dir: Path) -> tuple[dict[str, list[dict[str, Any]]], dic
         result = TimeSeriesRoutingService().route_dataframe(dataframe, config.input)
     except ValueError as exc:
         raise RouterBenchmarkExecutionError(str(exc)) from exc
-    return normalize_router_decisions(result.analyzer_routing), result.profile
+    return normalize_router_decisions(result.analyzer_routing), result.profile, result.normalized
 
 
 def normalize_router_decisions(decisions) -> dict[str, list[dict[str, Any]]]:
@@ -136,6 +166,15 @@ def evaluate_router_output(scenario_id: str, expected_router: dict[str, Any], ac
         "required_detected_profiles_present": not missing_detected_profiles,
         "forbidden_detected_profiles_absent": not forbidden_detected_profiles,
     }
+
+    # Opt-in: recall (does the required analyzer show up) is always checked above, but precision
+    # (does anything UNEXPECTED also show up with real confidence) is only checked when a scenario
+    # explicitly asks for it - retrofitting this onto every existing scenario at once risks baking
+    # in today's untuned router noise as permanent ground truth. New/tightened scenarios can opt in.
+    if bool(expected_router.get("strict_precision")):
+        permitted = set(required) | allowed_optional
+        unexpected_optional = sorted(item for item in (recommended | optional) if item not in permitted)
+        checks["no_unexpected_recommendations"] = not unexpected_optional
     status = "PASS" if all(checks.values()) else "FAIL"
     return RouterEvaluation(
         scenario_id=scenario_id,
@@ -157,7 +196,147 @@ def evaluate_router_output(scenario_id: str, expected_router: dict[str, Any], ac
     )
 
 
-def run_benchmark(scenario_dir: Path) -> RouterEvaluation:
+def evaluate_detection_accuracy(
+    ground_truth: dict[str, Any],
+    dataframe: pd.DataFrame,
+    required_recommended: list[str],
+) -> DetectionEvaluation | None:
+    """Actually run the required analyzer and check what it found against expected_event -
+    correct direction, magnitude, and timing - not just "was the right analyzer recommended".
+
+    Returns None (not a failure) when the scenario has no expected_event to check, or when the
+    required analyzer has no real runnable implementation yet (e.g. kats/darts/river/alibi_detect
+    are router-only today - see benchmark/ADVANCED_ROUTER_GAPS.md).
+    """
+    expected_event = ground_truth.get("expected_event")
+    if not expected_event or not required_recommended:
+        return None
+
+    analyzer_id = required_recommended[0]
+    analyzer = _instantiate_analyzer(analyzer_id)
+    if analyzer is None:
+        return None
+
+    try:
+        signals = analyzer.analyze(dataframe)
+    except Exception as exc:
+        return DetectionEvaluation(analyzer_id=analyzer_id, checks={"analyzer_ran_without_error": False}, execution_error=str(exc))
+
+    checks: dict[str, bool] = {"analyzer_produced_signal": bool(signals)}
+    if not signals:
+        return DetectionEvaluation(analyzer_id=analyzer_id, checks=checks)
+
+    matched_evidence = next((_extract_shift_evidence(signal) for signal in signals if _extract_shift_evidence(signal)), None)
+    if matched_evidence is None:
+        checks["event_evidence_recognized"] = False
+        return DetectionEvaluation(analyzer_id=analyzer_id, checks=checks)
+    checks["event_evidence_recognized"] = True
+
+    percent_change = matched_evidence["percent_change"]
+    ordered = dataframe.sort_values("timestamp").reset_index(drop=True)
+    ordered["timestamp"] = pd.to_datetime(ordered["timestamp"], utc=True)
+    change_point_index = matched_evidence["change_point_index"]
+    detected_timestamp = ordered.iloc[change_point_index]["timestamp"] if 0 <= change_point_index < len(ordered) else None
+
+    details: dict[str, Any] = {
+        "percent_change": percent_change,
+        "detected_timestamp": detected_timestamp.isoformat() if detected_timestamp is not None else None,
+    }
+
+    expected_direction = expected_event.get("direction")
+    if expected_direction:
+        actual_direction = "increase" if percent_change >= 0 else "decrease"
+        checks["direction_matches"] = actual_direction == expected_direction
+        details["expected_direction"] = expected_direction
+        details["actual_direction"] = actual_direction
+
+    minimum_magnitude = expected_event.get("minimum_magnitude")
+    if minimum_magnitude is not None:
+        checks["magnitude_meets_minimum"] = abs(percent_change) >= float(minimum_magnitude)
+        details["minimum_magnitude"] = minimum_magnitude
+
+    expected_timestamp = expected_event.get("timestamp")
+    if expected_timestamp and detected_timestamp is not None:
+        expected_dt = pd.to_datetime(expected_timestamp, utc=True)
+        tolerance_before = expected_event.get("tolerance_before")
+        tolerance_after = expected_event.get("tolerance_after")
+        lower = expected_dt - (pd.Timedelta(tolerance_before) if tolerance_before else pd.Timedelta(0))
+        upper = expected_dt + (pd.Timedelta(tolerance_after) if tolerance_after else pd.Timedelta(0))
+        checks["timestamp_within_tolerance"] = lower <= detected_timestamp <= upper
+        details["expected_timestamp"] = expected_dt.isoformat()
+    elif expected_timestamp and detected_timestamp is None:
+        checks["timestamp_within_tolerance"] = False
+        details["expected_timestamp"] = str(expected_timestamp)
+
+    return DetectionEvaluation(analyzer_id=analyzer_id, checks=checks, details=details)
+
+
+def evaluate_false_positive_control(ground_truth: dict[str, Any], normalized: pd.DataFrame, profile: dict[str, Any]) -> DetectionEvaluation | None:
+    """Negative-control check for a scenario declaring expects_no_actionable_findings: run every
+    real analyzer against the data and check that finding aggregation - the same downstream
+    filtering production uses - doesn't turn the result into a user-facing critical/significant
+    alert. Individual analyzers (pyod_outlier especially, with a nonzero contamination rate) are
+    expected to emit some raw statistical noise on any input; what matters for alert fatigue is
+    whether that noise survives into an actionable finding."""
+    if not ground_truth.get("expects_no_actionable_findings"):
+        return None
+
+    all_signals = []
+    signal_counts: dict[str, int] = {}
+    errors: dict[str, str] = {}
+    for registration in load_registrations(DEFAULT_ANALYZER_REGISTRY_DIR):
+        try:
+            analyzer = instantiate(registration)
+        except AnalyzerRegistrationError:
+            continue
+        try:
+            signals = analyzer.analyze(normalized)
+        except Exception as exc:
+            errors[registration.analyzer_id] = str(exc)
+            continue
+        signal_counts[registration.analyzer_id] = len(signals)
+        all_signals.extend(signals)
+
+    aggregation = FindingAggregator().aggregate(all_signals, normalized, profile)
+    actionable = [finding for finding in aggregation.findings if finding.health_status in ACTIONABLE_HEALTH_STATUSES]
+
+    details: dict[str, Any] = {
+        "raw_signal_counts": signal_counts,
+        "total_raw_signals": len(all_signals),
+        "total_findings": len(aggregation.findings),
+        "actionable_findings": [
+            {"title": finding.title, "health_status": finding.health_status, "importance_score": finding.importance_score}
+            for finding in actionable
+        ],
+    }
+    if errors:
+        details["analyzer_errors"] = errors
+
+    return DetectionEvaluation(analyzer_id="all", checks={"no_actionable_findings": not actionable}, details=details)
+
+
+def _instantiate_analyzer(router_analyzer_id: str):
+    pipeline_analyzer_id = ROUTER_TO_PIPELINE_ANALYZER_ID.get(router_analyzer_id, router_analyzer_id)
+    registrations = {registration.analyzer_id: registration for registration in load_registrations(DEFAULT_ANALYZER_REGISTRY_DIR)}
+    registration = registrations.get(pipeline_analyzer_id)
+    if registration is None:
+        return None
+    try:
+        return instantiate(registration)
+    except AnalyzerRegistrationError:
+        return None
+
+
+def _extract_shift_evidence(signal) -> dict[str, Any] | None:
+    """Ruptures and BaselineShift both report a percent_change and a change_point_index into the
+    sorted input series - the two fields expected_event actually needs to be checked."""
+    evidence = getattr(signal, "evidence", None) or {}
+    if "percent_change" not in evidence or "change_point_index" not in evidence:
+        return None
+    return {"percent_change": float(evidence["percent_change"]), "change_point_index": int(evidence["change_point_index"])}
+
+
+def run_benchmark(scenario_dir: Path, *, reports_dir: Path | None = None) -> RouterEvaluation:
     scenario_dir = scenario_dir.resolve()
     ground_truth_path = scenario_dir / "ground_truth.yaml"
     if not ground_truth_path.exists():
@@ -171,11 +350,23 @@ def run_benchmark(scenario_dir: Path) -> RouterEvaluation:
     scenario_id = str(ground_truth.get("scenario", {}).get("id") or ground_truth.get("scenario_id") or scenario_dir.name)
     documented_gap = _documented_gap(ground_truth)
     try:
-        actual_details, profile = run_router(scenario_dir)
+        actual_details, profile, normalized = run_router(scenario_dir)
         evaluation = evaluate_router_output(scenario_id, expected_router, actual_details, profile)
         if documented_gap:
             evaluation.status = "GAP"
             evaluation.documented_gap = documented_gap
+        elif evaluation.status == "PASS":
+            required = [str(item) for item in expected_router.get("required_recommended", [])]
+            detection = evaluate_detection_accuracy(ground_truth, normalized, required)
+            if detection is None:
+                detection = evaluate_false_positive_control(ground_truth, normalized, profile)
+            if detection is not None:
+                evaluation.detection_checks = detection.checks
+                evaluation.detection_details = detection.details
+                for name, check_passed in detection.checks.items():
+                    evaluation.checks[f"detection_{name}"] = check_passed
+                if not detection.passed:
+                    evaluation.status = "FAIL"
     except RouterBenchmarkExecutionError as exc:
         evaluation = RouterEvaluation(
             scenario_id=scenario_id,
@@ -197,12 +388,12 @@ def run_benchmark(scenario_dir: Path) -> RouterEvaluation:
             documented_gap=documented_gap,
         )
 
-    write_report(evaluation)
+    write_report(evaluation, reports_dir=reports_dir)
     return evaluation
 
 
-def write_report(evaluation: RouterEvaluation) -> None:
-    reports_dir = PROJECT_ROOT / "benchmark" / "reports"
+def write_report(evaluation: RouterEvaluation, *, reports_dir: Path | None = None) -> None:
+    reports_dir = reports_dir or (PROJECT_ROOT / "benchmark" / "reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
     json_path = reports_dir / f"{evaluation.scenario_id}_router.json"
     markdown_path = reports_dir / f"{evaluation.scenario_id}_router.md"
@@ -239,6 +430,8 @@ def write_report(evaluation: RouterEvaluation) -> None:
         lines.extend(["", f"Execution error: `{evaluation.execution_error}`"])
     if evaluation.documented_gap:
         lines.extend(["", f"Documented gap: `{evaluation.documented_gap}`"])
+    if evaluation.detection_details:
+        lines.extend(["", "## Detection Accuracy", "", f"`{evaluation.detection_details}`"])
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

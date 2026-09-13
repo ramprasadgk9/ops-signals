@@ -15,6 +15,8 @@ export type BehaviorRow = {
   confidencePercent: number;
   impactedServices: string;
   detectedAt: string;
+  lastSeenAt: string;
+  occurrenceCount: number;
   status: 'active';
   evidence: string[];
   summary: string;
@@ -26,6 +28,7 @@ export type BehaviorRuleRow = {
   description: string;
   version: number;
   status: 'active' | 'disabled';
+  sourceFile: string;
 };
 
 export function buildBehaviorSummary(findings: BehaviorFinding[]): BehaviorSummary {
@@ -46,6 +49,8 @@ export function toBehaviorRows(findings: BehaviorFinding[]): BehaviorRow[] {
     confidencePercent: Math.round(finding.confidence * 100),
     impactedServices: finding.service ?? 'unavailable',
     detectedAt: finding.created_at,
+    lastSeenAt: finding.last_seen_at,
+    occurrenceCount: finding.occurrence_count,
     status: 'active',
     evidence: finding.evidence_json ?? [],
     summary: finding.summary,
@@ -59,5 +64,6 @@ export function toBehaviorRuleRows(definitions: BehaviorDefinition[]): BehaviorR
     description: definition.description,
     version: definition.version,
     status: definition.enabled ? 'active' : 'disabled',
+    sourceFile: definition.source_file ?? 'unknown',
   }));
 }

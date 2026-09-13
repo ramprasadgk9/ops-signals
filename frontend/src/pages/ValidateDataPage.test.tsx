@@ -57,4 +57,71 @@ describe('ValidateDataPage source modes', () => {
     expect(api.prometheusLabelValues).toHaveBeenCalledWith('__name__', 'default');
     expect(screen.queryByText('Choose CSV File')).not.toBeInTheDocument();
   });
+
+  it('shows the expected CSV columns for the selected provider and updates when the provider changes', async () => {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
+    vi.mocked(api.prometheusLabelValues).mockResolvedValue({ connection_id: 'default', label: 'service', values: [] });
+
+    renderPage();
+
+    expect(await screen.findByText(/Expected columns for prometheus/)).toBeInTheDocument();
+    expect(screen.getByText(/timestamp,metric,value/)).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByText('Prometheus CSV'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Datadog CSV' }));
+
+    expect(await screen.findByText(/Expected columns for datadog/)).toBeInTheDocument();
+    expect(screen.getByText(/ts_epoch_ms,metric_name,value/)).toBeInTheDocument();
+  });
+
+  it('requires all 3 custom column names, warns they are not saved, and sends them with the upload', async () => {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
+    vi.mocked(api.prometheusLabelValues).mockResolvedValue({ connection_id: 'default', label: 'service', values: [] });
+    vi.mocked(api.runCsvValidation).mockResolvedValue({
+      provider: 'custom',
+      source_type: 'csv',
+      analyzer_id: 'router',
+      service: 'svc',
+      metric_name: 'cpu_usage',
+      sample_count: 1,
+      normalized_preview: [],
+      signals: [],
+      findings: [],
+      analyzer_selection_mode: 'all',
+      analyzer_routing: [],
+      executed_analyzers: [],
+    });
+
+    renderPage();
+
+    fireEvent.mouseDown(await screen.findByText('Prometheus CSV'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Custom / Other' }));
+
+    expect(await screen.findByText(/not saved/)).toBeInTheDocument();
+    expect(screen.queryByText(/Expected columns for/)).not.toBeInTheDocument();
+
+    const validateButton = screen.getByRole('button', { name: 'Validate Data' });
+    expect(validateButton).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Timestamp column name/), { target: { value: 'event_time' } });
+    fireEvent.change(screen.getByLabelText(/Value column name/), { target: { value: 'measurement' } });
+    fireEvent.change(screen.getByLabelText(/Metric name column/), { target: { value: 'metric' } });
+
+    const file = new File(['event_time,measurement,metric\n2026-01-01T00:00:00Z,42.5,cpu_usage'], 'custom.csv', { type: 'text/csv' });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(validateButton).not.toBeDisabled();
+    fireEvent.click(validateButton);
+
+    await screen.findByText(/router with 1 samples/);
+
+    const submittedForm = vi.mocked(api.runCsvValidation).mock.calls[0][0];
+    expect(submittedForm.get('provider')).toBe('custom');
+    expect(submittedForm.get('custom_timestamp_column')).toBe('event_time');
+    expect(submittedForm.get('custom_value_column')).toBe('measurement');
+    expect(submittedForm.get('custom_metric_name_column')).toBe('metric');
+  });
 });

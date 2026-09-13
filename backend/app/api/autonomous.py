@@ -9,6 +9,8 @@ from sqlalchemy import select
 
 from sqlalchemy.orm import Session
 
+from backend.app.api.assistant import get_assistant
+from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.autonomous.repository import AutonomousJobRepository, AutonomousPolicyRunRepository
 from backend.app.autonomous.execution import execute_autonomous_plan_once
 from backend.app.autonomous.schemas import AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunRequest, AutonomousRunResponse
@@ -33,6 +35,7 @@ class AutonomousQuestionRequest(BaseModel):
 class AutonomousQuestionAnswer(BaseModel):
     headline: str
     answer: str
+    ai_synthesis_used: bool = False
     priority: str
     confidence: float
     key_points: list[str]
@@ -132,7 +135,11 @@ def list_autonomous_policy_run_jobs(policy_run_id: str, db: Session = Depends(ge
 
 
 @router.post("/questions/answer", response_model=AutonomousQuestionAnswer)
-def answer_autonomous_question(payload: AutonomousQuestionRequest, db: Session = Depends(get_db)) -> AutonomousQuestionAnswer:
+def answer_autonomous_question(
+    payload: AutonomousQuestionRequest,
+    db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> AutonomousQuestionAnswer:
     run_repo = AutonomousPolicyRunRepository(db)
     job_repo = AutonomousJobRepository(db)
     try:
@@ -174,14 +181,23 @@ def answer_autonomous_question(payload: AutonomousQuestionRequest, db: Session =
     question = payload.question.lower()
 
     if "skip" in question or "excluded" in question:
-        return _answer_skipped_metrics(run, scoped_jobs or jobs, payload.window)
-    if "investigate" in question or "first" in question or "priority" in question:
-        return _answer_investigation_priority(run, findings, scoped_jobs or jobs, cases)
-    if "changed" in question or "new" in question or "finding" in question:
-        return _answer_what_changed(run, findings, scoped_jobs or jobs, cases, payload.window)
-    if "why" in question or "prioritized" in question:
-        return _answer_prioritization(run, findings, scoped_jobs or jobs)
-    return _answer_run_summary(run, findings, scoped_jobs or jobs, cases, payload.window)
+        answer = _answer_skipped_metrics(run, scoped_jobs or jobs, payload.window)
+    elif "investigate" in question or "first" in question or "priority" in question:
+        answer = _answer_investigation_priority(run, findings, scoped_jobs or jobs, cases)
+    elif "changed" in question or "new" in question or "finding" in question:
+        answer = _answer_what_changed(run, findings, scoped_jobs or jobs, cases, payload.window)
+    elif "why" in question or "prioritized" in question:
+        answer = _answer_prioritization(run, findings, scoped_jobs or jobs)
+    else:
+        answer = _answer_run_summary(run, findings, scoped_jobs or jobs, cases, payload.window)
+
+    if assistant:
+        evidence_text = _evidence_text_for_llm(run, findings, scoped_jobs or jobs, cases)
+        synthesized = assistant.synthesize_from_evidence(payload.question, evidence_text)
+        if synthesized:
+            answer = answer.model_copy(update={"answer": synthesized, "ai_synthesis_used": True})
+
+    return answer
 
 
 @router.get("/scope-options")
@@ -239,6 +255,20 @@ def _priority_from_findings(findings: list[FindingEntity], failed_count: int) ->
     if top_importance >= 0.6 or findings:
         return "medium"
     return "low"
+
+
+def _evidence_text_for_llm(run, findings: list[FindingEntity], jobs, cases: list[OperationalCaseEntity]) -> str:
+    lines = [f"Autonomous policy run {run.id}: status={run.status}, metrics_discovered={run.metrics_discovered or 0}, metrics_selected={run.metrics_selected or 0}."]
+    failed_jobs = [job for job in jobs if job.status == "failed"]
+    skipped_jobs = [job for job in jobs if job.status == "screened_out"]
+    if failed_jobs or skipped_jobs:
+        lines.append(f"{len(failed_jobs)} job(s) failed, {len(skipped_jobs)} job(s) skipped.")
+    for finding in findings[:8]:
+        lines.append(f"- Finding: {_finding_label(finding)} (importance {finding.importance_score:.2f}, health {finding.health_status}). {finding.summary}")
+    for case in cases[:5]:
+        rca = case.root_cause_summary or case.outcome_summary or "no RCA recorded yet"
+        lines.append(f"- Case #{case.id}: {case.case_title} - {rca}")
+    return "\n".join(lines)
 
 
 def _answer_evidence(run, jobs, findings: list[FindingEntity], cases: list[OperationalCaseEntity] | None = None) -> dict:

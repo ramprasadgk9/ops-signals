@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from uuid import UUID
 
 import yaml
 
@@ -10,6 +11,7 @@ from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootst
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.config import AIConfig, MemoryConfig
 from backend.app.memory.embedder import CaseEmbedder
+from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.qdrant_initializer import QdrantInitializer
 from backend.app.memory.similarity_service import SimilarityService
@@ -38,13 +40,16 @@ def load_ai_config() -> AIConfig | None:
     try:
         with open("config.yaml") as f:
             config_data = yaml.safe_load(f)
-            if config_data and "ai" in config_data:
-                ai_config = AIConfig(**config_data["ai"])
-                if os.getenv("OPS_SIGNALS_OLLAMA_URL"):
-                    ai_config.ollama.base_url = os.environ["OPS_SIGNALS_OLLAMA_URL"]
-                if os.getenv("OPS_SIGNALS_OLLAMA_MODEL"):
-                    ai_config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
-                return ai_config
+            ai_config = AIConfig(**config_data["ai"]) if config_data and "ai" in config_data else AIConfig()
+            if os.getenv("OPS_SIGNALS_AI_ENABLED"):
+                ai_config.enabled = os.environ["OPS_SIGNALS_AI_ENABLED"].strip().lower() in {"1", "true", "yes", "on"}
+            if os.getenv("OPS_SIGNALS_AI_PROVIDER"):
+                ai_config.provider = os.environ["OPS_SIGNALS_AI_PROVIDER"]
+            if os.getenv("OPS_SIGNALS_OLLAMA_URL"):
+                ai_config.ollama.base_url = os.environ["OPS_SIGNALS_OLLAMA_URL"]
+            if os.getenv("OPS_SIGNALS_OLLAMA_MODEL"):
+                ai_config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
+            return ai_config
     except Exception:
         return None
     return None
@@ -76,12 +81,28 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple[VectorStore
         client=qdrant_client,
         collection_name=knowledge_bootstrap.COLLECTION_NAME,
     )
+    findings_indexer = EvidenceMemoryIndexer(
+        client=qdrant_client,
+        embedder=embedder,
+        vector_store=QdrantVectorStore(client=qdrant_client, collection_name="operational_findings"),
+        collection_name="operational_findings",
+        namespace=UUID("6ba7b812-9dad-11d1-80b4-00c04fd430c8"),
+    )
+    behaviors_indexer = EvidenceMemoryIndexer(
+        client=qdrant_client,
+        embedder=embedder,
+        vector_store=QdrantVectorStore(client=qdrant_client, collection_name="operational_behaviors"),
+        collection_name="operational_behaviors",
+        namespace=UUID("6ba7b813-9dad-11d1-80b4-00c04fd430c8"),
+    )
     assistant = OperationalIntelligenceAssistant(
         AssistantServices(
             embedder=embedder,
             case_similarity=similarity_service,
             docs_store=docs_store,
             ai_services=ai_services,
+            findings_indexer=findings_indexer,
+            behaviors_indexer=behaviors_indexer,
         )
     )
     return vector_store, embedder, indexer, similarity_service, assistant, knowledge_bootstrap

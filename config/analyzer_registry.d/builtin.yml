@@ -1,0 +1,118 @@
+# Config-driven registrations for the 7 built-in analyzers, migrated from the old hardcoded
+# SignalPipeline._build_analyzers() if/elif chain in intelligence/pipeline.py (see
+# docs/19-analyzer-router-gap-work-items.md Work Item 1). runtime_params below are the exact
+# effective values config/analyzers.yaml + pipeline.py's old helper functions
+# (_baseline_shift_params, _analyzer_finding_rules, _analyzer_implementation) produced before
+# this migration - verified byte-identical via the full pytest suite and
+# tests/test_router_benchmark.py.
+#
+# config/analyzers.yaml's `analysis.analyzers.<id>.enabled`/`.params` still take precedence as an
+# override source (see SignalPipeline._override_params_for) - that's what keeps config-file
+# toggling and Analyzer Labs' "run with custom params" execution-test flow working unchanged.
+#
+# The `router` block is intentionally omitted for now - nothing reads it from this file yet. See
+# Phase 1 Step 3 of the analyzer extensibility plan, which unifies this with
+# experiments/analyzer_router/analyzer_registry.yaml.
+analyzers:
+  baseline_shift:
+    display_name: Baseline Shift
+    enabled: true
+    class_path: intelligence.analyzers.baseline_shift.BaselineShiftAnalyzer
+    runtime_params:
+      threshold_percent: 25.0
+      min_segment_size: 5
+      change_threshold: 1.5
+      ruptures_algorithm: binseg
+      ruptures_model: l2
+      ruptures_jump: 5
+      ruptures_n_bkps: 1
+
+  ruptures:
+    display_name: Ruptures
+    enabled: true
+    class_path: intelligence.analyzers.ruptures.RupturesAnalyzer
+    runtime_params:
+      min_segment_size: 5
+      change_threshold: 1.5
+
+  anomaly_zscore:
+    display_name: Z-Score Anomaly
+    enabled: true
+    class_path: intelligence.analyzers.anomaly_zscore.ZScoreAnomalyAnalyzer
+    runtime_params:
+      zscore_threshold: 3.0
+      grouping_gap: 15m
+      implementation:
+        library: pandas
+        method: zscore
+        zscore_threshold: 3.0
+        grouping_gap: 15m
+      finding_rules:
+        min_abs_zscore: 3.0
+        min_points: 1
+
+  pyod_outlier:
+    display_name: PyOD Outlier
+    enabled: true
+    class_path: intelligence.analyzers.pyod_outlier.PyODOutlierAnalyzer
+    runtime_params:
+      detector_type: knn
+      contamination: 0.01
+      grouping_gap: 15m
+      min_samples: 50
+      implementation:
+        library: pyod
+        detector: KNN
+        detector_type: knn
+        contamination: 0.01
+        grouping_gap: 15m
+        min_samples: 50
+      finding_rule:
+        min_outlier_points: 8
+        min_confidence: 0.75
+        window: 15m
+
+  trend:
+    display_name: Trend Analysis
+    enabled: true
+    class_path: intelligence.analyzers.trend.TrendAnalyzer
+    runtime_params:
+      implementation:
+        library: statsmodels
+        model: OLS
+      finding_rules:
+        min_slope_percent: 10
+
+  stumpy:
+    display_name: STUMPY
+    enabled: true
+    class_path: intelligence.analyzers.stumpy.STUMPYAnalyzer
+    runtime_params:
+      window_size: 20
+      motif_count: 1
+      profile_threshold: 2.0
+      implementation:
+        library: stumpy
+        algorithm: stump
+        window_size: 20
+        motif_count: 1
+        profile_threshold: 2.0
+      finding_rules:
+        max_motif_distance: 1.0
+        min_confidence: 0.75
+
+  prophet:
+    display_name: Prophet
+    enabled: true
+    class_path: intelligence.analyzers.prophet.ProphetAnalyzer
+    runtime_params:
+      horizon_points: 10
+      changepoint_prior_scale: 0.05
+      uncertainty_threshold: 0.15
+      implementation:
+        library: prophet
+        horizon_points: 10
+        changepoint_prior_scale: 0.05
+        uncertainty_threshold: 0.15
+      finding_rules:
+        min_relative_error: 0.25
