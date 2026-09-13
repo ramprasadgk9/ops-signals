@@ -44,10 +44,11 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     for keys, group in working.groupby(group_columns, dropna=False):
         group = group.sort_values("timestamp")
         freq_str = config.interval.replace('m', 'min') if config.interval.endswith('m') else config.interval
+        aggregation = "last" if _is_running_total(group) else "mean"
         resampled = (
             group.set_index("timestamp")
-            .resample(freq_str)
-            .mean(numeric_only=True)
+            .resample(freq_str)["value"]
+            .agg(aggregation)
             .reset_index()
         )
 
@@ -90,6 +91,25 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     normalized["tags_json"] = normalized.apply(build_tags, axis=1)
     normalized = normalized.sort_values(["metric_name", "timestamp"]).reset_index(drop=True)
     return normalized
+
+
+def _is_running_total(group: pd.DataFrame) -> bool:
+    """Averaging a cumulative running total (e.g. a request/error counter) within a resample
+    bucket blurs a real spike into a meaningless middle value instead of preserving it - taking
+    the last reading in the bucket is the correct way to downsample a running total. Prefers an
+    explicit metric_type label (every row in `group` shares one value for it, since it's already
+    a groupby key); falls back to detecting a monotonically non-decreasing series when the label
+    is absent, since metric_type is optional and most uploads leave it blank. Doesn't attempt to
+    detect a counter that has reset (dropped back to zero) mid-series - that shows up as a
+    negative jump instead, which is itself a legitimate signal worth surfacing, not hiding."""
+    if "metric_type" in group.columns:
+        declared = group["metric_type"].dropna()
+        if not declared.empty:
+            return str(declared.iloc[0]).strip().lower() == "counter"
+    values = group["value"].dropna()
+    if len(values) < 2:
+        return False
+    return bool((values.diff().dropna() >= 0).all())
 
 
 def _apply_provider_mappings(dataframe: pd.DataFrame, config: InputConfig) -> pd.DataFrame:
