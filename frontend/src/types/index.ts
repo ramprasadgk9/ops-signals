@@ -163,6 +163,7 @@ export type Finding = {
   metric_name: string;
   title: string;
   summary: string;
+  ai_summary?: string | null;
   category: string;
   health_status: string;
   importance_score: number;

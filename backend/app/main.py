@@ -51,7 +51,7 @@ from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import QdrantVectorStore, VectorStore
 from backend.app.models.db import get_engine, get_session_local, init_engine, get_db
 from backend.app.models.entities import Base
-from backend.app.models.schema_compat import ensure_learning_schema
+from backend.app.models.schema_compat import ensure_ai_narrative_schema, ensure_learning_schema
 from backend.app.storage.bootstrap import seed_reference_data
 
 logger = logging.getLogger(__name__)
@@ -211,6 +211,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         init_engine(database_url)
         Base.metadata.create_all(bind=get_engine())
         ensure_learning_schema(get_engine())
+        ensure_ai_narrative_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)

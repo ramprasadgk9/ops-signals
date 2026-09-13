@@ -65,7 +65,12 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
         </Stack>
 
         <Box sx={{ mb: 3, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
-          <Typography variant="body2">{finding.summary}</Typography>
+          <Stack direction="row" spacing={0.75} alignItems="flex-start">
+            {finding.ai_summary && (
+              <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
+            )}
+            <Typography variant="body2">{finding.ai_summary ?? finding.summary}</Typography>
+          </Stack>
         </Box>
 
         <List dense>

@@ -131,6 +131,7 @@ export const api = {
     if (params.metric_name) queryParams.append('metric_name', params.metric_name);
     return getJson<Finding[]>(`/api/findings/search?${queryParams.toString()}`);
   },
+  getFinding: (findingId: number) => getJson<Finding>(`/api/findings/${findingId}`),
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),

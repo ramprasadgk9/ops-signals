@@ -259,6 +259,10 @@ class FindingEntity(Base):
     signal_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     comparison_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # Optional, lazily-computed AI-polished rewrite of `summary`. Never a replacement: `summary`
+    # stays the deterministic field this app has always had; ai_summary is additive and only used
+    # when present, so a finding is fully functional identically to before if AI is never enabled.
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class QuestionAnswerEntity(Base):
@@ -382,6 +386,10 @@ class BehaviorFindingEntity(Base):
     occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # Optional, lazily-computed plain-English rewrite of the structured facts/conditions already
+    # shown for this behavior finding. Additive only - the existing summary and the raw
+    # facts_json/matched_conditions_json evidence stay exactly as they are either way.
+    ai_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class BehaviorPatternSuggestionEntity(Base):

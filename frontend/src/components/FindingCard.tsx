@@ -80,9 +80,14 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
           />
         </Stack>
         
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {finding.summary}
-        </Typography>
+        <Stack direction="row" spacing={0.75} alignItems="flex-start" sx={{ mb: 2 }}>
+          {finding.ai_summary && (
+            <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
+          )}
+          <Typography variant="body2" color="text.secondary">
+            {finding.ai_summary ?? finding.summary}
+          </Typography>
+        </Stack>
         
         <Stack spacing={1} sx={{ mt: 2 }}>
           <Stack direction="row" justifyContent="space-between">

@@ -10,10 +10,9 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.ai.exceptions import AIError
 from backend.app.ai.factory import OptionalAIServices
-from backend.app.ai.interfaces import LLMMessage, LLMRequest
 from backend.app.ai.services.intent_service import IntentService
+from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.assistant.schemas import AssistantChatRequest, AssistantChatResponse, AssistantEvidenceGroup, AssistantSource
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.embedder import Embedder
@@ -362,39 +361,20 @@ class OperationalIntelligenceAssistant:
         Returns None when AI is disabled, there's no evidence to ground an answer in, or
         the call fails - callers should fall back to their own deterministic answer.
         """
-        ai_services = self.services.ai_services
-        if not ai_services or not evidence_text.strip():
-            return None
-        request = LLMRequest(
-            messages=[
-                LLMMessage(
-                    role="system",
-                    content=(
-                        "You are the Ops Signals operational assistant. Answer the user's question using ONLY "
-                        "the evidence provided below - never invent services, metrics, numbers, or facts that "
-                        "are not in the evidence. If the evidence only partially answers the question, say so "
-                        "plainly instead of filling the gap yourself. Write 2-4 concise sentences in a plain "
-                        "operational tone, referencing evidence by its title where relevant. Do not suggest "
-                        "remediation actions or claim to have made any changes."
-                    ),
-                ),
-                LLMMessage(
-                    role="user",
-                    content=f"Question: {question}\n\nEvidence:\n{evidence_text}",
-                ),
-            ],
-            temperature=0.1,
+        return synthesize_narrative(
+            self.services.ai_services,
+            instruction=(
+                "You are the Ops Signals operational assistant. Answer the user's question using ONLY "
+                "the evidence provided below - never invent services, metrics, numbers, or facts that "
+                "are not in the evidence. If the evidence only partially answers the question, say so "
+                "plainly instead of filling the gap yourself. Write 2-4 concise sentences in a plain "
+                "operational tone, referencing evidence by its title where relevant. Do not suggest "
+                "remediation actions or claim to have made any changes."
+            ),
+            evidence_text=f"Question: {question}\n\nEvidence:\n{evidence_text}",
             max_tokens=400,
-            response_format="text",
             timeout_seconds=20,
         )
-        try:
-            response = ai_services.client.generate(request)
-        except AIError as exc:
-            logger.warning("LLM answer synthesis failed, falling back to the evidence template: %s", exc)
-            return None
-        content = response.content.strip()
-        return content or None
 
     @staticmethod
     def _format_evidence_for_prompt(groups: list[AssistantEvidenceGroup]) -> str:

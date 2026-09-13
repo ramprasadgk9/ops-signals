@@ -103,6 +103,7 @@ class BehaviorFindingOut(BaseModel):
     definition_version: int
     title: str
     summary: str
+    ai_explanation: str | None = None
     category: str
     severity: str
     service: str | None = None

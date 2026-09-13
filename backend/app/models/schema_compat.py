@@ -33,3 +33,27 @@ def ensure_learning_schema(engine: Engine) -> None:
             else:
                 connection.execute(text(f"ALTER TABLE analysis_runs ADD COLUMN {name} {ddl}"))
 
+
+# Nullable, additive columns caching an optional AI-polished version of existing deterministic
+# text (finding summary, behavior explanation) - never read as a replacement, only ever as "if
+# present, prefer this; otherwise use the existing deterministic field unchanged."
+_AI_NARRATIVE_COLUMNS = {
+    "ops_operational_findings": {"ai_summary": "TEXT"},
+    "ops_behavior_findings": {"ai_explanation": "TEXT"},
+}
+
+
+def ensure_ai_narrative_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    for table_name, column_sql in _AI_NARRATIVE_COLUMNS.items():
+        if table_name not in existing_tables:
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        missing = {name: ddl for name, ddl in column_sql.items() if name not in existing_columns}
+        if not missing:
+            continue
+        with engine.begin() as connection:
+            for name, ddl in missing.items():
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
+
