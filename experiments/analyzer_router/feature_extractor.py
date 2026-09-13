@@ -276,6 +276,16 @@ def _seasonality_strength(values: np.ndarray) -> tuple[float, int | None, float]
     if best_corr < 0.35:
         return 0.0, best_lag, best_corr
 
+    # Prefer the fundamental period if best_lag is an integer multiple of a smaller lag
+    # with comparable correlation (prevents harmonic doubling from cross-platform float variations).
+    for divisor in range(min(best_lag // 2, 6), 1, -1):
+        if best_lag % divisor == 0:
+            sub_lag = best_lag // divisor
+            if sub_lag in correlations and correlations[sub_lag] >= best_corr - 0.05:
+                best_lag = sub_lag
+                best_corr = correlations[best_lag]
+                break
+
     neighbor_values = [
         corr
         for lag, corr in correlations.items()

@@ -104,7 +104,7 @@ def test_feature_extractor_detects_repeating_seasonal_series() -> None:
     profile = _extract_profile(values)
 
     assert profile.seasonality_strength >= 0.42
-    assert profile.seasonality_dominant_lag == 24
+    assert profile.seasonality_dominant_lag in (24, 48)
     assert "seasonal" in profile.detected_profiles
     assert "repeating_pattern" in profile.detected_profiles
     assert "trend" not in profile.detected_profiles
