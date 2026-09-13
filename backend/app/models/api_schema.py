@@ -169,6 +169,7 @@ class FindingOut(BaseModel):
     metric_name: str
     title: str
     summary: str
+    ai_summary: str | None = None
     category: str
     health_status: str
     importance_score: float
@@ -228,6 +229,24 @@ class ResolutionUpdateRequest(BaseModel):
     root_cause_category: str | None = None
     resolution_summary: str | None = None
     resolved_by: str | None = None
+
+
+class RCADraftOut(BaseModel):
+    """A suggested-only draft; never written to the case. Use PATCH /rca to actually save one."""
+
+    available: bool
+    draft: str | None = None
+    based_on_similar_cases: list[int] = Field(default_factory=list)
+    reason: str | None = None
+
+
+class ResolutionDraftOut(BaseModel):
+    """A suggested-only draft reformatting of the case's own notes; never written to the case.
+    Use PATCH /resolution to actually save one."""
+
+    available: bool
+    draft: str | None = None
+    reason: str | None = None
 
 
 class LearningOutcomeCreateRequest(BaseModel):

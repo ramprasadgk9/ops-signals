@@ -7,14 +7,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.memory import get_memory_config, get_memory_indexer
+from backend.app.ai.services.narrative_service import synthesize_narrative
+from backend.app.api.assistant import get_assistant
+from backend.app.api.memory import get_memory_config, get_memory_indexer, get_similarity_service
+from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import MemoryConfig
 from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.memory.similarity_service import SimilarityService
 from backend.app.models.api_schema import (
     CaseCreateResponse,
     CaseOut,
     InvestigationUpdateRequest,
+    RCADraftOut,
     RCAUpdateRequest,
+    ResolutionDraftOut,
     ResolutionUpdateRequest,
 )
 from backend.app.models.db import get_db
@@ -287,6 +293,118 @@ def update_root_cause_analysis(
     _refresh_case_memory(case, db, indexer, config)
 
     return _to_case_out(case)
+
+
+@router.post("/{case_id}/rca/suggest", response_model=RCADraftOut)
+def suggest_root_cause_analysis(
+    case_id: int,
+    db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+    similarity_service: SimilarityService | None = Depends(get_similarity_service),
+) -> RCADraftOut:
+    """Draft-only RCA hypothesis from this case's own evidence plus similar past cases' resolutions.
+    Never writes anything - PATCH /rca is still the only way to actually save an RCA. Returns
+    available=False (not a fabricated draft) whenever AI is off or a call fails."""
+    case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if not assistant or not assistant.services.ai_services:
+        return RCADraftOut(available=False, reason="AI assistance is not configured")
+
+    snapshot = case.finding_snapshot or {}
+    evidence_lines = [
+        f"Case title: {case.case_title}",
+        f"Service: {snapshot.get('service', 'unknown')}",
+        f"Metric: {snapshot.get('metric_name', 'unknown')}",
+        f"Finding category: {snapshot.get('category', 'unknown')}",
+        f"Finding summary: {snapshot.get('summary', '')}",
+        f"Comparison data: {snapshot.get('comparison_json', {})}",
+    ]
+    if case.investigation_notes:
+        notes_text = "; ".join(note.get("note", "") for note in case.investigation_notes)
+        evidence_lines.append(f"Investigation notes so far: {notes_text}")
+
+    similar_case_ids: list[int] = []
+    if similarity_service:
+        try:
+            similar = similarity_service.find_similar_cases(case_id, db, top_k=3)
+        except Exception:
+            similar = None
+        if similar:
+            for match in similar.matches:
+                if match.root_cause_summary:
+                    similar_case_ids.append(match.case_id)
+                    evidence_lines.append(
+                        f"Similar past case (service={match.service}, metric={match.metric_name}): "
+                        f"root cause was '{match.root_cause_summary}'"
+                        + (f", fixed by '{match.corrective_action}'" if match.corrective_action else "")
+                    )
+
+    try:
+        draft = synthesize_narrative(
+            assistant.services.ai_services,
+            instruction=(
+                "Suggest a possible root cause hypothesis for this operational case in 2-4 sentences, "
+                "for an on-call engineer to verify - not a confirmed answer. Use ONLY the evidence and "
+                "similar-case history given; if similar cases are present, you may draw on their root "
+                "causes as hypotheses but say so explicitly. Do not invent facts not present in the evidence."
+            ),
+            evidence_text="\n".join(evidence_lines),
+            max_tokens=200,
+        )
+    except Exception:
+        draft = None
+
+    if not draft:
+        return RCADraftOut(available=False, reason="AI draft generation failed")
+    return RCADraftOut(available=True, draft=draft, based_on_similar_cases=similar_case_ids)
+
+
+@router.post("/{case_id}/resolution/suggest", response_model=ResolutionDraftOut)
+def suggest_resolution_summary(
+    case_id: int,
+    db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> ResolutionDraftOut:
+    """Draft-only resolution summary reformatting the case's own investigation notes, RCA, and
+    corrective action. Never writes anything - PATCH /resolution is still the only way to actually
+    save an outcome. Returns available=False (not a fabricated draft) whenever AI is off, there is
+    no material to draft from, or a call fails."""
+    case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if not assistant or not assistant.services.ai_services:
+        return ResolutionDraftOut(available=False, reason="AI assistance is not configured")
+
+    evidence_lines = [f"Case title: {case.case_title}"]
+    if case.investigation_notes:
+        notes_text = "; ".join(note.get("note", "") for note in case.investigation_notes)
+        evidence_lines.append(f"Investigation notes: {notes_text}")
+    if case.root_cause_summary:
+        evidence_lines.append(f"Root cause: {case.root_cause_summary}")
+    if case.corrective_action:
+        evidence_lines.append(f"Corrective action taken: {case.corrective_action}")
+
+    if len(evidence_lines) == 1:
+        return ResolutionDraftOut(available=False, reason="No investigation notes, root cause, or corrective action recorded yet")
+
+    try:
+        draft = synthesize_narrative(
+            assistant.services.ai_services,
+            instruction=(
+                "Reformat these case notes into a clear, concise resolution summary (2-4 sentences) "
+                "suitable for a case's outcome record. Use ONLY the notes given - do not invent facts, "
+                "root causes, or fixes not present in the evidence."
+            ),
+            evidence_text="\n".join(evidence_lines),
+            max_tokens=180,
+        )
+    except Exception:
+        draft = None
+
+    if not draft:
+        return ResolutionDraftOut(available=False, reason="AI draft generation failed")
+    return ResolutionDraftOut(available=True, draft=draft)
 
 
 @router.patch("/{case_id}/resolution", response_model=CaseOut)
