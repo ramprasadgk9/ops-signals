@@ -84,6 +84,26 @@ const preliminaryResponse: AnalyzerRecommendationChatResponse = {
     },
   ],
   suggested_questions: ['Which analyzer should I try first?'],
+  ai_opinion: { available: false, recommended: [], not_recommended: [], caveats: [], diverges_from_router: false },
+};
+
+const evaluatedResponseWithAiOpinion: AnalyzerRecommendationChatResponse = {
+  ...preliminaryResponse,
+  stale: false,
+  recommendation_mode: 'evaluated',
+  ai_opinion: {
+    available: true,
+    best_analyzer_id: 'baseline_shift',
+    rationale: 'The sample shows a discrete step change rather than continuous drift.',
+    recommended: [
+      { analyzer_id: 'baseline_shift', recommendation: 'recommended', rank: 1, confidence: 0.8, reason: 'Best fit for the observed step change.' },
+    ],
+    not_recommended: [],
+    caveats: ['Confirm with a longer window.'],
+    diverges_from_router: true,
+    router_top_analyzer_id: 'trend',
+    unavailable_reason: null,
+  },
 };
 
 describe('AnalyzerRecommendationPage scenarios', () => {
@@ -114,5 +134,30 @@ describe('AnalyzerRecommendationPage scenarios', () => {
     expect(screen.getByText('STUMPY Motif')).toBeInTheDocument();
     expect(screen.getByText('Fitness 18%')).toBeInTheDocument();
     expect(screen.getByText('Confidence 63%')).toBeInTheDocument();
+    expect(screen.queryByText('Second Opinion')).not.toBeInTheDocument();
+  });
+
+  it('shows the AI second opinion and flags divergence from the router without hiding the deterministic recommendations', async () => {
+    vi.mocked(api.metricAnalyzerSamples).mockResolvedValue([]);
+    vi.mocked(api.metricAnalyzerChat).mockResolvedValue(evaluatedResponseWithAiOpinion);
+
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText(/Metric Name/), { target: { value: 'container_memory_usage_bytes' } });
+    fireEvent.change(screen.getByLabelText(/Metric Description/), {
+      target: { value: 'Current memory consumed by a Kubernetes container.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Memory Template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Get Preliminary Recommendation' }));
+
+    await waitFor(() => expect(api.metricAnalyzerChat).toHaveBeenCalled());
+
+    expect(await screen.findByText('Recommendation Results')).toBeInTheDocument();
+    expect(screen.getByText('Trend Analyzer')).toBeInTheDocument();
+    expect(screen.getByText('Second Opinion')).toBeInTheDocument();
+    expect(screen.getByText(/disagrees with the router's own top-scored pick \(trend\)/)).toBeInTheDocument();
+    expect(screen.getByText('Best pick: baseline_shift')).toBeInTheDocument();
+    expect(screen.getByText('The sample shows a discrete step change rather than continuous drift.')).toBeInTheDocument();
+    expect(screen.getByText('Confirm with a longer window.')).toBeInTheDocument();
   });
 });

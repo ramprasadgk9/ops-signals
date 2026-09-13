@@ -58,7 +58,7 @@ const metricTemplates = {
 
 function recommendationColor(recommendation: string) {
   if (recommendation === 'recommended') return 'success';
-  if (recommendation === 'conditional') return 'warning';
+  if (recommendation === 'conditional' || recommendation === 'optional') return 'warning';
   return 'error';
 }
 
@@ -425,7 +425,12 @@ export function AnalyzerRecommendationPage() {
                           setContext((current) => ({
                             ...current,
                             metric_name: sample.metric_name,
-                            sample_id: undefined,
+                            // The backend only checks sample_id is not None (as a flag meaning
+                            // "a specific historical sample was explicitly chosen") - it never
+                            // looks up anything by this value, since the actual sample is matched
+                            // by metric_name/provider below. Leaving this undefined meant picking
+                            // a sample here could never reach the backend's "evaluated" mode.
+                            sample_id: 1,
                             provider: current.provider ?? sample.service,
                           }));
                         }
@@ -583,6 +588,63 @@ export function AnalyzerRecommendationPage() {
           </Stack>
         </Paper>
       )}
+
+      {chatResult?.ai_opinion.available ? (
+        <Paper sx={{ p: 3, border: '1px solid rgba(99, 102, 241, 0.25)' }}>
+          <Stack spacing={2}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Chip size="small" color="info" variant="outlined" label="AI" />
+              <Typography variant="h6">Second Opinion</Typography>
+            </Stack>
+            <Typography variant="body2" color="text.secondary">
+              An independent read from an LLM advisor on the same sample - this never changes the
+              deterministic recommendations above; it's an extra perspective to weigh alongside them.
+            </Typography>
+
+            {chatResult.ai_opinion.diverges_from_router ? (
+              <Alert severity="warning">
+                This disagrees with the router's own top-scored pick
+                {chatResult.ai_opinion.router_top_analyzer_id ? ` (${chatResult.ai_opinion.router_top_analyzer_id})` : ''} -
+                worth a second look, not a replacement decision.
+              </Alert>
+            ) : (
+              <Alert severity="success">Agrees with the router's own top-scored pick.</Alert>
+            )}
+
+            <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'rgba(99, 102, 241, 0.06)' }}>
+              <Typography variant="subtitle1">
+                Best pick: {chatResult.ai_opinion.best_analyzer_id}
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>{chatResult.ai_opinion.rationale}</Typography>
+            </Box>
+
+            <Stack spacing={1}>
+              {chatResult.ai_opinion.recommended.map((pick) => (
+                <Box key={pick.analyzer_id} sx={{ p: 1.5, borderRadius: 2, border: '1px solid rgba(0,0,0,0.08)' }}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <Typography variant="subtitle2">{pick.analyzer_id}</Typography>
+                    {pick.rank ? <Chip size="small" label={`Rank ${pick.rank}`} /> : null}
+                    <Chip size="small" color={recommendationColor(pick.recommendation)} label={pick.recommendation} />
+                    <Chip size="small" label={`Confidence ${Math.round(pick.confidence * 100)}%`} />
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>{pick.reason}</Typography>
+                </Box>
+              ))}
+            </Stack>
+
+            {chatResult.ai_opinion.caveats.length > 0 ? (
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Caveats</Typography>
+                <Stack component="ul" sx={{ m: 0, pl: 2.5 }}>
+                  {chatResult.ai_opinion.caveats.map((caveat) => (
+                    <Typography component="li" variant="body2" key={caveat}>{caveat}</Typography>
+                  ))}
+                </Stack>
+              </Box>
+            ) : null}
+          </Stack>
+        </Paper>
+      ) : null}
     </Box>
   );
 }
