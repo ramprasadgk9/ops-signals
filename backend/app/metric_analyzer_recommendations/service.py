@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+import logging
 from math import isclose, isfinite
 from pathlib import Path
 from statistics import mean, pstdev, pvariance
@@ -14,7 +15,11 @@ from sqlalchemy.orm import Session
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
 
+from backend.app.ai.factory import OptionalAIServices
+from backend.app.metric_analyzer_recommendations.gemma_advisor import GemmaAnalyzerAdvisor
 from backend.app.models.entities import NormalizedPoint
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -157,31 +162,7 @@ class MetricAnalyzerRecommendationService:
         selection_mode: str = "all",
         selected_analyzers: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        router_profile = type(
-            "RouterProfile",
-            (),
-            {
-                "sample_count": profile.sample_count,
-                "valid_sample_count": profile.sample_count,
-                "regular_sampling": profile.regular_sampling,
-                "missing_percentage": profile.missing_ratio * 100.0,
-                "irregular_sampling_percentage": profile.missing_ratio * 100.0,
-                "constant_value_percentage": profile.constant_value_ratio * 100.0,
-                "mean": profile.mean,
-                "stddev": profile.stddev,
-                "minimum": profile.minimum,
-                "maximum": profile.maximum,
-                "variance": profile.variance,
-                "trend_slope": profile.trend_slope,
-                "trend_strength": profile.trend_strength,
-                "autocorrelation": profile.autocorrelation,
-                "seasonality_strength": profile.seasonality_strength,
-                "spikiness": 0.0,
-                "shift_index": min(1.0, max(0.0, profile.variance / (abs(profile.mean) + 1e-9))),
-                "duration_seconds": int((profile.end_time - profile.start_time).total_seconds()) if profile.start_time and profile.end_time else None,
-                "notes": [],
-            },
-        )()
+        router_profile = self._build_router_profile(profile)
         decisions = self._build_router().recommend_analyzers_for_profile(router_profile)
         selected = set(selected_analyzers or [])
         mode = selection_mode.lower().strip()
@@ -208,6 +189,88 @@ class MetricAnalyzerRecommendationService:
             }
             for decision in decisions
         ]
+
+    @staticmethod
+    def _build_router_profile(profile: MetricProfile) -> Any:
+        return type(
+            "RouterProfile",
+            (),
+            {
+                "sample_count": profile.sample_count,
+                "valid_sample_count": profile.sample_count,
+                "regular_sampling": profile.regular_sampling,
+                "missing_percentage": profile.missing_ratio * 100.0,
+                "irregular_sampling_percentage": profile.missing_ratio * 100.0,
+                "constant_value_percentage": profile.constant_value_ratio * 100.0,
+                "mean": profile.mean,
+                "stddev": profile.stddev,
+                "minimum": profile.minimum,
+                "maximum": profile.maximum,
+                "variance": profile.variance,
+                "trend_slope": profile.trend_slope,
+                "trend_strength": profile.trend_strength,
+                "autocorrelation": profile.autocorrelation,
+                "seasonality_strength": profile.seasonality_strength,
+                "spikiness": 0.0,
+                "shift_index": min(1.0, max(0.0, profile.variance / (abs(profile.mean) + 1e-9))),
+                "duration_seconds": int((profile.end_time - profile.start_time).total_seconds()) if profile.start_time and profile.end_time else None,
+                "notes": [],
+            },
+        )()
+
+    def recommend_ai_opinion(
+        self,
+        profile: MetricProfile,
+        timeseries: list[tuple[Any, float]],
+        ai_services: OptionalAIServices | None,
+        metric_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Independent second opinion from an optional LLM advisor (Design B) - computed alongside,
+        never instead of, recommend()'s deterministic output. The rule-based scores/eligibility/
+        thresholds remain the sole authority over what actually executes; this can never change
+        that. Returns available=False (never a fabricated opinion) whenever AI is off, or the
+        advisor call fails for any reason - callers must always be ready to show just recommend()'s
+        output on its own."""
+        if not ai_services:
+            return {"available": False, "unavailable_reason": "AI assistance is not configured"}
+
+        router_profile = self._build_router_profile(profile)
+        decisions = self._build_router().recommend_analyzers_for_profile(router_profile)
+        eligible_decisions = [decision for decision in decisions if decision.eligible] or decisions
+        router_top = max(eligible_decisions, key=lambda decision: decision.final_score, default=None)
+
+        try:
+            result = GemmaAnalyzerAdvisor(ai_services.structured).recommend(
+                profile=router_profile,
+                timeseries=timeseries,
+                analyzer_decisions=decisions,
+                metric_context=metric_context,
+            )
+        except Exception as exc:
+            logger.warning("Gemma analyzer advisor failed, falling back to rule-based recommendations only: %s", exc)
+            return {"available": False, "unavailable_reason": "AI advisor call failed"}
+
+        diverges = bool(router_top) and result.best_analyzer_id != router_top.analyzer
+        return {
+            "available": True,
+            "best_analyzer_id": self._public_analyzer_id(result.best_analyzer_id),
+            "rationale": result.rationale,
+            "recommended": [self._to_ai_pick_dict(pick) for pick in result.recommended],
+            "not_recommended": [self._to_ai_pick_dict(pick) for pick in result.not_recommended],
+            "caveats": result.caveats,
+            "diverges_from_router": diverges,
+            "router_top_analyzer_id": self._public_analyzer_id(router_top.analyzer) if router_top else None,
+        }
+
+    @classmethod
+    def _to_ai_pick_dict(cls, pick: Any) -> dict[str, Any]:
+        return {
+            "analyzer_id": cls._public_analyzer_id(pick.analyzer_id),
+            "recommendation": pick.recommendation,
+            "rank": pick.rank,
+            "confidence": pick.confidence,
+            "reason": pick.reason,
+        }
 
     @staticmethod
     def _public_analyzer_id(analyzer_id: str) -> str:

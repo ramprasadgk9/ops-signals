@@ -56,10 +56,37 @@ class AnalyzerRecommendationOut(BaseModel):
     parameters_tested: dict = Field(default_factory=dict)
 
 
+class AIAnalyzerPickOut(BaseModel):
+    analyzer_id: str
+    recommendation: Literal["recommended", "optional", "not_recommended"]
+    rank: int | None = None
+    confidence: float
+    reason: str
+
+
+class AIAnalyzerOpinionOut(BaseModel):
+    """An independent second opinion from an optional LLM advisor, computed alongside - never
+    instead of - the deterministic `recommendations` list above. `available=False` whenever AI is
+    disabled, there's no advisor configured, or the advisor call fails for any reason; callers
+    should treat that as "no opinion" and keep using `recommendations` on its own, exactly as
+    before this feature existed."""
+
+    available: bool
+    best_analyzer_id: str | None = None
+    rationale: str | None = None
+    recommended: list[AIAnalyzerPickOut] = Field(default_factory=list)
+    not_recommended: list[AIAnalyzerPickOut] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+    diverges_from_router: bool = False
+    router_top_analyzer_id: str | None = None
+    unavailable_reason: str | None = None
+
+
 class RecommendationResponseOut(BaseModel):
     sample: MetricSampleOut
     profile: MetricProfileOut
     recommendations: list[AnalyzerRecommendationOut]
+    ai_opinion: AIAnalyzerOpinionOut = Field(default_factory=lambda: AIAnalyzerOpinionOut(available=False))
 
 
 class TimeValuePointIn(BaseModel):
@@ -107,3 +134,4 @@ class AnalyzerRecommendationChatResponseOut(BaseModel):
     context_version: int
     normalized_goals: list[NormalizedGoalOut] = Field(default_factory=list)
     stale: bool = False
+    ai_opinion: AIAnalyzerOpinionOut = Field(default_factory=lambda: AIAnalyzerOpinionOut(available=False))
