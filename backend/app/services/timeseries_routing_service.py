@@ -78,7 +78,16 @@ def load_routing_app_config(provider: str = "prometheus") -> AppConfig:
     provider_file = root / "config" / "providers" / f"{provider}.yaml"
     if provider_file.exists():
         return load_config(provider_file)
-    return load_config(root / "config" / "config.yaml")
+    # Previously fell back to loading config/config.yaml directly - that file is a shared base
+    # meant to be merged with a provider file, not loaded standalone (it has no top-level
+    # "input"/"analysis" sections), so that fallback always crashed with a confusing
+    # KeyError: 'analysis' instead of explaining what actually went wrong. Not reachable through
+    # the live app today (backend/app/api/ingestion.py already validates provider against an
+    # allow-list before this is ever called) - this only matters for direct callers.
+    raise ValueError(
+        f"No provider config found for '{provider}' (expected {provider_file} to exist). "
+        "Use provider='custom' with an explicit column mapping for a one-off format instead."
+    )
 
 
 def build_csv_routing_config(
@@ -95,13 +104,12 @@ def build_csv_routing_config(
 ) -> AppConfig:
     provider_lower = provider.lower()
     # provider_mappings and required_columns are NOT overridden here - they come from whatever
-    # load_routing_app_config() loaded out of config/providers/<provider>.yaml (falling back to
-    # config/config.yaml for an unrecognized provider). That YAML file is the single source of
-    # truth for both the CLI run path (intelligence.cli, which loads it directly) and this API
-    # upload path - previously this function silently replaced both fields with a second,
-    # hardcoded copy that happened to agree with the YAML for prometheus/datadog, but meant
-    # editing the YAML had zero effect here, and adding a new provider needed a Python change,
-    # not just a new YAML file.
+    # load_routing_app_config() loaded out of config/providers/<provider>.yaml. That YAML file is
+    # the single source of truth for both the CLI run path (intelligence.cli, which loads it
+    # directly) and this API upload path - previously this function silently replaced both fields
+    # with a second, hardcoded copy that happened to agree with the YAML for prometheus/datadog,
+    # but meant editing the YAML had zero effect here, and adding a new provider needed a Python
+    # change, not just a new YAML file.
     config = copy.deepcopy(load_routing_app_config(provider_lower))
     config.input.source_type = "csv"
     config.input.provider = provider_lower
