@@ -30,6 +30,17 @@ export function FindingsPage() {
   const window = windowFromParams(searchParams.get('window'));
   const findingsQuery = useQuery({ queryKey: ['findings', window], queryFn: () => api.findings(undefined, undefined, undefined, window) });
   const summaryQuery = useQuery({ queryKey: ['overview-summary', window], queryFn: () => api.overviewSummary(window) });
+  // Findings only carry signal_ids, not the signals themselves - without this, every card's
+  // "Evidence" section has nothing to match against and always shows 0 supporting signals,
+  // regardless of how many signals the finding actually has.
+  const runIds = (findingsQuery.data ?? [])
+    .map((finding) => finding.analysis_run_id)
+    .filter((id): id is string => Boolean(id));
+  const signalsQuery = useQuery({
+    queryKey: ['findings-signals', ...runIds],
+    queryFn: () => api.signalsByRunIds(runIds),
+    enabled: runIds.length > 0,
+  });
 
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -171,7 +182,7 @@ export function FindingsPage() {
         {findingsQuery.error ? (
           <Typography color="error">Findings unavailable.</Typography>
         ) : findings.length ? (
-          <TopFindingsList findings={findings} onViewDetails={handleViewDetails} />
+          <TopFindingsList findings={findings} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} />
         ) : (
           <Typography color="text.secondary">No findings returned for this window.</Typography>
         )}
@@ -180,6 +191,7 @@ export function FindingsPage() {
       <FindingDetailsDrawer
         open={drawerOpen}
         finding={findingDetailQuery.data ?? selectedFinding}
+        signals={signalsQuery.data ?? []}
         onClose={() => setDrawerOpen(false)}
       />
     </Stack>
