@@ -24,7 +24,7 @@ from backend.app.models.api_schema import (
     ResolutionUpdateRequest,
 )
 from backend.app.models.db import get_db
-from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.analyzer_learning_service import AnalyzerLearningService, LearningOutcomeError
 
 logger = logging.getLogger(__name__)
@@ -119,6 +119,7 @@ def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
     return CaseOut(
         id=case.id,
         finding_id=case.finding_id,
+        behavior_finding_id=case.behavior_finding_id,
         analysis_run_id=case.analysis_run_id,
         case_title=case.case_title,
         case_status=computed_case_status,
@@ -237,6 +238,94 @@ def create_case_from_finding(
     return CaseCreateResponse(
         case_id=case.id,
         finding_id=finding_id,
+        case_status=case.case_status,
+        memory_status=case.memory_status,
+    )
+
+
+def _behavior_snapshot(behavior: BehaviorFindingEntity) -> dict:
+    """Normalizes a BehaviorFinding into the same snapshot shape a single-metric Finding
+    uses (service/metric_name/category/health_status/importance_score/summary), so every
+    downstream reader of finding_snapshot (case listing filters, similarity-search filters,
+    the case document builder, learning-outcome creation) keeps working unchanged for
+    behavior-sourced cases. A behavior spans multiple input metrics; metric_name here is
+    the first one, with the full set kept under metric_names for anything that wants it."""
+    input_metrics = list((behavior.input_metrics_json or {}).values())
+    return {
+        "id": behavior.id,
+        "source_type": "behavior",
+        "service": behavior.service,
+        "metric_name": input_metrics[0] if input_metrics else None,
+        "metric_names": input_metrics,
+        "title": behavior.title,
+        "summary": behavior.summary,
+        "category": behavior.category,
+        "health_status": behavior.severity,
+        "importance_score": behavior.confidence,
+        "evidence_facts": behavior.evidence_json or [],
+        "matched_conditions": behavior.matched_conditions_json or [],
+    }
+
+
+@router.post("/behaviors/{behavior_finding_id}/create", response_model=CaseCreateResponse)
+def create_case_from_behavior(
+    behavior_finding_id: int,
+    db: Session = Depends(get_db),
+    indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> CaseCreateResponse:
+    """Same lifecycle as create_case_from_finding, but for a correlated, cross-metric
+    BehaviorFinding (e.g. "memory leak driving resource exhaustion") instead of a
+    single-metric Finding. Without this, behaviors - the closer-to-root-cause output of
+    the Behavior Intelligence Engine - could never get an RCA, resolution, or outcome
+    recorded, and so could never inform learning outcomes or similar-case search."""
+    behavior = db.execute(
+        select(BehaviorFindingEntity).where(BehaviorFindingEntity.id == behavior_finding_id)
+    ).scalar_one_or_none()
+    if behavior is None:
+        raise HTTPException(status_code=404, detail="behavior finding not found")
+
+    existing_case = db.execute(
+        select(OperationalCaseEntity).where(OperationalCaseEntity.behavior_finding_id == behavior_finding_id)
+    ).scalar_one_or_none()
+
+    if existing_case is not None:
+        return CaseCreateResponse(
+            case_id=existing_case.id,
+            behavior_finding_id=behavior_finding_id,
+            case_status=existing_case.case_status,
+            memory_status=existing_case.memory_status,
+        )
+
+    case = OperationalCaseEntity(
+        finding_id=None,
+        behavior_finding_id=behavior_finding_id,
+        analysis_run_id=behavior.analysis_run_id or "unknown",
+        case_title=behavior.title,
+        case_status="open",
+        finding_snapshot=_behavior_snapshot(behavior),
+        investigation_status="not_started",
+        investigation_notes=[],
+        root_cause_status="unknown",
+        root_cause_verified=False,
+        outcome_status="pending",
+        memory_status="not_indexed",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+
+    db.add(case)
+    db.commit()
+    db.refresh(case)
+
+    behavior.case_id = case.id
+    db.commit()
+
+    _auto_index_new_case(case, db, indexer, config)
+
+    return CaseCreateResponse(
+        case_id=case.id,
+        behavior_finding_id=behavior_finding_id,
         case_status=case.case_status,
         memory_status=case.memory_status,
     )

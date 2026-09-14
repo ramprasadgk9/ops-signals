@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { OperationalMemoryPage } from './OperationalMemoryPage';
@@ -9,6 +9,7 @@ vi.mock('../api/queries', () => ({
   api: {
     cases: vi.fn(),
     memoryStats: vi.fn(),
+    alertContext: vi.fn(),
   },
 }));
 
@@ -94,5 +95,105 @@ describe('OperationalMemoryPage', () => {
 
     expect(await screen.findAllByText('Unavailable')).not.toHaveLength(0);
     expect(screen.getByText('Memory unavailable')).toBeInTheDocument();
+  });
+
+  it('checks alert context and renders history, outcomes, and similar cases', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([]);
+    vi.mocked(api.alertContext).mockResolvedValue({
+      service: 'payments-service',
+      metric_name: 'cpu_usage',
+      history: {
+        total_prior_occurrences: 3,
+        confirmed: 2,
+        rejected: 1,
+        partially_confirmed: 0,
+        inconclusive: 0,
+        confirmed_rate: 0.67,
+        most_common_root_cause: 'cpu_throttling',
+        last_seen_at: '2026-08-22T14:03:00Z',
+      },
+      exact_match_outcomes: [
+        {
+          outcome_status: 'confirmed',
+          root_cause_category: 'cpu_throttling',
+          resolution_summary: 'Increased CPU limit from 500m to 1000m.',
+          confirmed_analyzers: ['anomaly_zscore'],
+          rejected_analyzers: [],
+          case_id: 412,
+          resolved_at: '2026-08-22T15:10:00Z',
+          created_at: '2026-08-22T14:03:00Z',
+        },
+      ],
+      similar_cases: [
+        {
+          case_id: 398,
+          similarity_score: 0.86,
+          title: 'CPU throttling on payments-service',
+          case_status: 'resolved',
+          outcome_status: 'confirmed',
+          root_cause_summary: 'Sustained CPU usage anomaly correlated with rising throttled_seconds.',
+          outcome_summary: 'Increased CPU limit.',
+          reference: '/cases/398',
+        },
+      ],
+      raw_activity: {
+        finding_count: 2,
+        behavior_count: 1,
+        total_occurrences: 3,
+        most_recent_at: '2026-08-22T14:03:00Z',
+        recent_titles: ['CPU usage anomaly on payments-service'],
+      },
+      recommendation: 'likely_real',
+      recommendation_basis: '2 of 3 prior occurrences on this service+metric were confirmed real.',
+    });
+
+    renderPage();
+    await screen.findByText('Operational Memory');
+
+    fireEvent.change(screen.getByLabelText('Metric name'), { target: { value: 'cpu_usage' } });
+    fireEvent.change(screen.getByLabelText('Service (optional)'), { target: { value: 'payments-service' } });
+    fireEvent.change(screen.getByLabelText(/Alert message/), { target: { value: 'CPU usage spike' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check Alert Context' }));
+
+    expect(await screen.findByText('Likely real')).toBeInTheDocument();
+    expect(api.alertContext).toHaveBeenCalledWith('cpu_usage', 'payments-service', 'CPU usage spike');
+    expect(screen.getByText('2 of 3 prior occurrences on this service+metric were confirmed real.')).toBeInTheDocument();
+    expect(screen.getByText('Increased CPU limit from 500m to 1000m.')).toBeInTheDocument();
+    expect(screen.getByText('CPU throttling on payments-service')).toBeInTheDocument();
+    expect(screen.getByText(/occurred/)).toBeInTheDocument();
+    expect(screen.getByText('CPU usage anomaly on payments-service')).toBeInTheDocument();
+  });
+
+  it('prefers the AI raw-activity summary over the deterministic sentence, with an AI badge', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([]);
+    vi.mocked(api.alertContext).mockResolvedValue({
+      service: 'payments-service',
+      metric_name: 'cpu_usage',
+      history: { total_prior_occurrences: 0, confirmed: 0, rejected: 0, partially_confirmed: 0, inconclusive: 0, confirmed_rate: null, most_common_root_cause: null, last_seen_at: null },
+      exact_match_outcomes: [],
+      similar_cases: [],
+      raw_activity: {
+        finding_count: 3,
+        behavior_count: 0,
+        total_occurrences: 3,
+        most_recent_at: '2026-09-13T00:00:00Z',
+        recent_titles: ['CPU usage anomaly on payments-service'],
+        ai_summary: 'This service has repeatedly shown CPU anomalies, but none were ever confirmed or resolved.',
+      },
+      recommendation: 'insufficient_history',
+      recommendation_basis: 'No resolved outcomes recorded for this service/metric, but it has occurred 3 time(s) before with no case ever filed - see raw activity below.',
+    });
+
+    renderPage();
+    await screen.findByText('Operational Memory');
+
+    fireEvent.change(screen.getByLabelText('Metric name'), { target: { value: 'cpu_usage' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check Alert Context' }));
+
+    expect(await screen.findByText('This service has repeatedly shown CPU anomalies, but none were ever confirmed or resolved.')).toBeInTheDocument();
+    expect(screen.queryByText(/This exact service\/metric occurred/)).not.toBeInTheDocument();
+    expect(screen.getByText('AI')).toBeInTheDocument();
   });
 });

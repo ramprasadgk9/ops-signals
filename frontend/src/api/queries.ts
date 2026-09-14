@@ -25,6 +25,7 @@ import type {
   AssistantChatResponse,
   MemoryChatRequest,
   MemoryChatResponse,
+  AlertContextResponse,
   CsvValidationResult,
   DirectPrometheusAnalysisRequest,
   DirectPrometheusAnalysisResponse,
@@ -157,6 +158,11 @@ export const api = {
     postJson<typeof payload, AutonomousQuestionAnswer>('/api/autonomous/questions/answer', payload),
   createCase: (findingId: number) =>
     postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {}),
+  createCaseFromBehavior: (behaviorFindingId: number) =>
+    postJson<{}, { case_id: number; behavior_finding_id: number; case_status: string; memory_status: string }>(
+      `/api/cases/behaviors/${behaviorFindingId}/create`,
+      {}
+    ),
   getCase: (caseId: number) => getJson<OperationalCase>(`/api/cases/${caseId}`),
   updateInvestigation: (caseId: number, payload: { investigation_status: string; investigation_note?: string }) =>
     patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/investigation`, payload),
@@ -188,6 +194,12 @@ export const api = {
       '/api/memory/health'
     ),
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
+  alertContext: (metricName: string, service?: string, message?: string) => {
+    const params = new URLSearchParams({ metric_name: metricName });
+    if (service) params.append('service', service);
+    if (message) params.append('message', message);
+    return getJson<AlertContextResponse>(`/api/alert-context?${params.toString()}`);
+  },
   metricAnalyzerSamples: () => getJson<MetricSample[]>('/api/metric-analyzer-recommendations/metrics'),
   metricAnalyzerEvaluate: (service: string, metricName: string, analysisRunId?: string | null) =>
     postJson<
