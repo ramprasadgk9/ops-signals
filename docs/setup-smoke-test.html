@@ -1,0 +1,1157 @@
+<title>Ops Signals Smoke Test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f5f7f5;
+    --paper-raised:#ffffff;
+    --ink:#142523;
+    --muted:#5c6d69;
+    --muted-2:#87968f;
+    --line:#dbe3e0;
+    --line-soft:#e8eeec;
+    --teal:#0f766e;
+    --teal-deep:#0a5650;
+    --teal-wash:#e6f3f1;
+    --pass:#1a7a4c;
+    --pass-wash:#e5f4ec;
+    --warn:#b06a0a;
+    --warn-wash:#fbf1e2;
+    --code-bg:#0e1615;
+    --code-text:#cdece3;
+    --code-muted:#7fa89e;
+    --shadow: 0 1px 2px rgba(20,37,35,.06), 0 8px 24px rgba(20,37,35,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#0c1413;
+      --paper-raised:#121c1a;
+      --ink:#e7f1ee;
+      --muted:#93a6a1;
+      --muted-2:#6d827c;
+      --line:#223330;
+      --line-soft:#1a2725;
+      --teal:#35d6c5;
+      --teal-deep:#8be9dd;
+      --teal-wash:#132523;
+      --pass:#35d399;
+      --pass-wash:#112a20;
+      --warn:#f2a93b;
+      --warn-wash:#2a2013;
+      --code-bg:#070c0b;
+      --code-text:#a9f1e3;
+      --code-muted:#4f7269;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0c1413;
+    --paper-raised:#121c1a;
+    --ink:#e7f1ee;
+    --muted:#93a6a1;
+    --muted-2:#6d827c;
+    --line:#223330;
+    --line-soft:#1a2725;
+    --teal:#35d6c5;
+    --teal-deep:#8be9dd;
+    --teal-wash:#132523;
+    --pass:#35d399;
+    --pass-wash:#112a20;
+    --warn:#f2a93b;
+    --warn-wash:#2a2013;
+    --code-bg:#070c0b;
+    --code-text:#a9f1e3;
+    --code-muted:#4f7269;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    font-size:15.5px;
+    line-height:1.55;
+  }
+  ::selection{ background:var(--teal); color:var(--paper-raised); }
+
+  .wrap{ max-width:760px; margin:0 auto; padding:44px 24px 96px; }
+
+  header.doc{ margin-bottom:36px; }
+  .kicker{
+    font-family:'IBM Plex Mono', ui-monospace, monospace;
+    font-size:12px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--teal-deep);
+    display:flex; align-items:center; gap:8px;
+    margin-bottom:10px;
+  }
+  .kicker .dot{ width:6px; height:6px; border-radius:50%; background:var(--pass); box-shadow:0 0 0 3px var(--pass-wash); }
+  h1{
+    font-family:'IBM Plex Sans Condensed', ui-sans-serif, sans-serif;
+    font-weight:700;
+    font-size:clamp(28px,4.2vw,38px);
+    letter-spacing:-0.01em;
+    margin:0 0 10px;
+    text-wrap:balance;
+  }
+  .lede{ color:var(--muted); max-width:62ch; margin:0 0 22px; }
+  .lede b{ color:var(--ink); font-weight:600; }
+
+  .meta-row{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:6px; }
+  .meta-chip{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--muted);
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:5px 10px;
+    display:flex; align-items:center; gap:6px;
+  }
+
+  /* progress bar */
+  .progress-card{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px 16px;
+    display:flex; align-items:center; gap:14px;
+    box-shadow:var(--shadow);
+    position:sticky; top:16px; z-index:5;
+    margin:26px 0 40px;
+  }
+  .progress-track{
+    flex:1; height:8px; border-radius:99px;
+    background:var(--line-soft);
+    overflow:hidden;
+  }
+  .progress-fill{
+    height:100%; width:0%;
+    background:linear-gradient(90deg, var(--teal), var(--teal-deep));
+    border-radius:99px;
+    transition:width .35s ease;
+  }
+  .progress-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    color:var(--muted);
+    white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+  .progress-label b{ color:var(--ink); }
+  .reset-btn{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    color:var(--muted);
+    background:none;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:5px 9px;
+    cursor:pointer;
+  }
+  .reset-btn:hover{ color:var(--ink); border-color:var(--muted-2); }
+  .reset-btn:focus-visible, button:focus-visible, input:focus-visible, a:focus-visible{
+    outline:2px solid var(--teal); outline-offset:2px;
+  }
+
+  /* phases */
+  .phase{ display:flex; gap:18px; margin-bottom:8px; }
+  .phase-rail{
+    flex:0 0 auto; width:34px;
+    display:flex; flex-direction:column; align-items:center;
+  }
+  .phase-num{
+    font-family:'IBM Plex Sans Condensed', sans-serif;
+    font-weight:700; font-size:15px;
+    width:34px; height:34px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--teal-wash); color:var(--teal-deep);
+    border:1px solid var(--line);
+  }
+  .phase-line{ flex:1; width:1px; background:var(--line); margin-top:6px; min-height:24px; }
+  .phase-body{ flex:1; min-width:0; padding-bottom:38px; }
+  .phase:last-of-type .phase-line{ display:none; }
+
+  .phase-head{ margin-bottom:14px; }
+  .phase-head h2{
+    font-family:'IBM Plex Sans Condensed', sans-serif;
+    font-weight:700; font-size:21px; letter-spacing:-0.005em;
+    margin:2px 0 4px;
+  }
+  .phase-head p{ color:var(--muted); font-size:14px; margin:0; max-width:60ch; }
+
+  /* checklist items */
+  .item{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px 16px 16px;
+    margin-bottom:10px;
+    box-shadow:var(--shadow);
+  }
+  .item-top{ display:flex; align-items:flex-start; gap:11px; }
+  .item input[type="checkbox"]{
+    appearance:none; -webkit-appearance:none;
+    width:19px; height:19px; flex:0 0 auto;
+    border:1.5px solid var(--muted-2);
+    border-radius:5px;
+    margin-top:2px;
+    cursor:pointer;
+    position:relative;
+    background:var(--paper-raised);
+  }
+  .item input[type="checkbox"]:checked{
+    background:var(--pass); border-color:var(--pass);
+  }
+  .item input[type="checkbox"]:checked::after{
+    content:"";
+    position:absolute; left:5px; top:1.5px;
+    width:5px; height:10px;
+    border:solid var(--paper-raised);
+    border-width:0 2px 2px 0;
+    transform:rotate(40deg);
+  }
+  .item-text{ flex:1; min-width:0; }
+  .item-title{ font-weight:600; font-size:15px; }
+  .item.done .item-title{ color:var(--muted); text-decoration:line-through; text-decoration-color:var(--line); text-decoration-thickness:1.5px; }
+  .item-action{ color:var(--muted); font-size:14px; margin-top:3px; }
+  .tag{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px; letter-spacing:.03em; text-transform:uppercase;
+    padding:2px 6px; border-radius:4px;
+    margin-left:8px; vertical-align:1px;
+  }
+  .tag.optional{ background:var(--warn-wash); color:var(--warn); }
+  .tag.ai{ background:var(--teal-wash); color:var(--teal-deep); }
+
+  .codeblock{
+    position:relative;
+    background:var(--code-bg);
+    border-radius:8px;
+    margin-top:10px;
+    overflow-x:auto;
+  }
+  .codeblock pre{
+    margin:0; padding:12px 44px 12px 14px;
+    font-family:'IBM Plex Mono', ui-monospace, monospace;
+    font-size:13px; line-height:1.6;
+    color:var(--code-text);
+    white-space:pre;
+  }
+  .codeblock .comment{ color:var(--code-muted); }
+  .copy-btn{
+    position:absolute; top:8px; right:8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    color:var(--code-muted);
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:5px;
+    padding:4px 8px;
+    cursor:pointer;
+  }
+  .copy-btn:hover{ color:var(--code-text); border-color:rgba(255,255,255,.28); }
+
+  .expect{
+    display:flex; gap:8px; align-items:flex-start;
+    margin-top:10px;
+    padding:9px 11px;
+    background:var(--pass-wash);
+    border-radius:7px;
+    font-size:13.5px;
+  }
+  .expect .label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--pass); font-weight:500;
+    flex:0 0 auto; margin-top:1px;
+  }
+  .expect .body{ color:var(--ink); }
+  .expect .body code{ font-family:'IBM Plex Mono', monospace; font-size:12.5px; background:var(--paper-raised); padding:1px 5px; border-radius:4px; border:1px solid var(--line); }
+
+  .fail-note{
+    display:flex; gap:8px; align-items:flex-start;
+    margin-top:6px;
+    padding:9px 11px;
+    background:var(--warn-wash);
+    border-radius:7px;
+    font-size:13px;
+  }
+  .fail-note .label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--warn); font-weight:500;
+    flex:0 0 auto; margin-top:1px;
+  }
+  .fail-note .body{ color:var(--muted); }
+
+  code.inline{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:.91em;
+    background:var(--line-soft);
+    padding:1.5px 5px;
+    border-radius:4px;
+  }
+
+  table.trouble{
+    width:100%; border-collapse:collapse;
+    font-size:13.5px;
+    margin-top:4px;
+  }
+  table.trouble th{
+    text-align:left;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--muted-2);
+    padding:8px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  table.trouble td{
+    padding:10px 10px;
+    border-bottom:1px solid var(--line-soft);
+    vertical-align:top;
+    color:var(--muted);
+  }
+  table.trouble td:first-child{ color:var(--ink); font-family:'IBM Plex Mono', monospace; font-size:12.5px; }
+  table.trouble tr:last-child td{ border-bottom:none; }
+  .trouble-wrap{ overflow-x:auto; }
+
+  footer.doc{
+    margin-top:52px; padding-top:20px;
+    border-top:1px solid var(--line);
+    color:var(--muted-2); font-size:12.5px;
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="doc">
+    <div class="kicker"><span class="dot"></span> Verification runbook</div>
+    <h1>Ops Signals — Setup &amp; Smoke Test</h1>
+    <p class="lede">Hand this to whoever is cloning fresh. Work top to bottom — <b>Phases 0–5</b> cover the deterministic path everyone should pass, no API keys or AI required. <b>Phase 6</b> (AI) and <b>Phase 7</b> (Grafana plugin) are separate, optional passes — skip either if it's out of scope for this round.</p>
+    <div class="meta-row">
+      <span class="meta-chip">⏱ ~45 min core, +10 min AI, +15 min Grafana</span>
+      <span class="meta-chip">repo: operational-intelligence</span>
+      <span class="meta-chip">9 phases · CSV, Prometheus, cases, chat, AI, Grafana</span>
+    </div>
+  </header>
+
+  <div class="progress-card">
+    <span class="progress-label"><b id="progress-count">0</b>/<span id="progress-total">0</span> checked</span>
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+    <button class="reset-btn" id="reset-btn" type="button">Reset</button>
+  </div>
+
+  <!-- PHASE 0 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">0</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Prerequisites</h2>
+        <p>Confirm these before touching the repo — the setup script will refuse to run without them, and Python 3.13 specifically is rejected.</p>
+      </div>
+
+      <div class="item" data-item="p0-git">
+        <div class="item-top">
+          <input type="checkbox" id="p0-git">
+          <div class="item-text">
+            <label class="item-title" for="p0-git">Git is installed</label>
+            <div class="item-action">Any recent version works.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p0-docker">
+        <div class="item-top">
+          <input type="checkbox" id="p0-docker">
+          <div class="item-text">
+            <label class="item-title" for="p0-docker">Docker is installed, with Compose v2</label>
+            <div class="item-action">Must be the <code class="inline">docker compose</code> subcommand, not the old standalone <code class="inline">docker-compose</code> binary — runs Postgres/TimescaleDB and Qdrant.</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>docker compose version</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Prints a version number, no "command not found".</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p0-python">
+        <div class="item-top">
+          <input type="checkbox" id="p0-python">
+          <div class="item-text">
+            <label class="item-title" for="p0-python">Python is 3.11, 3.12, or 3.14</label>
+            <div class="item-action"><b>3.13 is explicitly rejected</b> by <code class="inline">scripts/setup.sh</code> — check before you start, not after a failed run.</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>python3 --version</pre></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p0-node">
+        <div class="item-top">
+          <input type="checkbox" id="p0-node">
+          <div class="item-text">
+            <label class="item-title" for="p0-node">Node.js is 20 or newer</label>
+            <div class="item-action">For the React frontend.</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>node --version</pre></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p0-ollama">
+        <div class="item-top">
+          <input type="checkbox" id="p0-ollama">
+          <div class="item-text">
+            <label class="item-title" for="p0-ollama">Ollama <span class="tag optional">optional</span></label>
+            <div class="item-action">Only needed if you're also testing the AI-labelled items in Phase 6. Skip for the core pass.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 1 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">1</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Clone &amp; first run</h2>
+        <p>Four commands, one browser tab. This is the entire path from empty folder to a running app.</p>
+      </div>
+
+      <div class="item" data-item="p1-clone">
+        <div class="item-top">
+          <input type="checkbox" id="p1-clone">
+          <div class="item-text">
+            <label class="item-title" for="p1-clone">Clone the repo</label>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>git clone https://github.com/ramprasadgk9/operational-intelligence.git
+cd operational-intelligence</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A new <code>operational-intelligence</code> folder.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p1-setup">
+        <div class="item-top">
+          <input type="checkbox" id="p1-setup">
+          <div class="item-text">
+            <label class="item-title" for="p1-setup">Run setup</label>
+            <div class="item-action">Creates the Python venv, installs deps, runs <code class="inline">npm install</code>, starts Postgres + Qdrant in Docker, initializes the schema.</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>./scripts/setup.sh</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">First run takes a few minutes (image + package downloads). Ends with <code>Setup complete.</code> printed — no red errors above it.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p1-run">
+        <div class="item-top">
+          <input type="checkbox" id="p1-run">
+          <div class="item-text">
+            <label class="item-title" for="p1-run">Start the app</label>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>./scripts/run_all.sh</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">One command starts backend (<code>:8001</code>), frontend (<code>:5174</code>), Postgres, Qdrant, Prometheus, and mock metrics together.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p1-open">
+        <div class="item-top">
+          <input type="checkbox" id="p1-open">
+          <div class="item-text">
+            <label class="item-title" for="p1-open">Open the app</label>
+            <div class="item-action">Go to <code class="inline">http://localhost:5174</code> in a browser.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">The Overview dashboard renders. Findings will read <code>0</code> — that's correct on a fresh install, nothing's been analyzed yet.</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 2 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">2</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Core smoke test</h2>
+        <p>Walks one CSV through the whole app: upload → findings → a case → the assistant. This is the deterministic path — none of it needs AI enabled.</p>
+      </div>
+
+      <div class="item" data-item="p2-generic">
+        <div class="item-top">
+          <input type="checkbox" id="p2-generic">
+          <div class="item-text">
+            <label class="item-title" for="p2-generic">Upload a plain CSV</label>
+            <div class="item-action"><b>New Analysis</b> → Provider: <b>Generic CSV</b> → choose <code class="inline">sample_data/cpu_usage_sample.csv</code> from the repo → <b>Validate Data</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Success message with a sample count greater than 0. No "missing required columns" error.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-guidance">
+        <div class="item-top">
+          <input type="checkbox" id="p2-guidance">
+          <div class="item-text">
+            <label class="item-title" for="p2-guidance">Format guidance updates per provider</label>
+            <div class="item-action">On the same form, switch <b>Provider</b> between Prometheus / Datadog / Generic / Custom.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">The "Expected columns for …" box changes text each time — it's live, not static.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-custom">
+        <div class="item-top">
+          <input type="checkbox" id="p2-custom">
+          <div class="item-text">
+            <label class="item-title" for="p2-custom">Upload a file with non-standard columns</label>
+            <div class="item-action">First, create this file locally — its columns don't match any built-in format on purpose:</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>cat &gt; sample_counter_custom.csv &lt;&lt; 'EOF'
+event_time,measurement,metric
+2026-01-01T00:00:00Z,100,errors_total
+2026-01-01T00:01:00Z,105,errors_total
+2026-01-01T00:02:00Z,110,errors_total
+2026-01-01T00:03:00Z,200,errors_total
+2026-01-01T00:04:00Z,205,errors_total
+2026-01-01T00:05:00Z,210,errors_total
+2026-01-01T00:06:00Z,215,errors_total
+2026-01-01T00:07:00Z,220,errors_total
+2026-01-01T00:08:00Z,225,errors_total
+2026-01-01T00:09:00Z,230,errors_total
+EOF</pre></div>
+            <div class="item-action" style="margin-top:8px;">Then: Provider → <b>Custom / Other</b> → notice the "not saved" warning → fill in <code class="inline">event_time</code> / <code class="inline">measurement</code> / <code class="inline">metric</code> → upload the file → <b>Validate Data</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Upload succeeds. The resampled preview values are <code>205</code> and <code>230</code> — the <i>last</i> reading in each 5-minute bucket, not an average.</div></div>
+            <div class="fail-note"><span class="label">If wrong</span><div class="body">Seeing <code class="inline">144</code> / <code class="inline">220</code> instead means the counter-metric resampling fix has regressed — those are the old, incorrect averages.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-findings">
+        <div class="item-top">
+          <input type="checkbox" id="p2-findings">
+          <div class="item-text">
+            <label class="item-title" for="p2-findings">Findings show real evidence counts</label>
+            <div class="item-action">Open <b>Findings</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Cards show a genuine "N supporting signals" count where the finding has signals — not <code>0</code> on every single card regardless of data.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-details">
+        <div class="item-top">
+          <input type="checkbox" id="p2-details">
+          <div class="item-text">
+            <label class="item-title" for="p2-details">Finding detail drawer opens</label>
+            <div class="item-action">Click <b>View Details</b> on any finding card.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A drawer opens with the finding's summary, metric, and comparison data.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-case">
+        <div class="item-top">
+          <input type="checkbox" id="p2-case">
+          <div class="item-text">
+            <label class="item-title" for="p2-case">Create a case from a finding</label>
+            <div class="item-action">From a finding card, click <b>Create Case</b>, then fill in and save an RCA note on the case page.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Navigates to the case detail page; saving the RCA updates the case's status.</div></div>
+            <div class="item-action" style="margin-top:8px;">The full investigation → resolution → memory lifecycle for this case continues in <b>Phase 4</b>.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-behavior">
+        <div class="item-top">
+          <input type="checkbox" id="p2-behavior">
+          <div class="item-text">
+            <label class="item-title" for="p2-behavior">Behavior Intelligence page loads</label>
+            <div class="expect"><span class="label">Expect</span><div class="body">Page renders without error. "No behavior evaluations found yet" is a normal result without multi-metric data.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-memory">
+        <div class="item-top">
+          <input type="checkbox" id="p2-memory">
+          <div class="item-text">
+            <label class="item-title" for="p2-memory">Operational Memory page loads</label>
+            <div class="expect"><span class="label">Expect</span><div class="body">Shows memory health/stats — indexed case count, store status.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-assistant">
+        <div class="item-top">
+          <input type="checkbox" id="p2-assistant">
+          <div class="item-text">
+            <label class="item-title" for="p2-assistant">Ask Ops Signals answers a basic question</label>
+            <div class="item-action">Open <b>Ask Ops Signals</b>, ask: <code class="inline">what is the use of this application</code></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A grounded answer describing the app, with a documentation source cited — not "No operational evidence found."</div></div>
+            <div class="item-action" style="margin-top:8px;">More conversation types — findings, cases, similarity — are in <b>Phase 5</b>.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p2-recs">
+        <div class="item-top">
+          <input type="checkbox" id="p2-recs">
+          <div class="item-text">
+            <label class="item-title" for="p2-recs">Analyzer recommendations evaluate a sample</label>
+            <div class="item-action"><b>Analyzer Workbench → Recommendations</b> → fill in the required metric context fields → pick a historical sample → <b>Evaluate with Sample</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Recommended / Conditional / Not Recommended columns populate with real analyzer scores.</div></div>
+            <div class="item-action" style="margin-top:8px;">This is a separate <i>advisory</i> tool — it never executes anything. The <i>real</i> recommendation engine (the one that actually runs analyzers) is checked via <b>Phase 3</b>'s Router Decisions panel.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 3 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">3</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Prometheus &amp; the real recommendation engine</h2>
+        <p>A second data path into the same pipeline — and the analyzer routing that actually executes, as opposed to Phase 2's advisory-only tool.</p>
+      </div>
+
+      <div class="item" data-item="p3a-tab">
+        <div class="item-top">
+          <input type="checkbox" id="p3a-tab">
+          <div class="item-text">
+            <label class="item-title" for="p3a-tab">Switch to the Prometheus tab and confirm the connection</label>
+            <div class="item-action"><b>New Analysis</b> → click the <b>Prometheus</b> tab → click <b>Test Connection</b> on "Default Prometheus".</div>
+            <div class="expect"><span class="label">Expect</span><div class="body"><code>run_all.sh</code> already points the app at its own mock Prometheus, so this should go straight to <b>Verified</b> with no manual configuration.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3a-lab">
+        <div class="item-top">
+          <input type="checkbox" id="p3a-lab">
+          <div class="item-text">
+            <label class="item-title" for="p3a-lab">Pick a lab scenario</label>
+            <div class="item-action">Click the <b>Baseline shift</b> chip under Lab Scenarios.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Service and Metric fields fill in automatically (<code class="inline">ruptures-lab</code> / <code class="inline">ops_signal_lab_value</code>) — no need to know real metric names to test this.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3a-preview">
+        <div class="item-top">
+          <input type="checkbox" id="p3a-preview">
+          <div class="item-text">
+            <label class="item-title" for="p3a-preview">Preview the data</label>
+            <div class="item-action">Click <b>Preview Data</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A chart renders with min / max / average values for the selected window.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3a-run">
+        <div class="item-top">
+          <input type="checkbox" id="p3a-run">
+          <div class="item-text">
+            <label class="item-title" for="p3a-run">Run the analysis</label>
+            <div class="item-action">Submit the analysis for the previewed range.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Completes without error and produces at least one finding.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3a-router">
+        <div class="item-top">
+          <input type="checkbox" id="p3a-router">
+          <div class="item-text">
+            <label class="item-title" for="p3a-router">Router Decisions panel shows real, executed routing</label>
+            <div class="item-action">Look at the results view for this run.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body"><b>Recommended / Optional / Not Recommended / Rejected</b> columns with real analyzer scores and reasons, plus which ones actually ran ("execution completed"). This is a genuinely different engine from Phase 2's advisory page — it's the one that produces the findings you'll investigate in Phase 4.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3a-sanity">
+        <div class="item-top">
+          <input type="checkbox" id="p3a-sanity">
+          <div class="item-text">
+            <label class="item-title" for="p3a-sanity">Recommendation makes sense for the scenario</label>
+            <div class="item-action">Not just "did it render" — does the top-recommended analyzer match what the lab scenario actually is? For <b>Baseline shift</b>, expect Ruptures and/or Kats near the top of Recommended; for the <b>Trend</b> lab scenario, expect Trend Regression there instead.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">The highest-scored analyzer is one that plausibly detects that scenario's actual shape — not an arbitrary pick.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3a-benchmark">
+        <div class="item-top">
+          <input type="checkbox" id="p3a-benchmark">
+          <div class="item-text">
+            <label class="item-title" for="p3a-benchmark">Run the router benchmark suite <span class="tag optional">rigorous</span></label>
+            <div class="item-action">The single-scenario check above is a spot check by eye. This runs the router against every known-answer dataset in the repo and grades it automatically.</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>.venv/bin/python -m benchmark.run_router_scenarios
+.venv/bin/python -m benchmark.run_behavior_scenarios</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">All scenarios pass — each dataset's expected analyzer/behavior actually gets recommended, and known-clean datasets don't trigger false positives.</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 4 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">4</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Case lifecycle</h2>
+        <p>Continues the case opened in Phase 2 — investigation, resolution, and what gets remembered afterward.</p>
+      </div>
+
+      <div class="item" data-item="p4a-note">
+        <div class="item-top">
+          <input type="checkbox" id="p4a-note">
+          <div class="item-text">
+            <label class="item-title" for="p4a-note">Add an investigation note</label>
+            <div class="item-action">On the case page's Investigation tab, write a short note and save.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">The note appears in the case's investigation timeline; status moves to <code class="inline">in_progress</code>.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p4a-resolution">
+        <div class="item-top">
+          <input type="checkbox" id="p4a-resolution">
+          <div class="item-text">
+            <label class="item-title" for="p4a-resolution">Resolve the case</label>
+            <div class="item-action">Fill in outcome summary and corrective action, set outcome status to <b>Resolved</b>, and pick a learning outcome.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Resolving requires a learning outcome to be chosen — that's deliberate, not a bug. Once saved, the case status becomes <code class="inline">resolved</code>.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p4a-similar">
+        <div class="item-top">
+          <input type="checkbox" id="p4a-similar">
+          <div class="item-text">
+            <label class="item-title" for="p4a-similar">Check the Similar Cases panel</label>
+            <div class="item-action">Still on the case page, look for a "Similar Cases" section.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Renders without error. On a fresh install this will likely be empty — there's nothing to be similar to yet.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p4a-list">
+        <div class="item-top">
+          <input type="checkbox" id="p4a-list">
+          <div class="item-text">
+            <label class="item-title" for="p4a-list">Confirm the case on the Cases list</label>
+            <div class="item-action">Open <b>Cases</b> from the sidebar.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">The case appears with status <code class="inline">resolved</code>, matching what was just saved.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p4a-overview-behavior">
+        <div class="item-top">
+          <input type="checkbox" id="p4a-overview-behavior">
+          <div class="item-text">
+            <label class="item-title" for="p4a-overview-behavior">Overview reflects both cases and behavior activity together</label>
+            <div class="item-action">Open <b>Overview</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">The summary shows real, consistent counts for both active/resolved cases and behavior changes side by side — not just findings in isolation. There's no dedicated "promote a behavior finding into a case" button yet; this is the honest current connection between the two.</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 5 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">5</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Ask Ops Signals — conversation scenarios</h2>
+        <p>Five different question shapes, to see the assistant route each one to the right evidence.</p>
+      </div>
+
+      <div class="item" data-item="p5a-concept">
+        <div class="item-top">
+          <input type="checkbox" id="p5a-concept">
+          <div class="item-text">
+            <label class="item-title" for="p5a-concept">Ask a conceptual question</label>
+            <div class="item-action">Ask: <code class="inline">what is behavior intelligence</code></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A plain-language explanation citing a documentation page.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p5a-findings">
+        <div class="item-top">
+          <input type="checkbox" id="p5a-findings">
+          <div class="item-text">
+            <label class="item-title" for="p5a-findings">Ask about current findings</label>
+            <div class="item-action">Ask: <code class="inline">what changed recently</code></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A summary referencing the findings created earlier in this session.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p5a-case">
+        <div class="item-top">
+          <input type="checkbox" id="p5a-case">
+          <div class="item-text">
+            <label class="item-title" for="p5a-case">Ask about the case from Phase 4</label>
+            <div class="item-action">Ask: <code class="inline">tell me about the resolved case for ops_signal_lab_value</code></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Pulls in the root cause / outcome summary that was actually saved on that case — not a generic answer.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p5a-similar">
+        <div class="item-top">
+          <input type="checkbox" id="p5a-similar">
+          <div class="item-text">
+            <label class="item-title" for="p5a-similar">Ask a "have we seen this before" question</label>
+            <div class="item-action">Ask: <code class="inline">have we seen this issue before</code></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Either references the case from Phase 4 (via memory search) or clearly says nothing similar was found — never a fabricated case.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p5a-sources">
+        <div class="item-top">
+          <input type="checkbox" id="p5a-sources">
+          <div class="item-text">
+            <label class="item-title" for="p5a-sources">Confirm sources are shown</label>
+            <div class="item-action">On any of the answers above, look for source references.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Case IDs, finding titles, or documentation links backing the answer — never an unexplained assertion.</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 6 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">6</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Optional — local AI <span class="tag ai">AI</span></h2>
+        <p>Everything in Phases 0–5 works with zero AI, zero API keys. This turns on a self-hosted Ollama model — every item here is additive: the deterministic behavior from earlier phases must still work exactly the same underneath it.</p>
+      </div>
+
+      <div class="item" data-item="p3-ollama">
+        <div class="item-top">
+          <input type="checkbox" id="p3-ollama">
+          <div class="item-text">
+            <label class="item-title" for="p3-ollama">Start Ollama and point the backend at it</label>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>docker compose --profile ai up -d
+<span class="comment"># then, in the same terminal that runs the app:</span>
+OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Pulls a small model (~2GB) on first run.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3-badge">
+        <div class="item-top">
+          <input type="checkbox" id="p3-badge">
+          <div class="item-text">
+            <label class="item-title" for="p3-badge">Finding gets an AI-polished summary</label>
+            <div class="item-action">Findings → open the same finding's <b>View Details</b> a second time.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A small <code class="inline">AI</code> badge next to a rewritten summary, appearing ~1–2s after opening.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p3-secondopinion">
+        <div class="item-top">
+          <input type="checkbox" id="p3-secondopinion">
+          <div class="item-text">
+            <label class="item-title" for="p3-secondopinion">Analyzer recommendations show a second opinion</label>
+            <div class="item-action">Repeat the recommendation evaluation from Phase 2.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A "Second Opinion" panel appears below the results, with a note if it disagrees with the router's own pick.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p6-behavior">
+        <div class="item-top">
+          <input type="checkbox" id="p6-behavior">
+          <div class="item-text">
+            <label class="item-title" for="p6-behavior">Behavior finding gets an AI explanation</label>
+            <div class="item-action">Open <b>Behavior Intelligence</b> and select a detected behavior, if one exists.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A plain-language explanation of why the behavior matched, grounded in the same facts shown elsewhere on the page.</div></div>
+            <div class="fail-note"><span class="label">Note</span><div class="body">Behavior findings need correlated activity across multiple metrics — a single lab scenario may not produce any. Empty is expected, not a failure, if Phase 3 didn't trigger a cross-metric pattern.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p6-rca-suggest">
+        <div class="item-top">
+          <input type="checkbox" id="p6-rca-suggest">
+          <div class="item-text">
+            <label class="item-title" for="p6-rca-suggest">AI drafts a root-cause hypothesis <span class="tag optional">API</span></label>
+            <div class="item-action">Not wired to a button yet — call it directly. Get the case ID from the case page's URL (e.g. <code class="inline">/cases/7</code> → ID is <code class="inline">7</code>):</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>curl -X POST http://localhost:8001/api/cases/7/rca/suggest</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body"><code>{"available": true, "draft": "..."}</code> — a suggested root cause. Re-check the case afterward: <code class="inline">root_cause_summary</code> must be unchanged. This only ever drafts; <b>PATCH /rca</b> is still the sole way to actually save one.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p6-resolution-suggest">
+        <div class="item-top">
+          <input type="checkbox" id="p6-resolution-suggest">
+          <div class="item-text">
+            <label class="item-title" for="p6-resolution-suggest">AI drafts a resolution summary <span class="tag optional">API</span></label>
+            <div class="item-action">Same case ID as above:</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>curl -X POST http://localhost:8001/api/cases/7/resolution/suggest</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">A draft built from the case's own notes/RCA — never invented facts. <code class="inline">{"available": false, ...}</code> is the correct response if the case has no notes or RCA to draft from yet.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p6-chat-ai">
+        <div class="item-top">
+          <input type="checkbox" id="p6-chat-ai">
+          <div class="item-text">
+            <label class="item-title" for="p6-chat-ai">Ask Ops Signals answers are AI-synthesized, not templated</label>
+            <div class="item-action">Repeat one of the Phase 5 questions.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">More natural, specific phrasing than the fixed-template wording seen in Phase 5 — same grounding, same sources, better sentences.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p6-fallback">
+        <div class="item-top">
+          <input type="checkbox" id="p6-fallback">
+          <div class="item-text">
+            <label class="item-title" for="p6-fallback">Turning AI back off breaks nothing</label>
+            <div class="item-action">Restart with <code class="inline">./scripts/run_all.sh</code> (no <code class="inline">OPS_SIGNALS_AI_*</code> env vars this time), then revisit Findings, Behavior Intelligence, and Ask Ops Signals.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">AI badges, the Second Opinion panel, and richer chat phrasing simply disappear. No errors, no blank pages, no missing data — this is the whole point of the fallback design.</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 7 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">7</div><div class="phase-line"></div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Grafana plugin <span class="tag optional">separate surface</span></h2>
+        <p>A completely different UI — the same backend, run from inside Grafana instead of the standalone app. Different ports, its own build step, worth its own pass. Skip if only the standalone app is in scope.</p>
+      </div>
+
+      <div class="item" data-item="p7a-start">
+        <div class="item-top">
+          <input type="checkbox" id="p7a-start">
+          <div class="item-text">
+            <label class="item-title" for="p7a-start">Build and start the plugin stack</label>
+            <div class="item-action">Stop <code class="inline">run_all.sh</code> first if it's still running — this uses its own backend port.</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>./scripts/run_grafana_stack.sh</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Builds the plugin bundle, then starts Grafana (<code class="inline">:3000</code>), Prometheus (<code class="inline">:9090</code>), mock metrics, and the backend (<code class="inline">:8002</code>) together. Ends with a "Press Ctrl+C to stop" line — that means it's up and running in this terminal.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p7a-settings">
+        <div class="item-top">
+          <input type="checkbox" id="p7a-settings">
+          <div class="item-text">
+            <label class="item-title" for="p7a-settings">Confirm Grafana sees the plugin</label>
+            <div class="item-action">In a second terminal:</div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>curl -u admin:admin http://localhost:3000/api/plugins/ops-signals-app/settings</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">JSON response includes <code class="inline">"id":"ops-signals-app"</code> and <code class="inline">"enabled":true</code>.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p7a-open">
+        <div class="item-top">
+          <input type="checkbox" id="p7a-open">
+          <div class="item-text">
+            <label class="item-title" for="p7a-open">Open the plugin inside Grafana</label>
+            <div class="item-action">Go to <code class="inline">http://localhost:3000</code>, log in with <code class="inline">admin</code> / <code class="inline">admin</code>, then open <code class="inline">http://localhost:3000/a/ops-signals-app/ops-signals</code>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">The Ops Signals toolbar renders inside Grafana. An "unsigned plugin" notice is expected for local development, not an error.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p7a-run">
+        <div class="item-top">
+          <input type="checkbox" id="p7a-run">
+          <div class="item-text">
+            <label class="item-title" for="p7a-run">Run an analysis from inside Grafana</label>
+            <div class="item-action">In the toolbar: Data source → <b>Prometheus</b>; Ops Signals backend → <b>Local backend (:8002)</b>; Service → <code class="inline">test-ruptures-abrupt-regime-shift</code>; Metric → <code class="inline">ops_signals_test_cpu_usage</code>; Time range → <b>Last 30m</b>; click <b>Run Analysis</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Sample count, signal count, findings, and a metric timeline appear. <b>Run Details</b> shows the same Recommended / Optional / Not Recommended / Rejected breakdown as Phase 3's Router Decisions — same engine, different frontend.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p7a-case">
+        <div class="item-top">
+          <input type="checkbox" id="p7a-case">
+          <div class="item-text">
+            <label class="item-title" for="p7a-case">Create and work a case from the plugin</label>
+            <div class="item-action">Click <b>Create Case</b> → step through Finding → Investigation → Root Cause → Resolution, saving at each step → open <b>Publish Knowledge</b> and click <b>Republish knowledge</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Reopening the same finding reopens the existing case rather than duplicating it; <code class="inline">memory_status</code> moves toward <code class="inline">indexed</code> after publishing.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p7a-viewall">
+        <div class="item-top">
+          <input type="checkbox" id="p7a-viewall">
+          <div class="item-text">
+            <label class="item-title" for="p7a-viewall">View all cases from the plugin</label>
+            <div class="item-action">Click <b>View all cases</b>.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Lists the case just created (ID, status, updated time). The drawer should still open cleanly even if the list were empty.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p7a-ask">
+        <div class="item-top">
+          <input type="checkbox" id="p7a-ask">
+          <div class="item-text">
+            <label class="item-title" for="p7a-ask">Ask Ops Signals from inside the plugin</label>
+            <div class="item-action">Click a quick prompt like <b>Which analyzers ran?</b>, then type a custom question.</div>
+            <div class="expect"><span class="label">Expect</span><div class="body">Analyzer-routing questions answer directly from the current run; broader questions fall back to documentation if historical memory is still empty.</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PHASE 8 -->
+  <div class="phase">
+    <div class="phase-rail"><div class="phase-num">8</div></div>
+    <div class="phase-body">
+      <div class="phase-head">
+        <h2>Automated tests</h2>
+        <p>Fastest overall confidence check — runs everything above (and far more) without touching the browser.</p>
+      </div>
+
+      <div class="item" data-item="p4-backend">
+        <div class="item-top">
+          <input type="checkbox" id="p4-backend">
+          <div class="item-text">
+            <label class="item-title" for="p4-backend">Backend test suite</label>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>python3 -m pytest -q</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body"><code>299 passed</code>, no failures.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="item" data-item="p4-frontend">
+        <div class="item-top">
+          <input type="checkbox" id="p4-frontend">
+          <div class="item-text">
+            <label class="item-title" for="p4-frontend">Frontend test suite</label>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>cd frontend &amp;&amp; npx vitest run</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body"><code>49 passed</code>, no failures.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-head" style="margin-top:30px;">
+        <h2>Troubleshooting</h2>
+        <p>What each likely error actually means.</p>
+      </div>
+      <div class="trouble-wrap">
+        <table class="trouble">
+          <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+          <tbody>
+            <tr><td>docker is required</td><td>Docker isn't installed, or not running</td><td>Start Docker Desktop / Engine</td></tr>
+            <tr><td>Unsupported Python version: 3.13</td><td>System Python is 3.13</td><td>Install 3.11/3.12/3.14, then <code class="inline">PYTHON_BIN=python3.12 ./scripts/setup.sh</code></td></tr>
+            <tr><td>npm is required…</td><td>Node/npm isn't installed</td><td>Install Node.js 20+</td></tr>
+            <tr><td>postgres/qdrant did not become ready</td><td>Docker slow to start, or port taken</td><td><code class="inline">docker compose logs postgres</code>; confirm 5432/6333 are free</td></tr>
+            <tr><td>Port already in use</td><td>Something else bound to 8001/5174/9090 (or 8002/3000 for the Grafana stack)</td><td>Stop that process, or check <code class="inline">scripts/run_all.sh</code> / <code class="inline">run_grafana_stack.sh</code></td></tr>
+            <tr><td>Grafana plugin doesn't appear</td><td>Stale build, or Grafana cached the old bundle</td><td>Rebuild (<code class="inline">cd frontend &amp;&amp; npm run build:grafana</code>), then hard refresh (<code class="inline">Cmd/Ctrl+Shift+R</code>)</td></tr>
+            <tr><td>permission denied ./scripts/…</td><td>Script isn't executable</td><td><code class="inline">chmod +x scripts/*.sh</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <footer class="doc">
+    <span>Ops Signals — operational-intelligence</span>
+    <span id="footer-progress">0/0 complete</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var STORE_KEY = 'ops-signals-smoke-test-v1';
+  var checkboxes = Array.prototype.slice.call(document.querySelectorAll('.item input[type="checkbox"]'));
+  var total = checkboxes.length;
+  document.getElementById('progress-total').textContent = total;
+
+  function loadState(){
+    try{
+      var raw = localStorage.getItem(STORE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    }catch(e){ return {}; }
+  }
+  function saveState(state){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+  }
+
+  var state = loadState();
+
+  function applyItemVisual(cb){
+    var item = cb.closest('.item');
+    if(item) item.classList.toggle('done', cb.checked);
+  }
+
+  function updateProgress(){
+    var checked = checkboxes.filter(function(cb){ return cb.checked; }).length;
+    document.getElementById('progress-count').textContent = checked;
+    document.getElementById('footer-progress').textContent = checked + '/' + total + ' complete';
+    var pct = total ? Math.round((checked/total)*100) : 0;
+    document.getElementById('progress-fill').style.width = pct + '%';
+  }
+
+  checkboxes.forEach(function(cb){
+    var id = cb.id;
+    if(state[id]) cb.checked = true;
+    applyItemVisual(cb);
+    cb.addEventListener('change', function(){
+      state[id] = cb.checked;
+      saveState(state);
+      applyItemVisual(cb);
+      updateProgress();
+    });
+  });
+  updateProgress();
+
+  document.getElementById('reset-btn').addEventListener('click', function(){
+    state = {};
+    saveState(state);
+    checkboxes.forEach(function(cb){ cb.checked = false; applyItemVisual(cb); });
+    updateProgress();
+  });
+
+  document.querySelectorAll('.copy-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var pre = btn.parentElement.querySelector('pre');
+      var text = pre ? pre.textContent : '';
+      try{
+        navigator.clipboard.writeText(text).then(function(){
+          var original = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(function(){ btn.textContent = original; }, 1200);
+        });
+      }catch(e){}
+    });
+  });
+})();
+</script>
