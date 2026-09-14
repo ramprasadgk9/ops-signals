@@ -176,7 +176,8 @@ export type Finding = {
 
 export type OperationalCase = {
   id: number;
-  finding_id: number;
+  finding_id: number | null;
+  behavior_finding_id?: number | null;
   analysis_run_id: string;
   case_title: string;
   case_status: string;
@@ -718,6 +719,59 @@ export type MemoryChatResponse = {
   limitations: string[];
   suggested_questions: string[];
   sources: MemoryChatSource[];
+};
+
+export type AlertContextOutcome = {
+  outcome_status: string;
+  root_cause_category?: string | null;
+  resolution_summary?: string | null;
+  confirmed_analyzers: string[];
+  rejected_analyzers: string[];
+  case_id: number;
+  resolved_at?: string | null;
+  created_at: string;
+};
+
+export type AlertContextSimilarCase = {
+  case_id: number;
+  similarity_score: number;
+  title: string;
+  case_status: string;
+  outcome_status?: string | null;
+  root_cause_summary?: string | null;
+  outcome_summary?: string | null;
+  reference: string;
+};
+
+export type AlertContextHistory = {
+  total_prior_occurrences: number;
+  confirmed: number;
+  rejected: number;
+  partially_confirmed: number;
+  inconclusive: number;
+  confirmed_rate?: number | null;
+  most_common_root_cause?: string | null;
+  last_seen_at?: string | null;
+};
+
+export type AlertContextRawActivity = {
+  finding_count: number;
+  behavior_count: number;
+  total_occurrences: number;
+  most_recent_at?: string | null;
+  recent_titles: string[];
+  ai_summary?: string | null;
+};
+
+export type AlertContextResponse = {
+  service?: string | null;
+  metric_name: string;
+  history: AlertContextHistory;
+  exact_match_outcomes: AlertContextOutcome[];
+  similar_cases: AlertContextSimilarCase[];
+  raw_activity: AlertContextRawActivity;
+  recommendation: 'likely_real' | 'likely_noise' | 'insufficient_history';
+  recommendation_basis: string;
 };
 
 export type AssistantChatRequest = {

@@ -57,3 +57,22 @@ def ensure_ai_narrative_schema(engine: Engine) -> None:
             for name, ddl in missing.items():
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
 
+
+def ensure_case_behavior_link_schema(engine: Engine) -> None:
+    """Lets a case originate from a BehaviorFinding (a correlated, cross-metric root-cause
+    story) instead of only a single-metric Finding, which is all the original schema
+    supported. Adds the new nullable link column and, on Postgres, relaxes finding_id's
+    NOT NULL constraint so a behavior-sourced case can leave it empty. SQLite can't ALTER
+    a column's nullability in place, but every SQLite database here is created fresh from
+    the current (already-nullable) model definition, so there's nothing to relax there."""
+    inspector = inspect(engine)
+    if "ops_operational_cases" not in inspector.get_table_names():
+        return
+    existing_columns = {column["name"] for column in inspector.get_columns("ops_operational_cases")}
+    dialect = engine.dialect.name
+    with engine.begin() as connection:
+        if "behavior_finding_id" not in existing_columns:
+            connection.execute(text("ALTER TABLE ops_operational_cases ADD COLUMN behavior_finding_id INTEGER"))
+        if dialect == "postgresql":
+            connection.execute(text("ALTER TABLE ops_operational_cases ALTER COLUMN finding_id DROP NOT NULL"))
+

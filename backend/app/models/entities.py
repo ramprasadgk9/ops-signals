@@ -291,11 +291,21 @@ class QuestionAnswerEntity(Base):
 
 class OperationalCaseEntity(Base):
     __tablename__ = "ops_operational_cases"
+    __table_args__ = (
+        CheckConstraint(
+            "(finding_id IS NOT NULL) != (behavior_finding_id IS NOT NULL)",
+            name="ck_case_exactly_one_source",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    finding_id: Mapped[int] = mapped_column(
+    finding_id: Mapped[int | None] = mapped_column(
         ForeignKey("ops_operational_findings.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+    )
+    behavior_finding_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ops_behavior_findings.id", ondelete="CASCADE"),
+        nullable=True,
     )
     analysis_run_id: Mapped[str] = mapped_column(Text, nullable=False)
     case_title: Mapped[str] = mapped_column(Text, nullable=False)

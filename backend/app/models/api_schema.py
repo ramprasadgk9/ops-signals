@@ -182,14 +182,16 @@ class FindingOut(BaseModel):
 
 class CaseCreateResponse(BaseModel):
     case_id: int
-    finding_id: int
+    finding_id: int | None = None
+    behavior_finding_id: int | None = None
     case_status: str
     memory_status: str
 
 
 class CaseOut(BaseModel):
     id: int
-    finding_id: int
+    finding_id: int | None = None
+    behavior_finding_id: int | None = None
     analysis_run_id: str
     case_title: str
     case_status: str

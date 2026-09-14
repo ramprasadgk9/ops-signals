@@ -111,3 +111,80 @@ class MemoryChatResponse(BaseModel):
     limitations: list[str]
     suggested_questions: list[str]
     sources: list[MemoryChatSource]
+
+
+class AlertContextOutcome(BaseModel):
+    """A single prior learning outcome for the same service/metric."""
+
+    outcome_status: str
+    root_cause_category: str | None = None
+    resolution_summary: str | None = None
+    confirmed_analyzers: list[str] = Field(default_factory=list)
+    rejected_analyzers: list[str] = Field(default_factory=list)
+    case_id: int
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+
+class AlertContextSimilarCase(BaseModel):
+    """A semantically similar prior case, found from free-text alert context."""
+
+    case_id: int
+    similarity_score: float
+    title: str
+    case_status: str
+    outcome_status: str | None = None
+    root_cause_summary: str | None = None
+    outcome_summary: str | None = None
+    reference: str
+
+
+class AlertContextHistory(BaseModel):
+    """Aggregate counts of prior learning outcomes for this service/metric."""
+
+    total_prior_occurrences: int
+    confirmed: int
+    rejected: int
+    partially_confirmed: int
+    inconclusive: int
+    confirmed_rate: float | None = None
+    most_common_root_cause: str | None = None
+    last_seen_at: datetime | None = None
+
+
+class AlertContextRawActivity(BaseModel):
+    """Recurrence of this service/metric in raw Findings/BehaviorFindings, regardless of
+    whether anyone ever filed a case for them. Weaker than a learning outcome or similar
+    case - nobody recorded a root cause or fix for these - but it costs a human nothing
+    to exist, so it's there even when the richer signals above are empty. Never used to
+    compute `recommendation`: "this occurred before" and "this was confirmed real" are
+    different claims and shouldn't be conflated."""
+
+    finding_count: int
+    behavior_count: int
+    total_occurrences: int
+    most_recent_at: datetime | None = None
+    recent_titles: list[str] = Field(default_factory=list)
+    ai_summary: str | None = Field(
+        default=None,
+        description="Optional AI-polished plain-language summary of the titles above. Additive "
+        "only - grounded strictly in recent_titles/finding_count/behavior_count, never a "
+        "replacement for them. None whenever AI is off or synthesis fails; callers should fall "
+        "back to rendering finding_count/behavior_count/recent_titles directly.",
+    )
+
+
+class AlertContextResponse(BaseModel):
+    """Decision-support context for an incoming alert, for an external alert manager
+    to consult before firing - combines exact-match learning outcomes with
+    semantically similar prior cases, plus raw finding/behavior recurrence for when
+    no one ever filed a case."""
+
+    service: str | None = None
+    metric_name: str
+    history: AlertContextHistory
+    exact_match_outcomes: list[AlertContextOutcome]
+    similar_cases: list[AlertContextSimilarCase]
+    raw_activity: AlertContextRawActivity
+    recommendation: str = Field(description="One of: likely_real, likely_noise, insufficient_history")
+    recommendation_basis: str

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Box, Button, Grid2 as Grid, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from '@mui/material';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
@@ -15,7 +15,35 @@ import { ErrorState } from '../components/ErrorState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { IconTile, PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
-import { buildBehaviorSummary, toBehaviorRows, toBehaviorRuleRows } from '../standalone/behaviorService';
+import { buildBehaviorSummary, toBehaviorRows, toBehaviorRuleRows, type BehaviorRow } from '../standalone/behaviorService';
+
+function CreateCaseCell({ row }: { row: BehaviorRow }) {
+  const navigate = useNavigate();
+  const createCaseMutation = useMutation({
+    mutationFn: (behaviorFindingId: number) => api.createCaseFromBehavior(behaviorFindingId),
+    onSuccess: (data) => navigate(`/cases/${data.case_id}`),
+  });
+
+  if (row.caseId) {
+    return (
+      <Button component={RouterLink} to={`/cases/${row.caseId}`} size="small" sx={{ textTransform: 'none', fontWeight: 800 }}>
+        View Case
+      </Button>
+    );
+  }
+
+  return (
+    <Button
+      size="small"
+      variant="outlined"
+      onClick={() => createCaseMutation.mutate(row.id)}
+      disabled={createCaseMutation.isPending}
+      sx={{ textTransform: 'none', fontWeight: 800 }}
+    >
+      {createCaseMutation.isPending ? 'Creating…' : 'Create Case'}
+    </Button>
+  );
+}
 
 function SuggestedPatternsTab() {
   const queryClient = useQueryClient();
@@ -125,7 +153,7 @@ export function BehaviorIntelligencePage() {
           </Grid>
           <WorkspacePanel sx={{ overflow: 'hidden' }}>
             <Table>
-              <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Behavior</TableCell><TableCell>Pattern</TableCell><TableCell>Severity</TableCell><TableCell>Confidence</TableCell><TableCell>Impacted Services</TableCell><TableCell>Occurrences</TableCell><TableCell>Last Seen</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+              <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Behavior</TableCell><TableCell>Pattern</TableCell><TableCell>Severity</TableCell><TableCell>Confidence</TableCell><TableCell>Impacted Services</TableCell><TableCell>Occurrences</TableCell><TableCell>Last Seen</TableCell><TableCell>Status</TableCell><TableCell align="right">Case</TableCell></TableRow></TableHead>
               <TableBody>
                 {behaviorRows.map((finding) => (
                   <TableRow key={finding.id} hover sx={{ '& td': { py: 2, borderColor: '#f1f5f9' } }}>
@@ -137,6 +165,7 @@ export function BehaviorIntelligencePage() {
                     <TableCell>{finding.occurrenceCount}× since {formatDateTime(finding.detectedAt)}</TableCell>
                     <TableCell>{relativeTime(finding.lastSeenAt)}</TableCell>
                     <TableCell><Pill label={finding.status} /></TableCell>
+                    <TableCell align="right"><CreateCaseCell row={finding} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

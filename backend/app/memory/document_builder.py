@@ -22,35 +22,44 @@ class CaseDocumentBuilder:
             Formatted text document for embedding
         """
         finding = case.finding_snapshot or {}
-        
+        is_behavior = finding.get('source_type') == 'behavior'
+        metric_label = ", ".join(finding.get('metric_names', [])) or finding.get('metric_name', 'unknown')
+
         parts = [
             "Operational Case",
             "",
             f"Service: {finding.get('service', 'unknown')}",
-            f"Metric: {finding.get('metric_name', 'unknown')}",
+            f"Metric: {metric_label}",
             f"Category: {finding.get('category', 'unknown')}",
             f"Severity: {finding.get('health_status', 'unknown')}",
             f"Importance: {finding.get('importance_score', 0):.2f}",
             "",
-            "Finding:",
+            "Finding:" if not is_behavior else "Correlated Behavior:",
             finding.get('summary', ''),
             "",
         ]
 
         # Evidence section
-        signal_ids = finding.get('signal_ids', [])
-        if signal_ids:
-            parts.append("Evidence:")
-            parts.append(f"{len(signal_ids)} anomaly windows detected.")
-            
-            comparison_json = finding.get('comparison_json', {})
-            if comparison_json:
-                if comparison_json.get('is_higher_than_previous'):
-                    parts.append("Behavior differed from the previous comparison window.")
-                if comparison_json.get('has_stronger_trend'):
-                    parts.append("The current trend was stronger than the previous trend.")
-            
-            parts.append("")
+        if is_behavior:
+            evidence_facts = finding.get('evidence_facts', [])
+            if evidence_facts:
+                parts.append("Evidence:")
+                parts.append(f"{len(evidence_facts)} correlated conditions matched across {metric_label}.")
+                parts.append("")
+        else:
+            signal_ids = finding.get('signal_ids', [])
+            if signal_ids:
+                parts.append("Evidence:")
+                parts.append(f"{len(signal_ids)} anomaly windows detected.")
+
+                comparison_json = finding.get('comparison_json', {})
+                if comparison_json:
+                    if comparison_json.get('is_higher_than_previous'):
+                        parts.append("Behavior differed from the previous comparison window.")
+                    if comparison_json.get('has_stronger_trend'):
+                        parts.append("The current trend was stronger than the previous trend.")
+
+                parts.append("")
 
         # Investigation section (optional)
         if case.investigation_notes and len(case.investigation_notes) > 0:

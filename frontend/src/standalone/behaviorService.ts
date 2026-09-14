@@ -20,6 +20,7 @@ export type BehaviorRow = {
   status: 'active';
   evidence: string[];
   summary: string;
+  caseId: number | null;
 };
 
 export type BehaviorRuleRow = {
@@ -54,6 +55,7 @@ export function toBehaviorRows(findings: BehaviorFinding[]): BehaviorRow[] {
     status: 'active',
     evidence: finding.evidence_json ?? [],
     summary: finding.summary,
+    caseId: finding.case_id ?? null,
   }));
 }
 
