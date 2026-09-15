@@ -1,7 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-09-14
 
+- Let a Behavior Finding (a correlated, cross-metric pattern) be promoted to a Case, not just a
+  single-metric Finding - behaviors previously had no path to an RCA, resolution, or recorded
+  outcome at all.
+- Added `GET /api/alert-context`: a single lookup an external alert manager can call before firing
+  an alert, combining exact-match learning-outcome history, semantically similar resolved cases,
+  and raw finding/behavior recurrence (patterns that occurred but were never cased) into one
+  recommendation - with an optional AI-polished summary that falls back to a deterministic
+  sentence whenever AI is off or fails.
+- Fixed: resolving a case as "Resolved" failed silently - the Resolution tab had no field for the
+  required `learning_outcome_status`, so the save request was rejected with no visible error and
+  the case's outcome was never actually recorded.
+- Fixed: repeated analysis runs on the same data produce findings/behaviors with byte-identical
+  auto-generated titles - the alert-context "raw activity" list now shows distinct titles instead
+  of the same sentence repeated.
 - Replaced the hardcoded analyzer if/elif chain with a config-driven registry
   (`config/analyzer_registry.d/`) that merges custom registrations additively, never overriding a
   built-in analyzer. Reworked the Add Analyzer wizard to write to this backend, collapsed its
