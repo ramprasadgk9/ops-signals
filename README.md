@@ -80,17 +80,22 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 - It adds a separate behavior reasoning layer for cross-metric patterns
 - It emphasizes deterministic, explainable answers over free-form generation
 - It keeps PostgreSQL as the system of record and Qdrant as a retrieval index
+- It lets external systems, not just people, consult accumulated case outcomes before acting - an
+  alert manager can ask "has this happened before, was it real" through a single API call ahead of
+  paging anyone
 
 ## How It Works
 
 ```text
 CSV / metric sample
   -> normalization
-  -> analyzers
+  -> analyzers (router-selected; an optional AI second opinion may flag disagreement, never overrides it)
   -> signals
-  -> findings
-  -> cases
-  -> memory / assistant
+  -> findings, and separately cross-metric behavior findings
+  -> either can become a case (RCA, resolution, recorded outcome)
+  -> PostgreSQL (system of record) + Qdrant (semantic index)
+  -> consumed by: the in-app assistant, Grafana, or an external alert manager checking prior
+     outcomes before it acts
 ```
 
 ```mermaid
@@ -99,8 +104,11 @@ flowchart LR
   B --> C[Run analyzers]
   C --> D[Generate signals]
   D --> E[Aggregate findings]
+  D --> E2[Cross-metric behavior findings]
   E --> F[Open or create a case]
+  E2 --> F
   F --> G[Ask questions and reuse memory]
+  F --> H[External alert manager checks prior outcomes]
 ```
 
 This is not a replacement for Prometheus, Datadog, Grafana, or incident-management platforms.
@@ -113,10 +121,15 @@ Historical similarity does not prove two cases share the same root cause.
 - Normalization into PostgreSQL
 - Config-driven analyzer registry, extensible without touching core code - see [Analyzer Plugin Framework](docs/04-analyzer-plugin-framework.md)
 - Signal generation and aggregation into findings
-- Behavior intelligence for cross-metric operational patterns
+- Behavior intelligence for cross-metric operational patterns, promotable to a case with the same
+  RCA/resolution/outcome lifecycle as a single-metric finding
 - Operational case lifecycle fields for investigation, RCA, corrective action, and outcome
 - Qdrant-based operational memory for similar-case retrieval, with automatic indexing on case create/update
-- Analyzer recommendation flow for profiling metric samples and ranking analyzers
+- Analyzer recommendation flow for profiling metric samples and ranking analyzers, with an optional
+  AI second opinion that scores independently and surfaces disagreement with the router - it never
+  silently overrides the router's pick
+- `GET /api/alert-context` - a pre-alert lookup an external system can call for prior outcomes,
+  similar resolved cases, and raw recurrence before it acts, not just a human browsing after the fact
 - Autonomous Prometheus monitoring - configure scope and policy, run once, see results inline
 - A benchmark suite validating router accuracy, detection accuracy, false-positive behavior, and Behavior Intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
 - React UI for findings, questions, signals, cases, and history
@@ -158,21 +171,24 @@ whether an answer came from a model or from a template.
 ## High-Level Architecture
 
 ```text
-Canonical CSV
+Canonical CSV / Prometheus
   -> Validation
   -> Normalization
   -> PostgreSQL
-  -> Analyzer Registry
+  -> Analyzer Registry (router-selected, bounded, deterministic; optional AI second opinion, advisory only)
   -> Signals
-  -> Finding Aggregator
-  -> Operational Findings
-  -> Operational Cases
+  -> Finding Aggregator, and separately Behavior Intelligence (cross-metric)
+  -> Operational Findings, and Behavior Findings
+  -> Operational Cases (either can be promoted, same RCA/resolution/outcome lifecycle)
   -> Embedding Service
   -> Qdrant
-  -> Similar-Case Retrieval
+  -> Similar-Case / Alert-Context Retrieval
   -> Analyzer Recommendation
-  -> React UI
+  -> React UI, Ask Ops Signals, or an external alert manager (via GET /api/alert-context)
 ```
+
+A more detailed version of this diagram, with per-stage code references, lives in
+[`docs/02-architecture.md`](docs/02-architecture.md).
 
 ## Quick Start
 
@@ -388,6 +404,9 @@ See [Product Preview](#product-preview) above, or the [complete screenshot galle
 - Add richer case comparison and retrieval views
 - Extend evaluation datasets for regression checks
 - Document release and contribution workflows more fully
+- Kubernetes, cloud-provider, and OpenTelemetry ingestion; ITSM/automation and generic
+  external-system consumers - see the explicitly-labeled roadmap section in
+  [`docs/02-architecture.md`](docs/02-architecture.md#roadmap-not-yet-implemented)
 
 ## Contributing
 
