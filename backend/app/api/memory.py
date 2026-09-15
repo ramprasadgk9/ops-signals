@@ -597,12 +597,25 @@ def get_alert_context(
         key=lambda item: item[0],
         reverse=True,
     )
+    # finding_count/behavior_count below stay true raw counts (repeat analysis runs on the same
+    # data legitimately produce multiple rows with byte-identical, deterministically-generated
+    # titles) - but the titles shown to a reader are deduplicated, so "occurred 5 times" doesn't
+    # collapse into the same sentence printed 5 times.
+    seen_titles: set[str] = set()
+    deduped_titles: list[str] = []
+    for _, title in recent_activity:
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+        deduped_titles.append(title)
+        if len(deduped_titles) == 5:
+            break
     raw_activity = AlertContextRawActivity(
         finding_count=len(findings),
         behavior_count=len(matching_behaviors),
         total_occurrences=len(findings) + len(matching_behaviors),
         most_recent_at=recent_activity[0][0] if recent_activity else None,
-        recent_titles=[title for _, title in recent_activity[:5]],
+        recent_titles=deduped_titles,
     )
     if raw_activity.total_occurrences and assistant and assistant.services.ai_services:
         evidence_lines = [
