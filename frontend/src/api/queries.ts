@@ -168,8 +168,10 @@ export const api = {
     patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/investigation`, payload),
   updateRCA: (caseId: number, payload: { root_cause_status: string; root_cause_summary?: string; root_cause_confidence?: number; root_cause_verified: boolean }) =>
     patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/rca`, payload),
-  updateResolution: (caseId: number, payload: { outcome_status: string; outcome_summary?: string; corrective_action?: string }) =>
-    patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/resolution`, payload),
+  updateResolution: (
+    caseId: number,
+    payload: { outcome_status: string; outcome_summary?: string; corrective_action?: string; learning_outcome_status?: string }
+  ) => patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/resolution`, payload),
   
   // Memory API calls
   indexCaseMemory: (caseId: number) =>

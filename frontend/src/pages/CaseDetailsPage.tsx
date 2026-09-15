@@ -94,6 +94,7 @@ export function CaseDetailsPage() {
   const [outcomeStatus, setOutcomeStatus] = useState('');
   const [outcomeSummary, setOutcomeSummary] = useState('');
   const [correctiveAction, setCorrectiveAction] = useState('');
+  const [learningOutcomeStatus, setLearningOutcomeStatus] = useState('');
 
   const caseQuery = useQuery({
     queryKey: ['case', caseId],
@@ -159,12 +160,16 @@ export function CaseDetailsPage() {
     },
   });
 
+  const resolutionRequiresLearningOutcome = outcomeStatus === 'resolved';
+  const canSaveResolution = !resolutionRequiresLearningOutcome || Boolean(learningOutcomeStatus);
+
   const updateResolutionMutation = useMutation({
     mutationFn: () =>
       api.updateResolution(parseInt(caseId || '0'), {
         outcome_status: outcomeStatus,
         outcome_summary: outcomeSummary || undefined,
         corrective_action: correctiveAction || undefined,
+        learning_outcome_status: learningOutcomeStatus || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
@@ -788,8 +793,40 @@ export function CaseDetailsPage() {
                   onChange={(e) => setCorrectiveAction(e.target.value)}
                 />
 
+                {resolutionRequiresLearningOutcome ? (
+                  <FormControl fullWidth required error={!learningOutcomeStatus}>
+                    <InputLabel>Learning Outcome</InputLabel>
+                    <Select
+                      value={learningOutcomeStatus}
+                      onChange={(e) => setLearningOutcomeStatus(e.target.value)}
+                      label="Learning Outcome"
+                    >
+                      <MenuItem value="confirmed">Confirmed — this was a real issue</MenuItem>
+                      <MenuItem value="partially_confirmed">Partially confirmed — real, but not fully understood</MenuItem>
+                      <MenuItem value="rejected">Rejected — false positive, not a real issue</MenuItem>
+                      <MenuItem value="inconclusive">Inconclusive — could not determine</MenuItem>
+                    </Select>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                      Required when marking a case Resolved — records whether this was a real issue so similar
+                      future alerts can learn from it.
+                    </Typography>
+                  </FormControl>
+                ) : null}
+
+                {updateResolutionMutation.isError ? (
+                  <Alert severity="error">
+                    {updateResolutionMutation.error instanceof Error
+                      ? updateResolutionMutation.error.message
+                      : 'Failed to save resolution.'}
+                  </Alert>
+                ) : null}
+
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                  <Button variant="contained" onClick={() => updateResolutionMutation.mutate()} disabled={updateResolutionMutation.isPending}>
+                  <Button
+                    variant="contained"
+                    onClick={() => updateResolutionMutation.mutate()}
+                    disabled={updateResolutionMutation.isPending || !canSaveResolution}
+                  >
                     {updateResolutionMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
                     Save Resolution
                   </Button>
