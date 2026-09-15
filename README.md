@@ -1,5 +1,9 @@
 # Ops Signals
 
+[![CI](https://github.com/ramprasadgk9/operational-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/ramprasadgk9/operational-intelligence/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/ramprasadgk9/operational-intelligence)](https://github.com/ramprasadgk9/operational-intelligence/releases)
+
 Ops Signals is a vendor-neutral Operational Intelligence framework that transforms time-series data into explainable findings, investigation cases, and searchable operational memory.
 
 It is designed to help teams move from raw metrics to actionable operational context without replacing existing observability or incident platforms.
