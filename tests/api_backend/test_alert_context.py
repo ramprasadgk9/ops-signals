@@ -260,14 +260,16 @@ def test_similar_case_found_with_no_exact_match_history_is_not_reported_as_mixed
     assert "1 semantically similar case" in body["recommendation_basis"]
 
 
-def _seed_finding(db, *, finding_id: int, metric_name: str = "cpu_usage", service: str = "payments-service") -> None:
+def _seed_finding(
+    db, *, finding_id: int, metric_name: str = "cpu_usage", service: str = "payments-service", title: str | None = None
+) -> None:
     db.add(
         FindingEntity(
             id=finding_id,
             analysis_run_id=f"run-finding-{finding_id}",
             service=service,
             metric_name=metric_name,
-            title=f"{metric_name} anomaly on {service}",
+            title=title or f"{metric_name} anomaly on {service}",
             summary="Metric moved outside its normal range.",
             category="behavior_change",
             health_status="critical",
@@ -313,8 +315,8 @@ def test_raw_activity_counts_uncased_findings_and_behaviors(client_factory) -> N
     with TestClient(app) as client:
         session_local = get_session_local()
         with session_local() as db:
-            _seed_finding(db, finding_id=1, metric_name="cpu_usage", service="payments-service")
-            _seed_finding(db, finding_id=2, metric_name="cpu_usage", service="payments-service")
+            _seed_finding(db, finding_id=1, metric_name="cpu_usage", service="payments-service", title="CPU baseline shifted upward")
+            _seed_finding(db, finding_id=2, metric_name="cpu_usage", service="payments-service", title="CPU trend regression detected")
             _seed_uncased_behavior(db, behavior_id=1, metric_name="cpu_usage", service="payments-service")
 
         response = client.get("/api/alert-context", params={"metric_name": "cpu_usage", "service": "payments-service"})
@@ -327,6 +329,30 @@ def test_raw_activity_counts_uncased_findings_and_behaviors(client_factory) -> N
     assert len(body["raw_activity"]["recent_titles"]) == 3
     # Raw occurrence alone must never upgrade the recommendation - no outcome was ever recorded.
     assert body["recommendation"] == "insufficient_history"
+
+
+def test_raw_activity_deduplicates_repeated_titles_but_keeps_true_counts(client_factory) -> None:
+    app = client_factory(similarity=None, embedder=None)
+
+    with TestClient(app) as client:
+        session_local = get_session_local()
+        with session_local() as db:
+            # Repeated analysis runs on the same data produce new rows with byte-identical,
+            # deterministically-generated titles - this must not print the same sentence 3 times.
+            _seed_finding(db, finding_id=30, metric_name="cpu_usage", service="payments-service", title="CPU baseline shifted upward")
+            _seed_finding(db, finding_id=31, metric_name="cpu_usage", service="payments-service", title="CPU baseline shifted upward")
+            _seed_finding(db, finding_id=32, metric_name="cpu_usage", service="payments-service", title="CPU baseline shifted upward")
+            _seed_finding(db, finding_id=33, metric_name="cpu_usage", service="payments-service", title="CPU trend regression detected")
+
+        response = client.get("/api/alert-context", params={"metric_name": "cpu_usage", "service": "payments-service"})
+
+    assert response.status_code == 200
+    body = response.json()
+    # True occurrence count is unaffected by dedup - "this happened 4 times" is still accurate.
+    assert body["raw_activity"]["finding_count"] == 4
+    assert body["raw_activity"]["total_occurrences"] == 4
+    # But only distinct titles are shown, most-recent first (finding 33 was seeded last).
+    assert body["raw_activity"]["recent_titles"] == ["CPU trend regression detected", "CPU baseline shifted upward"]
 
 
 def test_recommendation_basis_mentions_raw_activity_instead_of_claiming_nothing_found(client_factory) -> None:
