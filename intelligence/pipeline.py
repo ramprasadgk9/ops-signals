@@ -201,9 +201,9 @@ class SignalPipeline:
 
     def _build_analyzers(self, analyzer_routing: list[dict[str, object]] | None = None) -> list[Analyzer]:
         """Loads every analyzer registration from config/analyzer_registry.d/ (including the 7
-        built-ins, migrated here from a hardcoded if/elif chain per one analyzer - see
-        docs/19-analyzer-router-gap-work-items.md Work Item 1) and constructs the ones that are
-        enabled, selected by the router, and construct without error.
+        built-ins, migrated here from a hardcoded if/elif chain, one analyzer at a time - see
+        docs/16-analyzer-recommendation.md) and constructs the ones that are enabled, selected by
+        the router, and construct without error.
 
         config/analyzers.yaml's `analysis.analyzers` block is still consulted, but now only as an
         *override* source - it's what lets config-file toggling (`enabled: false`) and Analyzer
