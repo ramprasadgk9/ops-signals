@@ -89,6 +89,28 @@ a handful of large spikes among many points, those spikes inflate the standard-d
 enough that the threshold can become harder to clear than the spikes themselves - a case where the
 detector can fail to register spikes that are visually obvious. Worth its own investigation.
 
+### Not every profile feature is actually used by scoring
+
+The series profile computes roughly 15 features, but a direct check of every analyzer's
+`scoring_rules`, `eligibility_rules`, and `suitability_rules` in
+`experiments/analyzer_router/analyzer_registry.yaml` shows most of them doing real work only for
+a subset of analyzers - each analyzer scores on the features relevant to what it detects
+(`ruptures` on `shift_index`; `prophet`/`kats`/`darts`/`trend_regression` on `trend_strength`;
+`stumpy`/`prophet`/`kats`/`darts`/`adtk` on `seasonality_strength`). That part is intentional
+design, not a gap.
+
+Two features, however, are referenced by **zero** analyzers, anywhere in the registry -
+`constant_value_percentage` and `autocorrelation`. They're computed for every series and never
+consulted by any eligibility check, suitability rule, or scoring rule. Either genuinely dead
+weight or reserved for something not yet wired up - not chased down here, just flagged rather than
+assumed to be doing something.
+
+Two more (`missing_percentage`, `irregular_sampling_percentage`) are referenced, but only by
+`alibi_detect` and `river` - the two router-registered analyzers with no real execution
+implementation at all (see the routing matrix in
+[`docs/16-analyzer-recommendation.md`](16-analyzer-recommendation.md)). So for every analyzer that
+actually runs in production today, these two features are effectively unused as well.
+
 ## How we're closing that gap
 
 Rather than leave "heuristic" as a permanent state, three pieces of real infrastructure now exist
@@ -122,6 +144,8 @@ to. If you're looking for a substantive way to contribute, this is one.
 | Router suitability scoring weights (the `base`/`add` numbers themselves) | Heuristic, hand-authored, not yet validated against outcomes |
 | Workbench feeding the scoring formula real `shift_index`/`spikiness` (not a crude shim or a hardcoded `0.0`) | **Fixed** - see above |
 | `_spikiness()`'s own threshold calibration (robust vs. non-robust statistic mixed in one formula) | Open item, not yet investigated |
+| `constant_value_percentage` / `autocorrelation` profile features | Computed, referenced by zero analyzers - dead weight or unwired, not yet determined |
+| `missing_percentage` / `irregular_sampling_percentage` | Only referenced by `alibi_detect`/`river`, which have no real execution path - effectively unused in production |
 | Ground truth to validate against | Exists (`analyzer_learning_outcomes`), depends on cases actually being resolved through the UI |
 | AI-vs-router divergence tracking | Exists (`analyzer_recommendation_divergences`), accumulating from real traffic |
 | Benchmark coverage of score calibration (not just selection accuracy) | Not yet built |
