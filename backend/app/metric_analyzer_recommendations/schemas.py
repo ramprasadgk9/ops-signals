@@ -6,6 +6,22 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class AnalyzerDivergenceOut(BaseModel):
+    """One recorded AI-vs-router evaluation, for later correlation against real confirmed/rejected
+    outcomes in analyzer_learning_outcomes (join on analysis_run_id, when present)."""
+
+    id: str
+    service: str | None = None
+    metric_name: str
+    analysis_run_id: str | None = None
+    router_top_analyzer_id: str
+    router_top_score: float | None = None
+    ai_top_analyzer_id: str
+    ai_confidence: float | None = None
+    diverged: bool
+    created_at: datetime
+
+
 class MetricSampleOut(BaseModel):
     service: str
     metric_name: str

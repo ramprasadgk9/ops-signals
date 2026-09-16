@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from datetime import datetime
 from itertools import count
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 import yaml
 
@@ -14,6 +17,7 @@ from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.metric_analyzer_recommendations.schemas import (
     AIAnalyzerOpinionOut,
+    AnalyzerDivergenceOut,
     AnalyzerRecommendationChatResponseOut,
     AnalyzerRecommendationRequestIn,
     AnalyzerRecommendationOut,
@@ -24,6 +28,9 @@ from backend.app.metric_analyzer_recommendations.schemas import (
 )
 from backend.app.metric_analyzer_recommendations.service import MetricAnalyzerRecommendationService
 from backend.app.models.db import get_db
+from backend.app.models.entities import AnalyzerDivergenceEntity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/metric-analyzer-recommendations", tags=["metric-analyzer-recommendations"])
 service = MetricAnalyzerRecommendationService()
@@ -37,6 +44,90 @@ _latest_evaluation_by_conversation: dict[str, dict[str, Any]] = {}
 @router.get("/metrics")
 def list_metric_samples(db: Session = Depends(get_db)) -> list[MetricSampleOut]:
     return [MetricSampleOut(**sample) for sample in service.list_samples(db)]
+
+
+def _record_ai_divergence(
+    db: Session,
+    *,
+    service_name: str | None,
+    metric_name: str,
+    analysis_run_id: str | None,
+    ai_opinion: AIAnalyzerOpinionOut,
+    recommendations: list[AnalyzerRecommendationOut],
+) -> None:
+    """Best-effort log of the AI second opinion's pick alongside the router's, recorded whether or
+    not they agreed - the denominator matters as much as the divergences do for computing a real
+    divergence rate later. When analysis_run_id is present, this can be joined against
+    analyzer_learning_outcomes on the same column to check whether the AI's pick or the router's
+    pick actually matched the eventual confirmed/rejected outcome. Never raises - a failure here
+    must never affect the recommendation response itself."""
+    if not ai_opinion.available or not ai_opinion.best_analyzer_id or not ai_opinion.router_top_analyzer_id:
+        return
+    try:
+        router_top_score = next(
+            (item.fitness_score for item in recommendations if item.analyzer_id == ai_opinion.router_top_analyzer_id),
+            None,
+        )
+        ai_confidence = next(
+            (pick.confidence for pick in ai_opinion.recommended if pick.analyzer_id == ai_opinion.best_analyzer_id),
+            None,
+        )
+        db.add(
+            AnalyzerDivergenceEntity(
+                id=uuid4().hex,
+                service=service_name,
+                metric_name=metric_name,
+                analysis_run_id=analysis_run_id,
+                router_top_analyzer_id=ai_opinion.router_top_analyzer_id,
+                router_top_score=router_top_score,
+                ai_top_analyzer_id=ai_opinion.best_analyzer_id,
+                ai_confidence=ai_confidence,
+                diverged=ai_opinion.diverges_from_router,
+                created_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+    except Exception as exc:
+        logger.warning(f"Failed to record AI-divergence tracking row: {exc}")
+        db.rollback()
+
+
+@router.get("/divergences", response_model=list[AnalyzerDivergenceOut])
+def list_ai_divergences(
+    metric_name: str | None = None,
+    service: str | None = None,
+    diverged: bool | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+) -> list[AnalyzerDivergenceOut]:
+    """Raw log of AI-vs-router evaluations, for auditing whether the deterministic scoring rules
+    are calibrated well. Correlating a row against its real outcome is a join on analysis_run_id
+    against /api/learning-outcomes - not built as a canned aggregate here, to keep this endpoint
+    to what it actually is: the log, not a report."""
+    query = select(AnalyzerDivergenceEntity)
+    if metric_name:
+        query = query.where(AnalyzerDivergenceEntity.metric_name == metric_name)
+    if service:
+        query = query.where(AnalyzerDivergenceEntity.service == service)
+    if diverged is not None:
+        query = query.where(AnalyzerDivergenceEntity.diverged == diverged)
+    query = query.order_by(AnalyzerDivergenceEntity.created_at.desc()).limit(max(1, min(limit, 500)))
+    rows = db.execute(query).scalars().all()
+    return [
+        AnalyzerDivergenceOut(
+            id=row.id,
+            service=row.service,
+            metric_name=row.metric_name,
+            analysis_run_id=row.analysis_run_id,
+            router_top_analyzer_id=row.router_top_analyzer_id,
+            router_top_score=row.router_top_score,
+            ai_top_analyzer_id=row.ai_top_analyzer_id,
+            ai_confidence=row.ai_confidence,
+            diverged=row.diverged,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
 
 @router.post("/evaluate", response_model=RecommendationResponseOut)
@@ -68,10 +159,18 @@ def evaluate_metric_sample(
     analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
     selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
     selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])
-    recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers)]
+    recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers, timeseries)]
     ai_services = assistant.services.ai_services if assistant else None
     ai_opinion = AIAnalyzerOpinionOut(
         **service.recommend_ai_opinion(profile, timeseries, ai_services, metric_context={"service": service_name, "metric_name": metric_name})
+    )
+    _record_ai_divergence(
+        db,
+        service_name=service_name,
+        metric_name=metric_name,
+        analysis_run_id=analysis_run_id,
+        ai_opinion=ai_opinion,
+        recommendations=recommendations,
     )
     return RecommendationResponseOut(
         sample=MetricSampleOut(**selected),
@@ -119,7 +218,7 @@ def chat_metric_analyzer_recommendation(
             )
             if context.sample_id is not None and sample is not None:
                 profile, timeseries = service.profile_sample(db, sample["service"], sample["metric_name"], sample.get("analysis_run_id"))
-                recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers)]
+                recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers, timeseries)]
                 recommendation_mode = "evaluated"
                 evaluation_id = next(_evaluation_counter)
         except Exception:
@@ -135,6 +234,14 @@ def chat_metric_analyzer_recommendation(
             **service.recommend_ai_opinion(
                 profile, timeseries, ai_services, metric_context={"metric_name": context.metric_name, "operational_purpose": context.operational_purpose}
             )
+        )
+        _record_ai_divergence(
+            db,
+            service_name=sample.get("service") if sample else None,
+            metric_name=context.metric_name,
+            analysis_run_id=sample.get("analysis_run_id") if sample else None,
+            ai_opinion=ai_opinion,
+            recommendations=recommendations,
         )
     else:
         ai_opinion = AIAnalyzerOpinionOut(available=False, unavailable_reason="No historical sample evaluated yet")
