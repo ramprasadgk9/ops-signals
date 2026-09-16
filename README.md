@@ -134,6 +134,11 @@ Historical similarity does not prove two cases share the same root cause.
 - A benchmark suite validating router accuracy, detection accuracy, false-positive behavior, and Behavior Intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
 - React UI for findings, questions, signals, cases, and history
 
+Every detection analyzer is a published, peer-reviewed method, not invented here - see
+[`docs/26-analyzer-methodology.md`](docs/26-analyzer-methodology.md) for citations. The router's
+suitability *scores* are heuristic and not yet validated against outcomes; that same document says
+so plainly and links to the tracking infrastructure built to close that gap.
+
 ## Operational Intelligence Assistant
 
 Ops Signals includes a single chat interface ("Ask Ops Signals") that routes questions across
