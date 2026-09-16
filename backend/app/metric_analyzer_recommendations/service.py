@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
+from experiments.analyzer_router.feature_extractor import _shift_index, _spikiness
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
 
 from backend.app.ai.factory import OptionalAIServices
@@ -161,8 +162,9 @@ class MetricAnalyzerRecommendationService:
         profile: MetricProfile,
         selection_mode: str = "all",
         selected_analyzers: list[str] | None = None,
+        timeseries: list[tuple[Any, float]] | None = None,
     ) -> list[dict[str, Any]]:
-        router_profile = self._build_router_profile(profile)
+        router_profile = self._build_router_profile(profile, timeseries)
         decisions = self._build_router().recommend_analyzers_for_profile(router_profile)
         selected = set(selected_analyzers or [])
         mode = selection_mode.lower().strip()
@@ -191,7 +193,24 @@ class MetricAnalyzerRecommendationService:
         ]
 
     @staticmethod
-    def _build_router_profile(profile: MetricProfile) -> Any:
+    def _build_router_profile(profile: MetricProfile, timeseries: list[tuple[Any, float]] | None = None) -> Any:
+        # spikiness and shift_index are the two features the router's scoring rules lean on most
+        # heavily (they drive most of pyod_outlier's and ruptures' score). Computed here from the
+        # real values via the same functions the production analysis pipeline uses
+        # (experiments/analyzer_router/feature_extractor.py), instead of the workbench inventing
+        # its own approximation - previously spikiness was hardcoded to 0.0 (never computed at
+        # all) and shift_index was a crude variance/mean ratio that can't distinguish "there's a
+        # real change point" from "this series is just noisy". Falls back to conservative defaults
+        # only when there's no real series to compute from (e.g. the preliminary chat profile,
+        # which has no underlying data at all).
+        spikiness = 0.0
+        shift_index = min(1.0, max(0.0, profile.variance / (abs(profile.mean) + 1e-9)))
+        if timeseries:
+            values = np.array([value for _, value in timeseries], dtype=float)
+            if len(values) >= 8:
+                spikiness, _, _ = _spikiness(values)
+            shift_index = _shift_index(values)
+
         return type(
             "RouterProfile",
             (),
@@ -211,8 +230,8 @@ class MetricAnalyzerRecommendationService:
                 "trend_strength": profile.trend_strength,
                 "autocorrelation": profile.autocorrelation,
                 "seasonality_strength": profile.seasonality_strength,
-                "spikiness": 0.0,
-                "shift_index": min(1.0, max(0.0, profile.variance / (abs(profile.mean) + 1e-9))),
+                "spikiness": spikiness,
+                "shift_index": shift_index,
                 "duration_seconds": int((profile.end_time - profile.start_time).total_seconds()) if profile.start_time and profile.end_time else None,
                 "notes": [],
             },
@@ -234,7 +253,7 @@ class MetricAnalyzerRecommendationService:
         if not ai_services:
             return {"available": False, "unavailable_reason": "AI assistance is not configured"}
 
-        router_profile = self._build_router_profile(profile)
+        router_profile = self._build_router_profile(profile, timeseries)
         decisions = self._build_router().recommend_analyzers_for_profile(router_profile)
         eligible_decisions = [decision for decision in decisions if decision.eligible] or decisions
         router_top = max(eligible_decisions, key=lambda decision: decision.final_score, default=None)

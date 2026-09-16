@@ -373,6 +373,36 @@ class AnalyzerLearningOutcomeEntity(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AnalyzerDivergenceEntity(Base):
+    """One AI-second-opinion evaluation from the Analyzer Recommendation workbench: the router's
+    top pick, the AI's independent top pick, and whether they diverged. Recorded regardless of
+    whether they agreed, so a later query can compute a true divergence rate, not just outcomes
+    when it happens. When analysis_run_id is present, this can be joined against
+    analyzer_learning_outcomes on the same column to check whether the AI's pick or the router's
+    pick actually matched the confirmed/rejected outcome - the calibration signal for whether the
+    deterministic scoring rules need recalibrating."""
+
+    __tablename__ = "analyzer_recommendation_divergences"
+    __table_args__ = (
+        Index("idx_analyzer_divergence_metric_name", "metric_name"),
+        Index("idx_analyzer_divergence_service", "service"),
+        Index("idx_analyzer_divergence_analysis_run_id", "analysis_run_id"),
+        Index("idx_analyzer_divergence_diverged", "diverged"),
+        Index("idx_analyzer_divergence_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    service: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metric_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    analysis_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    router_top_analyzer_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    router_top_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ai_top_analyzer_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    diverged: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class BehaviorFindingEntity(Base):
     __tablename__ = "ops_behavior_findings"
 
