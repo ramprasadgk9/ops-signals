@@ -67,6 +67,11 @@ overrides the router's decision. This is deliberate: the AI is a second set of e
 - `backend/app/metric_analyzer_recommendations/gemma_advisor.py` (the AI second opinion)
 - `intelligence/analyzers/*` (the analyzer implementations)
 
+See [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md) for what each analyzer is
+based on (all published methods, cited) versus the router's suitability scoring weights, which are
+heuristic and not yet validated against real outcomes - and the tracking infrastructure
+(`AnalyzerLearningOutcomeEntity`, `AnalyzerDivergenceEntity`) built to close that gap.
+
 ### 3. Find & Correlate
 
 Per-metric analyzer output becomes a **Finding** (single-metric: "this metric had an anomaly/trend/shift").
