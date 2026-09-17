@@ -97,13 +97,7 @@ class PrometheusQueryService:
             clean_matchers = [m for m in matchers if m and m != "{}"]
             if clean_matchers:
                 query_string = "?" + "&".join(("match[]=" + quote(matcher, safe="")) for matcher in clean_matchers)
-        try:
-            payload = self._get_json(f"/api/v1/label/{normalized}/values{query_string}", {})
-        except HTTPException:
-            if query_string:
-                payload = self._get_json(f"/api/v1/label/{normalized}/values", {})
-            else:
-                raise
+        payload = self._get_json(f"/api/v1/label/{normalized}/values{query_string}", {})
         if payload.get("status") != "success":
             raise HTTPException(status_code=502, detail=str(payload.get("error") or "Prometheus label lookup failed"))
         values = payload.get("data")
@@ -112,12 +106,36 @@ class PrometheusQueryService:
         return sorted(str(value) for value in values if value is not None)
 
     @staticmethod
-    def _extract_label_tuple(row: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
-        service = str(row["service"]) if row.get("service") is not None else None
-        namespace = str(row["namespace"]) if row.get("namespace") is not None else None
-        env = row.get("env") or row.get("environment")
-        environment = str(env) if env is not None else None
-        return (service, namespace, environment)
+    def _series_sort_key(r: dict[str, str]) -> tuple:
+        return (
+            str(r.get("__name__", "")),
+            str(r.get("service", "")),
+            str(r.get("namespace", "")),
+            str(r.get("env") or r.get("environment") or ""),
+            sorted(r.items()),
+        )
+
+    @staticmethod
+    def _round_robin_interleave(
+        series_by_metric: dict[str, list[dict[str, str]]],
+        limit: int,
+    ) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        names = sorted(series_by_metric.keys())
+        idx = 0
+        while len(rows) < limit:
+            progress = False
+            for name in names:
+                metric_series = series_by_metric[name]
+                if idx < len(metric_series):
+                    rows.append(metric_series[idx])
+                    progress = True
+                    if len(rows) >= limit:
+                        break
+            if not progress:
+                break
+            idx += 1
+        return rows
 
     @staticmethod
     def _build_metric_matchers(metric_names: list[str], scope_selector: str = "") -> list[str]:
@@ -140,15 +158,7 @@ class PrometheusQueryService:
             for item in data:
                 if isinstance(item, dict):
                     rows.append({str(key): str(value) for key, value in item.items()})
-        rows.sort(
-            key=lambda r: (
-                str(r.get("__name__", "")),
-                str(r.get("service", "")),
-                str(r.get("namespace", "")),
-                str(r.get("env") or r.get("environment") or ""),
-                sorted(r.items()),
-            )
-        )
+        rows.sort(key=self._series_sort_key)
         return rows
 
     def discover_metric_metadata(
@@ -260,18 +270,8 @@ class PrometheusQueryService:
         max_per_metric: int = 10,
         limit: int = 5000,
     ) -> list[dict[str, str]]:
-        sorted_rows = sorted(
-            rows,
-            key=lambda r: (
-                str(r.get("__name__", "")),
-                str(r.get("service", "")),
-                str(r.get("namespace", "")),
-                str(r.get("env") or r.get("environment") or ""),
-                sorted(r.items()),
-            ),
-        )
+        sorted_rows = sorted(rows, key=cls._series_sort_key)
         by_metric: dict[str, list[dict[str, str]]] = defaultdict(list)
-        label_counts: dict[tuple[str, tuple], int] = defaultdict(int)
 
         for row in sorted_rows:
             name = row.get("__name__", "")
@@ -279,28 +279,9 @@ class PrometheusQueryService:
                 continue
             if len(by_metric[name]) >= max_per_metric:
                 continue
-            label_key = cls._extract_label_tuple(row)
-            if label_counts[name, label_key] >= 2:
-                continue
-            label_counts[name, label_key] += 1
             by_metric[name].append(row)
 
-        sampled: list[dict[str, str]] = []
-        metric_names = sorted(by_metric.keys())
-        idx = 0
-        while len(sampled) < limit:
-            progress = False
-            for name in metric_names:
-                metric_series = by_metric[name]
-                if idx < len(metric_series):
-                    sampled.append(metric_series[idx])
-                    progress = True
-                    if len(sampled) >= limit:
-                        break
-            if not progress:
-                break
-            idx += 1
-        return sampled
+        return cls._round_robin_interleave(by_metric, limit=limit)
 
     @staticmethod
     def _rows_to_discovered_metrics(
@@ -366,7 +347,6 @@ class PrometheusQueryService:
         chunk_size = 80
         quota = max(1, min(max_series_per_metric, max(1, limit // max(1, len(metric_names)))))
         series_by_metric: dict[str, list[dict[str, str]]] = defaultdict(list)
-        label_counts: dict[tuple[str, tuple], int] = defaultdict(int)
         total_available = 0
 
         for start in range(0, len(metric_names), chunk_size):
@@ -379,13 +359,7 @@ class PrometheusQueryService:
                 total_available += len(data)
                 sorted_chunk = sorted(
                     (item for item in data if isinstance(item, dict)),
-                    key=lambda r: (
-                        str(r.get("__name__", "")),
-                        str(r.get("service", "")),
-                        str(r.get("namespace", "")),
-                        str(r.get("env") or r.get("environment") or ""),
-                        sorted(r.items()),
-                    ),
+                    key=self._series_sort_key,
                 )
                 for item in sorted_chunk:
                     name = str(item.get("__name__", ""))
@@ -393,33 +367,13 @@ class PrometheusQueryService:
                         continue
                     if len(series_by_metric[name]) >= quota:
                         continue
-                    label_key = self._extract_label_tuple(item)
-                    if label_counts[name, label_key] >= 2:
-                        continue
-                    label_counts[name, label_key] += 1
                     series_by_metric[name].append({str(key): str(value) for key, value in item.items()})
 
             current_total = sum(len(items) for items in series_by_metric.values())
             if current_total >= limit:
                 break
 
-        # Round-robin allocation across metric names up to limit
-        rows: list[dict[str, str]] = []
-        names = sorted(series_by_metric.keys())
-        idx = 0
-        while len(rows) < limit:
-            progress = False
-            for name in names:
-                metric_series = series_by_metric[name]
-                if idx < len(metric_series):
-                    rows.append(metric_series[idx])
-                    progress = True
-                    if len(rows) >= limit:
-                        break
-            if not progress:
-                break
-            idx += 1
-
+        rows = self._round_robin_interleave(series_by_metric, limit=limit)
         discovered_names = {row.get("__name__") for row in rows if row.get("__name__")}
         starved_metrics = [name for name in metric_names if name not in discovered_names]
         return rows, starved_metrics, total_available

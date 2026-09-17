@@ -683,22 +683,52 @@ def test_discovery_truncation_reported_in_scope_and_preview() -> None:
     assert payload["scope_summary"]["starved_metrics"] == ["metric_y", "metric_z"]
 
 
-def test_distinct_label_diversity_sampling() -> None:
-    raw_rows = [
-        {"__name__": "metric_a", "service": "checkout", "namespace": "prod", "pod": f"pod-{i}"}
-        for i in range(10)
-    ] + [
-        {"__name__": "metric_a", "service": "checkout", "namespace": "staging", "pod": f"pod-{i}"}
+def test_per_metric_cap_and_round_robin_sampling() -> None:
+    # Verify per-metric cap (e.g. 100) and round-robin allocation across metrics
+    metric_a_rows = [
+        {"__name__": "metric_a", "service": "checkout", "pod": f"pod-a-{i}"}
+        for i in range(150)
+    ]
+    metric_b_rows = [
+        {"__name__": "metric_b", "service": "checkout", "pod": f"pod-b-{i}"}
         for i in range(10)
     ]
 
-    sampled = PrometheusQueryService._sample_distinct_series(raw_rows, max_per_metric=10, limit=50)
+    # When limit=50 and max_per_metric=100, round-robin ensures metric_b gets its 10 series and metric_a gets 40
+    sampled = PrometheusQueryService._sample_distinct_series(
+        metric_a_rows + metric_b_rows,
+        max_per_metric=100,
+        limit=50,
+    )
+    assert len(sampled) == 50
+    a_samples = [s for s in sampled if s["__name__"] == "metric_a"]
+    b_samples = [s for s in sampled if s["__name__"] == "metric_b"]
+    assert len(b_samples) == 10
+    assert len(a_samples) == 40
 
-    assert len(sampled) == 4
-    prod_samples = [s for s in sampled if s["namespace"] == "prod"]
-    staging_samples = [s for s in sampled if s["namespace"] == "staging"]
-    assert len(prod_samples) == 2
-    assert len(staging_samples) == 2
+    # Verify single metric cap applies up to max_per_metric
+    single_metric_sampled = PrometheusQueryService._sample_distinct_series(
+        metric_a_rows,
+        max_per_metric=100,
+        limit=500,
+    )
+    assert len(single_metric_sampled) == 100
+
+
+def test_label_values_with_matchers_raises_on_http_error() -> None:
+    prom = PrometheusQueryService(PrometheusConnectionConfig(base_url="http://mock-prom:9090"))
+
+    def fake_get_json(path, params):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid matcher selector")
+
+    prom._get_json = fake_get_json
+
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        prom.label_values("__name__", matchers=['{service="bad"}'])
+    assert exc_info.value.status_code == 400
 
 
 def test_scoped_fast_path_anti_starvation_and_truncation() -> None:

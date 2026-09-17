@@ -64,7 +64,7 @@ To prevent cluster-wide cardinality explosion and alphabetical metric starvation
 
 - **Push-Down Scoped Discovery**: When a policy is scoped to a specific service or namespace, the discovery engine pushes the selector directly down into Prometheus (`GET /api/v1/series?match[]={...}`) in a single query. Discovery volume scales with the policy's own scope rather than cluster cardinality.
 - **Fair Allocation & Dynamic Quota**: When running unscoped (cluster-wide), series discovery allocates budget across all discovered metric names using dynamic quota (`max(1, limit // len(metric_names))`) and round-robin allocation. Early-alphabet or high-cardinality metrics (e.g. `apiserver_*`) cannot monopolize the series cap and starve later metrics (e.g. `zebra_*`).
-- **Operational Label Diversity**: Sampling retains diverse operational environments and namespaces (up to 2 series per `(service, namespace, env)` tuple) while discarding ephemeral pod and instance hashes.
+- **Per-Metric Budgeting**: Both scoped and unscoped discovery cap individual metrics up to `max_series_per_metric` and round-robin allocate series to preserve multi-dimensional representation without pod hash monopolization.
 - **Deterministic Sampling**: Results are deterministically sorted by metric identity and labels prior to sampling to guarantee reproducible plan generation across identical cluster states.
 
 ## Query Planning
