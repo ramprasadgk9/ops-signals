@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { Finding, Signal } from '../types';
+import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
 
 type Props = {
   finding: Finding;
@@ -55,17 +56,7 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
     .filter((signal): signal is Signal => Boolean(signal))
     .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
 
-  const signalTooltip = (signal: Signal) => {
-    const evidenceKeys = Object.keys(signal.evidence ?? {});
-    const evidenceSummary =
-      evidenceKeys.length > 0
-        ? evidenceKeys
-            .slice(0, 3)
-            .map((key) => `${key}: ${typeof signal.evidence[key] === 'object' ? JSON.stringify(signal.evidence[key]) : String(signal.evidence[key])}`)
-            .join('\n')
-        : 'No evidence details available.';
-    return `${signal.analyzer_id ?? signal.signal_type}\n${signal.summary ?? 'No summary available.'}\n\nEvidence:\n${evidenceSummary}`;
-  };
+  const signalGroups = groupSignalsByAnalyzer(matchedSignals);
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -111,10 +102,10 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
             <Stack spacing={0.5}>
               <Typography variant="caption" color="text.secondary">Signals used</Typography>
               <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
-                {matchedSignals.map((signal) => (
-                  <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
+                {signalGroups.map((group) => (
+                  <Tooltip key={group.key} title={<span style={{ whiteSpace: 'pre-line' }}>{signalGroupTooltip(group)}</span>} arrow>
                     <Chip
-                      label={`${signal.analyzer_id ?? signal.signal_type}`}
+                      label={signalGroupChipLabel(group)}
                       size="small"
                       variant="outlined"
                     />

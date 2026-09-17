@@ -38,6 +38,7 @@ import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import type { Signal } from '../types';
+import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -217,17 +218,7 @@ export function CaseDetailsPage() {
       .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
   }, [caseSignalsQuery.data, finding?.signal_ids]);
 
-  const signalTooltip = (signal: Signal) => {
-    const evidenceKeys = Object.keys(signal.evidence ?? {});
-    const evidenceSummary =
-      evidenceKeys.length > 0
-        ? evidenceKeys
-            .slice(0, 3)
-            .map((key) => `${key}: ${typeof signal.evidence[key] === 'object' ? JSON.stringify(signal.evidence[key]) : String(signal.evidence[key])}`)
-            .join('\n')
-        : 'No evidence details available.';
-    return `${signal.analyzer_id ?? signal.signal_type}\n${signal.summary ?? 'No summary available.'}\n\nEvidence:\n${evidenceSummary}`;
-  };
+  const signalGroups = useMemo(() => groupSignalsByAnalyzer(matchedSignals), [matchedSignals]);
 
   const steps = [
     { label: 'Review Finding', icon: <FactCheckRoundedIcon /> },
@@ -401,10 +392,10 @@ export function CaseDetailsPage() {
                       Signals used
                     </Typography>
                     <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-                      {matchedSignals.length > 0 ? (
-                        matchedSignals.map((signal) => (
-                          <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
-                            <Chip label={signal.analyzer_id ?? signal.signal_type} size="small" variant="outlined" />
+                      {signalGroups.length > 0 ? (
+                        signalGroups.map((group) => (
+                          <Tooltip key={group.key} title={<span style={{ whiteSpace: 'pre-line' }}>{signalGroupTooltip(group)}</span>} arrow>
+                            <Chip label={signalGroupChipLabel(group)} size="small" variant="outlined" />
                           </Tooltip>
                         ))
                       ) : (
@@ -561,10 +552,10 @@ export function CaseDetailsPage() {
                     {matchedSignals.length} supporting signal{matchedSignals.length !== 1 ? 's' : ''} detected.
                   </Typography>
                   <Stack spacing={1}>
-                    {matchedSignals.length > 0 ? (
-                      matchedSignals.map((signal) => (
-                        <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
-                          <Chip label={signal.analyzer_id ?? signal.signal_type} variant="outlined" sx={{ justifyContent: 'flex-start' }} />
+                    {signalGroups.length > 0 ? (
+                      signalGroups.map((group) => (
+                        <Tooltip key={group.key} title={<span style={{ whiteSpace: 'pre-line' }}>{signalGroupTooltip(group)}</span>} arrow>
+                          <Chip label={signalGroupChipLabel(group)} variant="outlined" sx={{ justifyContent: 'flex-start' }} />
                         </Tooltip>
                       ))
                     ) : (
