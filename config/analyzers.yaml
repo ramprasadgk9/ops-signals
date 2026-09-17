@@ -64,7 +64,7 @@ analysis:
         contamination: 0.01
         grouping_gap: 15m
         min_samples: 50
-      finding_rules:
+      finding_rule:
         min_outlier_points: 8
         min_confidence: 0.75
         window: 15m

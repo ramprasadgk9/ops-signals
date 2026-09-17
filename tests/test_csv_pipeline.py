@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from backend.app.services.timeseries_routing_service import load_routing_app_config
 from intelligence.config import load_config
 from intelligence.pipeline import SignalPipeline
 from intelligence.signals.schema import OperationalSignal
@@ -144,14 +145,21 @@ def test_pipeline_records_recommended_analyzers_that_are_skipped() -> None:
 
 
 def test_recommended_threshold_selects_top_recommended_executable_analyzers() -> None:
+    # "kats" scores higher than "stumpy" here (0.88 vs 0.79) but has no real pipeline analyzer
+    # behind it (see docs/16-analyzer-recommendation.md, "Router-to-pipeline mapping" - kats has no
+    # direct package). A non-executable recommendation must not consume one of the 3 execution
+    # slots and crowd out "stumpy", which can actually run and produce a real finding.
     project_root = Path(__file__).resolve().parents[1]
     config = load_config(project_root / "config.yaml")
     config.analysis.selection_mode = "recommended_threshold"
-    config.analysis.recommendation_execution.min_score = 0.8
+    config.analysis.recommendation_execution.min_score = 0.75
     config.analysis.recommendation_execution.max_analyzers = 3
     config.analysis.recommendation_execution.include_optional = False
     pipeline = SignalPipeline(config=config, store=InMemoryStore(), embedder=StubEmbedder())
 
+    # 4 candidates clear min_score=0.75; only 3 execution slots. Before the fix, ranking by score
+    # alone put ruptures/kats/trend_regression in the top 3 and crowded stumpy out - even though
+    # kats has no real pipeline analyzer behind it and would have executed nothing.
     allowed = pipeline._allowed_pipeline_analyzers(
         [
             {"analyzer_id": "ruptures", "display_name": "Ruptures", "recommendation": "RECOMMENDED", "final_score": 1.0},
@@ -167,7 +175,43 @@ def test_recommended_threshold_selects_top_recommended_executable_analyzers() ->
         ]
     )
 
-    assert allowed == {"ruptures", "kats", "trend"}
+    assert allowed == {"ruptures", "trend", "stumpy"}
+    assert "kats" not in allowed
+
+
+def test_every_builtin_analyzer_constructs_under_the_real_generic_provider_config() -> None:
+    # Regression test for a config-key mismatch that silently swallowed pyod_outlier for every
+    # real analysis run through provider="generic" (the actual API upload path): builtin.yml
+    # names its param `finding_rule` (singular, matching PyODOutlierAnalyzer.__init__), but
+    # config/analyzers.yaml's override block used `finding_rules` (plural, copy-pasted from
+    # anomaly_zscore's block above it) - the extra unexpected kwarg raised inside instantiate()
+    # and got silently swallowed by _build_analyzers' try/except, so pyod_outlier never
+    # constructed no matter how highly the router scored it. This exercises the exact same
+    # override-merge path a real CSV upload goes through, so a reintroduced mismatch fails loudly
+    # here instead of silently vanishing from a live analysis run.
+    config = load_routing_app_config("generic")
+    pipeline = SignalPipeline(config=config, store=InMemoryStore(), embedder=StubEmbedder())
+
+    analyzers = pipeline._build_analyzers()
+
+    constructed_ids = {analyzer.analyzer_id for analyzer in analyzers}
+    assert {"baseline_shift", "anomaly_zscore", "pyod_outlier", "trend", "stumpy", "prophet"} <= constructed_ids
+
+
+def test_available_pipeline_analyzer_ids_matches_registered_builtins() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    config = load_config(project_root / "config.yaml")
+    pipeline = SignalPipeline(config=config, store=InMemoryStore(), embedder=StubEmbedder())
+
+    available = pipeline._available_pipeline_analyzer_ids()
+
+    # The 7 built-in registrations under config/analyzer_registry.d/ - see
+    # docs/16-analyzer-recommendation.md's analyzer library table for which router candidates
+    # (darts, adtk, pyod, kats, river, alibi_detect) have no entry here at all.
+    assert {"baseline_shift", "ruptures", "anomaly_zscore", "pyod_outlier", "trend", "stumpy", "prophet"} <= available
+    assert "darts" not in available
+    assert "adtk" not in available
+    assert "kats" not in available
 
 
 def test_pipeline_continues_when_one_analyzer_fails(monkeypatch) -> None:

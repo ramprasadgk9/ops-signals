@@ -312,15 +312,34 @@ class SignalPipeline:
         allowed_recommendations = {"RECOMMENDED"}
         if execution_config.include_optional:
             allowed_recommendations.add("OPTIONAL")
+        # A router candidate with no real pipeline analyzer behind it (e.g. darts, adtk - see
+        # docs/16-analyzer-recommendation.md, "Router-to-pipeline mapping") must not occupy one of
+        # the limited max_analyzers execution slots: a top-scoring but non-executable recommendation
+        # would otherwise silently crowd out a lower-scoring one that could actually run and produce
+        # a real finding. Eligibility for a slot is filtered here, before ranking - such a candidate
+        # can still be RECOMMENDED/OPTIONAL and visible for explanation, it just can't spend a slot.
+        router_to_pipeline = self._router_to_pipeline_analyzers()
+        available_pipeline_ids = self._available_pipeline_analyzer_ids()
         candidates = [
             (self._decision_score(decision), str(decision["analyzer_id"]))
             for decision in analyzer_routing
             if str(decision.get("recommendation")) in allowed_recommendations
             and self._decision_score(decision) >= execution_config.min_score
+            and router_to_pipeline.get(str(decision["analyzer_id"]), {str(decision["analyzer_id"])}) & available_pipeline_ids
         ]
         candidates.sort(key=lambda item: item[0], reverse=True)
         max_analyzers = max(1, execution_config.max_analyzers)
         return {analyzer_id for _, analyzer_id in candidates[:max_analyzers]}
+
+    def _available_pipeline_analyzer_ids(self) -> set[str]:
+        registrations = load_registrations(_REPO_ROOT / "config" / "analyzer_registry.d")
+        available: set[str] = set()
+        for registration in registrations:
+            override_cfg = self.config.analysis.analyzers.get(registration.analyzer_id)
+            enabled = override_cfg.enabled if override_cfg is not None else registration.enabled
+            if enabled:
+                available.add(registration.analyzer_id)
+        return available
 
     def _executed_analyzer_snapshots(
         self,
