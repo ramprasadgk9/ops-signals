@@ -113,3 +113,10 @@ memory:
     same_metric_only: true
     same_service_only: false
     exclude_current_case: true
+
+ai:
+  enabled: true
+  provider: ollama
+  ollama:
+    base_url: http://localhost:11434
+    model: llama3.2:latest
