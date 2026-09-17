@@ -29,6 +29,30 @@ BEHAVIORAL_PROFILES = {
 PROFILE_MATCH_BONUS = 0.10
 PROFILE_MISMATCH_CAP = 0.54
 
+# Profiles split into two independent questions the feature extractor answers about a series:
+# what shape does it have, and does it contain irregularities. An analyzer whose declared
+# supported_profiles are entirely drawn from IRREGULARITY_PROFILES never claims anything about
+# shape, so a shape-only detected_profiles (e.g. a seasonal series with no irregularity label
+# yet) must not trip PROFILE_MISMATCH_CAP for it - that check is only meaningful for analyzers
+# that actually claim a shape profile too (stumpy, prophet, ruptures, kats, ...).
+#
+# The profile label alone isn't reliable evidence of this, though: adtk's supported_profiles
+# filters down to {spike, outlier} (its "seasonal_anomaly" entry doesn't match the fixed
+# vocabulary's "seasonal"), but its own scoring_rules reward seasonality_strength directly - it's
+# a seasonal-contradiction detector that genuinely needs shape, mislabeled by a naming gap. So
+# irregularity-only status also requires the analyzer's own scoring rules to never test a shape
+# metric - letting its own declared evidence, not just its profile label, decide. See
+# docs/16-analyzer-recommendation.md, "Shape vs. irregularity profile matching".
+IRREGULARITY_PROFILES = {"anomaly", "outlier", "spike", "baseline_shift", "regime_change"}
+SHAPE_METRICS = {
+    "seasonality_strength",
+    "seasonality_peak_strength",
+    "seasonality_dominant_lag",
+    "trend_strength",
+    "trend_slope",
+    "trend_fit_r2",
+}
+
 
 class UniversalTimeSeriesRouter:
     def __init__(
@@ -108,9 +132,10 @@ class UniversalTimeSeriesRouter:
                 score += float(rule.get("add", 0.0) or 0.0)
         profile_match, _ = self._profile_match(capability, profile)
         behavioral_supported = self._behavioral_supported_profiles(capability)
+        irregularity_only = self._is_irregularity_only(capability)
         if profile_match and behavioral_supported:
             score += PROFILE_MATCH_BONUS
-        elif behavioral_supported:
+        elif behavioral_supported and not irregularity_only:
             score = min(score, PROFILE_MISMATCH_CAP)
         return float(max(0.0, min(1.0, score)))
 
@@ -140,6 +165,19 @@ class UniversalTimeSeriesRouter:
         matched = behavioral_supported.intersection(detected)
         return bool(matched), matched
 
+    @staticmethod
+    def _rules_reference_shape_metrics(capability) -> bool:
+        rules = (capability.scoring_rules or {}).get("rules", [])
+        return any(rule.get("metric") in SHAPE_METRICS for rule in rules)
+
+    def _is_irregularity_only(self, capability) -> bool:
+        behavioral_supported = self._behavioral_supported_profiles(capability)
+        return (
+            bool(behavioral_supported)
+            and behavioral_supported <= IRREGULARITY_PROFILES
+            and not self._rules_reference_shape_metrics(capability)
+        )
+
     def _behavioral_supported_profiles(self, capability) -> set[str]:
         return {
             str(item).strip().lower()
@@ -161,6 +199,13 @@ class UniversalTimeSeriesRouter:
             return "No behavioral profile restriction is configured for this analyzer."
         if profile_match:
             return f"Matched detected profiles: {', '.join(sorted(matched_profiles))}."
+        if self._is_irregularity_only(capability):
+            detected_text = ", ".join(detected) if detected else "none"
+            return (
+                f"This analyzer only claims irregularity profiles ({', '.join(sorted(behavioral_supported))}), "
+                f"not shape - the series' shape profile ({detected_text}) is not held against it; its own "
+                "scoring rules decide the score."
+            )
         detected_text = ", ".join(detected) if detected else "none"
         return f"No supported behavioral profile matched the detected profiles: {detected_text}."
 
@@ -183,6 +228,11 @@ class UniversalTimeSeriesRouter:
             return (
                 f"{capability.display_name} matched the detected {self._format_profile_list(sorted(matched_profiles))} profiles, "
                 f"with final score {score:.2f}."
+            )
+        if behavioral_supported and self._is_irregularity_only(capability):
+            return (
+                f"{capability.display_name} only claims irregularity profiles, not shape, so the series' shape is "
+                f"not held against it here. Final score {score:.2f}, from its own irregularity evidence."
             )
         if behavioral_supported:
             return (

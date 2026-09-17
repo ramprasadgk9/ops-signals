@@ -108,7 +108,19 @@ def _profile(df: pd.DataFrame, timestamp_column: str | None, value_column: str, 
     slope = float(np.polyfit(x, y, 1)[0]) if len(values) >= 2 else 0.0
     trend_strength, trend_fit_r2, trend_abruptness_ratio = _trend_strength(y, shift_index)
     seasonality_strength, seasonality_dominant_lag, seasonality_peak_strength = _seasonality_strength(y)
-    spikiness, transient_spike_count, persistent_jump_count = _spikiness(y)
+    # _spikiness looks at point-to-point jumps. On a strongly seasonal series (e.g. taxi demand,
+    # which jumps by thousands of rides every single day just from rush hour), that everyday jump
+    # is bigger than a real anomaly's jump, so the anomaly reads as *quieter* than normal and never
+    # crosses the threshold. When seasonality is strong enough to trust (same 0.42 bar used above
+    # and at _detect_profiles), compare each point to the same point one cycle back instead - the
+    # everyday rush-hour swing mostly cancels out, and a real anomaly (this Thanksgiving vs. a
+    # normal Thursday) stands out on its own terms rather than against the day's own noise.
+    spikiness_input = y
+    if seasonality_strength >= 0.42 and seasonality_dominant_lag:
+        residual = _seasonal_residual(y, seasonality_dominant_lag)
+        if residual is not None:
+            spikiness_input = residual
+    spikiness, transient_spike_count, persistent_jump_count = _spikiness(spikiness_input)
     if seasonality_strength >= 0.42 and trend_strength < 0.28:
         trend_strength = 0.0
     autocorrelation = _autocorrelation(y)
@@ -309,6 +321,17 @@ def _seasonality_strength(values: np.ndarray) -> tuple[float, int | None, float]
 
     strength = best_corr * max(prominence / 0.1, 0.0) * max(harmonic_support, 0.5) * cycle_factor
     return float(max(0.0, min(1.0, strength))), best_lag, best_corr
+
+
+def _seasonal_residual(values: np.ndarray, lag: int) -> np.ndarray | None:
+    # values[t] - values[t - lag] for every point that has a prior cycle to compare against. The
+    # first `lag` points have no prior cycle yet and are simply left out, rather than compared
+    # against something that doesn't exist - the series just needs to be long enough to have at
+    # least one full cycle of residual left over after dropping them.
+    if lag <= 0 or len(values) <= lag:
+        return None
+    residual = values[lag:] - values[:-lag]
+    return residual
 
 
 def _spikiness(values: np.ndarray) -> tuple[float, int, int]:
