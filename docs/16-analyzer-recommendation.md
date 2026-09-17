@@ -437,31 +437,69 @@ Verified current, as of this doc:
 - **Confirmed done:** `RupturesAnalyzer` uses the real `ruptures` package (not a hand-rolled scan);
   new analyzers can be registered through `config/analyzer_registry.d/*.yml` without editing
   pipeline construction code.
+- **Fixed this cycle:** `anomaly_zscore` computed mean/std over the entire analysis window on every
+  run, so it kept scoring new, now-normal values against the stale pre-shift baseline for as long
+  as a real shift stayed in the window - repeatedly re-flagging the same already-known event. It
+  now reuses `detect_primary_change_point` (`intelligence/analyzers/ruptures.py`, the same function
+  `baseline_shift` already calls) to recursively walk forward to the most recent *settled* regime
+  before computing mean/std, falling back to the old whole-window behavior when no shift is found
+  or too little data follows it. Regression tests in `tests/test_anomaly_zscore_analyzer.py`.
+  - **Verified on real data:** re-run against the actual NAB `realAWSCloudwatch/ec2_cpu_utilization_825cc2.csv`
+    (fetched fresh from `github.com/numenta/NAB` - not committed to this repo; see
+    `publication/nab-dataset-reproducibility.md`'s note that this specific file has no pinned
+    source) under a simulated 7-day rolling-window monitoring cadence, since a single one-shot
+    batch analysis over the full history doesn't reproduce the bug at all (the failure only shows
+    up when a window is repeatedly re-run with looming pre-shift history still in it). That rolling
+    cadence is itself a reasonable stand-in, not a reproduction of this doc's original "20 of 34"
+    measurement - the exact window/cadence behind that number isn't documented anywhere, which is
+    its own gap. Result: total flagged point-instances across 8 daily rolling runs fell from 905 to
+    650 (~28%), and the fix correctly stops re-flagging the same event on the later runs where the
+    old code still fired.
+  - **Residual limitation found by the same real-data test:** a single change point can land inside
+    a still-noisy transition rather than at its true start. The recursive walk-forward mitigates
+    this (confirmed with a synthetic regression test replicating the exact pattern found on the
+    real EC2 series), but a stateless, single-window analyzer still has no way to tell "I already
+    reported this" from "I'm seeing it for the first time." On the very first rolling run after the
+    real EC2 event, the fix under-detects (1 point flagged vs. the old code's 129) because it
+    correctly walks past the entire noisy transition into the settled tail, which starts after the
+    labeled anomaly window ends. Cross-run alert deduplication - if this gap matters in practice -
+    is a separate, larger change and was not attempted here.
 
 Still open, not re-verified in this pass - treat as a starting point for filing issues, not a
 guarantee of current state:
 
 - `darts`, `adtk`, `pyod`, `river`, `kats`, and `alibi_detect` are router-recommendable with no
-  pipeline analyzer or fallback mapping behind any of them, and no decision made on whether to
-  implement them for real or formally retire them from the router's candidate registry. The
-  execution-slot fix above stops them from crowding out real analyzers, but they still can't
-  produce a finding themselves.
+  pipeline analyzer or fallback mapping behind any of them. The execution-slot fix above stops them
+  from crowding out real analyzers, but they still can't produce a finding themselves. This splits
+  into two different situations, not one open question:
+  - **`pyod` and `kats` specifically: this is settled, not undecided.** Both are kept deliberately
+    inert - they're the canonical fixtures used across ~9 of the 11 `benchmark/*/ground_truth.yaml`
+    scenarios and multiple test suites (`tests/test_csv_pipeline.py`,
+    `tests/test_router_benchmark.py`, `tests/test_router_analyzer_registry_merge.py`) to verify that
+    a recommended-but-non-executable analyzer can never steal an execution slot from a real one -
+    see the execution-slot fix referenced above. `docs/archive/JIRA-456-review.md` already recorded
+    this as `[done]`: *"Router `darts`, `kats`, and `pyod` cannot silently execute substitute
+    implementations."* Removing either would mean rewriting those fixtures for no real user-facing
+    gain (the router's own explanation text already says why they're not executing) - not worth it
+    unless something else forces the change.
+  - **`darts`, `adtk`, `river`, and `alibi_detect` remain a genuine open decision.** Unlike
+    `pyod`/`kats`, these aren't standing in for anything - they're just unimplemented. `river` and
+    `alibi_detect` are the more interesting candidates if this is ever picked up: implementing
+    either would directly resolve one of the two `GAP`-status benchmark scenarios
+    (`cpu_online_anomaly_stream_v1` needs `river`'s streaming execution mode,
+    `cpu_distribution_drift_v1` needs `alibi_detect`'s drift-profile extraction - see
+    `benchmark/ADVANCED_ROUTER_GAPS.md`), not just add another router entry.
 - No structured evidence when multiple analyzers agree or conflict on the same finding (currently
   implicit in the summary text, not a structured field).
 - No benchmark coverage of score *calibration* (is the magnitude proportional to severity), only
   selection accuracy (was the right analyzer picked).
 - `STUMPY`/`Prophet` fall back to custom logic silently when the library isn't installed - the
   `library`/`library_mode` isn't always surfaced in evidence.
-- `anomaly_zscore` doesn't re-baseline after a detected level shift - it keeps scoring new,
-  now-normal values against the pre-shift mean/variance for as long as that shift stays in the
-  analysis window. Measured cost on real data: 20 of 34 `pyod_outlier`/`anomaly_zscore` flags on
-  `nab_ec2_cpu` were downstream of a real shift, not new anomalies -
-  `docs/27-nab-real-world-benchmark.html`.
 - The seasonal-residual fix (above) got `nab_nyc_taxi` to full recall at the cost of precision: 33%
   (34 of 104 flagged points land in a real window), the lowest of the four NAB series tested once
-  `pyod_outlier` started actually executing. Whether the same post-shift-persistence pattern as
-  `anomaly_zscore`'s gap is at play here too, just on the residual instead of the raw value, hasn't
-  been investigated.
+  `pyod_outlier` started actually executing. Whether the same post-shift-persistence pattern
+  `anomaly_zscore` had (see "Fixed this cycle" above) is at play here too, just on the residual
+  instead of the raw value, hasn't been investigated.
 
 ## FAQ
 
