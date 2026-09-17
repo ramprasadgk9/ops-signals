@@ -1,5 +1,6 @@
 import { Box, Chip, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
 import type { Finding, Signal } from '../types';
+import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
 
 type Props = {
   open: boolean;
@@ -37,17 +38,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
     .filter((signal): signal is Signal => Boolean(signal))
     .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
 
-  const signalTooltip = (signal: Signal) => {
-    const evidenceKeys = Object.keys(signal.evidence ?? {});
-    const evidenceSummary =
-      evidenceKeys.length > 0
-        ? evidenceKeys
-            .slice(0, 3)
-            .map((key) => `${key}: ${typeof signal.evidence[key] === 'object' ? JSON.stringify(signal.evidence[key]) : String(signal.evidence[key])}`)
-            .join('\n')
-        : 'No evidence details available.';
-    return `${signal.analyzer_id ?? signal.signal_type}\n${signal.summary ?? 'No summary available.'}\n\nEvidence:\n${evidenceSummary}`;
-  };
+  const signalGroups = groupSignalsByAnalyzer(matchedSignals);
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose}>
@@ -94,11 +85,11 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
                 primary="Signals used"
                 secondary={
                   <Stack component="span" spacing={0.75} sx={{ mt: 1, flexWrap: 'wrap' }}>
-                    {matchedSignals.length > 0
-                      ? matchedSignals.map((signal) => (
-                          <Tooltip key={signal.id} title={<span style={{ whiteSpace: 'pre-line' }}>{signalTooltip(signal)}</span>} arrow>
+                    {signalGroups.length > 0
+                      ? signalGroups.map((group) => (
+                          <Tooltip key={group.key} title={<span style={{ whiteSpace: 'pre-line' }}>{signalGroupTooltip(group)}</span>} arrow>
                             <Chip
-                              label={signal.analyzer_id ?? signal.signal_type}
+                              label={signalGroupChipLabel(group)}
                               size="small"
                               variant="outlined"
                               sx={{ mr: 0.5, mb: 0.5 }}
