@@ -58,6 +58,15 @@ Resolved selector:
 
 If all services or all namespaces are selected, that label matcher is omitted.
 
+### Push-Down Scoping and Anti-Starvation Discovery
+
+To prevent cluster-wide cardinality explosion and alphabetical metric starvation:
+
+- **Push-Down Scoped Discovery**: When a policy is scoped to a specific service or namespace, the discovery engine pushes the selector directly down into Prometheus (`GET /api/v1/series?match[]={...}`) in a single query. Discovery volume scales with the policy's own scope rather than cluster cardinality.
+- **Fair Allocation & Dynamic Quota**: When running unscoped (cluster-wide), series discovery allocates budget across all discovered metric names using dynamic quota (`max(1, limit // len(metric_names))`) and round-robin allocation. Early-alphabet or high-cardinality metrics (e.g. `apiserver_*`) cannot monopolize the series cap and starve later metrics (e.g. `zebra_*`).
+- **Operational Label Diversity**: Sampling retains diverse operational environments and namespaces (up to 2 series per `(service, namespace, env)` tuple) while discarding ephemeral pod and instance hashes.
+- **Deterministic Sampling**: Results are deterministically sorted by metric identity and labels prior to sampling to guarantee reproducible plan generation across identical cluster states.
+
 ## Query Planning
 
 Each selected metric is converted into a planned single-metric analysis job. The planner returns the PromQL, transformation, aggregation, category, concept, confidence, and the future `AnalysisRequest` payload.
@@ -74,9 +83,15 @@ The planner deduplicates lower-ranked metrics that represent the same service, c
 
 The response contains:
 
-- `scope_summary`: resolved services, namespaces, environment, label mapping, and selector
+- `scope_summary`: resolved services, namespaces, environment, label mapping, selector, `series_discovered`, `series_available`, `truncated`, `starved_metrics_count`, and `starved_metrics`
 - `monitoring_summary`: selected categories and expanded concepts
 - `metrics_discovered`, `metrics_classified`, `metrics_selected`, `planned_jobs`, and `budget_limited_jobs`
+- discovery coverage & truncation metrics:
+  - `series_discovered`: total series retained after fair sampling
+  - `series_available`: total series available in Prometheus matching the scope
+  - `truncated`: `true` if any metric was starved or the discovery cap was reached
+  - `starved_metrics_count`: count of metric names that yielded 0 series due to cap truncation
+  - `starved_metrics`: list of metric names that received 0 series
 - per-metric rows with status, reason, PromQL, aggregation, confidence, and planned request details
 
 Excluded rows remain visible so users can validate why a metric was skipped.

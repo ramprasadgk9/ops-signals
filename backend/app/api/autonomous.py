@@ -87,6 +87,7 @@ def preview_autonomous_plan(
         series_available=resolved_scope.series_available,
         truncated=resolved_scope.truncated,
         starved_metrics_count=resolved_scope.starved_metrics_count,
+        starved_metrics=resolved_scope.starved_metrics,
         warnings=plan.warnings,
         items=plan.items,
     )

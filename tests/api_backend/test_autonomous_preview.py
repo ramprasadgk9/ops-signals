@@ -679,6 +679,8 @@ def test_discovery_truncation_reported_in_scope_and_preview() -> None:
     assert any("truncated by the metadata safety limit" in w for w in payload["warnings"])
     assert payload["scope_summary"]["truncated"] is True
     assert payload["scope_summary"]["starved_metrics_count"] == 2
+    assert payload["starved_metrics"] == ["metric_y", "metric_z"]
+    assert payload["scope_summary"]["starved_metrics"] == ["metric_y", "metric_z"]
 
 
 def test_distinct_label_diversity_sampling() -> None:
@@ -697,3 +699,63 @@ def test_distinct_label_diversity_sampling() -> None:
     staging_samples = [s for s in sampled if s["namespace"] == "staging"]
     assert len(prod_samples) == 2
     assert len(staging_samples) == 2
+
+
+def test_scoped_fast_path_anti_starvation_and_truncation() -> None:
+    prom = PrometheusQueryService(PrometheusConnectionConfig(base_url="http://mock-prom:9090"))
+
+    def fake_get_json(path, params):
+        if "/api/v1/series" in path:
+            # 100 series for metric_a and 2 series for metric_z
+            metric_a_series = [
+                {"__name__": "metric_a", "service": "checkout", "instance": f"pod-{i}"}
+                for i in range(100)
+            ]
+            metric_z_series = [
+                {"__name__": "metric_z", "service": "checkout", "instance": f"pod-{i}"}
+                for i in range(2)
+            ]
+            return {"status": "success", "data": metric_a_series + metric_z_series}
+        if "/api/v1/metadata" in path:
+            return {
+                "status": "success",
+                "data": {
+                    "metric_a": [{"type": "counter"}],
+                    "metric_z": [{"type": "gauge"}],
+                },
+            }
+        return {"status": "success", "data": []}
+
+    prom._get_json = fake_get_json
+
+    # When limit=5 and max_series_per_metric=2, round-robin ensures both metric_a and metric_z are discovered
+    result = prom.discover_metric_metadata(
+        scope_selector='{service="checkout"}',
+        limit=5,
+        max_series_per_metric=2,
+    )
+
+    discovered_names = {m.metric_name for m in result.metrics}
+    assert "metric_a" in discovered_names
+    assert "metric_z" in discovered_names
+    assert result.series_available == 102
+    assert result.series_discovered == 4  # 2 for metric_a (max_series_per_metric=2) + 2 for metric_z
+    assert result.truncated is True
+    assert result.starved_metrics == []
+
+
+def test_sample_distinct_series_is_deterministic() -> None:
+    # Shuffle input rows and ensure identical deterministic sampled output
+    raw_rows_1 = [
+        {"__name__": "metric_b", "service": "orders", "instance": "pod-1"},
+        {"__name__": "metric_a", "service": "checkout", "instance": "pod-1"},
+        {"__name__": "metric_a", "service": "checkout", "instance": "pod-2"},
+        {"__name__": "metric_b", "service": "orders", "instance": "pod-2"},
+    ]
+    raw_rows_2 = list(reversed(raw_rows_1))
+
+    sampled_1 = PrometheusQueryService._sample_distinct_series(raw_rows_1, max_per_metric=5, limit=10)
+    sampled_2 = PrometheusQueryService._sample_distinct_series(raw_rows_2, max_per_metric=5, limit=10)
+
+    assert sampled_1 == sampled_2
+

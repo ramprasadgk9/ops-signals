@@ -604,6 +604,7 @@ class MetricPlanBuilder:
                 "series_available": resolved_scope.series_available,
                 "truncated": resolved_scope.truncated,
                 "starved_metrics_count": resolved_scope.starved_metrics_count,
+                "starved_metrics": resolved_scope.starved_metrics,
             },
             monitoring_summary={
                 "categories": [category.value for category in selected_categories],

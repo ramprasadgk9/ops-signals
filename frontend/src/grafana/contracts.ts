@@ -230,6 +230,11 @@ export type AutonomousPreviewResponse = {
     environment?: string | null;
     label_mapping?: Record<string, string | null>;
     selector?: string;
+    series_discovered?: number;
+    series_available?: number | null;
+    truncated?: boolean;
+    starved_metrics_count?: number;
+    starved_metrics?: string[];
   };
   monitoring_summary?: {
     categories?: MonitoringCategory[];
@@ -243,6 +248,11 @@ export type AutonomousPreviewResponse = {
   planned_jobs: number;
   budget_limited_jobs?: number;
   budget_limited: number;
+  series_discovered?: number;
+  series_available?: number | null;
+  truncated?: boolean;
+  starved_metrics_count?: number;
+  starved_metrics?: string[];
   warnings: string[];
   items: AutonomousPlanItem[];
 };

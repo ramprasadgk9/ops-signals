@@ -297,6 +297,7 @@ class AutonomousPreviewResponse(BaseModel):
     series_available: int | None = None
     truncated: bool = False
     starved_metrics_count: int = 0
+    starved_metrics: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     items: list[MetricPlanItem] = Field(default_factory=list)
 
