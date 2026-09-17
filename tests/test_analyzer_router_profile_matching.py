@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from experiments.analyzer_router.models import SeriesProfile
@@ -124,6 +125,66 @@ def test_feature_extractor_distinguishes_transient_spikes_from_permanent_jumps()
     assert step_profile.spikiness < 0.22
     assert step_profile.persistent_jump_count == 1
     assert "spike" not in step_profile.detected_profiles
+
+
+def test_seasonal_residual_returns_none_when_series_shorter_than_one_cycle() -> None:
+    from experiments.analyzer_router.feature_extractor import _seasonal_residual
+
+    values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    assert _seasonal_residual(values, lag=10) is None
+    assert _seasonal_residual(values, lag=0) is None
+    assert _seasonal_residual(values, lag=-1) is None
+
+
+def test_seasonal_residual_compares_each_point_to_one_cycle_back() -> None:
+    from experiments.analyzer_router.feature_extractor import _seasonal_residual
+
+    values = np.array([10.0, 20.0, 30.0, 11.0, 19.0, 33.0])
+    residual = _seasonal_residual(values, lag=3)
+    assert residual is not None
+    np.testing.assert_allclose(residual, [1.0, -1.0, 3.0])
+
+
+def test_spikiness_uses_seasonal_residual_to_catch_anomaly_hidden_by_daily_swing() -> None:
+    # Taxi-shaped series: a strong daily rhythm (period 24, amplitude +-40) across 10 days, with a
+    # brief real anomaly (5 points) pushed 30 lower than normal on one day. A raw point-to-point
+    # jump check misses this entirely (spikiness stays 0.0) because the everyday rush-hour swing
+    # (+-40 per half-day) is bigger than the anomaly's own jump against its immediate neighbour.
+    # Values confirmed against the real nab_nyc_taxi series before writing this: comparing each
+    # point to the same point one cycle back turns a 0.0 raw spikiness into a real signal.
+    period = 24
+    days = 10
+    anomaly_day = 5
+    anomaly_start = anomaly_day * period + 8
+    anomaly_len = 5
+    values = [50.0 + 40.0 * math.sin(index * 2.0 * math.pi / period) for index in range(days * period)]
+    for offset in range(anomaly_len):
+        values[anomaly_start + offset] -= 30.0
+
+    profile = _extract_profile(values)
+
+    assert profile.seasonality_strength >= 0.42
+    assert profile.seasonality_dominant_lag == period
+    assert profile.spikiness >= 0.2
+
+
+def test_spikiness_stays_low_on_clean_seasonal_series_with_no_real_anomaly() -> None:
+    # Regression guard: a purely seasonal series with no injected anomaly should not suddenly
+    # read as spiky just because spikiness is now measured on a seasonal residual.
+    values = [50.0 + 40.0 * math.sin(index * 2.0 * math.pi / 24.0) for index in range(240)]
+    profile = _extract_profile(values)
+
+    assert profile.seasonality_strength >= 0.42
+    assert profile.spikiness < 0.2
+
+
+def test_spikiness_falls_back_to_raw_values_when_series_too_short_for_a_residual() -> None:
+    # Seasonality can't be trusted yet on a short series (well under 3 full cycles), so this
+    # should behave exactly as before the fix - no crash, no forced residual.
+    values = [50.0 + 40.0 * math.sin(index * 2.0 * math.pi / 24.0) for index in range(20)]
+    profile = _extract_profile(values)
+
+    assert profile.spikiness >= 0.0
 
 
 def test_supported_profile_mismatch_caps_suitability(tmp_path: Path) -> None:
@@ -252,3 +313,27 @@ def test_pyod_outlier_is_not_recommended_for_baseline_shift_profile() -> None:
     assert decision.eligible is True
     assert decision.recommendation == "NOT_RECOMMENDED"
     assert decision.parameters_tested["profile_match"] is False
+
+
+def test_pyod_outlier_is_not_shape_gated_on_a_seasonal_profile() -> None:
+    # nyc_taxi-shaped case: the series is labeled seasonal/repeating_pattern with no irregularity
+    # label yet, but genuinely looks spiky (spikiness=0.4). Before the shape/irregularity split,
+    # this shape mismatch capped pyod_outlier at PROFILE_MISMATCH_CAP (0.54) regardless of its own
+    # evidence, always landing NOT_RECOMMENDED. pyod_outlier only claims irregularity profiles, so
+    # a shape-only detected_profiles must not be held against it - its own scoring rules should
+    # decide instead. Note the ceiling here is OPTIONAL (0.76), not RECOMMENDED (>=0.8): reaching
+    # RECOMMENDED still requires profile_match (the +0.10 bonus), i.e. an irregularity label
+    # actually being detected - this fix only stops the false floor, it doesn't invent a match.
+    router = UniversalTimeSeriesRouter()
+    decisions = {
+        decision.analyzer: decision
+        for decision in router.recommend_analyzers_for_profile(
+            _profile(detected_profiles=["seasonal", "repeating_pattern"], spikiness=0.4, shift_index=0.0)
+        )
+    }
+
+    decision = decisions["pyod_outlier"]
+    assert decision.eligible is True
+    assert decision.parameters_tested["profile_match"] is False
+    assert decision.final_score == 0.76
+    assert decision.recommendation == "OPTIONAL"
