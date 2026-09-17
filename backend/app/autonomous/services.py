@@ -15,6 +15,7 @@ from backend.app.autonomous.schemas import (
     MetricAnalysisPlan,
     MetricClassification,
     MetricConcept,
+    MetricDiscoveryResult,
     MetricPlanItem,
     MonitoringCategory,
     PlannedAnalysisRequest,
@@ -33,7 +34,9 @@ class MetricMetadataProvider(Protocol):
         namespace_label: str,
         environment_label: str,
         limit: int,
-    ) -> list[DiscoveredMetric]:
+        scope_selector: str = "",
+        max_series_per_metric: int = 10,
+    ) -> list[DiscoveredMetric] | MetricDiscoveryResult:
         ...
 
 
@@ -139,22 +142,62 @@ class MetricDiscoveryService:
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 
-        discovered = self.provider.discover_metric_metadata(
-            service_label=scope.service_label,
-            namespace_label=scope.namespace_label or "namespace",
-            environment_label=scope.environment_label or "env",
-            limit=self.metadata_limit,
-        )
-        if len(discovered) >= self.metadata_limit:
-            warnings.append("Metric discovery was truncated by the metadata safety limit.")
+        scope_selector = build_scope_selector(scope)
+        effective_limit = scope.metadata_limit if scope.metadata_limit else self.metadata_limit
+        max_series_per_metric = scope.max_series_per_metric if scope.max_series_per_metric else 10
+
+        try:
+            discovery_output = self.provider.discover_metric_metadata(
+                service_label=scope.service_label,
+                namespace_label=scope.namespace_label or "namespace",
+                environment_label=scope.environment_label or "env",
+                limit=effective_limit,
+                scope_selector=scope_selector,
+                max_series_per_metric=max_series_per_metric,
+            )
+        except TypeError:
+            discovery_output = self.provider.discover_metric_metadata(
+                service_label=scope.service_label,
+                namespace_label=scope.namespace_label or "namespace",
+                environment_label=scope.environment_label or "env",
+                limit=effective_limit,
+            )
+
+        if isinstance(discovery_output, MetricDiscoveryResult):
+            discovered = discovery_output.metrics
+            series_discovered = discovery_output.series_discovered
+            series_available = discovery_output.series_available
+            truncated = discovery_output.truncated
+            starved_metrics = discovery_output.starved_metrics
+        else:
+            discovered = discovery_output
+            series_discovered = len(discovered)
+            series_available = None
+            truncated = len(discovered) >= effective_limit
+            starved_metrics = []
+
+        if truncated:
+            if starved_metrics:
+                warnings.append(
+                    f"Metric discovery was truncated by the metadata safety limit ({effective_limit}). "
+                    f"{len(starved_metrics)} metric names were excluded from discovery."
+                )
+            else:
+                warnings.append(f"Metric discovery was truncated by the metadata safety limit ({effective_limit}).")
+
         if not discovered:
             return (
                 ResolvedAnalysisScope(
                     discovered_metric_count=0,
-                    warnings=["No metric metadata was discovered for the selected datasource."],
+                    series_discovered=series_discovered,
+                    series_available=series_available,
+                    truncated=truncated,
+                    starved_metrics_count=len(starved_metrics),
+                    starved_metrics=starved_metrics[:50],
+                    warnings=warnings + ["No metric metadata was discovered for the selected datasource."],
                     filters_applied=self._filters(scope),
                     label_mapping=self._label_mapping(scope),
-                    selector=build_scope_selector(scope),
+                    selector=scope_selector,
                 ),
                 [],
             )
@@ -190,10 +233,15 @@ class MetricDiscoveryService:
                 resolved_namespaces=resolved_namespaces,
                 resolved_environment=None if not scope.environment or scope.environment.lower() == "all" else scope.environment,
                 discovered_metric_count=len(filtered),
+                series_discovered=series_discovered,
+                series_available=series_available,
+                truncated=truncated,
+                starved_metrics_count=len(starved_metrics),
+                starved_metrics=starved_metrics[:50],
                 warnings=warnings,
                 filters_applied=self._filters(scope),
                 label_mapping=self._label_mapping(scope),
-                selector=build_scope_selector(scope),
+                selector=scope_selector,
             ),
             filtered,
         )
@@ -552,6 +600,10 @@ class MetricPlanBuilder:
                 "namespaces": len(resolved_scope.resolved_namespaces),
                 "label_mapping": resolved_scope.label_mapping,
                 "selector": resolved_scope.selector,
+                "series_discovered": resolved_scope.series_discovered,
+                "series_available": resolved_scope.series_available,
+                "truncated": resolved_scope.truncated,
+                "starved_metrics_count": resolved_scope.starved_metrics_count,
             },
             monitoring_summary={
                 "categories": [category.value for category in selected_categories],

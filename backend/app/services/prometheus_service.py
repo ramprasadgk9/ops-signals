@@ -4,6 +4,7 @@ import base64
 import json
 import ssl
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
@@ -12,7 +13,7 @@ from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
 
-from backend.app.autonomous.schemas import DiscoveredMetric
+from backend.app.autonomous.schemas import DiscoveredMetric, MetricDiscoveryResult
 from backend.app.config import PrometheusConnectionConfig
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
 
@@ -85,19 +86,45 @@ class PrometheusQueryService:
         except HTTPException as exc:
             return False, None, int((time.perf_counter() - started) * 1000), str(exc.detail)
 
-    def label_values(self, label: str) -> list[str]:
+    def label_values(self, label: str, matchers: list[str] | None = None) -> list[str]:
         if not self.config.base_url:
             raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
         normalized = label.strip()
         if not normalized:
             raise HTTPException(status_code=400, detail="label is required")
-        payload = self._get_json(f"/api/v1/label/{normalized}/values", {})
+        query_string = ""
+        if matchers:
+            clean_matchers = [m for m in matchers if m and m != "{}"]
+            if clean_matchers:
+                query_string = "?" + "&".join(("match[]=" + quote(matcher, safe="")) for matcher in clean_matchers)
+        try:
+            payload = self._get_json(f"/api/v1/label/{normalized}/values{query_string}", {})
+        except HTTPException:
+            if query_string:
+                payload = self._get_json(f"/api/v1/label/{normalized}/values", {})
+            else:
+                raise
         if payload.get("status") != "success":
             raise HTTPException(status_code=502, detail=str(payload.get("error") or "Prometheus label lookup failed"))
         values = payload.get("data")
         if not isinstance(values, list):
             raise HTTPException(status_code=502, detail="Prometheus label response is malformed")
         return sorted(str(value) for value in values if value is not None)
+
+    def direct_scoped_series(self, scope_selector: str, limit: int = 5000) -> list[dict[str, str]]:
+        if not scope_selector or scope_selector == "{}":
+            return []
+        query_string = "match[]=" + quote(scope_selector, safe="")
+        payload = self._get_json(f"/api/v1/series?{query_string}", {})
+        data = payload.get("data")
+        rows: list[dict[str, str]] = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    rows.append({str(key): str(value) for key, value in item.items()})
+                if len(rows) >= limit:
+                    break
+        return rows
 
     def discover_metric_metadata(
         self,
@@ -106,17 +133,56 @@ class PrometheusQueryService:
         namespace_label: str = "namespace",
         environment_label: str = "env",
         limit: int = 5000,
-    ) -> list[DiscoveredMetric]:
+        scope_selector: str = "",
+        max_series_per_metric: int = 10,
+    ) -> MetricDiscoveryResult:
         if not self.config.base_url:
             raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
-        metric_names = self.label_values("__name__")[: max(1, min(limit, 5000))]
+
+        effective_limit = max(1, min(limit, 50000))
+
+        # 1. Fast Path for Scoped Policies (Single-Call Pushdown)
+        if scope_selector and scope_selector != "{}":
+            try:
+                direct_rows = self.direct_scoped_series(scope_selector, limit=effective_limit)
+            except HTTPException:
+                direct_rows = []
+            if direct_rows:
+                metric_names = sorted({row.get("__name__") for row in direct_rows if row.get("__name__")})
+                metadata_by_name = self.metric_metadata(metric_names)
+                filtered_rows = self._sample_distinct_series(direct_rows, max_per_metric=max_series_per_metric, limit=effective_limit)
+                discovered = self._rows_to_discovered_metrics(
+                    filtered_rows,
+                    metadata_by_name=metadata_by_name,
+                    service_label=service_label,
+                    namespace_label=namespace_label,
+                    environment_label=environment_label,
+                )
+                truncated = len(direct_rows) >= effective_limit
+                return MetricDiscoveryResult(
+                    metrics=discovered,
+                    series_available=len(direct_rows),
+                    series_discovered=len(filtered_rows),
+                    truncated=truncated,
+                    starved_metrics=[],
+                )
+
+        # 2. Breadth-First Dynamic Quota for Unscoped Policies (Cluster-Wide)
+        matchers = [scope_selector] if scope_selector and scope_selector != "{}" else None
+        metric_names = self.label_values("__name__", matchers=matchers)[:effective_limit]
         if not metric_names:
-            return []
+            return MetricDiscoveryResult(metrics=[], series_discovered=0, truncated=False, starved_metrics=[])
 
         metadata_by_name = self.metric_metadata(metric_names)
-        series_rows = self.series_metadata(metric_names, limit=max(1, min(limit, 5000)))
+        series_rows, starved_metrics = self.series_metadata(
+            metric_names,
+            limit=effective_limit,
+            scope_selector=scope_selector,
+            max_series_per_metric=max_series_per_metric,
+        )
+
         if not series_rows:
-            return [
+            fallback_metrics = [
                 DiscoveredMetric(
                     metric_name=name,
                     labels={"__name__": name},
@@ -126,9 +192,65 @@ class PrometheusQueryService:
                 )
                 for name in metric_names
             ]
+            return MetricDiscoveryResult(
+                metrics=fallback_metrics,
+                series_discovered=len(fallback_metrics),
+                truncated=False,
+                starved_metrics=[],
+            )
 
+        discovered = self._rows_to_discovered_metrics(
+            series_rows,
+            metadata_by_name=metadata_by_name,
+            service_label=service_label,
+            namespace_label=namespace_label,
+            environment_label=environment_label,
+        )
+        truncated = len(starved_metrics) > 0 or len(series_rows) >= effective_limit
+        return MetricDiscoveryResult(
+            metrics=discovered,
+            series_available=None,
+            series_discovered=len(series_rows),
+            truncated=truncated,
+            starved_metrics=starved_metrics,
+        )
+
+    @staticmethod
+    def _sample_distinct_series(rows: list[dict[str, str]], max_per_metric: int = 10, limit: int = 5000) -> list[dict[str, str]]:
+        counts: dict[str, int] = defaultdict(int)
+        label_counts: dict[tuple[str, tuple], int] = defaultdict(int)
+        sampled: list[dict[str, str]] = []
+        for row in rows:
+            name = row.get("__name__", "")
+            if not name:
+                continue
+            if counts[name] >= max_per_metric:
+                continue
+            label_key = (
+                row.get("service"),
+                row.get("namespace"),
+                row.get("env") or row.get("environment"),
+            )
+            if label_counts[name, label_key] >= 2:
+                continue
+            label_counts[name, label_key] += 1
+            counts[name] += 1
+            sampled.append(row)
+            if len(sampled) >= limit:
+                break
+        return sampled
+
+    @staticmethod
+    def _rows_to_discovered_metrics(
+        rows: list[dict[str, str]],
+        *,
+        metadata_by_name: dict[str, str | None],
+        service_label: str,
+        namespace_label: str,
+        environment_label: str,
+    ) -> list[DiscoveredMetric]:
         discovered: list[DiscoveredMetric] = []
-        for labels in series_rows:
+        for labels in rows:
             metric_name = labels.get("__name__")
             if not metric_name:
                 continue
@@ -170,24 +292,60 @@ class PrometheusQueryService:
             metadata[str(metric_name)] = str(first.get("type")) if isinstance(first, dict) and first.get("type") else None
         return metadata
 
-    def series_metadata(self, metric_names: list[str], limit: int = 5000) -> list[dict[str, str]]:
+    def series_metadata(
+        self,
+        metric_names: list[str],
+        limit: int = 5000,
+        scope_selector: str = "",
+        max_series_per_metric: int = 10,
+    ) -> tuple[list[dict[str, str]], list[str]]:
         if not metric_names:
-            return []
+            return [], []
         rows: list[dict[str, str]] = []
         chunk_size = 80
+        quota = max(2, min(max_series_per_metric, max(1, limit // max(1, len(metric_names)))))
+        series_count_by_name: dict[str, int] = defaultdict(int)
+        label_counts: dict[tuple[str, tuple], int] = defaultdict(int)
+
         for start in range(0, len(metric_names), chunk_size):
             chunk = metric_names[start : start + chunk_size]
-            matchers = [f'{{__name__="{name}"}}' for name in chunk]
+            if scope_selector and scope_selector != "{}":
+                inner = scope_selector[1:-1].strip() if scope_selector.startswith("{") and scope_selector.endswith("}") else scope_selector
+                matchers = [f'{{{inner},__name__="{name}"}}' for name in chunk]
+            else:
+                matchers = [f'{{__name__="{name}"}}' for name in chunk]
             query_string = "&".join(("match[]=" + quote(matcher, safe="")) for matcher in matchers)
             payload = self._get_json(f"/api/v1/series?{query_string}", {})
             data = payload.get("data")
             if isinstance(data, list):
                 for item in data:
-                    if isinstance(item, dict):
-                        rows.append({str(key): str(value) for key, value in item.items()})
+                    if not isinstance(item, dict):
+                        continue
+                    name = str(item.get("__name__", ""))
+                    if not name:
+                        continue
+                    if series_count_by_name[name] >= quota:
+                        continue
+
+                    label_key = (
+                        str(item.get("service")) if item.get("service") else None,
+                        str(item.get("namespace")) if item.get("namespace") else None,
+                        str(item.get("env") or item.get("environment")) if (item.get("env") or item.get("environment")) else None,
+                    )
+                    if label_counts[name, label_key] >= 2:
+                        continue
+
+                    label_counts[name, label_key] += 1
+                    series_count_by_name[name] += 1
+                    rows.append({str(key): str(value) for key, value in item.items()})
                     if len(rows) >= limit:
-                        return rows
-        return rows
+                        break
+            if len(rows) >= limit:
+                break
+
+        discovered_names = {row.get("__name__") for row in rows if row.get("__name__")}
+        starved_metrics = [name for name in metric_names if name not in discovered_names]
+        return rows, starved_metrics
 
     def preview(self, query: str, start: datetime, end: datetime, step: str) -> PrometheusPreviewOut:
         if not self.config.base_url:
