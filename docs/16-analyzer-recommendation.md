@@ -101,6 +101,104 @@ A series with `shift_index = 0.25`, regular sampling, and moderate spikiness sco
 `0.45 (base) + 0.18 (shift_index ≥ 0.12) + 0.22 (shift_index ≥ 0.22) + 0.08 (regular sampling) = 0.93`
 → comfortably `RECOMMENDED`.
 
+### Profile-match bonus/cap, and the shape-vs-irregularity split
+
+On top of the additive scoring rules above, the score is nudged once more based on whether the
+analyzer's own declared `supported_profiles` overlap the series' `detected_profiles`
+(`experiments/analyzer_router/router.py`, `_suitability_score`):
+
+- **Match** (e.g. `pyod_outlier` supports `anomaly/outlier/spike`, and the series was detected as
+  `anomaly`): `+ PROFILE_MATCH_BONUS` (`0.10`).
+- **Mismatch** (the series' detected profile shares nothing with what the analyzer claims to
+  support): score is capped at `PROFILE_MISMATCH_CAP` (`0.54`) - below the `0.55` `OPTIONAL` floor,
+  so a mismatch alone is enough to force `NOT_RECOMMENDED` regardless of the additive rules above.
+
+That mismatch cap is only meaningful for analyzers that actually make a claim about the series'
+*shape* (`seasonal`, `repeating_pattern`, `trend`) - `stumpy`, `prophet`, `ruptures`, `kats`. It was
+previously applied uniformly, including to analyzers whose *entire* declared purpose is spotting
+*irregularities* (`anomaly`, `outlier`, `spike`, `baseline_shift`, `regime_change`) and who never
+claimed anything about shape in the first place - `pyod_outlier`, `pyod`. A series labeled purely
+`seasonal`/`repeating_pattern` (no irregularity label detected yet - e.g. NYC taxi demand, where
+real anomalies exist but the raw `spikiness` metric doesn't cross its threshold, see "Known gaps"
+below) would cap these analyzers at `0.54` regardless of what their own `spikiness`/`shift_index`
+evidence actually said - the series *being seasonal* was treated as evidence *against* an
+irregularity check that never depended on seasonality at all.
+
+The fix (`IRREGULARITY_PROFILES` / `_is_irregularity_only` in `router.py`): an analyzer is exempt
+from the mismatch cap only if **both** hold - (a) its behavioral `supported_profiles` are entirely
+drawn from the irregularity set, and (b) none of its own `scoring_rules` test a shape metric
+(`seasonality_strength`, `trend_strength`, ...). Condition (b) matters because the profile label
+alone isn't reliable: `adtk`'s supported-profile list filters down to `{spike, outlier}` (its
+`seasonal_anomaly` entry doesn't textually match the fixed vocabulary's `seasonal`), but its own
+scoring rules reward `seasonality_strength` directly - it's a genuine seasonal-contradiction
+detector, mislabeled by a naming gap, and stays gated on shape as before. Only `pyod_outlier` and
+`pyod` currently qualify for the exemption.
+
+**What the fix does on its own**, confirmed against `benchmark/run_router_scenarios` and a real NAB
+series (`nab_nyc_taxi`, see `docs/27-nab-real-world-benchmark.html`): it removes a false floor - an
+irregularity analyzer can no longer be pinned at `0.54`/`NOT_RECOMMENDED` purely for sharing no
+label with the series' shape. It does **not**, by itself, manufacture evidence: on `nab_nyc_taxi`
+before the feature-extraction fix below, `pyod_outlier`'s own `spikiness`/`shift_index` rules
+didn't fire, so its score stayed at `0.46`/`NOT_RECOMMENDED` even with the cap removed - the cap
+only matters for a series where the additive rules already score above `0.54` but get knocked back
+down by a shape label the analyzer never claimed to care about.
+
+### Seasonal residual: making spikiness/shift_index mean something on seasonal data
+
+`nab_nyc_taxi` exposed a second, independent gap once the shape-mismatch cap stopped hiding it:
+`spikiness`/`shift_index` (`experiments/analyzer_router/feature_extractor.py`) measure point-to-
+point jumps against the *raw* series. On a strongly seasonal series (taxi demand swings by
+thousands of rides every single day just from rush hour), that everyday swing is bigger than a real
+anomaly's jump, so the anomaly reads as *quieter* than normal and never crosses either metric's
+reward threshold - `spikiness` came back `0.0` on the raw taxi series despite five real,
+NAB-labeled demand shocks in the data.
+
+**The fix**: when `seasonality_strength >= 0.42` (the same bar used above) and a dominant period was
+found, `spikiness` is computed on `values[t] - values[t - dominant_lag]` - each point compared to
+the same point one cycle back - instead of the raw point-to-point jump. Falls back to raw-value
+behavior automatically when seasonality isn't detected or there's under one cycle of history, so
+non-seasonal series (the majority of the router benchmark scenarios) are unaffected. On
+`nab_nyc_taxi` this took `spikiness` from `0.0` to `1.0` (max) and `shift_index` from `~0.05` to
+`~1.0`. This one number feeds 8 different analyzers' scoring rules (`ruptures`, `river`, `kats`,
+`alibi_detect`, `trend_regression`, `adtk`, `pyod`, `pyod_outlier`), so the fix was verified with a
+full `benchmark/run_router_scenarios` diff against the pre-fix baseline, not just unit tests -
+zero regressions despite the wide blast radius.
+
+### Two more links in the chain: execution-slot filtering and a config-key typo
+
+Getting `pyod_outlier` to a correctly-computed `RECOMMENDED` (0.86 on `nab_nyc_taxi`, once the two
+fixes above are both in place) turned out not to be enough on its own - two more, unrelated bugs
+were standing between "correctly recommended" and "actually executes":
+
+- **Execution-slot filtering** (`intelligence/pipeline.py`, `_selected_router_analyzers`):
+  `recommended_threshold` mode picks the top `max_analyzers` (3, by default) purely by score, with
+  no check that a candidate can actually execute. On `nab_nyc_taxi`, `darts` and `adtk` both tied
+  at score `1.0` with zero pipeline analyzer behind either of them (see the routing matrix below),
+  and were winning 2 of the 3 execution slots away from `pyod_outlier` (0.86) - a real analyzer
+  that could actually produce a finding. Fixed by filtering candidates to those with an available
+  pipeline mapping (`_available_pipeline_analyzer_ids`) *before* ranking and capping, not after.
+  An existing test, `test_recommended_threshold_selects_top_recommended_executable_analyzers`
+  (`tests/test_csv_pipeline.py`), was already named for this promise but its own fixture proved the
+  bug - `kats` (no pipeline analyzer) was asserted to win a slot over a real one.
+- **A config-key typo** (`config/analyzers.yaml`): the `pyod_outlier` override block used
+  `finding_rules` (plural) - almost certainly copy-pasted from the `anomaly_zscore` block just
+  above it - but `PyODOutlierAnalyzer.__init__` only accepts `finding_rule` (singular). The extra
+  kwarg raised inside `instantiate()`, and `SignalPipeline._build_analyzers`'s try/except silently
+  swallowed the error, logging it but returning nothing - `pyod_outlier` never constructed via
+  `provider=generic` (the real upload/API path), no matter how the router scored it. This had
+  presumably been broken since whenever that override block was written; it was invisible until the
+  three fixes above finally got `pyod_outlier` selected for the first time. Fixed by correcting the
+  key name; a new regression test constructs every built-in analyzer through the exact same
+  override-merge path a real CSV upload uses
+  (`test_every_builtin_analyzer_constructs_under_the_real_generic_provider_config`), so a
+  reintroduced mismatch fails a test instead of silently vanishing from a live run.
+
+**Combined, verified outcome** (`docs/27-nab-real-world-benchmark.html`): all four fixes together
+took `nab_nyc_taxi` from 0/5 to 5/5 labeled anomaly windows recalled, re-run against the actual
+production API path (`POST /api/ingestion/csv-run`, `provider=generic`) at each step, not
+estimated. Precision on that series is now the open question (33%, 34 of 104 flagged points land in
+a real window) - see "Known gaps".
+
 **Where the weights come from:** they're expert-defined heuristics, hand-chosen when the registry
 was written - not fit against outcome data, not benchmarked against a calibration methodology. See
 [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md) for the full honest accounting of
@@ -168,32 +266,44 @@ recommendation for one of these executes a mapped fallback instead (see the mapp
 | `prophet` | [Prophet](https://facebook.github.io/prophet/docs/quick_start.html) | Optional - falls back to `numpy.polyfit` if not installed | Forecastable metrics with trend/seasonality. |
 | `pyod_outlier` | [PyOD](https://pyod.readthedocs.io/en/latest/index.html) (KNN) | Yes | Isolated anomalous points when z-score is too simple. |
 | `trend_regression` | Concept, maps to `trend` | No separate runtime analyzer | Router's conceptual label for linear movement. |
-| `adtk` / `pyod` | [ADTK](https://adtk.readthedocs.io/en/stable/) / [PyOD](https://pyod.readthedocs.io/en/latest/index.html) | No - router maps these to `anomaly_zscore` | Rule-based / outlier-centric anomaly checks. |
-| `darts` | [Darts](https://unit8co.github.io/darts/) | No - router maps to `prophet` | Richer, multi-seasonal forecasting. |
-| `kats` | [Kats](https://github.com/facebookresearch/Kats) concept | No direct package - maps to `baseline_shift`/`trend`/`anomaly_zscore`/`stumpy`/`prophet` | Mixed-behavior series (shift + trend + seasonality together). |
+| `adtk` / `pyod` | [ADTK](https://adtk.readthedocs.io/en/stable/) / [PyOD](https://pyod.readthedocs.io/en/latest/index.html) | No - no pipeline analyzer or fallback mapping exists | Rule-based / outlier-centric anomaly checks. |
+| `darts` | [Darts](https://unit8co.github.io/darts/) | No - no pipeline analyzer or fallback mapping exists | Richer, multi-seasonal forecasting. |
+| `kats` | [Kats](https://github.com/facebookresearch/Kats) concept | No direct package, no fallback mapping | Mixed-behavior series (shift + trend + seasonality together). |
 | `alibi_detect` | [Alibi Detect](https://github.com/SeldonIO/alibi-detect) | No direct implementation | Distribution drift without a clear mean shift. |
 | `river` | [River](https://github.com/online-ml/river) | No - pipeline is batch-oriented, not streaming | Online, point-by-point anomaly scoring. |
 
 **Use this table as the source of truth for whether a router recommendation can execute today.**
 `baseline_shift` is the product/domain analyzer name; `ruptures` the library underneath it.
 
+**Correction (verified against `intelligence/pipeline.py` while investigating the NAB benchmark
+report, `docs/27-nab-real-world-benchmark.html`):** this table and the mapping below previously
+claimed `darts` falls back to `prophet` and `adtk`/`pyod` fall back to `anomaly_zscore`. Those
+fallbacks do not exist in code - `_router_to_pipeline_analyzers()` (below) defines exactly one
+alias, `trend_regression` -> `trend`. `darts`, `adtk`, and `pyod` have **no** executable path today,
+the same as `river`, `kats`, and `alibi_detect` - a `RECOMMENDED` result for any of the six has
+nothing to actually run. This is not just a documentation gap: it let `darts`/`adtk` silently win
+execution slots away from real analyzers in `recommended_threshold` mode (see "Known gaps" -
+"execution-slot filtering").
+
 ## Router-to-pipeline mapping
 
 Router analyzer IDs aren't always one-to-one with executable analyzers
-(`intelligence/pipeline.py`):
+(`intelligence/pipeline.py`, `_router_to_pipeline_analyzers` - this is the complete, current
+mapping, not illustrative):
 
 | Router analyzer | Pipeline analyzer(s) |
 | --- | --- |
-| `ruptures` | `ruptures`, `baseline_shift` |
-| `stumpy` | `stumpy` |
-| `prophet` | `prophet` |
-| `darts` | `prophet` (fallback) |
-| `trend_regression` | `trend` (fallback) |
-| `adtk` | `anomaly_zscore` (fallback) |
-| `pyod` | `anomaly_zscore` (fallback) |
+| `ruptures` | `ruptures` (identical id, no alias needed) |
+| `stumpy` | `stumpy` (identical id) |
+| `prophet` | `prophet` (identical id) |
+| `pyod_outlier` | `pyod_outlier` (identical id) |
+| `trend_regression` | `trend` (the one real alias) |
 
-`river`, `kats`, and `alibi_detect` have no executable mapping today - a `RECOMMENDED` result for
-one of these currently has nothing to actually run.
+`darts`, `adtk`, `pyod`, `river`, `kats`, and `alibi_detect` have no executable mapping today - a
+`RECOMMENDED` result for any of these currently has nothing to actually run.
+`recommended_threshold` selection now filters these out before ranking/capping precisely because of
+this (see "Known gaps"), so they no longer occupy an execution slot, but implementing them (or
+formally retiring them from the router's candidate registry) remains undecided.
 
 ## Optional AI second opinion
 
@@ -248,7 +358,7 @@ An unknown `selection_mode` does not fail validation - it falls back to unrestri
 | --- | --- | --- | --- |
 | Baseline shift | Regular sampling, clear jump, elevated `shift_index` | `ruptures` RECOMMENDED | `ruptures`, `baseline_shift` |
 | Repeating/seasonal pattern | Regular sampling, high `seasonality_strength` | `stumpy` RECOMMENDED, `prophet` maybe OPTIONAL | `stumpy`, maybe `prophet` |
-| Irregular spiky stream | Irregular sampling, high `spikiness`, weak seasonality | `river`/`adtk`/`pyod` may score higher | Today, `adtk`/`pyod` fall back to `anomaly_zscore`; `river` has no native path |
+| Irregular spiky stream | Irregular sampling, high `spikiness`, weak seasonality | `river`/`adtk`/`pyod` may score higher | Today, none of `river`/`adtk`/`pyod` have an executable path (see "Router-to-pipeline mapping") - `pyod_outlier` is the real analyzer that actually runs for this shape |
 | Short/invalid/low-information series | Too few samples, mostly constant, high missingness | Many `REJECTED` | Often nothing, in `recommended_only` |
 
 ## No analyzer was executed - is that a bug?
@@ -293,10 +403,37 @@ execution under every selection mode.
 
 Verified current, as of this doc:
 
+- **Fixed this cycle:** `PROFILE_MISMATCH_CAP` used to apply uniformly to every analyzer with a
+  behavioral `supported_profiles` restriction, including `pyod_outlier`/`pyod`, whose only claim is
+  irregularity (`anomaly`/`outlier`/`spike`) and who never claimed anything about series shape. A
+  purely `seasonal`/`repeating_pattern`-labeled series (no irregularity label detected) capped their
+  score at `0.54` regardless of their own `spikiness`/`shift_index` evidence. See "Profile-match
+  bonus/cap, and the shape-vs-irregularity split" above; regression test in
+  `tests/test_analyzer_router_profile_matching.py::test_pyod_outlier_is_not_shape_gated_on_a_seasonal_profile`.
 - **Fixed this cycle:** the Analyzer Recommendation workbench used to feed the router a fake
   `shift_index` (variance/mean) and a hardcoded `spikiness = 0.0` for every series, instead of the
   real per-split calculation the production pipeline uses - see
   [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md).
+- **Fixed this cycle:** `spikiness`/`shift_index` were computed against the series' *raw* values,
+  not a de-seasonalized residual - on a strongly seasonal real series with genuine anomalies riding
+  on top (`nab_nyc_taxi`, five labeled demand shocks - `docs/27-nab-real-world-benchmark.html`), the
+  anomalies got averaged away by the series' own seasonal swing before `spikiness` was even
+  computed. See "Seasonal residual" above.
+- **Fixed this cycle:** `recommended_threshold` mode's `max_analyzers` cap ranked candidates by
+  score alone, so a non-executable recommendation (`darts`/`adtk`, no pipeline analyzer behind
+  either) could win an execution slot away from a real one. See "Two more links in the chain"
+  above.
+- **Fixed this cycle:** a `config/analyzers.yaml` key typo (`finding_rules` vs. `finding_rule`)
+  silently crashed `pyod_outlier`'s construction on every real `provider=generic` analysis run,
+  invisible until the three fixes above finally got it selected. See "Two more links in the chain"
+  above.
+- **Fixed this cycle (documentation only):** this doc previously claimed `darts` falls back to
+  `prophet` and `adtk`/`pyod` fall back to `anomaly_zscore`. Verified against
+  `intelligence/pipeline.py`: none of those fallbacks exist in code. Corrected in "Router-to-pipeline
+  mapping" above.
+- **Combined, verified outcome of the five fixes above:** `nab_nyc_taxi` went from 0/5 to 5/5
+  labeled anomaly windows recalled, re-run against the real `provider=generic` API path at each
+  step (not estimated) - `docs/27-nab-real-world-benchmark.html`.
 - **Confirmed done:** `RupturesAnalyzer` uses the real `ruptures` package (not a hand-rolled scan);
   new analyzers can be registered through `config/analyzer_registry.d/*.yml` without editing
   pipeline construction code.
@@ -304,16 +441,27 @@ Verified current, as of this doc:
 Still open, not re-verified in this pass - treat as a starting point for filing issues, not a
 guarantee of current state:
 
-- Router registry lists analyzers (`river`, `kats`, `alibi_detect`) with no real execution mapping
-  at all - a `RECOMMENDED` result for these has nothing to actually run.
+- `darts`, `adtk`, `pyod`, `river`, `kats`, and `alibi_detect` are router-recommendable with no
+  pipeline analyzer or fallback mapping behind any of them, and no decision made on whether to
+  implement them for real or formally retire them from the router's candidate registry. The
+  execution-slot fix above stops them from crowding out real analyzers, but they still can't
+  produce a finding themselves.
 - No structured evidence when multiple analyzers agree or conflict on the same finding (currently
   implicit in the summary text, not a structured field).
 - No benchmark coverage of score *calibration* (is the magnitude proportional to severity), only
   selection accuracy (was the right analyzer picked).
-- `alibi_detect` (drift) and `river` (streaming) are router-recommendable with no decision made on
-  whether to implement them or mark them roadmap-only.
 - `STUMPY`/`Prophet` fall back to custom logic silently when the library isn't installed - the
   `library`/`library_mode` isn't always surfaced in evidence.
+- `anomaly_zscore` doesn't re-baseline after a detected level shift - it keeps scoring new,
+  now-normal values against the pre-shift mean/variance for as long as that shift stays in the
+  analysis window. Measured cost on real data: 20 of 34 `pyod_outlier`/`anomaly_zscore` flags on
+  `nab_ec2_cpu` were downstream of a real shift, not new anomalies -
+  `docs/27-nab-real-world-benchmark.html`.
+- The seasonal-residual fix (above) got `nab_nyc_taxi` to full recall at the cost of precision: 33%
+  (34 of 104 flagged points land in a real window), the lowest of the four NAB series tested once
+  `pyod_outlier` started actually executing. Whether the same post-shift-persistence pattern as
+  `anomaly_zscore`'s gap is at play here too, just on the residual instead of the raw value, hasn't
+  been investigated.
 
 ## FAQ
 
