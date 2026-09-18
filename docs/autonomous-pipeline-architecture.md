@@ -12,7 +12,7 @@ This note records the boundary decision for separating Interactive Analysis from
 | `backend.app.models.entities.AutonomousPolicyRunEntity` | Autonomous control plane | Authoritative record of one autonomous policy execution. |
 | `backend.app.models.entities.AutonomousMetricJobEntity` | Autonomous control plane | Authoritative record of one planned/skipped/executed metric job, optionally linked to `analysis_runs`. |
 | `backend.app.autonomous.repository` | Autonomous control plane | Repository boundary for policy-run and metric-job state changes. |
-| `backend.app.autonomous.services.MetricDiscoveryService` | Autonomous only | Discovers metric metadata for autonomous scope planning. |
+| `backend.app.autonomous.services.MetricDiscoveryService` | Autonomous only | Discovers metric metadata for autonomous scope planning with push-down label scoping, anti-starvation dynamic quota sampling, and truncation visibility (`series_available`, `starved_metrics`). |
 | `backend.app.autonomous.services.MetricClassificationService` | Autonomous only | Maps monitoring intent to metric concepts and Prometheus metrics. |
 | `backend.app.autonomous.services.MetricPlanBuilder` | Autonomous only | Builds autonomous metric plans and planned request payloads. |
 | `backend.app.autonomous.execution.execute_autonomous_plan_once` | Autonomous only | Coordinates a preview plan execution once; this is not a repeating scheduler. |
