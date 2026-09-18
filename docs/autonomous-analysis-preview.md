@@ -83,7 +83,7 @@ The planner deduplicates lower-ranked metrics that represent the same service, c
 
 The response contains:
 
-- `scope_summary`: resolved services, namespaces, environment, label mapping, selector, `series_discovered`, `series_available`, `truncated`, `starved_metrics_count`, and `starved_metrics`
+- `scope_summary`: resolved services, namespaces, environment, label mapping, selector, `series_discovered`, `series_available`, `truncated`, `starved_metrics_count`, `starved_metrics`, `budget_limited_jobs`, `budget_excluded_metrics_count`, and `budget_excluded_metrics`
 - `monitoring_summary`: selected categories and expanded concepts
 - `metrics_discovered`, `metrics_classified`, `metrics_selected`, `planned_jobs`, and `budget_limited_jobs`
 - discovery coverage & truncation metrics:
@@ -92,6 +92,10 @@ The response contains:
   - `truncated`: `true` if any metric was starved or the discovery cap was reached
   - `starved_metrics_count`: count of metric names that yielded 0 series due to cap truncation
   - `starved_metrics`: list of metric names that received 0 series
+- execution budget coverage metrics:
+  - `budget_limited_jobs`: count of selected jobs excluded by `max_metrics_per_run`
+  - `budget_excluded_metrics_count`: count of distinct metric names excluded by execution budget
+  - `budget_excluded_metrics`: list of distinct metric names excluded by execution budget
 - per-metric rows with status, reason, PromQL, aggregation, confidence, and planned request details
 
 Excluded rows remain visible so users can validate why a metric was skipped.
@@ -105,8 +109,20 @@ Run-once behavior:
 - executes only rows marked `planned`
 - requires each planned PromQL query to return exactly one logical series
 - persists normal analysis runs, signals, findings, and behavior findings through shared storage
+- surfaces execution budget coverage (`budget_limited_jobs`, `budget_excluded_metrics_count`, `budget_excluded_metrics`) in the response root and `summary` object
 - returns per-job status, sample count, signal count, finding count, behavior finding count, warnings, and errors
 - does not create a persistent autonomous policy or background schedule
+
+### Execution Budget & Independent Run Model
+
+Execution respects `max_metrics_per_run` (default 500, max 5,000). When classification selects more metrics than the configured budget:
+- Top-ranked metrics up to `max_metrics_per_run` are executed.
+- Excluded metrics are recorded with `exclusion_reason="budget_limit"` and surfaced in `budget_excluded_metrics`.
+- **Every run is independent**: budget-excluded metrics are not deferred, queued, or carried over to future runs. To achieve broader coverage, operators must increase `max_metrics_per_run` or narrow scope using service and namespace filters.
+
+### Execution Concurrency (`max_parallel_jobs`)
+
+`max_parallel_jobs` is an execution policy setting (default 20, max 200). Execution currently runs sequentially in a single transaction loop to preserve database transactional safety and deterministic order across SQLite and PostgreSQL storage. The `max_parallel_jobs` field is preserved in run configuration and reserved for future worker concurrency.
 
 For local mock Prometheus data, prefer `All environments`, service `ruptures-lab`, category `Capacity`, and a `6h` analysis window. A `24h` window can include sparse sample gaps and may be rejected by the existing time-series validator.
 

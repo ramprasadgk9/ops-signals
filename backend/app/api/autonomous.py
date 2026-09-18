@@ -97,6 +97,8 @@ def preview_autonomous_plan(
         planned_jobs=plan.planned_jobs,
         budget_limited_jobs=plan.budget_limited_jobs,
         budget_limited=plan.budget_limited_jobs,
+        budget_excluded_metrics_count=plan.budget_excluded_metrics_count,
+        budget_excluded_metrics=plan.budget_excluded_metrics,
         series_discovered=resolved_scope.series_discovered,
         series_available=resolved_scope.series_available,
         truncated=resolved_scope.truncated,
@@ -407,6 +409,12 @@ def _answer_run_summary(run, findings: list[FindingEntity], jobs, cases: list[Op
         f"{completed} jobs completed, {skipped} skipped, and {failed} failed.",
         f"{len(cases)} cases are linked to findings from the selected evidence.",
     ]
+    budget_limited_jobs = (run.policy_snapshot_json or {}).get("budget_limited_jobs", 0)
+    if budget_limited_jobs:
+        key_points.append(
+            f"Execution budget limited: {completed} executed of {run.metrics_selected or 0} selected "
+            f"({budget_limited_jobs} excluded by max_metrics_per_run)."
+        )
     if findings:
         key_points.append(f"Top finding: {_finding_label(findings[0])}.")
     else:
@@ -526,6 +534,7 @@ def _answer_skipped_metrics(run, jobs, window: AnswerWindow) -> AutonomousQuesti
 
 
 def _policy_run_to_dict(run) -> dict:
+    snapshot = run.policy_snapshot_json or {}
     return {
         "policy_run_id": run.id,
         "id": run.id,
@@ -541,6 +550,9 @@ def _policy_run_to_dict(run) -> dict:
         "jobs_completed": run.jobs_completed,
         "jobs_skipped": run.jobs_skipped,
         "jobs_failed": run.jobs_failed,
+        "budget_limited_jobs": snapshot.get("budget_limited_jobs", 0),
+        "budget_excluded_metrics_count": snapshot.get("budget_excluded_metrics_count", 0),
+        "budget_excluded_metrics": snapshot.get("budget_excluded_metrics", []),
         "findings_created": run.findings_created,
         "error_summary": run.error_summary,
         "created_at": run.created_at,

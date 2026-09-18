@@ -163,3 +163,46 @@ def test_answer_never_calls_the_llm_when_there_is_no_run_data() -> None:
     body = response.json()
     assert body["ai_synthesis_used"] is False
     assert fake_client.requests == []
+
+
+def test_answer_includes_budget_limited_key_point_when_run_was_budget_limited(monkeypatch) -> None:
+    monkeypatch.setattr(autonomous_execution, "MetricAnalysisExecutor", _FakeMetricAnalysisExecutor)
+    app = create_app("sqlite+pysqlite:///:memory:")
+    # 2 capacity metrics across checkout and payments so dedupe doesn't collapse them
+    metrics = [
+        DiscoveredMetric(
+            metric_name="cpu_usage",
+            labels={"__name__": "cpu_usage", "service": "checkout"},
+            service="checkout",
+            namespace="commerce",
+            environment="production",
+            source="prometheus",
+        ),
+        DiscoveredMetric(
+            metric_name="memory_usage",
+            labels={"__name__": "memory_usage", "service": "payments"},
+            service="payments",
+            namespace="commerce",
+            environment="production",
+            source="prometheus",
+        ),
+    ]
+    app.dependency_overrides[get_prometheus_query_service] = lambda: _FakeMetadataProvider(metrics)
+
+    with TestClient(app) as client:
+        run_response = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 1, "max_parallel_jobs": 20},
+            },
+        ).json()
+        assert run_response["budget_limited_jobs"] == 1
+        answer_response = client.post(
+            "/api/autonomous/questions/answer",
+            json={"policy_run_id": run_response["policy_run_id"], "question": "Summarize this run", "window": "24h"},
+        ).json()
+
+    assert any("Execution budget limited" in point for point in answer_response["key_points"])
+
