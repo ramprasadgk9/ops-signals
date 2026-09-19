@@ -51,6 +51,10 @@ function confidenceLabel(value: number | null | undefined) {
   return 'Low';
 }
 
+function truncateId(value: string, visibleChars = 8) {
+  return value.length > visibleChars + 1 ? `${value.slice(0, visibleChars)}…` : value;
+}
+
 function formatDate(value?: string | null) {
   if (!value) return 'n/a';
   return new Date(value).toLocaleString();
@@ -103,27 +107,107 @@ function signalsForFinding(result: GrafanaAnalysisResult, selectedFinding: Grafa
   return result.signals.filter((signal) => ids.has(signal.id));
 }
 
-function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
-  const routing = result.analyzerRouting ?? [];
-  const recommended = routing.filter((item) => item.recommendation === 'RECOMMENDED');
-  const optional = routing.filter((item) => item.recommendation === 'OPTIONAL');
-  const notRecommended = routing.filter((item) => item.recommendation === 'NOT_RECOMMENDED');
-  const rejected = routing.filter((item) => item.recommendation === 'REJECTED');
-  const executions = result.analyzerExecutions ?? [];
-  const executed = executions.length
-    ? executions
-        .filter((item) => item.execution_status === 'completed')
-        .map((item) => item.display_name ?? item.router_analyzer_id)
-    : result.executedAnalyzers ?? [];
+type AnalyzerRow = {
+  id: string;
+  displayName: string;
+  finalScore: number;
+  executed: boolean;
+  statusLabel: string;
+  reason: string | null;
+  tone: 'success' | 'warning' | 'danger' | 'neutral';
+};
 
-  const renderList = (items: string[], tone: 'success' | 'warning' | 'danger' | 'neutral' = 'neutral') => (
-    <div style={styles.row}>
-      {items.length ? items.map((item) => <StatusPill key={item} tone={tone}>{humanize(item)}</StatusPill>) : <span style={styles.muted}>None</span>}
+// One row per router candidate, merging the router's own recommendation/score with what
+// actually happened at execution time. This is the single source of truth for analyzer-routing
+// display - it used to be duplicated as three separate, largely-overlapping renderings in
+// AnalyzerRoutingSummary alone (a plain-text execution-status dump, four recommendation-bucket
+// chip rows, and a third "why rejected" pass), plus a fourth near-copy in PrimaryFindingCard's
+// no-finding branch. All of those now build off this one function and share <AnalyzerRowsList>.
+function buildAnalyzerRows(result: GrafanaAnalysisResult): AnalyzerRow[] {
+  const routing = result.analyzerRouting ?? [];
+  const executions = result.analyzerExecutions ?? [];
+  const executionById = new Map(executions.map((item) => [item.router_analyzer_id, item]));
+  return routing.map((item) => {
+    const execution = executionById.get(item.analyzer_id);
+    const executed = execution?.execution_status === 'completed';
+    const tone: AnalyzerRow['tone'] =
+      executed || item.recommendation === 'RECOMMENDED'
+        ? 'success'
+        : item.recommendation === 'OPTIONAL'
+        ? 'warning'
+        : item.recommendation === 'REJECTED'
+        ? 'danger'
+        : 'neutral';
+    const reason =
+      execution?.execution_reason ||
+      [...(item.reasons ?? []), ...(item.warnings ?? [])].slice(0, 2).join(' ') ||
+      null;
+    return {
+      id: item.analyzer_id,
+      displayName: item.display_name,
+      finalScore: item.final_score,
+      executed,
+      statusLabel: executed ? 'Executed' : humanize(item.recommendation),
+      reason,
+      tone,
+    };
+  });
+}
+
+function AnalyzerRowLine({ row }: { row: AnalyzerRow }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '4px 0' }}>
+      <StatusPill tone={row.tone}>{row.statusLabel}</StatusPill>
+      <strong>{row.displayName}</strong>
+      <span style={styles.muted}>{formatNumber(row.finalScore)}</span>
+      {row.reason ? <span style={styles.muted}>· {row.reason}</span> : null}
     </div>
   );
+}
 
-  const labels = (items: typeof routing) => items.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`);
-  const rejectedDetails = rejected.slice(0, 5);
+function AnalyzerRowsList({ rows, emptyExecutedLabel }: { rows: AnalyzerRow[]; emptyExecutedLabel: string }) {
+  const [showOtherAnalyzers, setShowOtherAnalyzers] = useState(false);
+  if (!rows.length) return null;
+  const executedRows = rows.filter((row) => row.executed);
+  const otherRows = rows.filter((row) => !row.executed);
+  return (
+    <div style={styles.stack}>
+      <span style={styles.label}>
+        Analyzers considered ({executedRows.length} executed of {rows.length})
+      </span>
+      {executedRows.length ? (
+        executedRows.map((row) => <AnalyzerRowLine key={row.id} row={row} />)
+      ) : (
+        <span style={styles.muted}>{emptyExecutedLabel}</span>
+      )}
+      {otherRows.length ? (
+        <>
+          <button
+            type="button"
+            style={{ ...buttonStyle(), alignSelf: 'flex-start', marginTop: 6 }}
+            onClick={() => setShowOtherAnalyzers((current) => !current)}
+          >
+            {showOtherAnalyzers ? 'Hide other analyzers' : `Show ${otherRows.length} other analyzer${otherRows.length === 1 ? '' : 's'} considered`}
+          </button>
+          {showOtherAnalyzers ? (
+            <div style={{ marginTop: 4 }}>
+              {otherRows.map((row) => (
+                <AnalyzerRowLine key={row.id} row={row} />
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
+  const routing = result.analyzerRouting ?? [];
+  const rows = buildAnalyzerRows(result);
+  // Fallback for older backends that only ever returned the flat executed-name list, with no
+  // router metadata to build a merged row from.
+  const executedFallback = routing.length === 0 ? result.executedAnalyzers ?? [] : [];
 
   return (
     <div style={{ ...styles.stack, marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(204, 204, 220, 0.14)' }}>
@@ -136,47 +220,17 @@ function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
         <span>Prometheus source</span><strong>{result.datasourceUid ? `${result.datasource} (${result.datasourceUid})` : result.datasource}</strong>
         <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
       </div>
-      <div style={styles.stack}>
-        <span style={styles.label}>Executed analyzers</span>
-        {renderList(executed)}
-      </div>
-      {executions.length ? (
+      {executedFallback.length ? (
         <div style={styles.stack}>
-          <span style={styles.label}>Execution status</span>
-          {executions.map((item) => (
-            <div key={item.router_analyzer_id} style={styles.infoNote}>
-              <strong>{item.display_name ?? humanize(item.router_analyzer_id)}</strong>: {humanize(item.recommendation)} · {item.selected ? 'selected' : 'not selected'} · {humanize(item.execution_status)}
-              {item.execution_reason ? ` · ${item.execution_reason}` : ''}
-            </div>
-          ))}
+          <span style={styles.label}>Executed analyzers</span>
+          <div style={styles.row}>
+            {executedFallback.map((item) => (
+              <StatusPill key={item} tone="success">{humanize(item)}</StatusPill>
+            ))}
+          </div>
         </div>
       ) : null}
-      <div style={styles.stack}>
-        <span style={styles.label}>Recommended</span>
-        {renderList(labels(recommended), 'success')}
-      </div>
-      <div style={styles.stack}>
-        <span style={styles.label}>Optional</span>
-        {renderList(labels(optional), 'warning')}
-      </div>
-      <div style={styles.stack}>
-        <span style={styles.label}>Not recommended</span>
-        {renderList(labels(notRecommended))}
-      </div>
-      <div style={styles.stack}>
-        <span style={styles.label}>Rejected by eligibility checks</span>
-        {renderList(labels(rejected), 'danger')}
-      </div>
-      {rejectedDetails.length ? (
-        <div style={styles.stack}>
-          <span style={styles.label}>Why rejected</span>
-          {rejectedDetails.map((item) => (
-            <div key={item.analyzer_id} style={styles.infoNote}>
-              <strong>{item.display_name}</strong>: {[...(item.reasons ?? []), ...(item.warnings ?? [])].slice(0, 2).join(' ') || 'No rejection reason was returned.'}
-            </div>
-          ))}
-        </div>
-      ) : null}
+      <AnalyzerRowsList rows={rows} emptyExecutedLabel="None of the router's candidates executed for this run." />
     </div>
   );
 }
@@ -448,15 +502,7 @@ function PrimaryFindingCard({
 }) {
   if (!finding) {
     const routing = result.analyzerRouting ?? [];
-    const recommended = routing.filter((item) => item.recommendation === 'RECOMMENDED');
-    const optional = routing.filter((item) => item.recommendation === 'OPTIONAL');
-    const notRecommended = routing.filter((item) => item.recommendation === 'NOT_RECOMMENDED');
-    const rejected = routing.filter((item) => item.recommendation === 'REJECTED');
-    const executed = result.executedAnalyzers ?? [];
-    const labels = (items: typeof routing) => items.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ');
-    const rejectionReasons = rejected
-      .slice(0, 4)
-      .map((item) => `${item.display_name}: ${[...(item.reasons ?? []), ...(item.warnings ?? [])].slice(0, 2).join(' ') || 'No rejection reason was returned.'}`);
+    const rows = buildAnalyzerRows(result);
     return (
       <Card>
         <div style={styles.stack}>
@@ -472,20 +518,8 @@ function PrimaryFindingCard({
           <div style={styles.detailGrid}>
             <span>Prometheus datasource</span><strong>{result.datasourceUid ? `${result.datasource} (${result.datasourceUid})` : result.datasource}</strong>
             <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
-            <span>Executed analyzers</span><strong>{executed.length ? executed.map(humanize).join(', ') : 'None'}</strong>
-            <span>Recommended</span><strong>{recommended.length ? labels(recommended) : 'None'}</strong>
-            <span>Optional</span><strong>{optional.length ? labels(optional) : 'None'}</strong>
-            <span>Not recommended</span><strong>{notRecommended.length ? labels(notRecommended) : 'None'}</strong>
-            <span>Rejected by eligibility checks</span><strong>{rejected.length ? labels(rejected) : 'None'}</strong>
           </div>
-          {rejectionReasons.length ? (
-            <div style={styles.stack}>
-              <span style={styles.label}>Why analyzers did not run</span>
-              {rejectionReasons.map((reason) => (
-                <div key={reason} style={styles.infoNote}>{reason}</div>
-              ))}
-            </div>
-          ) : null}
+          <AnalyzerRowsList rows={rows} emptyExecutedLabel="None of the router's candidates executed for this run." />
           {routing.length === 0 ? (
             <div style={styles.infoNote}>
               Analyzer router metadata was not returned for this run. Restart the backend and refresh Grafana to show the full testing-phase routing table.
@@ -1280,7 +1314,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
           <details style={styles.runDetails}>
             <summary>Run details</summary>
             <div style={{ ...styles.detailGrid, marginTop: 12 }}>
-              <span>Run ID</span><strong>{result.runId}</strong>
+              <span>Run ID</span><strong title={result.runId} style={{ cursor: 'help' }}>{truncateId(result.runId)}</strong>
               <span>Data source</span><strong>{result.datasource}</strong>
               <span>Datasource UID</span><strong>{result.datasourceUid ?? 'n/a'}</strong>
               <span>Service</span><strong>{result.service}</strong>
