@@ -102,9 +102,9 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: ops-signals-app
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: breezypoppy3596-ops-signals-app
     volumes:
-      - ./frontend/dist:/var/lib/grafana/plugins/ops-signals-app:ro
+      - ./frontend/dist:/var/lib/grafana/plugins/breezypoppy3596-ops-signals-app:ro
       - ./grafana/provisioning/plugins:/etc/grafana/provisioning/plugins:ro
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
     depends_on:
