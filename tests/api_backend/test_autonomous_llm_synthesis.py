@@ -80,7 +80,7 @@ def _assistant_with(client: LLMClient | None) -> OperationalIntelligenceAssistan
     )
 
 
-def _run_once_and_ask(monkeypatch, question: str, assistant_override) -> dict:
+def _run_once_and_ask(monkeypatch, question: str, assistant_override, *, service: str | None = None, metric_name: str | None = None) -> dict:
     monkeypatch.setattr(autonomous_execution, "MetricAnalysisExecutor", _FakeMetricAnalysisExecutor)
     app = create_app("sqlite+pysqlite:///:memory:")
     app.dependency_overrides[get_prometheus_query_service] = lambda: _FakeMetadataProvider([_metric("cpu_usage")])
@@ -96,10 +96,12 @@ def _run_once_and_ask(monkeypatch, question: str, assistant_override) -> dict:
                 "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 500, "max_parallel_jobs": 20},
             },
         ).json()
-        answer_response = client.post(
-            "/api/autonomous/questions/answer",
-            json={"policy_run_id": run_response["policy_run_id"], "question": question, "window": "24h"},
-        )
+        payload = {"policy_run_id": run_response["policy_run_id"], "question": question, "window": "24h"}
+        if service:
+            payload["service"] = service
+        if metric_name:
+            payload["metric_name"] = metric_name
+        answer_response = client.post("/api/autonomous/questions/answer", json=payload)
     assert answer_response.status_code == 200
     return answer_response.json()
 
@@ -127,6 +129,26 @@ def test_answer_falls_back_to_the_deterministic_template_when_the_llm_call_fails
 
     assert answer["ai_synthesis_used"] is False
     assert "generated from stored autonomous run" in answer["answer"]
+
+
+def test_answer_never_calls_the_llm_when_scoped_to_a_service_with_no_matching_findings(monkeypatch) -> None:
+    """Regression test: a question scoped to a service/metric that produced no findings has
+    nothing on-topic in the evidence text (just generic run-wide stats), which let a small local
+    model fabricate an answer about an unrelated number in that text (e.g. treating
+    "metrics_discovered=312" as if it were a metric to investigate). The deterministic fallback
+    must be used instead - never call the LLM in this situation."""
+    fake_client = _FakeLLMClient(response="should never be used")
+    answer = _run_once_and_ask(
+        monkeypatch,
+        "What should I investigate first for some-other-service / some_other_metric?",
+        _assistant_with(fake_client),
+        service="some-other-service",
+        metric_name="some_other_metric",
+    )
+
+    assert answer["ai_synthesis_used"] is False
+    assert fake_client.requests == []
+    assert "No finding rows matched" in answer["answer"]
 
 
 def test_answer_never_calls_the_llm_when_there_is_no_run_data() -> None:

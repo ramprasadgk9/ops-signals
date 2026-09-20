@@ -1,16 +1,138 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.models.entities import AutonomousMetricJobEntity, AutonomousPolicyRunEntity
+from backend.app.models.entities import AutonomousMetricJobEntity, AutonomousPolicyEntity, AutonomousPolicyRunEntity
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class AutonomousPolicyNotFoundError(Exception):
+    pass
+
+
+class AutonomousPolicyRepository:
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def create(
+        self,
+        *,
+        name: str,
+        datasource: str,
+        backend: str,
+        scope: dict,
+        monitoring_categories: dict,
+        execution_policy: dict,
+        schedule_minutes: int | None,
+    ) -> AutonomousPolicyEntity:
+        now = utc_now()
+        enabled = schedule_minutes is not None
+        policy = AutonomousPolicyEntity(
+            id=uuid4().hex,
+            name=name,
+            datasource=datasource,
+            backend=backend,
+            scope_json=scope,
+            monitoring_categories_json=monitoring_categories,
+            execution_policy_json=execution_policy,
+            enabled=enabled,
+            schedule_minutes=schedule_minutes,
+            next_run_at=(now + _minutes(schedule_minutes)) if enabled and schedule_minutes else None,
+            consecutive_failures=0,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(policy)
+        self.db.commit()
+        self.db.refresh(policy)
+        return policy
+
+    def get(self, policy_id: str) -> AutonomousPolicyEntity:
+        policy = self.db.execute(select(AutonomousPolicyEntity).where(AutonomousPolicyEntity.id == policy_id)).scalar_one_or_none()
+        if policy is None:
+            raise AutonomousPolicyNotFoundError(policy_id)
+        return policy
+
+    def list(self, *, limit: int = 50) -> list[AutonomousPolicyEntity]:
+        query = select(AutonomousPolicyEntity).order_by(AutonomousPolicyEntity.updated_at.desc()).limit(limit)
+        return list(self.db.execute(query).scalars().all())
+
+    def list_due(self, *, now: datetime) -> list[AutonomousPolicyEntity]:
+        query = select(AutonomousPolicyEntity).where(
+            AutonomousPolicyEntity.enabled.is_(True),
+            AutonomousPolicyEntity.next_run_at.is_not(None),
+            AutonomousPolicyEntity.next_run_at <= now,
+        )
+        return list(self.db.execute(query).scalars().all())
+
+    def update_config(
+        self,
+        policy_id: str,
+        *,
+        scope: dict,
+        monitoring_categories: dict,
+        execution_policy: dict,
+        schedule_minutes: int | None,
+    ) -> AutonomousPolicyEntity:
+        """Full edit - always sent together, mirrors what the "Save & Schedule" form submits."""
+        policy = self.get(policy_id)
+        policy.scope_json = scope
+        policy.monitoring_categories_json = monitoring_categories
+        policy.execution_policy_json = execution_policy
+        policy.schedule_minutes = schedule_minutes
+        policy.enabled = schedule_minutes is not None
+        policy.next_run_at = utc_now() + _minutes(schedule_minutes) if schedule_minutes else None
+        policy.updated_at = utc_now()
+        self.db.commit()
+        self.db.refresh(policy)
+        return policy
+
+    def set_enabled(self, policy_id: str, *, enabled: bool) -> AutonomousPolicyEntity:
+        """Pause ("Remove") or resume a schedule without discarding its configuration."""
+        policy = self.get(policy_id)
+        policy.enabled = enabled
+        if enabled and policy.schedule_minutes:
+            policy.next_run_at = utc_now() + _minutes(policy.schedule_minutes)
+        else:
+            policy.next_run_at = None
+        policy.updated_at = utc_now()
+        self.db.commit()
+        self.db.refresh(policy)
+        return policy
+
+    def record_run_result(
+        self,
+        policy_id: str,
+        *,
+        status: str,
+        ran_at: datetime,
+    ) -> AutonomousPolicyEntity:
+        """Advances next_run_at and the failure streak after a scheduled run completes."""
+        policy = self.get(policy_id)
+        policy.last_run_status = status
+        policy.consecutive_failures = 0 if status != "failed" else policy.consecutive_failures + 1
+        if policy.enabled and policy.schedule_minutes:
+            policy.next_run_at = ran_at + _minutes(policy.schedule_minutes)
+        policy.updated_at = utc_now()
+        self.db.commit()
+        self.db.refresh(policy)
+        return policy
+
+    def delete(self, policy_id: str) -> None:
+        policy = self.get(policy_id)
+        self.db.delete(policy)
+        self.db.commit()
+
+
+def _minutes(value: int) -> timedelta:
+    return timedelta(minutes=value)
 
 
 class AutonomousPolicyRunRepository:

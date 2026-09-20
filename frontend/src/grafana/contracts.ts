@@ -195,6 +195,33 @@ export type AutonomousPreviewRequest = {
   };
 };
 
+export type AutonomousPolicy = {
+  id: string;
+  name: string;
+  datasource: string;
+  backend: string;
+  scope: AutonomousPreviewRequest['scope'];
+  monitoring_selection: NonNullable<AutonomousPreviewRequest['monitoring_selection']>;
+  execution: AutonomousPreviewRequest['execution'];
+  enabled: boolean;
+  schedule_minutes: number | null;
+  next_run_at: string | null;
+  last_run_status: string | null;
+  consecutive_failures: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AutonomousPolicySaveRequest = {
+  name: string;
+  datasource: string;
+  backend: string;
+  scope: AutonomousPreviewRequest['scope'];
+  monitoring_selection: NonNullable<AutonomousPreviewRequest['monitoring_selection']>;
+  execution: AutonomousPreviewRequest['execution'];
+  schedule_minutes: number | null;
+};
+
 export type AutonomousPlanItem = {
   service?: string | null;
   namespace?: string | null;

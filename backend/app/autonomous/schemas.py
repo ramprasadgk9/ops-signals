@@ -102,6 +102,10 @@ class AutonomousAnalysisPolicy(BaseModel):
     )
     execution: ExecutionPolicy = Field(default_factory=ExecutionPolicy)
     enabled: bool = False
+    schedule_minutes: int | None = Field(default=None, ge=1)
+    next_run_at: datetime | None = None
+    last_run_status: str | None = None
+    consecutive_failures: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
