@@ -22,6 +22,7 @@ const data: AutonomousDashboardData = {
     selectedLabel: 'Selected by monitoring policy',
     screeningEnabled: false,
     reasons: [],
+    reasonsAvailable: false,
   },
   topFindings: [
     {
@@ -50,7 +51,7 @@ describe('AutonomousMonitoringDashboard', () => {
     expect(screen.getByText('Autonomous Monitoring Overview')).toBeInTheDocument();
     expect(screen.getByText('Top Findings by Importance')).toBeInTheDocument();
     expect(screen.getByText('Metric Selection')).toBeInTheDocument();
-    expect(screen.getByText(/Screening not enabled/)).toBeInTheDocument();
+    expect(screen.getByText(/Run a preview to see why/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'latency' })).toHaveAttribute('href', '/findings?window=24h');
     expect(screen.getByRole('link', { name: /Case #12/ })).toHaveAttribute('href', '/cases/12');
   });

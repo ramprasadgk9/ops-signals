@@ -180,12 +180,37 @@ def test_custom_include_and_exclude_behavior() -> None:
     assert plan.items[0].selection_reason == "custom_include_pattern"
     assert plan.items[1].planned is False
     assert plan.items[1].exclusion_reason == "custom_exclude_pattern"
+    # The UI shows this so users can see exactly which of their own patterns matched,
+    # not just that "a" pattern matched.
+    assert plan.items[1].matched_rule == "custom.exclude.custom_ignore_.*"
+
+
+def test_exclusion_reason_names_the_matched_static_rule() -> None:
+    plan = build_plan([metric("build_info")], categories=[MonitoringCategory.infrastructure])
+    assert plan.items[0].matched_rule == "static.suffix._info"
 
 
 def test_multi_category_classification() -> None:
     plan = build_plan([metric("container_cpu_usage_seconds_total")], categories=[MonitoringCategory.capacity, MonitoringCategory.infrastructure])
     assert plan.items[0].planned is True
     assert plan.items[0].category in {MonitoringCategory.capacity, MonitoringCategory.infrastructure}
+
+
+def test_category_disabled_exclusion_reports_would_be_category() -> None:
+    """A metric that matches a known rule but whose category isn't enabled should be
+    distinguishable from a metric nobody has a rule for - the former is fixable by
+    enabling a category, the latter isn't."""
+    plan = build_plan([metric("container_cpu_usage_seconds_total")], categories=[MonitoringCategory.availability])
+    assert plan.items[0].planned is False
+    assert plan.items[0].exclusion_reason == "category_disabled"
+    assert MonitoringCategory.capacity in plan.items[0].would_be_category
+
+
+def test_unrecognized_metric_name_is_not_marked_category_disabled() -> None:
+    plan = build_plan([metric("totally_unrecognized_custom_metric_xyz")], categories=[MonitoringCategory.performance])
+    assert plan.items[0].planned is False
+    assert plan.items[0].exclusion_reason == "no_matching_rule"
+    assert plan.items[0].would_be_category == []
 
 
 def test_budget_enforcement() -> None:

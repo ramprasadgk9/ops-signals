@@ -78,7 +78,7 @@ done
 api_log="${ROOT_DIR}/.tmp_ops_signals_api.log"
 
 echo "Starting backend API on :${BACKEND_PORT}..."
-BACKEND_PORT="$BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --port "$BACKEND_PORT" >"$api_log" 2>&1 &
+BACKEND_PORT="$BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --reload-dir "$ROOT_DIR/backend" --port "$BACKEND_PORT" >"$api_log" 2>&1 &
 api_pid=$!
 
 cleanup() {

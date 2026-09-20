@@ -225,6 +225,7 @@ class QueryStrategy(BaseModel):
 class MetricClassification(BaseModel):
     metric_name: str
     categories: list[MonitoringCategory] = Field(default_factory=list)
+    would_be_category: list[MonitoringCategory] = Field(default_factory=list)
     concepts: list[MetricConcept] = Field(default_factory=list)
     confidence: float = 0.0
     selection_reason: str | None = None
@@ -253,6 +254,7 @@ class MetricPlanItem(BaseModel):
     metric_name: str
     category: MonitoringCategory | None = None
     concept: MetricConcept | None = None
+    would_be_category: list[MonitoringCategory] = Field(default_factory=list)
     concepts: list[MetricConcept] = Field(default_factory=list)
     metric_type: str | None = None
     selector: str = ""

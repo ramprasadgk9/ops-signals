@@ -287,7 +287,7 @@ class MetricClassificationService:
         selected_categories: list[MonitoringCategory],
         custom_constraints: CustomMetricConstraints,
     ) -> MetricClassification:
-        exclusion = self._exclusion_reason(metric, custom_constraints)
+        exclusion, exclusion_matched_rule = self._exclusion_reason(metric, custom_constraints)
         required_ok = self._required_labels_match(metric, custom_constraints)
         categories: list[MonitoringCategory] = []
         concepts: list[MetricConcept] = []
@@ -342,15 +342,23 @@ class MetricClassificationService:
         if not required_ok:
             exclusion = "missing_required_label"
         elif not category_intersection and exclusion is None:
-            exclusion = "category_not_selected"
+            # A metric matched a known rule (categories non-empty) but that category
+            # isn't enabled in this policy - toggling it on would select the metric.
+            # No rule matched at all - toggling a category can't fix this; the metric
+            # name isn't recognized by any exact-metric or pattern rule.
+            exclusion = "category_disabled" if categories else "no_matching_rule"
 
         return MetricClassification(
             metric_name=metric.metric_name,
             categories=category_intersection,
+            would_be_category=categories,
             concepts=concepts,
             confidence=confidence if selected or categories else 0.0,
             selection_reason=reason,
-            matched_rule=matched_rule,
+            # An exclude match always wins here even if an include pattern also matched
+            # (that combination is itself why the metric was excluded) - showing the
+            # include pattern instead would misname the actual reason.
+            matched_rule=exclusion_matched_rule if exclusion else matched_rule,
             suggested_query_strategy=query,
             selected=selected,
             exclusion_reason=exclusion,
@@ -377,20 +385,24 @@ class MetricClassificationService:
             query.transformation = "raw"
         return categories, concepts, query, float(rule.get("confidence", default_confidence))
 
-    def _exclusion_reason(self, metric: DiscoveredMetric, custom_constraints: CustomMetricConstraints) -> str | None:
+    def _exclusion_reason(self, metric: DiscoveredMetric, custom_constraints: CustomMetricConstraints) -> tuple[str | None, str | None]:
+        """Returns (reason, matched_rule) - matched_rule names exactly which configured
+        pattern/value caused the exclusion, so the UI can show it instead of just the
+        generic reason category."""
         for pattern in custom_constraints.exclude_patterns:
             if re.fullmatch(pattern, metric.metric_name) or re.search(pattern, metric.metric_name):
-                return "custom_exclude_pattern"
+                return "custom_exclude_pattern", f"custom.exclude.{pattern}"
         exclusions = self.knowledge.get("exclude", {})
         if metric.metric_name in set(exclusions.get("exact", []) or []):
-            return "static_metadata_metric"
+            return "static_metadata_metric", f"static.exact.{metric.metric_name}"
         for suffix in exclusions.get("suffixes", []) or []:
             if metric.metric_name.endswith(str(suffix)):
-                return "created_timestamp" if str(suffix) == "_created" else "static_metadata_metric"
+                reason = "created_timestamp" if str(suffix) == "_created" else "static_metadata_metric"
+                return reason, f"static.suffix.{suffix}"
         for pattern in exclusions.get("patterns", []) or []:
             if re.fullmatch(pattern, metric.metric_name) or re.search(pattern, metric.metric_name):
-                return "static_metadata_metric"
-        return None
+                return "static_metadata_metric", f"static.pattern.{pattern}"
+        return None, None
 
     @staticmethod
     def _matching_custom_include(metric: DiscoveredMetric, custom_constraints: CustomMetricConstraints) -> str | None:
@@ -569,6 +581,7 @@ class MetricPlanBuilder:
                     category=category,
                     concept=concept,
                     concepts=classification.concepts,
+                    would_be_category=classification.would_be_category,
                     metric_type=metric.metric_type,
                     selector=resolved_scope.selector,
                     transformation=transformation,
@@ -739,8 +752,10 @@ class MetricPlanBuilder:
             return "Excluded because this is a static metadata metric."
         if exclusion == "created_timestamp":
             return "Excluded because creation timestamps are not operational signals."
-        if exclusion == "category_not_selected":
-            return "Excluded because it does not match the selected monitoring categories."
+        if exclusion == "category_disabled":
+            return "Matches a known operational pattern, but that monitoring category isn't enabled."
+        if exclusion == "no_matching_rule":
+            return "Excluded because no monitoring rule recognizes this metric name."
         if exclusion == "duplicate_lower_rank":
             return "Excluded because a higher-confidence metric represents the same logical concept."
         if exclusion == "budget_limit":
