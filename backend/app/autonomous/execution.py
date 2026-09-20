@@ -27,6 +27,8 @@ def execute_autonomous_plan_once(
     analysis_window: str,
     step: str,
     dry_run: bool = False,
+    policy_id: str | None = None,
+    trigger: str | None = None,
 ) -> AutonomousRunResponse:
     end = datetime.now(timezone.utc)
     start = end - _parse_duration(analysis_window)
@@ -37,8 +39,8 @@ def execute_autonomous_plan_once(
     job_repo = AutonomousJobRepository(db)
     policy_snapshot = _policy_snapshot(preview, analysis_window=analysis_window, step=step, dry_run=dry_run)
     policy_run = run_repo.create_run(
-        policy_id=None,
-        trigger="test" if dry_run else "run_once",
+        policy_id=policy_id,
+        trigger=trigger or ("test" if dry_run else "run_once"),
         policy_snapshot=policy_snapshot,
         metrics_discovered=preview.metrics_discovered,
         metrics_selected=preview.metrics_selected,

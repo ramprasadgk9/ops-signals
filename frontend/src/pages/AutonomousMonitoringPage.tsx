@@ -70,13 +70,15 @@ export function AutonomousMonitoringPage() {
       <Stack spacing={3}>
         <PageHeader title="Autonomous Analysis Configure" subtitle="Configure scope, monitoring categories, execution limits, and run autonomous analysis." />
         <AutonomousConfigurePanel onRunComplete={handleRunComplete} />
-        <AutonomousMonitoringDashboard
-          data={dashboardData}
-          context={{ timeWindow: runResult?.analysis_window, policy: 'Current monitoring policy' }}
-          state={dashboardState}
-          error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
-          onRetry={refreshAutonomousData}
-        />
+        <Box id="autonomous-overview">
+          <AutonomousMonitoringDashboard
+            data={dashboardData}
+            context={{ timeWindow: runResult?.analysis_window, policy: 'Current monitoring policy' }}
+            state={dashboardState}
+            error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
+            onRetry={refreshAutonomousData}
+          />
+        </Box>
       </Stack>
     </Box>
   );

@@ -11,13 +11,27 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
-from backend.app.autonomous.repository import AutonomousJobRepository, AutonomousPolicyRunRepository
+from backend.app.autonomous.repository import (
+    AutonomousJobRepository,
+    AutonomousPolicyNotFoundError,
+    AutonomousPolicyRepository,
+    AutonomousPolicyRunRepository,
+)
 from backend.app.autonomous.execution import execute_autonomous_plan_once
-from backend.app.autonomous.schemas import AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunRequest, AutonomousRunResponse
+from backend.app.autonomous.schemas import (
+    AnalysisScope,
+    AutonomousAnalysisPolicy,
+    AutonomousPreviewRequest,
+    AutonomousPreviewResponse,
+    AutonomousRunRequest,
+    AutonomousRunResponse,
+    ExecutionPolicy,
+    MonitoringSelection,
+)
 from backend.app.autonomous.services import MetricClassificationService, MetricDiscoveryService, MetricPlanBuilder
 from backend.app.config import PrometheusConnectionConfig, get_prometheus_config
 from backend.app.models.db import get_db
-from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.models.entities import AutonomousPolicyEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.prometheus_service import PrometheusQueryService
 
 router = APIRouter(prefix="/api/autonomous", tags=["autonomous"])
@@ -115,6 +129,94 @@ def run_autonomous_once(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+class AutonomousPolicySaveRequest(BaseModel):
+    name: str = "Autonomous policy"
+    datasource: str = "prometheus"
+    backend: str = "grafana-stack"
+    scope: AnalysisScope = Field(default_factory=AnalysisScope)
+    monitoring_selection: MonitoringSelection
+    execution: ExecutionPolicy = Field(default_factory=ExecutionPolicy)
+    schedule_minutes: int | None = Field(default=None, ge=1)
+
+
+class AutonomousPolicyStatusRequest(BaseModel):
+    enabled: bool
+
+
+def _policy_to_response(policy: AutonomousPolicyEntity) -> AutonomousAnalysisPolicy:
+    return AutonomousAnalysisPolicy(
+        id=policy.id,
+        name=policy.name,
+        datasource=policy.datasource,
+        backend=policy.backend,
+        scope=AnalysisScope(**policy.scope_json),
+        monitoring_selection=MonitoringSelection(**policy.monitoring_categories_json),
+        execution=ExecutionPolicy(**policy.execution_policy_json),
+        enabled=policy.enabled,
+        schedule_minutes=policy.schedule_minutes,
+        next_run_at=policy.next_run_at,
+        last_run_status=policy.last_run_status,
+        consecutive_failures=policy.consecutive_failures,
+        created_at=policy.created_at,
+        updated_at=policy.updated_at,
+    )
+
+
+@router.post("/policies", response_model=AutonomousAnalysisPolicy)
+def create_autonomous_policy(payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+    policy = AutonomousPolicyRepository(db).create(
+        name=payload.name,
+        datasource=payload.datasource,
+        backend=payload.backend,
+        scope=payload.scope.model_dump(),
+        monitoring_categories=payload.monitoring_selection.model_dump(),
+        execution_policy=payload.execution.model_dump(),
+        schedule_minutes=payload.schedule_minutes,
+    )
+    return _policy_to_response(policy)
+
+
+@router.get("/policies", response_model=list[AutonomousAnalysisPolicy])
+def list_autonomous_policies(limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db)) -> list[AutonomousAnalysisPolicy]:
+    policies = AutonomousPolicyRepository(db).list(limit=limit)
+    return [_policy_to_response(policy) for policy in policies]
+
+
+@router.patch("/policies/{policy_id}", response_model=AutonomousAnalysisPolicy)
+def update_autonomous_policy(policy_id: str, payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+    try:
+        policy = AutonomousPolicyRepository(db).update_config(
+            policy_id,
+            scope=payload.scope.model_dump(),
+            monitoring_categories=payload.monitoring_selection.model_dump(),
+            execution_policy=payload.execution.model_dump(),
+            schedule_minutes=payload.schedule_minutes,
+        )
+    except AutonomousPolicyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Policy not found.") from exc
+    return _policy_to_response(policy)
+
+
+@router.patch("/policies/{policy_id}/status", response_model=AutonomousAnalysisPolicy)
+def set_autonomous_policy_status(policy_id: str, payload: AutonomousPolicyStatusRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+    """Backs the Configure screen's "Remove" (disable) and re-enable actions - the policy and its
+    past runs/findings are kept, only the schedule pauses. See AutonomousPolicyRepository.set_enabled."""
+    try:
+        policy = AutonomousPolicyRepository(db).set_enabled(policy_id, enabled=payload.enabled)
+    except AutonomousPolicyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Policy not found.") from exc
+    return _policy_to_response(policy)
+
+
+@router.delete("/policies/{policy_id}")
+def delete_autonomous_policy(policy_id: str, db: Session = Depends(get_db)) -> dict:
+    try:
+        AutonomousPolicyRepository(db).delete(policy_id)
+    except AutonomousPolicyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Policy not found.") from exc
+    return {"deleted": True, "id": policy_id}
+
+
 @router.get("/policy-runs")
 def list_autonomous_policy_runs(
     status: str | None = Query(default=None),
@@ -196,7 +298,16 @@ def answer_autonomous_question(
     else:
         answer = _answer_run_summary(run, findings, scoped_jobs or jobs, cases, payload.window)
 
-    if assistant:
+    # Only ask the model to synthesize when it has something real to ground an answer in for the
+    # *specific thing asked about*. An unscoped question ("summarize this run") is safe to
+    # synthesize even with zero findings - "nothing happened this run" is itself a true, complete
+    # answer. But a question scoped to a service/metric (service_filter/metric_filter set) with no
+    # matching findings has nothing on-topic in the evidence at all - the generic run-wide stats
+    # _evidence_text_for_llm always includes (metrics_discovered, job counts) are non-empty even
+    # then, which let small local models fabricate answers about entities that were never actually
+    # evidenced. Skip synthesis in that specific case; keep it everywhere else.
+    has_unanswerable_scope = (service_filter or metric_filter) and not findings
+    if assistant and not has_unanswerable_scope:
         evidence_text = _evidence_text_for_llm(run, findings, scoped_jobs or jobs, cases)
         synthesized = assistant.synthesize_from_evidence(payload.question, evidence_text)
         if synthesized:
