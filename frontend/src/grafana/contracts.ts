@@ -229,6 +229,7 @@ export type AutonomousPlanItem = {
   metric_name: string;
   category?: MonitoringCategory | null;
   concept?: string | null;
+  would_be_category?: MonitoringCategory[];
   concepts?: string[];
   metric_type?: string | null;
   selector?: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AnalysisRun, Finding, OperationalCase } from '../types';
-import { buildAutonomousDashboardData, type AutonomousPolicyRun } from './dashboardModel';
+import { buildAutonomousDashboardData, formatMatchedRule, type AutonomousPolicyRun } from './dashboardModel';
 import type { AutonomousRunResponse } from '../grafana/contracts';
 
 function finding(overrides: Partial<Finding> = {}): Finding {
@@ -138,6 +138,60 @@ describe('autonomous dashboard model', () => {
 
     expect(data.selection.selectedLabel).toBe('Selected by monitoring policy');
     expect(data.selection.reasons).toEqual([]);
+    expect(data.selection.reasonsAvailable).toBe(false);
+  });
+
+  it('groups excluded preview items into an actionable why-excluded breakdown', () => {
+    const preview = runResult().preview;
+    preview.items = [
+      { metric_name: 'cpu_usage', service: 'checkout', namespace: 'commerce', planned: true, exclusion_reason: null, transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 1, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+      { metric_name: 'container_cpu_usage_seconds_total', service: 'payments', namespace: 'commerce', environment: 'production', category: 'capacity', concept: 'cpu', planned: true, exclusion_reason: null, transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 1, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+      { metric_name: 'container_cpu_usage', service: 'payments', namespace: 'commerce', planned: false, exclusion_reason: 'category_disabled', would_be_category: ['capacity'], transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 0, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+      { metric_name: 'node_cpu_usage', service: 'payments', namespace: 'commerce', planned: false, exclusion_reason: 'category_disabled', would_be_category: ['capacity', 'infrastructure'], transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 0, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+      { metric_name: 'build_info', service: null, namespace: null, planned: false, exclusion_reason: 'static_metadata_metric', matched_rule: 'static.suffix._info', transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 0, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+      { metric_name: 'http_requests_created', service: null, namespace: null, planned: false, exclusion_reason: 'created_timestamp', transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 0, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+      { metric_name: 'totally_unknown_metric', service: 'checkout', namespace: 'commerce', planned: false, exclusion_reason: 'no_matching_rule', transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 0, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+      { metric_name: 'cpu_usage_dup', service: 'payments', namespace: 'commerce', environment: 'production', category: 'capacity', concept: 'cpu', planned: false, exclusion_reason: 'duplicate_lower_rank', would_be_category: ['capacity'], transformation: 'raw', aggregation: 'avg', group_by: [], promql: '', confidence: 0, aggregation_strategy: 'avg', estimated_series_count: 1, analysis_window: '24h' },
+    ];
+
+    const data = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      policyRuns: [],
+      previewResult: preview,
+    });
+
+    expect(data.selection.reasonsAvailable).toBe(true);
+    const byLabel = Object.fromEntries(data.selection.reasons.map((entry) => [entry.label, entry]));
+
+    expect(byLabel['Category not enabled'].count).toBe(2);
+    expect(byLabel['Category not enabled'].actionable).toBe(true);
+    expect(byLabel['Category not enabled'].wouldEnableCategories).toEqual(
+      expect.arrayContaining([{ category: 'capacity', count: 2 }, { category: 'infrastructure', count: 1 }]),
+    );
+
+    expect(byLabel['System/internal metric'].count).toBe(2);
+    expect(byLabel['System/internal metric'].actionable).toBe(false);
+    // The exact matched rule (e.g. which suffix/pattern) is shown per metric, not just the bucket label.
+    expect(byLabel['System/internal metric'].metrics.find((m) => m.metricName === 'build_info')?.matchedRule).toBe('static.suffix._info');
+
+    expect(byLabel['No rule recognizes this metric'].count).toBe(1);
+    expect(byLabel['No rule recognizes this metric'].actionable).toBe(false);
+    expect(byLabel['No rule recognizes this metric'].wouldEnableCategories).toBeUndefined();
+
+    // A duplicate-rank exclusion can carry a would_be_category too (the metric matched a
+    // category fine, it just lost to a higher-ranked duplicate) - that category is likely
+    // already enabled, so it must never surface an "Enable" action here.
+    expect(byLabel['Duplicate of a higher-confidence metric'].count).toBe(1);
+    expect(byLabel['Duplicate of a higher-confidence metric'].actionable).toBe(false);
+    expect(byLabel['Duplicate of a higher-confidence metric'].wouldEnableCategories).toBeUndefined();
+    // Names exactly which planned metric won the same (service, category, concept) slot.
+    expect(byLabel['Duplicate of a higher-confidence metric'].metrics[0].supersededByMetric).toBe('container_cpu_usage_seconds_total');
+
+    // The planned item never shows up in any exclusion bucket.
+    const allBucketedMetrics = data.selection.reasons.flatMap((entry) => entry.metrics.map((metric) => metric.metricName));
+    expect(allBucketedMetrics).not.toContain('cpu_usage');
   });
 
   it('sorts top findings by importance score', () => {
@@ -209,5 +263,18 @@ describe('autonomous dashboard model', () => {
     expect(data.recentCases.map((row) => row.title)).toEqual(['Case #1 - current case']);
     expect(data.casesScope).toBe('current_run');
     expect(data.executionRows[0].current).toBe(true);
+  });
+});
+
+describe('formatMatchedRule', () => {
+  it('turns internal matched_rule ids into plain-language detail', () => {
+    expect(formatMatchedRule('custom.exclude.custom_ignore_.*')).toBe('matched your exclude pattern "custom_ignore_.*"');
+    expect(formatMatchedRule('static.suffix._info')).toBe('name ends with "_info"');
+    expect(formatMatchedRule('static.exact.prometheus_build_info')).toBe('blocklisted metric name');
+    // The pattern value itself contains dots (a real regex from prometheus_metric_knowledge.yaml) -
+    // this must not get mangled by treating every dot as a structural separator.
+    expect(formatMatchedRule('static.pattern..*build.*info.*')).toBe('matched system pattern ".*build.*info.*"');
+    expect(formatMatchedRule(null)).toBeNull();
+    expect(formatMatchedRule(undefined)).toBeNull();
   });
 });

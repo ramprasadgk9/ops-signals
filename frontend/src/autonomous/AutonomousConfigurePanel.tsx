@@ -4,11 +4,28 @@ import PreviewRoundedIcon from '@mui/icons-material/PreviewRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { buildAutonomousPreviewRequest } from '../grafana/autonomousPreviewModel';
-import type { AutonomousPolicy, AutonomousRunResponse, MonitoringCategory } from '../grafana/contracts';
+import type { AutonomousPolicy, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse, MonitoringCategory } from '../grafana/contracts';
+
+function buildPreviewRequestFromPolicy(policy: AutonomousPolicy): AutonomousPreviewRequest {
+  return {
+    datasource: 'prometheus',
+    backend: policy.backend,
+    scope: policy.scope,
+    monitoring_selection: policy.monitoring_selection,
+    monitoring_categories: policy.monitoring_selection.categories,
+    execution: policy.execution,
+    custom_constraints: {
+      include_patterns: policy.monitoring_selection.custom_constraints?.include_patterns ?? [],
+      exclude_patterns: policy.monitoring_selection.custom_constraints?.exclude_patterns ?? [],
+      required_labels: policy.monitoring_selection.custom_constraints?.required_labels ?? {},
+      explicit_metrics: policy.monitoring_selection.custom_constraints?.explicit_metrics ?? [],
+    },
+  };
+}
 
 const categories: Array<{ id: MonitoringCategory; title: string; detail: string }> = [
   { id: 'performance', title: 'Performance', detail: 'Latency, throughput, request rate' },
@@ -40,6 +57,12 @@ function formatRelativeToNow(iso: string | null): string {
 
 type Props = {
   onRunComplete: (result: AutonomousRunResponse) => void;
+  onPreviewComplete?: (result: AutonomousPreviewResponse) => void;
+  enableCategoryRequest?: MonitoringCategory | null;
+  onEnableCategoryHandled?: () => void;
+  previewNowSignal?: boolean;
+  onPreviewNowHandled?: () => void;
+  onPreviewNowStateChange?: (isLoading: boolean) => void;
 };
 
 function ScheduledPolicyCard({ policy, onEdit, onPause, onResume, onViewOverview, isTogglingStatus }: {
@@ -107,7 +130,7 @@ function ScheduledPolicyCard({ policy, onEdit, onPause, onResume, onViewOverview
   );
 }
 
-export function AutonomousConfigurePanel({ onRunComplete }: Props) {
+export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, enableCategoryRequest, onEnableCategoryHandled, previewNowSignal, onPreviewNowHandled, onPreviewNowStateChange }: Props) {
   const queryClient = useQueryClient();
   const [environment, setEnvironment] = useState('production');
   const [serviceLabel, setServiceLabel] = useState('service');
@@ -182,7 +205,14 @@ export function AutonomousConfigurePanel({ onRunComplete }: Props) {
     customExcludePatterns,
   }), [environment, allServices, selectedServices, allNamespaces, selectedNamespaces, serviceLabel, namespaceLabel, environmentLabel, selectedCategories, executionInterval, analysisWindow, maxMetricsPerRun, maxParallelJobs, customExplicitMetrics, customIncludePatterns, customExcludePatterns]);
 
-  const previewMutation = useMutation({ mutationFn: () => api.autonomousPreview(request) });
+  const previewMutation = useMutation({
+    mutationFn: () => api.autonomousPreview(request),
+    onSuccess: (result) => onPreviewComplete?.(result),
+  });
+  const previewPolicyMutation = useMutation({
+    mutationFn: (policy: AutonomousPolicy) => api.autonomousPreview(buildPreviewRequestFromPolicy(policy)),
+    onSuccess: (result) => onPreviewComplete?.(result),
+  });
   const runMutation = useMutation({
     mutationFn: () => api.autonomousRunOnce(request),
     onSuccess: (result) => onRunComplete(result),
@@ -220,6 +250,30 @@ export function AutonomousConfigurePanel({ onRunComplete }: Props) {
     document.getElementById('autonomous-overview')?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  useEffect(() => {
+    if (!enableCategoryRequest) return;
+    if (activePolicy && !isEditing) {
+      applyPolicyToForm(activePolicy);
+      setIsEditing(true);
+    }
+    setSelectedCategories((current) => current.includes(enableCategoryRequest) ? current : [...current, enableCategoryRequest]);
+    document.getElementById('autonomous-configure')?.scrollIntoView({ behavior: 'smooth' });
+    onEnableCategoryHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enableCategoryRequest]);
+
+  useEffect(() => {
+    if (!previewNowSignal || !activePolicy) return;
+    previewPolicyMutation.mutate(activePolicy);
+    onPreviewNowHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewNowSignal]);
+
+  useEffect(() => {
+    onPreviewNowStateChange?.(previewPolicyMutation.isPending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewPolicyMutation.isPending]);
+
   if (activePolicy && !isEditing) {
     return (
       <ScheduledPolicyCard
@@ -237,7 +291,7 @@ export function AutonomousConfigurePanel({ onRunComplete }: Props) {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
+    <Paper id="autonomous-configure" variant="outlined" sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2} sx={{ mb: 2 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 900 }}>Configure Autonomous Analysis</Typography>
