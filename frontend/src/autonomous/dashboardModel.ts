@@ -18,6 +18,9 @@ export type AutonomousPolicyRun = {
   jobs_completed?: number | null;
   jobs_skipped?: number | null;
   jobs_failed?: number | null;
+  budget_limited_jobs?: number | null;
+  budget_excluded_metrics_count?: number | null;
+  budget_excluded_metrics?: string[] | null;
   findings_created?: number | null;
   error_summary?: string | null;
   created_at?: string | null;
@@ -295,10 +298,12 @@ function executionRowsFromPolicyRuns(policyRuns: AutonomousPolicyRun[]) {
       : namespaces.length
         ? String(namespaces.slice(0, 2).join(', '))
         : run.policy_id || run.trigger || 'autonomous scope';
+    const budgetLimited = run.budget_limited_jobs ?? (snapshot.budget_limited_jobs as number | undefined);
+    const budgetNotice = budgetLimited && budgetLimited > 0 ? ` (${budgetLimited} budget-excluded)` : '';
     return {
       id: run.id,
       scope: scopeLabel,
-      metrics: `${run.jobs_completed ?? run.jobs_planned ?? run.metrics_selected ?? 0} metrics`,
+      metrics: `${run.jobs_completed ?? run.jobs_planned ?? run.metrics_selected ?? 0} metrics${budgetNotice}`,
       status: run.status,
       completed: run.completed_at ?? run.updated_at ?? null,
       errorSummary: run.error_summary ?? null,
@@ -322,10 +327,13 @@ function executionRowsFromCurrentRun(run: AutonomousRunResponse | null): Autonom
   if (!run) return [];
   const scopes = Array.from(new Set(run.results.map((result) => result.service).filter(Boolean))).slice(0, 2);
   const failedErrors = run.results.map((result) => result.error).filter(Boolean);
+  const budgetNotice = run.budget_limited_jobs && run.budget_limited_jobs > 0
+    ? ` (${run.budget_limited_jobs} budget-excluded)`
+    : '';
   return [{
     id: `current:${run.requested_end}`,
     scope: scopes.length ? scopes.join(', ') : 'current run',
-    metrics: `${run.executed_jobs} executed / ${run.planned_jobs} planned`,
+    metrics: `${run.executed_jobs} executed / ${run.planned_jobs} planned${budgetNotice}`,
     status: run.status,
     completed: run.requested_end,
     errorSummary: failedErrors.length ? failedErrors.slice(0, 2).join('; ') : null,

@@ -276,6 +276,8 @@ export type AutonomousPreviewResponse = {
   planned_jobs: number;
   budget_limited_jobs?: number;
   budget_limited: number;
+  budget_excluded_metrics_count?: number;
+  budget_excluded_metrics?: string[];
   series_discovered?: number;
   series_available?: number | null;
   truncated?: boolean;
@@ -309,6 +311,10 @@ export type AutonomousRunResponse = {
   executed_jobs: number;
   skipped_jobs: number;
   failed_jobs: number;
+  budget_limited_jobs?: number;
+  budget_excluded_metrics_count?: number;
+  budget_excluded_metrics?: string[];
+  summary?: Record<string, any>;
   analysis_window: string;
   requested_start: string;
   requested_end: string;

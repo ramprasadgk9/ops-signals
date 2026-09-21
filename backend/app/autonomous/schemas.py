@@ -74,7 +74,12 @@ class ExecutionPolicy(BaseModel):
     interval: str = "10m"
     analysis_window: str = "24h"
     max_metrics_per_run: int = Field(default=500, ge=1, le=5000)
-    max_parallel_jobs: int = Field(default=20, ge=1, le=200)
+    max_parallel_jobs: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Reserved for future worker concurrency. Execution currently runs sequentially.",
+    )
 
 
 class CustomMetricConstraints(BaseModel):
@@ -283,6 +288,8 @@ class MetricAnalysisPlan(BaseModel):
     total_metrics_excluded: int
     planned_jobs: int
     budget_limited_jobs: int
+    budget_excluded_metrics_count: int = 0
+    budget_excluded_metrics: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     items: list[MetricPlanItem] = Field(default_factory=list)
 
@@ -299,6 +306,8 @@ class AutonomousPreviewResponse(BaseModel):
     planned_jobs: int
     budget_limited_jobs: int = 0
     budget_limited: int = 0
+    budget_excluded_metrics_count: int = 0
+    budget_excluded_metrics: list[str] = Field(default_factory=list)
     series_discovered: int = 0
     series_available: int | None = None
     truncated: bool = False
@@ -341,6 +350,9 @@ class AutonomousRunResponse(BaseModel):
     executed_jobs: int
     skipped_jobs: int
     failed_jobs: int
+    budget_limited_jobs: int = 0
+    budget_excluded_metrics_count: int = 0
+    budget_excluded_metrics: list[str] = Field(default_factory=list)
     summary: dict[str, Any] = Field(default_factory=dict)
     analysis_window: str
     requested_start: datetime

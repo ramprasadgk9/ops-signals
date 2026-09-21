@@ -264,6 +264,39 @@ describe('autonomous dashboard model', () => {
     expect(data.casesScope).toBe('current_run');
     expect(data.executionRows[0].current).toBe(true);
   });
+
+  it('formats execution row with budget-excluded count when run is budget limited', () => {
+    const data = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      runResult: runResult({
+        planned_jobs: 50,
+        executed_jobs: 50,
+        budget_limited_jobs: 250,
+        budget_excluded_metrics_count: 250,
+        budget_excluded_metrics: ['metric_1', 'metric_2'],
+      }),
+    });
+
+    expect(data.executionRows[0].metrics).toBe('50 executed / 50 planned (250 budget-excluded)');
+  });
+
+  it('formats historical policy run row with budget-excluded count when historical run was budget limited', () => {
+    const data = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      policyRuns: [
+        policyRun({
+          jobs_completed: 100,
+          budget_limited_jobs: 400,
+        }),
+      ],
+    });
+
+    expect(data.executionRows[0].metrics).toBe('100 metrics (400 budget-excluded)');
+  });
 });
 
 describe('formatMatchedRule', () => {

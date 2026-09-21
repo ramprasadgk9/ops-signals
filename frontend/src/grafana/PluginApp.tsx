@@ -1476,6 +1476,9 @@ function AutonomousAnalysisView({
             </Field>
             <Field label="Max parallel jobs">
               <input style={styles.input} type="number" value={maxParallelJobs} min={1} max={200} onChange={(event) => setMaxParallelJobs(event.target.value)} />
+              <div style={{ ...styles.helperText, marginTop: 4 }}>
+                Execution runs sequentially; this setting is reserved for future worker concurrency.
+              </div>
             </Field>
           </div>
         </div>
@@ -2463,6 +2466,28 @@ function StatusBadge({ status }: { status: string }) {
   return <span style={{ ...styles.chip, width: 'fit-content', color: tone, borderColor: `${tone}66` }}>{humanize(status)}</span>;
 }
 
+function BudgetExcludedAlert({
+  metrics,
+  count,
+}: {
+  metrics?: string[];
+  count?: number;
+}) {
+  if (!metrics || metrics.length === 0) return null;
+  const totalCount = count ?? metrics.length;
+  const remaining = totalCount - 10;
+  return (
+    <div style={{ ...styles.alert, marginTop: 12, backgroundColor: '#22272e', borderColor: '#ffb35766' }}>
+      <strong>Budget-excluded metrics ({totalCount}):</strong>{' '}
+      {metrics.slice(0, 10).join(', ')}
+      {remaining > 0 ? ` (and ${remaining} more)` : ''}.
+      <div style={{ ...styles.muted, marginTop: 4 }}>
+        Each run is independent; budget-excluded metrics are not deferred across runs. Increase max metrics per run or narrow scope to include them.
+      </div>
+    </div>
+  );
+}
+
 function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }) {
   if (!result) return null;
   const statusTone = result.status === 'completed' ? '#3fcf8e' : result.status === 'partial' ? '#ffb357' : '#f2495c';
@@ -2482,8 +2507,12 @@ function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }
         <Kpi label="Planned jobs" value={result.planned_jobs} />
         <Kpi label="Executed" value={result.executed_jobs} tone="#3fcf8e" />
         <Kpi label="Skipped" value={result.skipped_jobs} />
+        {result.budget_limited_jobs ? (
+          <Kpi label="Budget-limited" value={result.budget_limited_jobs} tone="#ffb357" />
+        ) : null}
         <Kpi label="Failed" value={result.failed_jobs} tone={result.failed_jobs ? '#f2495c' : '#d8d9da'} />
       </div>
+      <BudgetExcludedAlert metrics={result.budget_excluded_metrics} count={result.budget_excluded_metrics_count} />
       <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
         {result.results.map((job) => (
           <div key={`${job.metric_name}:${job.service ?? 'unknown'}:${job.analysis_run_id ?? job.status}`} style={panelStyle(job.status === 'completed' ? '#3fcf8e' : '#f2495c')}>
@@ -2568,7 +2597,11 @@ function PreviewPlanPanel({
         <Kpi label="Metrics discovered" value={result.metrics_discovered} />
         <Kpi label="Selected by monitoring policy" value={result.metrics_selected ?? result.metrics_matched} tone="#3fcf8e" />
         <Kpi label="Excluded" value={result.metrics_excluded} tone="#ffb357" />
+        {result.budget_limited_jobs ? (
+          <Kpi label="Budget-limited" value={result.budget_limited_jobs} tone="#ffb357" />
+        ) : null}
       </div>
+      <BudgetExcludedAlert metrics={result.budget_excluded_metrics} count={result.budget_excluded_metrics_count} />
       <div style={{ ...styles.infoNote, marginTop: 12 }}>Statistical candidate screening is not enabled yet.</div>
       {result.monitoring_summary?.concepts?.length ? (
         <div style={{ ...styles.infoNote, marginTop: 12 }}>

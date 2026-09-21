@@ -34,10 +34,21 @@ def execute_autonomous_plan_once(
     start = end - _parse_duration(analysis_window)
     planned_items = [item for item in preview.items if item.planned]
     skipped_items = [item for item in preview.items if not item.planned]
+    budget_limited_jobs = preview.budget_limited_jobs
+    budget_excluded_metrics = preview.budget_excluded_metrics or sorted(
+        list({item.metric_name for item in skipped_items if item.exclusion_reason == "budget_limit"})
+    )
+    budget_excluded_metrics_count = preview.budget_excluded_metrics_count or len(budget_excluded_metrics)
     warnings = list(preview.warnings)
     run_repo = AutonomousPolicyRunRepository(db)
     job_repo = AutonomousJobRepository(db)
-    policy_snapshot = _policy_snapshot(preview, analysis_window=analysis_window, step=step, dry_run=dry_run)
+    policy_snapshot = _policy_snapshot(
+        preview,
+        analysis_window=analysis_window,
+        step=step,
+        dry_run=dry_run,
+        budget_excluded_metrics=budget_excluded_metrics,
+    )
     policy_run = run_repo.create_run(
         policy_id=policy_id,
         trigger=trigger or ("test" if dry_run else "run_once"),
@@ -97,7 +108,21 @@ def execute_autonomous_plan_once(
             executed_jobs=0,
             skipped_jobs=len(planned_items),
             failed_jobs=0,
-            summary=_summary(preview, len(planned_items), 0, len(preview.items), 0, 0, policy_run.started_at, utc_now()),
+            budget_limited_jobs=budget_limited_jobs,
+            budget_excluded_metrics_count=budget_excluded_metrics_count,
+            budget_excluded_metrics=budget_excluded_metrics,
+            summary=_summary(
+                preview,
+                len(planned_items),
+                0,
+                len(preview.items),
+                0,
+                0,
+                policy_run.started_at,
+                utc_now(),
+                budget_limited_jobs=budget_limited_jobs,
+                budget_excluded_metrics=budget_excluded_metrics,
+            ),
             analysis_window=analysis_window,
             requested_start=start,
             requested_end=end,
@@ -112,6 +137,9 @@ def execute_autonomous_plan_once(
         code = _skip_reason_code(item)
         job_repo.mark_skipped(job.id, reason_code=code, reason_detail=item.exclusion_reason)
 
+    # Note on max_parallel_jobs: Execution currently runs sequentially to guarantee
+    # transactional safety and deterministic order across SQLite and PostgreSQL sessions.
+    # The max_parallel_jobs configuration is reserved for future distributed worker pools.
     results = [
         _execute_plan_item(
             item=item,
@@ -148,7 +176,21 @@ def execute_autonomous_plan_once(
         executed_jobs=executed,
         skipped_jobs=skipped,
         failed_jobs=failed,
-        summary=_summary(preview, len(planned_items), executed, skipped, failed, findings_created, completed_run.started_at, completed_run.completed_at),
+        budget_limited_jobs=budget_limited_jobs,
+        budget_excluded_metrics_count=budget_excluded_metrics_count,
+        budget_excluded_metrics=budget_excluded_metrics,
+        summary=_summary(
+            preview,
+            len(planned_items),
+            executed,
+            skipped,
+            failed,
+            findings_created,
+            completed_run.started_at,
+            completed_run.completed_at,
+            budget_limited_jobs=budget_limited_jobs,
+            budget_excluded_metrics=budget_excluded_metrics,
+        ),
         analysis_window=analysis_window,
         requested_start=start,
         requested_end=end,
@@ -327,7 +369,15 @@ def _create_jobs(
     return {id(item): job for item, job in zip(items, persisted, strict=True)}
 
 
-def _policy_snapshot(preview: AutonomousPreviewResponse, *, analysis_window: str, step: str, dry_run: bool) -> dict:
+def _policy_snapshot(
+    preview: AutonomousPreviewResponse,
+    *,
+    analysis_window: str,
+    step: str,
+    dry_run: bool,
+    budget_excluded_metrics: list[str] | None = None,
+) -> dict:
+    excluded = budget_excluded_metrics if budget_excluded_metrics is not None else preview.budget_excluded_metrics
     return {
         "datasource": "prometheus",
         "backend": "grafana-stack",
@@ -338,6 +388,8 @@ def _policy_snapshot(preview: AutonomousPreviewResponse, *, analysis_window: str
         "metrics_selected": preview.metrics_selected,
         "planned_jobs": preview.planned_jobs,
         "budget_limited_jobs": preview.budget_limited_jobs,
+        "budget_excluded_metrics_count": preview.budget_excluded_metrics_count or len(excluded),
+        "budget_excluded_metrics": excluded[:50],
         "warnings": preview.warnings,
     }
 
@@ -370,6 +422,8 @@ def _summary(
     findings: int,
     started_at: datetime | None,
     completed_at: datetime | None,
+    budget_limited_jobs: int = 0,
+    budget_excluded_metrics: list[str] | None = None,
 ) -> dict:
     duration_ms = None
     if started_at and completed_at:
@@ -378,6 +432,7 @@ def _summary(
         if completed_at.tzinfo is None:
             completed_at = completed_at.replace(tzinfo=timezone.utc)
         duration_ms = max(int((completed_at - started_at).total_seconds() * 1000), 0)
+    excluded = budget_excluded_metrics if budget_excluded_metrics is not None else preview.budget_excluded_metrics
     return {
         "metrics_discovered": preview.metrics_discovered,
         "metrics_selected": preview.metrics_selected,
@@ -385,6 +440,9 @@ def _summary(
         "jobs_completed": completed,
         "jobs_skipped": skipped,
         "jobs_failed": failed,
+        "budget_limited_jobs": budget_limited_jobs,
+        "budget_excluded_metrics_count": len(excluded),
+        "budget_excluded_metrics": excluded[:50],
         "findings_created": findings,
         "duration_ms": duration_ms,
     }

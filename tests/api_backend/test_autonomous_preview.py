@@ -814,3 +814,124 @@ def test_sample_distinct_series_is_deterministic() -> None:
 
     assert sampled_1 == sampled_2
 
+
+def test_preview_surfaces_budget_excluded_metrics() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    plan = build_plan(metrics, max_metrics=1)
+
+    assert plan.planned_jobs == 1
+    assert plan.budget_limited_jobs == 2
+    assert plan.budget_excluded_metrics_count == 2
+    assert len(plan.budget_excluded_metrics) == 2
+    assert plan.scope_summary["budget_limited_jobs"] == 2
+    assert plan.scope_summary["budget_excluded_metrics_count"] == 2
+    assert len(plan.scope_summary["budget_excluded_metrics"]) == 2
+    assert any("Execution budget limited" in w and "Every run is independent" in w for w in plan.warnings)
+
+
+def test_preview_api_surfaces_budget_excluded_metrics() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider(metrics)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/autonomous/preview",
+            json={
+                "datasource": "prometheus",
+                "backend": "grafana-stack",
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 1, "max_parallel_jobs": 10},
+            },
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["planned_jobs"] == 1
+    assert payload["budget_limited_jobs"] == 2
+    assert payload["budget_excluded_metrics_count"] == 2
+    assert len(payload["budget_excluded_metrics"]) == 2
+    assert any("Execution budget limited" in w and "Every run is independent" in w for w in payload["warnings"])
+
+
+
+def test_run_once_surfaces_budget_excluded_metrics_in_response_and_summary() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider(metrics)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "datasource": "prometheus",
+                "backend": "grafana-stack",
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 1, "max_parallel_jobs": 10},
+                "dry_run": True,
+            },
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["planned_jobs"] == 1
+    assert payload["budget_limited_jobs"] == 2
+    assert payload["budget_excluded_metrics_count"] == 2
+    assert len(payload["budget_excluded_metrics"]) == 2
+    summary = payload["summary"]
+    assert summary["budget_limited_jobs"] == 2
+    assert summary["budget_excluded_metrics_count"] == 2
+    assert len(summary["budget_excluded_metrics"]) == 2
+    assert any("Execution budget limited" in w and "Every run is independent" in w for w in payload["warnings"])
+
+
+def test_policy_runs_api_surfaces_budget_coverage() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider(metrics)
+    with TestClient(app) as client:
+        run_res = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "datasource": "prometheus",
+                "backend": "grafana-stack",
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 1, "max_parallel_jobs": 10},
+                "dry_run": True,
+            },
+        )
+        assert run_res.status_code == 200
+        run_id = run_res.json()["policy_run_id"]
+
+        list_res = client.get("/api/autonomous/policy-runs")
+        assert list_res.status_code == 200
+        runs = list_res.json()
+        matching = [r for r in runs if r["id"] == run_id]
+        assert len(matching) == 1
+        assert matching[0]["budget_limited_jobs"] == 2
+        assert matching[0]["budget_excluded_metrics_count"] == 2
+        assert len(matching[0]["budget_excluded_metrics"]) == 2
+
+        get_res = client.get(f"/api/autonomous/policy-runs/{run_id}")
+        assert get_res.status_code == 200
+        run_dict = get_res.json()
+        assert run_dict["budget_limited_jobs"] == 2
+        assert run_dict["budget_excluded_metrics_count"] == 2
+        assert len(run_dict["budget_excluded_metrics"]) == 2
+
+
