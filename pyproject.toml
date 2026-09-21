@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1.1", "watchfiles>=0.24.0"]
+dev = ["pytest>=9.1.1", "watchfiles>=0.24.0", "pytest-cov>=6.0.0"]
 
 [project.scripts]
 ops-signals = "intelligence.cli:main"
@@ -50,3 +50,9 @@ addopts = [
     # the contents of. Tracked as a known gap; remove this ignore once it's restored or rewritten.
     "--ignore=tests/test_tsbs_benchmark.py",
 ]
+
+[tool.coverage.run]
+source = ["backend", "intelligence"]
+
+[tool.coverage.report]
+skip_empty = true
