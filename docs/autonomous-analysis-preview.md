@@ -67,6 +67,20 @@ To prevent cluster-wide cardinality explosion and alphabetical metric starvation
 - **Per-Metric Budgeting**: Both scoped and unscoped discovery cap individual metrics up to `max_series_per_metric` and round-robin allocate series to preserve multi-dimensional representation without pod hash monopolization.
 - **Deterministic Sampling**: Results are deterministically sorted by metric identity and labels prior to sampling to guarantee reproducible plan generation across identical cluster states.
 
+#### Discovery Order, Step By Step
+
+Given an unscoped policy and `metadata_limit` (the discovery cap, default 5,000), the raw series scan proceeds in this order:
+
+1. **List metric names**: `GET /api/v1/label/__name__/values` returns every metric name, alphabetically sorted.
+2. **Size a fair quota up front, before fetching anything**: `quota = min(max_series_per_metric, metadata_limit // <number of metric names>)`. Sizing the quota first is what stops one high-cardinality, alphabetically-early metric (e.g. `apiserver_request_duration_seconds`) from consuming the whole cap before a `z`-prefixed metric is ever queried.
+3. **Fetch in chunks of 80 metric names** via `/api/v1/series?match[]=...`, one request per chunk, chunks still walked in alphabetical order.
+4. **Cap each metric name to its quota** as rows come back, after sorting deterministically by metric/service/namespace/env/labels.
+5. **Interleave round-robin, not metric-by-metric, for the final row order**: `metric1[0], metric2[0], metric3[0], ..., metric1[1], metric2[1], ...`. If the cap is ever reached mid-scan, it cuts the *last round* evenly across all metrics rather than dropping an entire alphabetical tail.
+
+Because the quota is sized as `metadata_limit // <metric name count>` before any fetching starts, `quota x <metric name count>` rarely exceeds `metadata_limit`, so in practice every chunk gets processed and `starved_metrics` (metric names with **zero** rows) comes back empty. A metric can still be *partially* sampled - capped at its own quota - without appearing in `starved_metrics`; that list only tracks total exclusion, not per-metric truncation.
+
+**Caveat:** `truncated` is computed as `starved_metrics non-empty OR series_discovered >= metadata_limit`. If Prometheus genuinely has exactly `metadata_limit` series and all of them fit with room to spare under each metric's quota, `truncated` still reports `true` even though nothing was actually dropped - the `>=` check can't distinguish "landed exactly on the ceiling" from "there was more we didn't see."
+
 ## Query Planning
 
 Each selected metric is converted into a planned single-metric analysis job. The planner returns the PromQL, transformation, aggregation, category, concept, confidence, and the future `AnalysisRequest` payload.
@@ -119,6 +133,27 @@ Execution respects `max_metrics_per_run` (default 500, max 5,000). When classifi
 - Top-ranked metrics up to `max_metrics_per_run` are executed.
 - Excluded metrics are recorded with `exclusion_reason="budget_limit"` and surfaced in `budget_excluded_metrics`.
 - **Every run is independent**: budget-excluded metrics are not deferred, queued, or carried over to future runs. To achieve broader coverage, operators must increase `max_metrics_per_run` or narrow scope using service and namespace filters.
+
+#### The Discovery Cap and the Execution Budget Are Two Different Limits
+
+`metadata_limit` (discovery, see [above](#discovery-order-step-by-step)) and `max_metrics_per_run` (execution budget) sound similar, and operators sometimes set them to the same number, but they cap two different, sequential populations:
+
+| Stage | Cap | Population it limits |
+| --- | --- | --- |
+| Discovery | `metadata_limit` | Raw Prometheus **series** pulled off the wire |
+| Classification | none (a filter, not a cap) | Discovered series narrowed to ones matching a known exact/pattern rule *and* an enabled monitoring category |
+| Planning | `max_metrics_per_run` | Classified, deduplicated, ranked metrics that actually get queried and executed |
+
+**Worked example**: Prometheus has 5,000 series and `metadata_limit = 5,000`. Discovery pulls up to all 5,000 rows, fairly distributed by the round-robin/quota process described above. Those rows then go through `MetricClassificationService`: only rows matching a rule in `config/prometheus_metric_knowledge.yaml` *and* belonging to an enabled monitoring category are `selected` - typically a small fraction of the 5,000, since most raw series (custom app metrics, `_bucket`/`_sum`/`_count` variants, unrecognized names) don't match a known pattern. The selected set is then deduplicated by `(environment, namespace, service, category, concept)`, keeping the highest-ranked row per group, and ranked by:
+
+1. classification confidence (descending)
+2. demo-lab priority (internal, for local preview data only)
+3. referenced by a recording rule
+4. referenced by an alert rule
+5. referenced by a dashboard
+6. lower series cardinality (tie-breaker)
+
+Setting `max_metrics_per_run = 5,000` almost never actually binds in this scenario, because the selected-and-deduped set is usually far smaller than 5,000 - every selected metric gets planned, and `budget_limited_jobs` comes back `0`. The budget only becomes the real constraint when classification is broad enough (e.g. wide custom include patterns) that the selected set itself approaches the discovery cap - at that point the ranking order above, not discovery's round-robin order, decides which metrics get executed.
 
 ### Execution Concurrency (`max_parallel_jobs`)
 
