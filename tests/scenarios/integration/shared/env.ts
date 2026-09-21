@@ -12,5 +12,5 @@ export const env = {
   databaseUrl: process.env.OPS_INTEL_DATABASE_URL ?? 'postgresql+psycopg://ops_signals:ops_signals@localhost:5432/ops_signals',
   grafanaUser: process.env.OPS_SIGNALS_GRAFANA_USER ?? 'admin',
   grafanaPassword: process.env.OPS_SIGNALS_GRAFANA_PASSWORD ?? 'admin',
-  pluginAppPath: '/a/ops-signals-app/ops-signals',
+  pluginAppPath: '/a/breezypoppy3596-ops-signals-app/ops-signals',
 };

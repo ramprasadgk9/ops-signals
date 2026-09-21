@@ -36,7 +36,7 @@ docker compose up -d --force-recreate grafana
 Open the plugin:
 
 ```text
-http://localhost:3000/a/ops-signals-app/ops-signals
+http://localhost:3000/a/breezypoppy3596-ops-signals-app/ops-signals
 ```
 
 If the UI looks stale, hard refresh the browser.

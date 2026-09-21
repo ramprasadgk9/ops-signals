@@ -66,13 +66,20 @@ class AnalysisScope(BaseModel):
     namespaces: list[str] = Field(default_factory=list)
     all_namespaces: bool = True
     namespace_label: str | None = "namespace"
+    max_series_per_metric: int = Field(default=10, ge=1, le=5000)
+    metadata_limit: int = Field(default=5000, ge=10, le=50000)
 
 
 class ExecutionPolicy(BaseModel):
     interval: str = "10m"
     analysis_window: str = "24h"
     max_metrics_per_run: int = Field(default=500, ge=1, le=5000)
-    max_parallel_jobs: int = Field(default=20, ge=1, le=200)
+    max_parallel_jobs: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description="Reserved for future worker concurrency. Execution currently runs sequentially.",
+    )
 
 
 class CustomMetricConstraints(BaseModel):
@@ -100,6 +107,10 @@ class AutonomousAnalysisPolicy(BaseModel):
     )
     execution: ExecutionPolicy = Field(default_factory=ExecutionPolicy)
     enabled: bool = False
+    schedule_minutes: int | None = Field(default=None, ge=1)
+    next_run_at: datetime | None = None
+    last_run_status: str | None = None
+    consecutive_failures: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -184,11 +195,24 @@ class DiscoveredMetric(BaseModel):
         return self
 
 
+class MetricDiscoveryResult(BaseModel):
+    metrics: list[DiscoveredMetric] = Field(default_factory=list)
+    series_available: int | None = None
+    series_discovered: int = 0
+    truncated: bool = False
+    starved_metrics: list[str] = Field(default_factory=list)
+
+
 class ResolvedAnalysisScope(BaseModel):
     resolved_services: list[str] = Field(default_factory=list)
     resolved_namespaces: list[str] = Field(default_factory=list)
     resolved_environment: str | None = None
     discovered_metric_count: int = 0
+    series_discovered: int = 0
+    series_available: int | None = None
+    truncated: bool = False
+    starved_metrics_count: int = 0
+    starved_metrics: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     filters_applied: dict[str, object] = Field(default_factory=dict)
     label_mapping: dict[str, str | None] = Field(default_factory=dict)
@@ -206,6 +230,7 @@ class QueryStrategy(BaseModel):
 class MetricClassification(BaseModel):
     metric_name: str
     categories: list[MonitoringCategory] = Field(default_factory=list)
+    would_be_category: list[MonitoringCategory] = Field(default_factory=list)
     concepts: list[MetricConcept] = Field(default_factory=list)
     confidence: float = 0.0
     selection_reason: str | None = None
@@ -234,6 +259,7 @@ class MetricPlanItem(BaseModel):
     metric_name: str
     category: MonitoringCategory | None = None
     concept: MetricConcept | None = None
+    would_be_category: list[MonitoringCategory] = Field(default_factory=list)
     concepts: list[MetricConcept] = Field(default_factory=list)
     metric_type: str | None = None
     selector: str = ""
@@ -262,6 +288,8 @@ class MetricAnalysisPlan(BaseModel):
     total_metrics_excluded: int
     planned_jobs: int
     budget_limited_jobs: int
+    budget_excluded_metrics_count: int = 0
+    budget_excluded_metrics: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     items: list[MetricPlanItem] = Field(default_factory=list)
 
@@ -278,6 +306,13 @@ class AutonomousPreviewResponse(BaseModel):
     planned_jobs: int
     budget_limited_jobs: int = 0
     budget_limited: int = 0
+    budget_excluded_metrics_count: int = 0
+    budget_excluded_metrics: list[str] = Field(default_factory=list)
+    series_discovered: int = 0
+    series_available: int | None = None
+    truncated: bool = False
+    starved_metrics_count: int = 0
+    starved_metrics: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     items: list[MetricPlanItem] = Field(default_factory=list)
 
@@ -315,6 +350,9 @@ class AutonomousRunResponse(BaseModel):
     executed_jobs: int
     skipped_jobs: int
     failed_jobs: int
+    budget_limited_jobs: int = 0
+    budget_excluded_metrics_count: int = 0
+    budget_excluded_metrics: list[str] = Field(default_factory=list)
     summary: dict[str, Any] = Field(default_factory=dict)
     analysis_window: str
     requested_start: datetime

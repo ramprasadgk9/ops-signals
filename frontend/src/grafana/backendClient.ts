@@ -2,6 +2,8 @@ import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, Sign
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type {
   GrafanaAnalyzerRoutingDecision,
+  AutonomousPolicy,
+  AutonomousPolicySaveRequest,
   AutonomousPreviewRequest,
   AutonomousPreviewResponse,
   AutonomousRunResponse,
@@ -138,6 +140,14 @@ async function patchJson<T>(baseUrl: string, path: string, payload: unknown): Pr
   return response.json() as Promise<T>;
 }
 
+async function deleteJson<T>(baseUrl: string, path: string): Promise<T> {
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { method: 'DELETE' });
+  if (!response.ok) {
+    throw await buildRequestError(response);
+  }
+  return response.json() as Promise<T>;
+}
+
 export async function listServices(baseUrl: string) {
   return fetchJson<string[]>(baseUrl, '/api/services');
 }
@@ -214,6 +224,26 @@ export async function previewAutonomousPlan(baseUrl: string, payload: Autonomous
 
 export async function runAutonomousPlanOnce(baseUrl: string, payload: AutonomousPreviewRequest) {
   return postJson<AutonomousRunResponse>(baseUrl, '/api/autonomous/run-once', { ...payload, dry_run: false });
+}
+
+export async function listAutonomousPolicies(baseUrl: string, limit = 50) {
+  return fetchJson<AutonomousPolicy[]>(baseUrl, `/api/autonomous/policies?limit=${limit}`);
+}
+
+export async function saveAutonomousPolicy(baseUrl: string, payload: AutonomousPolicySaveRequest) {
+  return postJson<AutonomousPolicy>(baseUrl, '/api/autonomous/policies', payload);
+}
+
+export async function updateAutonomousPolicy(baseUrl: string, policyId: string, payload: AutonomousPolicySaveRequest) {
+  return patchJson<AutonomousPolicy>(baseUrl, `/api/autonomous/policies/${encodeURIComponent(policyId)}`, payload);
+}
+
+export async function setAutonomousPolicyStatus(baseUrl: string, policyId: string, enabled: boolean) {
+  return patchJson<AutonomousPolicy>(baseUrl, `/api/autonomous/policies/${encodeURIComponent(policyId)}/status`, { enabled });
+}
+
+export async function deleteAutonomousPolicy(baseUrl: string, policyId: string) {
+  return deleteJson<{ deleted: boolean; id: string }>(baseUrl, `/api/autonomous/policies/${encodeURIComponent(policyId)}`);
 }
 
 export async function listAutonomousScopeOptions(baseUrl: string, labels: {

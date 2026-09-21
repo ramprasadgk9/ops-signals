@@ -15,6 +15,7 @@ from backend.app.autonomous.schemas import (
     MetricAnalysisPlan,
     MetricClassification,
     MetricConcept,
+    MetricDiscoveryResult,
     MetricPlanItem,
     MonitoringCategory,
     PlannedAnalysisRequest,
@@ -33,7 +34,9 @@ class MetricMetadataProvider(Protocol):
         namespace_label: str,
         environment_label: str,
         limit: int,
-    ) -> list[DiscoveredMetric]:
+        scope_selector: str = "",
+        max_series_per_metric: int = 10,
+    ) -> list[DiscoveredMetric] | MetricDiscoveryResult:
         ...
 
 
@@ -139,22 +142,62 @@ class MetricDiscoveryService:
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 
-        discovered = self.provider.discover_metric_metadata(
-            service_label=scope.service_label,
-            namespace_label=scope.namespace_label or "namespace",
-            environment_label=scope.environment_label or "env",
-            limit=self.metadata_limit,
-        )
-        if len(discovered) >= self.metadata_limit:
-            warnings.append("Metric discovery was truncated by the metadata safety limit.")
+        scope_selector = build_scope_selector(scope)
+        effective_limit = scope.metadata_limit if scope.metadata_limit else self.metadata_limit
+        max_series_per_metric = scope.max_series_per_metric if scope.max_series_per_metric else 10
+
+        try:
+            discovery_output = self.provider.discover_metric_metadata(
+                service_label=scope.service_label,
+                namespace_label=scope.namespace_label or "namespace",
+                environment_label=scope.environment_label or "env",
+                limit=effective_limit,
+                scope_selector=scope_selector,
+                max_series_per_metric=max_series_per_metric,
+            )
+        except TypeError:
+            discovery_output = self.provider.discover_metric_metadata(
+                service_label=scope.service_label,
+                namespace_label=scope.namespace_label or "namespace",
+                environment_label=scope.environment_label or "env",
+                limit=effective_limit,
+            )
+
+        if isinstance(discovery_output, MetricDiscoveryResult):
+            discovered = discovery_output.metrics
+            series_discovered = discovery_output.series_discovered
+            series_available = discovery_output.series_available
+            truncated = discovery_output.truncated
+            starved_metrics = discovery_output.starved_metrics
+        else:
+            discovered = discovery_output
+            series_discovered = len(discovered)
+            series_available = None
+            truncated = len(discovered) >= effective_limit
+            starved_metrics = []
+
+        if truncated:
+            if starved_metrics:
+                warnings.append(
+                    f"Metric discovery was truncated by the metadata safety limit ({effective_limit}). "
+                    f"{len(starved_metrics)} metric names were excluded from discovery."
+                )
+            else:
+                warnings.append(f"Metric discovery was truncated by the metadata safety limit ({effective_limit}).")
+
         if not discovered:
             return (
                 ResolvedAnalysisScope(
                     discovered_metric_count=0,
-                    warnings=["No metric metadata was discovered for the selected datasource."],
+                    series_discovered=series_discovered,
+                    series_available=series_available,
+                    truncated=truncated,
+                    starved_metrics_count=len(starved_metrics),
+                    starved_metrics=starved_metrics[:50],
+                    warnings=warnings + ["No metric metadata was discovered for the selected datasource."],
                     filters_applied=self._filters(scope),
                     label_mapping=self._label_mapping(scope),
-                    selector=build_scope_selector(scope),
+                    selector=scope_selector,
                 ),
                 [],
             )
@@ -190,10 +233,15 @@ class MetricDiscoveryService:
                 resolved_namespaces=resolved_namespaces,
                 resolved_environment=None if not scope.environment or scope.environment.lower() == "all" else scope.environment,
                 discovered_metric_count=len(filtered),
+                series_discovered=series_discovered,
+                series_available=series_available,
+                truncated=truncated,
+                starved_metrics_count=len(starved_metrics),
+                starved_metrics=starved_metrics[:50],
                 warnings=warnings,
                 filters_applied=self._filters(scope),
                 label_mapping=self._label_mapping(scope),
-                selector=build_scope_selector(scope),
+                selector=scope_selector,
             ),
             filtered,
         )
@@ -239,7 +287,7 @@ class MetricClassificationService:
         selected_categories: list[MonitoringCategory],
         custom_constraints: CustomMetricConstraints,
     ) -> MetricClassification:
-        exclusion = self._exclusion_reason(metric, custom_constraints)
+        exclusion, exclusion_matched_rule = self._exclusion_reason(metric, custom_constraints)
         required_ok = self._required_labels_match(metric, custom_constraints)
         categories: list[MonitoringCategory] = []
         concepts: list[MetricConcept] = []
@@ -294,15 +342,23 @@ class MetricClassificationService:
         if not required_ok:
             exclusion = "missing_required_label"
         elif not category_intersection and exclusion is None:
-            exclusion = "category_not_selected"
+            # A metric matched a known rule (categories non-empty) but that category
+            # isn't enabled in this policy - toggling it on would select the metric.
+            # No rule matched at all - toggling a category can't fix this; the metric
+            # name isn't recognized by any exact-metric or pattern rule.
+            exclusion = "category_disabled" if categories else "no_matching_rule"
 
         return MetricClassification(
             metric_name=metric.metric_name,
             categories=category_intersection,
+            would_be_category=categories,
             concepts=concepts,
             confidence=confidence if selected or categories else 0.0,
             selection_reason=reason,
-            matched_rule=matched_rule,
+            # An exclude match always wins here even if an include pattern also matched
+            # (that combination is itself why the metric was excluded) - showing the
+            # include pattern instead would misname the actual reason.
+            matched_rule=exclusion_matched_rule if exclusion else matched_rule,
             suggested_query_strategy=query,
             selected=selected,
             exclusion_reason=exclusion,
@@ -329,20 +385,24 @@ class MetricClassificationService:
             query.transformation = "raw"
         return categories, concepts, query, float(rule.get("confidence", default_confidence))
 
-    def _exclusion_reason(self, metric: DiscoveredMetric, custom_constraints: CustomMetricConstraints) -> str | None:
+    def _exclusion_reason(self, metric: DiscoveredMetric, custom_constraints: CustomMetricConstraints) -> tuple[str | None, str | None]:
+        """Returns (reason, matched_rule) - matched_rule names exactly which configured
+        pattern/value caused the exclusion, so the UI can show it instead of just the
+        generic reason category."""
         for pattern in custom_constraints.exclude_patterns:
             if re.fullmatch(pattern, metric.metric_name) or re.search(pattern, metric.metric_name):
-                return "custom_exclude_pattern"
+                return "custom_exclude_pattern", f"custom.exclude.{pattern}"
         exclusions = self.knowledge.get("exclude", {})
         if metric.metric_name in set(exclusions.get("exact", []) or []):
-            return "static_metadata_metric"
+            return "static_metadata_metric", f"static.exact.{metric.metric_name}"
         for suffix in exclusions.get("suffixes", []) or []:
             if metric.metric_name.endswith(str(suffix)):
-                return "created_timestamp" if str(suffix) == "_created" else "static_metadata_metric"
+                reason = "created_timestamp" if str(suffix) == "_created" else "static_metadata_metric"
+                return reason, f"static.suffix.{suffix}"
         for pattern in exclusions.get("patterns", []) or []:
             if re.fullmatch(pattern, metric.metric_name) or re.search(pattern, metric.metric_name):
-                return "static_metadata_metric"
-        return None
+                return "static_metadata_metric", f"static.pattern.{pattern}"
+        return None, None
 
     @staticmethod
     def _matching_custom_include(metric: DiscoveredMetric, custom_constraints: CustomMetricConstraints) -> str | None:
@@ -521,6 +581,7 @@ class MetricPlanBuilder:
                     category=category,
                     concept=concept,
                     concepts=classification.concepts,
+                    would_be_category=classification.would_be_category,
                     metric_type=metric.metric_type,
                     selector=resolved_scope.selector,
                     transformation=transformation,
@@ -542,7 +603,18 @@ class MetricPlanBuilder:
 
         planned_count = sum(1 for item in items if item.planned)
         budget_limited = sum(1 for item in items if item.exclusion_reason == "budget_limit")
+        budget_excluded = sorted(list({item.metric_name for item in items if item.exclusion_reason == "budget_limit"}))
         concepts = self.config.concepts_for_categories(selected_categories)
+        warnings = list(resolved_scope.warnings)
+        if budget_limited > 0:
+            sample_excluded = ", ".join(budget_excluded[:5])
+            more_suffix = f" (and {len(budget_excluded) - 5} more)" if len(budget_excluded) > 5 else ""
+            warnings.append(
+                f"Execution budget limited: {planned_count} of {len(selected_rows)} selected metric jobs planned "
+                f"({budget_limited} excluded by max_metrics_per_run={execution.max_metrics_per_run}). "
+                f"Excluded metrics: {sample_excluded}{more_suffix}. "
+                "Every run is independent; budget-excluded metrics are not deferred to future runs."
+            )
         return MetricAnalysisPlan(
             scope_summary={
                 "environment": resolved_scope.resolved_environment,
@@ -552,6 +624,14 @@ class MetricPlanBuilder:
                 "namespaces": len(resolved_scope.resolved_namespaces),
                 "label_mapping": resolved_scope.label_mapping,
                 "selector": resolved_scope.selector,
+                "series_discovered": resolved_scope.series_discovered,
+                "series_available": resolved_scope.series_available,
+                "truncated": resolved_scope.truncated,
+                "starved_metrics_count": resolved_scope.starved_metrics_count,
+                "starved_metrics": resolved_scope.starved_metrics,
+                "budget_limited_jobs": budget_limited,
+                "budget_excluded_metrics_count": len(budget_excluded),
+                "budget_excluded_metrics": budget_excluded[:50],
             },
             monitoring_summary={
                 "categories": [category.value for category in selected_categories],
@@ -563,7 +643,9 @@ class MetricPlanBuilder:
             total_metrics_excluded=max(len(items) - planned_count, 0),
             planned_jobs=planned_count,
             budget_limited_jobs=budget_limited,
-            warnings=resolved_scope.warnings,
+            budget_excluded_metrics_count=len(budget_excluded),
+            budget_excluded_metrics=budget_excluded,
+            warnings=warnings,
             items=items,
         )
 
@@ -686,8 +768,10 @@ class MetricPlanBuilder:
             return "Excluded because this is a static metadata metric."
         if exclusion == "created_timestamp":
             return "Excluded because creation timestamps are not operational signals."
-        if exclusion == "category_not_selected":
-            return "Excluded because it does not match the selected monitoring categories."
+        if exclusion == "category_disabled":
+            return "Matches a known operational pattern, but that monitoring category isn't enabled."
+        if exclusion == "no_matching_rule":
+            return "Excluded because no monitoring rule recognizes this metric name."
         if exclusion == "duplicate_lower_rank":
             return "Excluded because a higher-confidence metric represents the same logical concept."
         if exclusion == "budget_limit":

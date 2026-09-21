@@ -50,6 +50,11 @@ analyzers:
       finding_rules:
         min_abs_zscore: 3.0
         min_points: 1
+      rebaseline:
+        enabled: true
+        min_segment_size: 5
+        change_threshold: 1.5
+        max_iterations: 5
 
   pyod_outlier:
     display_name: PyOD Outlier

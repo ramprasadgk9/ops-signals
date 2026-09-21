@@ -1,7 +1,8 @@
 import './AutonomousMonitoringDashboard.css';
-import React from 'react';
-import type { AutonomousDashboardData } from './dashboardModel';
+import React, { useState } from 'react';
+import { formatMatchedRule, type AutonomousDashboardData, type AutonomousExclusionReason } from './dashboardModel';
 import type { AutonomousQuestionAnswer, FindingsWindow } from '../api/queries';
+import type { MonitoringCategory } from '../grafana/contracts';
 import type { Finding } from '../types';
 
 export type AutonomousDashboardContext = {
@@ -19,6 +20,9 @@ type Props = {
   error?: string | null;
   onRetry?: () => void;
   isLoading?: boolean;
+  onEnableCategory?: (category: MonitoringCategory) => void;
+  onPreviewNow?: () => void;
+  isPreviewingNow?: boolean;
   askOps?: {
     question: string;
     answer: AutonomousQuestionAnswer | null;
@@ -79,6 +83,62 @@ function Panel({ title, span, children }: { title: string; span: 4 | 5 | 6 | 7 |
       <h3 className="auto-panel-title">{title}</h3>
       {children}
     </section>
+  );
+}
+
+function humanizeCategory(category: string): string {
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+function ExclusionReasonCard({ entry, onEnableCategory }: { entry: AutonomousExclusionReason; onEnableCategory?: (category: MonitoringCategory) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="auto-reason-card">
+      <div className="auto-reason-head">
+        <div>
+          <span className="auto-row-title">{entry.label}</span>
+          <span className="auto-row-meta" style={{ marginLeft: 8 }}>{entry.count} metric{entry.count === 1 ? '' : 's'}</span>
+        </div>
+        <button type="button" className="auto-action" onClick={() => setExpanded((current) => !current)}>
+          {expanded ? 'Hide' : 'View list'}
+        </button>
+      </div>
+      <div className="auto-row-meta" style={{ marginTop: 4 }}>{entry.description}</div>
+      {entry.wouldEnableCategories?.length ? (
+        <div className="auto-reason-categories">
+          {entry.wouldEnableCategories.map((item) => (
+            <span key={item.category} className="auto-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {humanizeCategory(item.category)} ({item.count})
+              {onEnableCategory ? (
+                <button
+                  type="button"
+                  className="auto-action"
+                  style={{ minHeight: 24, padding: '0 8px', fontSize: 12, background: 'var(--auto-green)', color: '#08130e', border: 'none' }}
+                  onClick={() => onEnableCategory(item.category as MonitoringCategory)}
+                  title={`Enable the ${item.category} category in Configure to pick up these metrics.`}
+                >
+                  Enable
+                </button>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {expanded ? (
+        <div className="auto-reason-metrics">
+          {entry.metrics.map((metric, index) => (
+            <div key={`${metric.metricName}:${metric.service ?? ''}:${index}`}>
+              <div className="auto-reason-metric-row">
+                <span>{metric.metricName}</span>
+                <span>{[metric.service, metric.namespace].filter(Boolean).join(' / ') || '—'}</span>
+              </div>
+              {metric.supersededByMetric ? <div className="auto-reason-metric-detail">→ superseded by <strong>{metric.supersededByMetric}</strong></div> : null}
+              {formatMatchedRule(metric.matchedRule) ? <div className="auto-reason-metric-detail">{formatMatchedRule(metric.matchedRule)}</div> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -192,7 +252,7 @@ function FindingsLookupPanel({ findingsLookup }: { findingsLookup: NonNullable<P
   );
 }
 
-export function AutonomousMonitoringDashboard({ data, context, state, isLoading = false, error, onRetry, askOps, findingsLookup }: Props) {
+export function AutonomousMonitoringDashboard({ data, context, state, isLoading = false, error, onRetry, askOps, findingsLookup, onEnableCategory, onPreviewNow, isPreviewingNow }: Props) {
   const totalDistribution = data.behaviorDistribution.reduce((sum, item) => sum + item.count, 0);
   const displayState = state ?? (isLoading ? 'loading' : 'ready');
 
@@ -354,7 +414,6 @@ export function AutonomousMonitoringDashboard({ data, context, state, isLoading 
             </div>
             <div>
               <div className="auto-row-title">{data.selection.selectedLabel}</div>
-              <div className="auto-row-meta">Statistical candidate screening is not enabled yet.</div>
               <div className="auto-stat" style={{ marginTop: 12 }}>
                 <div className="auto-stat-value" style={{ color: 'var(--auto-green)' }}>
                   {data.selection.reductionPercent === null ? 'Not available' : `${data.selection.reductionPercent.toFixed(1)}%`}
@@ -364,7 +423,27 @@ export function AutonomousMonitoringDashboard({ data, context, state, isLoading 
               </div>
             </div>
           </div>
-          <div className="auto-empty" style={{ marginTop: 12 }}>Selection reasons: Screening not enabled</div>
+          {data.selection.reasonsAvailable ? (
+            data.selection.reasons.length ? (
+              <div className="auto-reason-list">
+                <div className="auto-row-title">Why metrics were excluded</div>
+                {data.selection.reasons.map((entry) => (
+                  <ExclusionReasonCard key={entry.label} entry={entry} onEnableCategory={onEnableCategory} />
+                ))}
+              </div>
+            ) : (
+              <div className="auto-empty" style={{ marginTop: 12 }}>No metrics were excluded in this preview.</div>
+            )
+          ) : (
+            <div className="auto-empty" style={{ marginTop: 12, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <span>Run a preview to see why each discovered metric was or wasn't selected.</span>
+              {onPreviewNow ? (
+                <button type="button" className="auto-action" onClick={onPreviewNow} disabled={isPreviewingNow}>
+                  {isPreviewingNow ? 'Previewing...' : 'Preview now'}
+                </button>
+              ) : null}
+            </div>
+          )}
         </Panel>
 
         <Panel title="Execution History" span={4}>

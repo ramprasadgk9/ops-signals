@@ -195,6 +195,33 @@ export type AutonomousPreviewRequest = {
   };
 };
 
+export type AutonomousPolicy = {
+  id: string;
+  name: string;
+  datasource: string;
+  backend: string;
+  scope: AutonomousPreviewRequest['scope'];
+  monitoring_selection: NonNullable<AutonomousPreviewRequest['monitoring_selection']>;
+  execution: AutonomousPreviewRequest['execution'];
+  enabled: boolean;
+  schedule_minutes: number | null;
+  next_run_at: string | null;
+  last_run_status: string | null;
+  consecutive_failures: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AutonomousPolicySaveRequest = {
+  name: string;
+  datasource: string;
+  backend: string;
+  scope: AutonomousPreviewRequest['scope'];
+  monitoring_selection: NonNullable<AutonomousPreviewRequest['monitoring_selection']>;
+  execution: AutonomousPreviewRequest['execution'];
+  schedule_minutes: number | null;
+};
+
 export type AutonomousPlanItem = {
   service?: string | null;
   namespace?: string | null;
@@ -202,6 +229,7 @@ export type AutonomousPlanItem = {
   metric_name: string;
   category?: MonitoringCategory | null;
   concept?: string | null;
+  would_be_category?: MonitoringCategory[];
   concepts?: string[];
   metric_type?: string | null;
   selector?: string;
@@ -230,6 +258,11 @@ export type AutonomousPreviewResponse = {
     environment?: string | null;
     label_mapping?: Record<string, string | null>;
     selector?: string;
+    series_discovered?: number;
+    series_available?: number | null;
+    truncated?: boolean;
+    starved_metrics_count?: number;
+    starved_metrics?: string[];
   };
   monitoring_summary?: {
     categories?: MonitoringCategory[];
@@ -243,6 +276,13 @@ export type AutonomousPreviewResponse = {
   planned_jobs: number;
   budget_limited_jobs?: number;
   budget_limited: number;
+  budget_excluded_metrics_count?: number;
+  budget_excluded_metrics?: string[];
+  series_discovered?: number;
+  series_available?: number | null;
+  truncated?: boolean;
+  starved_metrics_count?: number;
+  starved_metrics?: string[];
   warnings: string[];
   items: AutonomousPlanItem[];
 };
@@ -271,6 +311,10 @@ export type AutonomousRunResponse = {
   executed_jobs: number;
   skipped_jobs: number;
   failed_jobs: number;
+  budget_limited_jobs?: number;
+  budget_excluded_metrics_count?: number;
+  budget_excluded_metrics?: string[];
+  summary?: Record<string, any>;
   analysis_window: string;
   requested_start: string;
   requested_end: string;
