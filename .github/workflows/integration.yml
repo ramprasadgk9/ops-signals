@@ -17,6 +17,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ubuntu-latest ships with ~40GB of preinstalled toolchains this workflow never touches
+      # (.NET, Android SDK, GHC, CodeQL) eating into the runner's disk before anything here even
+      # runs. Combined with pip's torch/sentence-transformers, npm, Playwright's Chromium, and 5
+      # Docker Compose images, that was enough to exhaust the runner's disk mid-run - both prior
+      # Integration runs failed with "no space left on device" while pulling Docker image layers,
+      # not from any actual test failure. This reclaims the unused toolchains up front.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker image prune -af
+          df -h /
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -35,6 +48,21 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Get Playwright version
+        id: playwright-version
+        working-directory: frontend
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Caches only the downloaded browser binary (the slow, multi-hundred-MB part). `--with-deps`
+      # still runs on every run to make sure the OS-level libraries Chromium needs are present -
+      # that step is fast and isn't worth the complexity of caching apt state.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
       - name: Install Playwright browsers
         working-directory: frontend

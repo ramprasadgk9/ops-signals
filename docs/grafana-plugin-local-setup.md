@@ -51,10 +51,10 @@ From the repository root, confirm you are in the right place:
 pwd
 ```
 
-Expected path:
+Expected output ends with the repository name:
 
 ```text
-/Users/ramprasad/Documents/workspace/github/ops-signals
+.../operational-intelligence
 ```
 
 ## 1. Start The Backend
