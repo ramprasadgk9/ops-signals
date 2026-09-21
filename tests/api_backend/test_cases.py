@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.models.entities import AnalysisRunEntity, FindingEntity, OperationalCaseEntity
 
 
 def _create_finding(**overrides) -> FindingEntity:
@@ -22,7 +22,35 @@ def _create_finding(**overrides) -> FindingEntity:
     payload.update(overrides)
     finding = FindingEntity(**payload)
     session_local = get_session_local()
+    now = datetime.utcnow()
     with session_local() as db:
+        db.add(
+            AnalysisRunEntity(
+                id=payload['analysis_run_id'],
+                source_type='prometheus',
+                provider='prometheus',
+                service=payload['service'],
+                metric_name=payload['metric_name'],
+                start_time=now - timedelta(hours=1),
+                end_time=now,
+                sample_count=120,
+                status='completed',
+                router_version='1.0',
+                feature_extractor_version='1.0',
+                analyzer_registry_version='1.0',
+                series_profile_json={'sample_count': 120, 'shift_index': 0.82, 'regular_sampling': True},
+                router_decisions_json=[
+                    {
+                        'analyzer_id': 'baseline_shift',
+                        'eligible': True,
+                        'eligibility_score': 1.0,
+                        'suitability_score': 0.91,
+                        'final_score': 0.91,
+                        'recommendation': 'RECOMMENDED',
+                    }
+                ],
+            )
+        )
         db.add(finding)
         db.commit()
         db.refresh(finding)
@@ -100,6 +128,7 @@ def test_get_case_and_lifecycle_updates(client) -> None:
             'outcome_status': 'mitigated',
             'outcome_summary': 'Rolled back canary',
             'corrective_action': 'Rollback deploy',
+            'learning_outcome_status': 'confirmed',
         },
     )
     assert resolution.status_code == 200

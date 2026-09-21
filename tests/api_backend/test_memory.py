@@ -135,8 +135,14 @@ def test_memory_index_delete_and_similar_with_mocks() -> None:
         ],
     )
 
+    assistant = MagicMock()
+    knowledge_bootstrap = MagicMock()
+
     with patch('backend.app.main.load_memory_config', return_value=config):
-        with patch('backend.app.main.initialize_memory_services', return_value=(store, indexer, similarity)):
+        with patch(
+            'backend.app.main.initialize_memory_services',
+            return_value=(store, MagicMock(), indexer, similarity, assistant, knowledge_bootstrap),
+        ):
             app = create_app('sqlite+pysqlite:///:memory:')
             with TestClient(app) as client:
                 case_id = _seed_case()

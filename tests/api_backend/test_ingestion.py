@@ -7,8 +7,8 @@ import pandas as pd
 
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import FindingEntity
-from ops_signals.daily_report import OperationalIntelligenceReport
-from ops_signals.pipeline import PipelineResult
+from intelligence.daily_report import OperationalIntelligenceReport
+from intelligence.pipeline import PipelineResult
 
 
 SAMPLE_CSV = Path(__file__).resolve().parents[2] / 'sample_data' / 'cpu_usage_sample.csv'
@@ -39,6 +39,9 @@ def _pipeline_result(analysis_run_id: str = 'run-ingest-1') -> PipelineResult:
             top_findings=[],
         ),
         analysis_run_id=analysis_run_id,
+        analyzer_routing=[],
+        executed_analyzers=[],
+        analyzer_executions=[],
     )
 
 
