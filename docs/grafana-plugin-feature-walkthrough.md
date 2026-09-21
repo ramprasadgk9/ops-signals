@@ -2,7 +2,7 @@
 
 This walkthrough explains what the local Grafana plugin does today, how to use each feature, and what you should expect during testing.
 
-It is written for someone who already completed the local setup in [grafana-plugin-local-setup.md](/Users/ramprasad/Documents/workspace/github/ops-signals/docs/grafana-plugin-local-setup.md).
+It is written for someone who already completed the local setup in [grafana-plugin-local-setup.md](grafana-plugin-local-setup.md).
 
 ## Goal
 
