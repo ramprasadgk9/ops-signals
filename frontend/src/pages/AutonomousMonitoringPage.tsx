@@ -4,12 +4,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { AutonomousConfigurePanel } from '../autonomous/AutonomousConfigurePanel';
 import { AutonomousMonitoringDashboard } from '../autonomous/AutonomousMonitoringDashboard';
-import { buildAutonomousDashboardData, type AutonomousRunResponse } from '../autonomous/dashboardModel';
+import { buildAutonomousDashboardData, type AutonomousPreviewResponse, type AutonomousRunResponse, type MonitoringCategory } from '../autonomous/dashboardModel';
 import { PageHeader } from '../standalone/components';
 
 export function AutonomousMonitoringPage() {
   const queryClient = useQueryClient();
   const [runResult, setRunResult] = useState<AutonomousRunResponse | null>(null);
+  const [previewResult, setPreviewResult] = useState<AutonomousPreviewResponse | null>(null);
+  const [enableCategoryRequest, setEnableCategoryRequest] = useState<MonitoringCategory | null>(null);
+  const [previewNowSignal, setPreviewNowSignal] = useState(false);
+  const [isPreviewingNow, setIsPreviewingNow] = useState(false);
 
   const refreshAutonomousData = () => {
     void queryClient.invalidateQueries({ queryKey: ['overview-autonomous-policy-runs'] });
@@ -60,6 +64,7 @@ export function AutonomousMonitoringPage() {
     analysisRuns: [],
     behaviorFindings: behaviorsQuery.data ?? [],
     policyRuns: policyRunsQuery.data ?? [],
+    previewResult,
     runResult,
     findingHref: () => '/findings?window=24h',
     caseHref: (caseItem) => `/cases/${caseItem.id}`,
@@ -69,14 +74,27 @@ export function AutonomousMonitoringPage() {
     <Box sx={{ mx: { xs: -2, md: 0 }, p: { xs: 1, md: 0 } }}>
       <Stack spacing={3}>
         <PageHeader title="Autonomous Analysis Configure" subtitle="Configure scope, monitoring categories, execution limits, and run autonomous analysis." />
-        <AutonomousConfigurePanel onRunComplete={handleRunComplete} />
-        <AutonomousMonitoringDashboard
-          data={dashboardData}
-          context={{ timeWindow: runResult?.analysis_window, policy: 'Current monitoring policy' }}
-          state={dashboardState}
-          error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
-          onRetry={refreshAutonomousData}
+        <AutonomousConfigurePanel
+          onRunComplete={handleRunComplete}
+          onPreviewComplete={setPreviewResult}
+          enableCategoryRequest={enableCategoryRequest}
+          onEnableCategoryHandled={() => setEnableCategoryRequest(null)}
+          previewNowSignal={previewNowSignal}
+          onPreviewNowHandled={() => setPreviewNowSignal(false)}
+          onPreviewNowStateChange={setIsPreviewingNow}
         />
+        <Box id="autonomous-overview">
+          <AutonomousMonitoringDashboard
+            data={dashboardData}
+            context={{ timeWindow: runResult?.analysis_window, policy: 'Current monitoring policy' }}
+            state={dashboardState}
+            error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
+            onRetry={refreshAutonomousData}
+            onEnableCategory={setEnableCategoryRequest}
+            onPreviewNow={() => setPreviewNowSignal(true)}
+            isPreviewingNow={isPreviewingNow}
+          />
+        </Box>
       </Stack>
     </Box>
   );

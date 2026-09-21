@@ -5,12 +5,14 @@ from fastapi.testclient import TestClient
 
 from backend.app.autonomous import execution as autonomous_execution
 from backend.app.api.autonomous import get_prometheus_query_service
-from backend.app.autonomous.schemas import AnalysisScope, CustomMetricConstraints, DiscoveredMetric, ExecutionPolicy, MetricConcept, MonitoringCategory
+from backend.app.autonomous.schemas import AnalysisScope, CustomMetricConstraints, DiscoveredMetric, ExecutionPolicy, MetricConcept, MetricDiscoveryResult, MonitoringCategory
 from backend.app.autonomous.services import MetricClassificationService, MetricDiscoveryService, MetricPlanBuilder, build_label_matcher, build_scope_selector, validate_label_name
+from backend.app.config import PrometheusConnectionConfig
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import FindingEntity
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
+from backend.app.services.prometheus_service import PrometheusQueryService
 
 
 class FakeMetadataProvider:
@@ -178,12 +180,37 @@ def test_custom_include_and_exclude_behavior() -> None:
     assert plan.items[0].selection_reason == "custom_include_pattern"
     assert plan.items[1].planned is False
     assert plan.items[1].exclusion_reason == "custom_exclude_pattern"
+    # The UI shows this so users can see exactly which of their own patterns matched,
+    # not just that "a" pattern matched.
+    assert plan.items[1].matched_rule == "custom.exclude.custom_ignore_.*"
+
+
+def test_exclusion_reason_names_the_matched_static_rule() -> None:
+    plan = build_plan([metric("build_info")], categories=[MonitoringCategory.infrastructure])
+    assert plan.items[0].matched_rule == "static.suffix._info"
 
 
 def test_multi_category_classification() -> None:
     plan = build_plan([metric("container_cpu_usage_seconds_total")], categories=[MonitoringCategory.capacity, MonitoringCategory.infrastructure])
     assert plan.items[0].planned is True
     assert plan.items[0].category in {MonitoringCategory.capacity, MonitoringCategory.infrastructure}
+
+
+def test_category_disabled_exclusion_reports_would_be_category() -> None:
+    """A metric that matches a known rule but whose category isn't enabled should be
+    distinguishable from a metric nobody has a rule for - the former is fixable by
+    enabling a category, the latter isn't."""
+    plan = build_plan([metric("container_cpu_usage_seconds_total")], categories=[MonitoringCategory.availability])
+    assert plan.items[0].planned is False
+    assert plan.items[0].exclusion_reason == "category_disabled"
+    assert MonitoringCategory.capacity in plan.items[0].would_be_category
+
+
+def test_unrecognized_metric_name_is_not_marked_category_disabled() -> None:
+    plan = build_plan([metric("totally_unrecognized_custom_metric_xyz")], categories=[MonitoringCategory.performance])
+    assert plan.items[0].planned is False
+    assert plan.items[0].exclusion_reason == "no_matching_rule"
+    assert plan.items[0].would_be_category == []
 
 
 def test_budget_enforcement() -> None:
@@ -561,3 +588,350 @@ def test_autonomous_code_does_not_import_signal_pipeline() -> None:
         assert "from intelligence.pipeline import SignalPipeline" not in source
         assert "import SignalPipeline" not in source
         assert "SignalPipeline(" not in source
+
+
+def test_scoped_policy_pushes_scope_selector_down() -> None:
+    captured_args = {}
+
+    class TrackingProvider:
+        def discover_metric_metadata(self, **kwargs):
+            captured_args.update(kwargs)
+            return MetricDiscoveryResult(
+                metrics=[
+                    DiscoveredMetric(
+                        metric_name="checkout_latency",
+                        labels={"__name__": "checkout_latency", "service": "checkout"},
+                        service="checkout",
+                        source="prometheus",
+                    )
+                ],
+                series_discovered=1,
+            )
+
+    discovery = MetricDiscoveryService(TrackingProvider())
+    scope = AnalysisScope(services=["checkout"], all_services=False)
+    resolved_scope, discovered = discovery.discover(scope)
+
+    assert captured_args.get("scope_selector") == '{service="checkout"}'
+    assert resolved_scope.selector == '{service="checkout"}'
+    assert len(discovered) == 1
+    assert discovered[0].metric_name == "checkout_latency"
+
+
+def test_breadth_first_discovery_prevents_alphabetical_starvation() -> None:
+    prom = PrometheusQueryService(PrometheusConnectionConfig(base_url="http://mock-prom:9090"))
+
+    def fake_get_json(path, params):
+        if "/api/v1/label/__name__/values" in path:
+            return {
+                "status": "success",
+                "data": ["apiserver_request_duration_seconds", "business_orders_total", "zebra_queue_depth"],
+            }
+        if "/api/v1/metadata" in path:
+            return {
+                "status": "success",
+                "data": {
+                    "apiserver_request_duration_seconds": [{"type": "counter"}],
+                    "business_orders_total": [{"type": "counter"}],
+                    "zebra_queue_depth": [{"type": "gauge"}],
+                },
+            }
+        if "/api/v1/series" in path:
+            apiserver_series = [
+                {"__name__": "apiserver_request_duration_seconds", "service": "apiserver", "instance": f"pod-{i}"}
+                for i in range(500)
+            ]
+            business_series = [
+                {"__name__": "business_orders_total", "service": "orders", "instance": f"pod-{i}"}
+                for i in range(3)
+            ]
+            zebra_series = [
+                {"__name__": "zebra_queue_depth", "service": "zebra", "instance": f"pod-{i}"}
+                for i in range(2)
+            ]
+            return {"status": "success", "data": apiserver_series + business_series + zebra_series}
+        return {"status": "success", "data": []}
+
+    prom._get_json = fake_get_json
+
+    result = prom.discover_metric_metadata(limit=20, max_series_per_metric=5)
+
+    discovered_names = {m.metric_name for m in result.metrics}
+    assert "apiserver_request_duration_seconds" in discovered_names
+    assert "business_orders_total" in discovered_names
+    assert "zebra_queue_depth" in discovered_names
+    assert result.truncated is False
+    assert len(result.starved_metrics) == 0
+
+
+def test_discovery_truncation_reported_in_scope_and_preview() -> None:
+    class TruncatedProvider:
+        def discover_metric_metadata(self, **kwargs):
+            return MetricDiscoveryResult(
+                metrics=[
+                    DiscoveredMetric(
+                        metric_name="metric_a",
+                        labels={"__name__": "metric_a", "service": "a"},
+                        service="a",
+                        source="prometheus",
+                    )
+                ],
+                series_available=50000,
+                series_discovered=5000,
+                truncated=True,
+                starved_metrics=["metric_y", "metric_z"],
+            )
+
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: TruncatedProvider()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/autonomous/preview",
+            json={
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 500},
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["truncated"] is True
+    assert payload["starved_metrics_count"] == 2
+    assert payload["series_discovered"] == 5000
+    assert payload["series_available"] == 50000
+    assert any("truncated by the metadata safety limit" in w for w in payload["warnings"])
+    assert payload["scope_summary"]["truncated"] is True
+    assert payload["scope_summary"]["starved_metrics_count"] == 2
+    assert payload["starved_metrics"] == ["metric_y", "metric_z"]
+    assert payload["scope_summary"]["starved_metrics"] == ["metric_y", "metric_z"]
+
+
+def test_per_metric_cap_and_round_robin_sampling() -> None:
+    # Verify per-metric cap (e.g. 100) and round-robin allocation across metrics
+    metric_a_rows = [
+        {"__name__": "metric_a", "service": "checkout", "pod": f"pod-a-{i}"}
+        for i in range(150)
+    ]
+    metric_b_rows = [
+        {"__name__": "metric_b", "service": "checkout", "pod": f"pod-b-{i}"}
+        for i in range(10)
+    ]
+
+    # When limit=50 and max_per_metric=100, round-robin ensures metric_b gets its 10 series and metric_a gets 40
+    sampled = PrometheusQueryService._sample_distinct_series(
+        metric_a_rows + metric_b_rows,
+        max_per_metric=100,
+        limit=50,
+    )
+    assert len(sampled) == 50
+    a_samples = [s for s in sampled if s["__name__"] == "metric_a"]
+    b_samples = [s for s in sampled if s["__name__"] == "metric_b"]
+    assert len(b_samples) == 10
+    assert len(a_samples) == 40
+
+    # Verify single metric cap applies up to max_per_metric
+    single_metric_sampled = PrometheusQueryService._sample_distinct_series(
+        metric_a_rows,
+        max_per_metric=100,
+        limit=500,
+    )
+    assert len(single_metric_sampled) == 100
+
+
+def test_label_values_with_matchers_raises_on_http_error() -> None:
+    prom = PrometheusQueryService(PrometheusConnectionConfig(base_url="http://mock-prom:9090"))
+
+    def fake_get_json(path, params):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid matcher selector")
+
+    prom._get_json = fake_get_json
+
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        prom.label_values("__name__", matchers=['{service="bad"}'])
+    assert exc_info.value.status_code == 400
+
+
+def test_scoped_fast_path_anti_starvation_and_truncation() -> None:
+    prom = PrometheusQueryService(PrometheusConnectionConfig(base_url="http://mock-prom:9090"))
+
+    def fake_get_json(path, params):
+        if "/api/v1/series" in path:
+            # 100 series for metric_a and 2 series for metric_z
+            metric_a_series = [
+                {"__name__": "metric_a", "service": "checkout", "instance": f"pod-{i}"}
+                for i in range(100)
+            ]
+            metric_z_series = [
+                {"__name__": "metric_z", "service": "checkout", "instance": f"pod-{i}"}
+                for i in range(2)
+            ]
+            return {"status": "success", "data": metric_a_series + metric_z_series}
+        if "/api/v1/metadata" in path:
+            return {
+                "status": "success",
+                "data": {
+                    "metric_a": [{"type": "counter"}],
+                    "metric_z": [{"type": "gauge"}],
+                },
+            }
+        return {"status": "success", "data": []}
+
+    prom._get_json = fake_get_json
+
+    # When limit=5 and max_series_per_metric=2, round-robin ensures both metric_a and metric_z are discovered
+    result = prom.discover_metric_metadata(
+        scope_selector='{service="checkout"}',
+        limit=5,
+        max_series_per_metric=2,
+    )
+
+    discovered_names = {m.metric_name for m in result.metrics}
+    assert "metric_a" in discovered_names
+    assert "metric_z" in discovered_names
+    assert result.series_available == 102
+    assert result.series_discovered == 4  # 2 for metric_a (max_series_per_metric=2) + 2 for metric_z
+    assert result.truncated is True
+    assert result.starved_metrics == []
+
+
+def test_sample_distinct_series_is_deterministic() -> None:
+    # Shuffle input rows and ensure identical deterministic sampled output
+    raw_rows_1 = [
+        {"__name__": "metric_b", "service": "orders", "instance": "pod-1"},
+        {"__name__": "metric_a", "service": "checkout", "instance": "pod-1"},
+        {"__name__": "metric_a", "service": "checkout", "instance": "pod-2"},
+        {"__name__": "metric_b", "service": "orders", "instance": "pod-2"},
+    ]
+    raw_rows_2 = list(reversed(raw_rows_1))
+
+    sampled_1 = PrometheusQueryService._sample_distinct_series(raw_rows_1, max_per_metric=5, limit=10)
+    sampled_2 = PrometheusQueryService._sample_distinct_series(raw_rows_2, max_per_metric=5, limit=10)
+
+    assert sampled_1 == sampled_2
+
+
+def test_preview_surfaces_budget_excluded_metrics() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    plan = build_plan(metrics, max_metrics=1)
+
+    assert plan.planned_jobs == 1
+    assert plan.budget_limited_jobs == 2
+    assert plan.budget_excluded_metrics_count == 2
+    assert len(plan.budget_excluded_metrics) == 2
+    assert plan.scope_summary["budget_limited_jobs"] == 2
+    assert plan.scope_summary["budget_excluded_metrics_count"] == 2
+    assert len(plan.scope_summary["budget_excluded_metrics"]) == 2
+    assert any("Execution budget limited" in w and "Every run is independent" in w for w in plan.warnings)
+
+
+def test_preview_api_surfaces_budget_excluded_metrics() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider(metrics)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/autonomous/preview",
+            json={
+                "datasource": "prometheus",
+                "backend": "grafana-stack",
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 1, "max_parallel_jobs": 10},
+            },
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["planned_jobs"] == 1
+    assert payload["budget_limited_jobs"] == 2
+    assert payload["budget_excluded_metrics_count"] == 2
+    assert len(payload["budget_excluded_metrics"]) == 2
+    assert any("Execution budget limited" in w and "Every run is independent" in w for w in payload["warnings"])
+
+
+
+def test_run_once_surfaces_budget_excluded_metrics_in_response_and_summary() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider(metrics)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "datasource": "prometheus",
+                "backend": "grafana-stack",
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 1, "max_parallel_jobs": 10},
+                "dry_run": True,
+            },
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["planned_jobs"] == 1
+    assert payload["budget_limited_jobs"] == 2
+    assert payload["budget_excluded_metrics_count"] == 2
+    assert len(payload["budget_excluded_metrics"]) == 2
+    summary = payload["summary"]
+    assert summary["budget_limited_jobs"] == 2
+    assert summary["budget_excluded_metrics_count"] == 2
+    assert len(summary["budget_excluded_metrics"]) == 2
+    assert any("Execution budget limited" in w and "Every run is independent" in w for w in payload["warnings"])
+
+
+def test_policy_runs_api_surfaces_budget_coverage() -> None:
+    metrics = [
+        metric("cpu_usage", "checkout"),
+        metric("memory_usage", "payments"),
+        metric("container_memory_working_set_bytes", "shipping"),
+    ]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider(metrics)
+    with TestClient(app) as client:
+        run_res = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "datasource": "prometheus",
+                "backend": "grafana-stack",
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 1, "max_parallel_jobs": 10},
+                "dry_run": True,
+            },
+        )
+        assert run_res.status_code == 200
+        run_id = run_res.json()["policy_run_id"]
+
+        list_res = client.get("/api/autonomous/policy-runs")
+        assert list_res.status_code == 200
+        runs = list_res.json()
+        matching = [r for r in runs if r["id"] == run_id]
+        assert len(matching) == 1
+        assert matching[0]["budget_limited_jobs"] == 2
+        assert matching[0]["budget_excluded_metrics_count"] == 2
+        assert len(matching[0]["budget_excluded_metrics"]) == 2
+
+        get_res = client.get(f"/api/autonomous/policy-runs/{run_id}")
+        assert get_res.status_code == 200
+        run_dict = get_res.json()
+        assert run_dict["budget_limited_jobs"] == 2
+        assert run_dict["budget_excluded_metrics_count"] == 2
+        assert len(run_dict["budget_excluded_metrics"]) == 2
+
+

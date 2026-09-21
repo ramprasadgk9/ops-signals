@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from intelligence.analyzers.base import Analyzer
+from intelligence.analyzers.ruptures import detect_primary_change_point
 from intelligence.capability import Capability
 from intelligence.signals.schema import OperationalSignal
 
@@ -16,9 +17,11 @@ class ZScoreAnomalyAnalyzer(Analyzer):
         grouping_gap: str = "15m",
         finding_rules: dict[str, object] | None = None,
         implementation: dict[str, object] | None = None,
+        rebaseline: dict[str, object] | None = None,
     ) -> None:
         impl = implementation or {}
         rules = finding_rules or {}
+        rebase = rebaseline or {}
         zscore_threshold = float(impl.get("zscore_threshold", zscore_threshold))
         grouping_gap = str(impl.get("grouping_gap", grouping_gap))
         self.zscore_threshold = zscore_threshold
@@ -27,6 +30,10 @@ class ZScoreAnomalyAnalyzer(Analyzer):
         self.method = str(impl.get("method", "zscore"))
         self.finding_min_abs_zscore = max(0.0, float(rules.get("min_abs_zscore", zscore_threshold)))
         self.finding_min_points = max(1, int(rules.get("min_points", 1)))
+        self.rebaseline_enabled = bool(rebase.get("enabled", True))
+        self.rebaseline_min_segment_size = max(2, int(rebase.get("min_segment_size", 5)))
+        self.rebaseline_change_threshold = float(rebase.get("change_threshold", 1.5))
+        self.rebaseline_max_iterations = max(1, int(rebase.get("max_iterations", 5)))
 
     def capability(self) -> Capability:
         return Capability(
@@ -43,18 +50,59 @@ class ZScoreAnomalyAnalyzer(Analyzer):
             ],
         )
 
+    def _most_recent_stable_regime_start(self, values) -> int:
+        """Walks forward through successive detected change points to find where the
+        most recent stable regime begins.
+
+        A single change point can land inside a still-noisy transition rather than
+        at its true start - rebaselining against that segment would be contaminated
+        by the transition's own volatility, masking exactly the anomaly a fresh
+        baseline should be judged against (observed on real NAB EC2 CPU data: a
+        breakpoint landing mid-recovery inflated the post-shift std enough to hide
+        the event it was still part of). So each step re-checks the remaining tail
+        for a further change point and only stops once none is found.
+        """
+        start = 0
+        for _ in range(self.rebaseline_max_iterations):
+            remaining = values[start:]
+            if len(remaining) < self.rebaseline_min_segment_size * 2:
+                break
+            change_point = detect_primary_change_point(
+                remaining,
+                min_segment_size=self.rebaseline_min_segment_size,
+                change_threshold=self.rebaseline_change_threshold,
+            )
+            if change_point is None:
+                break
+            start += int(change_point["change_point_index"])
+        return start
+
     def analyze(self, dataframe: pd.DataFrame) -> list[OperationalSignal]:
         signals: list[OperationalSignal] = []
         for _, group in dataframe.groupby(["metric_name", "service", "env"], dropna=False):
             ordered = group.sort_values("timestamp").reset_index(drop=True)
             if len(ordered) < 3:
                 continue
-            std = float(ordered["value"].std(ddof=0))
+
+            working = ordered
+            rebaselined = False
+            change_point_index: int | None = None
+            if self.rebaseline_enabled:
+                start = self._most_recent_stable_regime_start(ordered["value"].to_numpy(dtype=float))
+                if start > 0:
+                    post_shift = ordered.iloc[start:].reset_index(drop=True)
+                    if len(post_shift) >= self.rebaseline_min_segment_size:
+                        working = post_shift
+                        rebaselined = True
+                        change_point_index = start
+
+            std = float(working["value"].std(ddof=0))
             if std == 0:
                 continue
-            mean = float(ordered["value"].mean())
-            ordered["zscore"] = (ordered["value"] - mean) / std
-            anomalies = ordered[ordered["zscore"].abs() >= self.zscore_threshold].copy()
+            mean = float(working["value"].mean())
+            working = working.copy()
+            working["zscore"] = (working["value"] - mean) / std
+            anomalies = working[working["zscore"].abs() >= self.zscore_threshold].copy()
             if anomalies.empty:
                 continue
             anomalies["group_id"] = (anomalies["timestamp"].diff().gt(self.grouping_gap)).cumsum()
@@ -89,6 +137,8 @@ class ZScoreAnomalyAnalyzer(Analyzer):
                             "max_abs_zscore": round(max_abs_z, 4),
                             "point_count": int(len(anomaly_group)),
                             "grouping_gap_minutes": self.grouping_gap.total_seconds() / 60,
+                            "rebaselined_after_change_point": rebaselined,
+                            **({"change_point_index": change_point_index} if rebaselined else {}),
                             "implementation": {
                                 "library": self.library,
                                 "method": self.method,

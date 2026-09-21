@@ -1,6 +1,6 @@
 apiVersion: 1
 
 apps:
-  - type: ops-signals-app
+  - type: breezypoppy3596-ops-signals-app
     org_id: 1
     disabled: false

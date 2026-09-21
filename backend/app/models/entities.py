@@ -170,6 +170,10 @@ class AutonomousPolicyEntity(Base):
     monitoring_categories_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     execution_policy_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    schedule_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

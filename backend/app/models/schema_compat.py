@@ -58,6 +58,36 @@ def ensure_ai_narrative_schema(engine: Engine) -> None:
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
 
 
+AUTONOMOUS_POLICY_SCHEDULING_COLUMN_SQL = {
+    "schedule_minutes": "INTEGER",
+    "next_run_at": "TIMESTAMPTZ",
+    "last_run_status": "VARCHAR(32)",
+    "consecutive_failures": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def ensure_autonomous_policy_scheduling_schema(engine: Engine) -> None:
+    """Adds the columns the recurring-schedule feature needs to the existing autonomous_policies
+    table, which previously had an `enabled` flag but no repository, endpoint, or scheduler ever
+    read or wrote it - this wires it up additively rather than replacing it."""
+    inspector = inspect(engine)
+    if "autonomous_policies" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("autonomous_policies")}
+    missing = {name: ddl for name, ddl in AUTONOMOUS_POLICY_SCHEDULING_COLUMN_SQL.items() if name not in existing}
+    if not missing:
+        return
+
+    dialect = engine.dialect.name
+    with engine.begin() as connection:
+        for name, ddl in missing.items():
+            if dialect == "sqlite":
+                sqlite_type = "DATETIME" if ddl == "TIMESTAMPTZ" else ddl
+                connection.execute(text(f"ALTER TABLE autonomous_policies ADD COLUMN {name} {sqlite_type}"))
+            else:
+                connection.execute(text(f"ALTER TABLE autonomous_policies ADD COLUMN {name} {ddl}"))
+
+
 def ensure_case_behavior_link_schema(engine: Engine) -> None:
     """Lets a case originate from a BehaviorFinding (a correlated, cross-metric root-cause
     story) instead of only a single-metric Finding, which is all the original schema

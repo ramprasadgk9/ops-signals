@@ -12,7 +12,7 @@ This note records the boundary decision for separating Interactive Analysis from
 | `backend.app.models.entities.AutonomousPolicyRunEntity` | Autonomous control plane | Authoritative record of one autonomous policy execution. |
 | `backend.app.models.entities.AutonomousMetricJobEntity` | Autonomous control plane | Authoritative record of one planned/skipped/executed metric job, optionally linked to `analysis_runs`. |
 | `backend.app.autonomous.repository` | Autonomous control plane | Repository boundary for policy-run and metric-job state changes. |
-| `backend.app.autonomous.services.MetricDiscoveryService` | Autonomous only | Discovers metric metadata for autonomous scope planning. |
+| `backend.app.autonomous.services.MetricDiscoveryService` | Autonomous only | Discovers metric metadata for autonomous scope planning with push-down label scoping, anti-starvation dynamic quota sampling, and truncation visibility (`series_available`, `starved_metrics`). |
 | `backend.app.autonomous.services.MetricClassificationService` | Autonomous only | Maps monitoring intent to metric concepts and Prometheus metrics. |
 | `backend.app.autonomous.services.MetricPlanBuilder` | Autonomous only | Builds autonomous metric plans and planned request payloads. |
 | `backend.app.autonomous.execution.execute_autonomous_plan_once` | Autonomous only | Coordinates a preview plan execution once; this is not a repeating scheduler. |
@@ -75,6 +75,8 @@ AutonomousPolicy
 - `jobs_skipped`
 - `jobs_failed`
 - `findings_created`
+- `budget_limited_jobs` (in policy snapshot and run records)
+- `budget_excluded_metrics` (in policy snapshot and run records)
 
 `AutonomousMetricJob` stores the metric identity, PromQL, category/concept, selection reason, skip reason, timing, failure metadata, and optional `analysis_run_id`.
 
@@ -85,6 +87,16 @@ Current history APIs:
 - `GET /api/autonomous/policy-runs/{policy_run_id}/jobs`
 
 The autonomous overview UI can now migrate from legacy backfilled counts to these native autonomous records.
+
+## Execution Budget & Concurrency Policies
+
+1. **Execution Budget & Independent Runs**:
+   - `max_metrics_per_run` (default 500, max 5,000) caps the number of planned jobs executed per run.
+   - Selected metrics beyond `max_metrics_per_run` are marked with `exclusion_reason="budget_limit"` and returned in `budget_excluded_metrics`.
+   - **Independent Run Model**: Every `run-once` execution is an independent on-demand snapshot. Budget-excluded metrics are not deferred, queued, or carried over across runs. Users configure coverage by sizing `max_metrics_per_run` or scoping policy selectors (`service`, `namespace`).
+2. **Concurrency (`max_parallel_jobs`)**:
+   - `max_parallel_jobs` (default 20, max 200) is stored in execution configuration but execution currently runs sequentially in a single transaction loop.
+   - This ensures deterministic ordering and database transactional integrity across SQLite and PostgreSQL sessions. The configuration field is preserved and reserved for future worker pools.
 
 ## Still Missing For Full Target Architecture
 

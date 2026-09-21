@@ -1,7 +1,7 @@
 import type { AnalysisRun, BehaviorFinding, Finding } from '../types';
-import type { AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
+import type { AutonomousPreviewResponse, AutonomousRunResponse, MonitoringCategory } from '../grafana/contracts';
 
-export type { AutonomousRunResponse };
+export type { AutonomousPreviewResponse, AutonomousRunResponse, MonitoringCategory };
 
 export type AutonomousPolicyRun = {
   id: string;
@@ -18,10 +18,31 @@ export type AutonomousPolicyRun = {
   jobs_completed?: number | null;
   jobs_skipped?: number | null;
   jobs_failed?: number | null;
+  budget_limited_jobs?: number | null;
+  budget_excluded_metrics_count?: number | null;
+  budget_excluded_metrics?: string[] | null;
   findings_created?: number | null;
   error_summary?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+};
+
+export type AutonomousExclusionMetric = {
+  metricName: string;
+  service: string | null;
+  namespace: string | null;
+  matchedRule?: string | null;
+  supersededByMetric?: string | null;
+};
+
+export type AutonomousExclusionReason = {
+  reason: string;
+  label: string;
+  description: string;
+  actionable: boolean;
+  count: number;
+  wouldEnableCategories?: Array<{ category: string; count: number }>;
+  metrics: AutonomousExclusionMetric[];
 };
 
 export type AutonomousSelectionSummary = {
@@ -32,7 +53,8 @@ export type AutonomousSelectionSummary = {
   reductionPercent: number | null;
   selectedLabel: string;
   screeningEnabled: boolean;
-  reasons: Array<{ label: string; count: number }>;
+  reasons: AutonomousExclusionReason[];
+  reasonsAvailable: boolean;
 };
 
 export type AutonomousDashboardSummary = {
@@ -113,6 +135,112 @@ export type BuildAutonomousDashboardInput = {
 
 const CLOSED_CASE_STATUSES = new Set(['resolved', 'closed', 'completed', 'verified']);
 
+const EXCLUSION_REASON_LABELS: Record<string, string> = {
+  category_disabled: 'Category not enabled',
+  no_matching_rule: 'No rule recognizes this metric',
+  static_metadata_metric: 'System/internal metric',
+  created_timestamp: 'System/internal metric',
+  custom_exclude_pattern: 'Excluded by your custom pattern',
+  missing_required_label: 'Missing required labels',
+  budget_limit: "Cut by this run's metric budget",
+  duplicate_lower_rank: 'Duplicate of a higher-confidence metric',
+};
+
+// Plain-language explanation shown under each bucket, keyed by the bucket's label
+// (not the raw reason code) since several reason codes can share one label/bucket.
+const EXCLUSION_REASON_DESCRIPTIONS: Record<string, string> = {
+  'Category not enabled': 'These metrics match a known pattern, but the monitoring category they belong to is switched off in your policy.',
+  'No rule recognizes this metric': "\"Rule\" means the system's built-in library of exact metric names and name patterns (e.g. anything matching *_latency_seconds is known to be a latency metric) - it's not something you configure. None of those rules recognize this metric's name, so the system can't tell what it measures.",
+  'System/internal metric': 'These are metadata or bookkeeping metrics (like names ending in _info or _created), not real operational signals - excluded on purpose.',
+  'Excluded by your custom pattern': 'These matched an "Exclude pattern" you set yourself, in Configure -> Monitoring Categories -> Custom -> Exclude patterns. Expand the list below to see exactly which pattern matched each metric.',
+  'Missing required labels': 'These metrics are missing a label your policy requires (like service or namespace), so they can\'t be attributed to anything.',
+  "Cut by this run's metric budget": "These metrics qualified for analysis, but this run's metric limit was reached before they could be included.",
+  'Duplicate of a higher-confidence metric': 'These metrics would have been selected, but another metric already covers the same service, category, and concept with a more reliable classification (an exact known metric beats a fuzzy name-pattern match) - the system kept that one instead of analyzing both. Expand the list to see which metric won each match.',
+};
+
+// Reasons a policy change can actually fix - the rest are either intentional
+// (system metrics) or need something other than an enable/disable toggle.
+const ACTIONABLE_EXCLUSION_REASONS = new Set(['category_disabled']);
+
+function exclusionReasonLabel(reason: string): string {
+  return EXCLUSION_REASON_LABELS[reason] ?? 'Excluded from this preview';
+}
+
+function exclusionReasonDescription(label: string): string {
+  return EXCLUSION_REASON_DESCRIPTIONS[label] ?? 'These metrics were not selected in this preview.';
+}
+
+// Turns an internal matched_rule id (e.g. "custom.exclude.foo_.*", "static.suffix._info")
+// into the plain-language detail shown next to a metric in an exclusion bucket's list.
+// Only the first two dots are structural (scope.kind.value) - regex patterns in the
+// value itself routinely contain dots (e.g. ".*build.*info.*"), so a plain split('.')
+// would mangle them. Slice on explicit indices instead of splitting the whole string.
+export function formatMatchedRule(rule: string | null | undefined): string | null {
+  if (!rule) return null;
+  const firstDot = rule.indexOf('.');
+  const secondDot = firstDot === -1 ? -1 : rule.indexOf('.', firstDot + 1);
+  if (firstDot === -1 || secondDot === -1) return rule;
+  const scope = rule.slice(0, firstDot);
+  const kind = rule.slice(firstDot + 1, secondDot);
+  const value = rule.slice(secondDot + 1);
+  if (scope === 'custom' && kind === 'exclude') return `matched your exclude pattern "${value}"`;
+  if (scope === 'static' && kind === 'exact') return `blocklisted metric name`;
+  if (scope === 'static' && kind === 'suffix') return `name ends with "${value}"`;
+  if (scope === 'static' && kind === 'pattern') return `matched system pattern "${value}"`;
+  return rule;
+}
+
+// Same grouping the backend uses to dedupe (environment, namespace, service, category,
+// concept) - lets the frontend name which planned metric "won" a duplicate-rank exclusion
+// without needing the backend to carry that link explicitly.
+function logicalKey(item: { environment?: string | null; namespace?: string | null; service?: string | null; category?: string | null; concept?: string | null }): string {
+  return [item.environment ?? '', item.namespace ?? '', item.service ?? '', item.category ?? '', item.concept ?? ''].join('|');
+}
+
+function buildExclusionReasons(preview: AutonomousPreviewResponse | null): AutonomousExclusionReason[] {
+  if (!preview) return [];
+  const winnerByKey = new Map<string, string>();
+  for (const item of preview.items) {
+    if (item.planned) winnerByKey.set(logicalKey(item), item.metric_name);
+  }
+  const buckets = new Map<string, AutonomousExclusionReason>();
+  for (const item of preview.items) {
+    if (item.planned) continue;
+    const reason = item.exclusion_reason ?? 'unknown';
+    const label = exclusionReasonLabel(reason);
+    // Group by label so e.g. the two "system metric" backend reasons present as one bucket.
+    const key = label;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { reason, label, description: exclusionReasonDescription(label), actionable: ACTIONABLE_EXCLUSION_REASONS.has(reason), count: 0, metrics: [] };
+      buckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    if (bucket.metrics.length < 200) {
+      bucket.metrics.push({
+        metricName: item.metric_name,
+        service: item.service ?? null,
+        namespace: item.namespace ?? null,
+        matchedRule: item.matched_rule ?? null,
+        supersededByMetric: reason === 'duplicate_lower_rank' ? winnerByKey.get(logicalKey(item)) ?? null : null,
+      });
+    }
+    // Only the "category disabled" bucket is fixable by enabling a category - other
+    // reasons (duplicate rank, budget cap, blocklist) can carry a would_be_category
+    // too, but the category is often already enabled there, so an "Enable" action
+    // would be a no-op or actively misleading.
+    if (reason === 'category_disabled' && item.would_be_category?.length) {
+      bucket.wouldEnableCategories = bucket.wouldEnableCategories ?? [];
+      for (const category of item.would_be_category) {
+        const existing = bucket.wouldEnableCategories.find((entry) => entry.category === category);
+        if (existing) existing.count += 1;
+        else bucket.wouldEnableCategories.push({ category, count: 1 });
+      }
+    }
+  }
+  return [...buckets.values()].sort((a, b) => b.count - a.count);
+}
+
 function latestPolicyRun(policyRuns: AutonomousPolicyRun[] = []) {
   return [...policyRuns].sort((a, b) => {
     const aTime = new Date(a.completed_at ?? a.started_at ?? a.created_at ?? 0).getTime();
@@ -170,10 +298,12 @@ function executionRowsFromPolicyRuns(policyRuns: AutonomousPolicyRun[]) {
       : namespaces.length
         ? String(namespaces.slice(0, 2).join(', '))
         : run.policy_id || run.trigger || 'autonomous scope';
+    const budgetLimited = run.budget_limited_jobs ?? (snapshot.budget_limited_jobs as number | undefined);
+    const budgetNotice = budgetLimited && budgetLimited > 0 ? ` (${budgetLimited} budget-excluded)` : '';
     return {
       id: run.id,
       scope: scopeLabel,
-      metrics: `${run.jobs_completed ?? run.jobs_planned ?? run.metrics_selected ?? 0} metrics`,
+      metrics: `${run.jobs_completed ?? run.jobs_planned ?? run.metrics_selected ?? 0} metrics${budgetNotice}`,
       status: run.status,
       completed: run.completed_at ?? run.updated_at ?? null,
       errorSummary: run.error_summary ?? null,
@@ -197,10 +327,13 @@ function executionRowsFromCurrentRun(run: AutonomousRunResponse | null): Autonom
   if (!run) return [];
   const scopes = Array.from(new Set(run.results.map((result) => result.service).filter(Boolean))).slice(0, 2);
   const failedErrors = run.results.map((result) => result.error).filter(Boolean);
+  const budgetNotice = run.budget_limited_jobs && run.budget_limited_jobs > 0
+    ? ` (${run.budget_limited_jobs} budget-excluded)`
+    : '';
   return [{
     id: `current:${run.requested_end}`,
     scope: scopes.length ? scopes.join(', ') : 'current run',
-    metrics: `${run.executed_jobs} executed / ${run.planned_jobs} planned`,
+    metrics: `${run.executed_jobs} executed / ${run.planned_jobs} planned${budgetNotice}`,
     status: run.status,
     completed: run.requested_end,
     errorSummary: failedErrors.length ? failedErrors.slice(0, 2).join('; ') : null,
@@ -270,7 +403,8 @@ export function buildAutonomousDashboardData(input: BuildAutonomousDashboardInpu
       reductionPercent,
       selectedLabel: 'Selected by monitoring policy',
       screeningEnabled: false,
-      reasons: [],
+      reasons: buildExclusionReasons(preview),
+      reasonsAvailable: preview !== null,
     },
     topFindings: sortedFindings.slice(0, 8).map((finding, index) => ({
       id: finding.id,

@@ -43,7 +43,7 @@ import type {
   ValidationResult,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
-import type { AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
+import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
 
 export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
 
@@ -156,6 +156,15 @@ export const api = {
     postJson<AutonomousPreviewRequest & { dry_run: boolean }, AutonomousRunResponse>('/api/autonomous/run-once', { ...payload, dry_run: false }),
   autonomousQuestionAnswer: (payload: { question: string; policy_run_id?: string | null; window?: FindingsWindow; service?: string; metric_name?: string }) =>
     postJson<typeof payload, AutonomousQuestionAnswer>('/api/autonomous/questions/answer', payload),
+  autonomousListPolicies: (limit = 50) => getJson<AutonomousPolicy[]>(`/api/autonomous/policies?limit=${limit}`),
+  autonomousSavePolicy: (payload: AutonomousPolicySaveRequest) =>
+    postJson<AutonomousPolicySaveRequest, AutonomousPolicy>('/api/autonomous/policies', payload),
+  autonomousUpdatePolicy: (policyId: string, payload: AutonomousPolicySaveRequest) =>
+    patchJson<AutonomousPolicySaveRequest, AutonomousPolicy>(`/api/autonomous/policies/${encodeURIComponent(policyId)}`, payload),
+  autonomousSetPolicyStatus: (policyId: string, enabled: boolean) =>
+    patchJson<{ enabled: boolean }, AutonomousPolicy>(`/api/autonomous/policies/${encodeURIComponent(policyId)}/status`, { enabled }),
+  autonomousDeletePolicy: (policyId: string) =>
+    deleteJson<{ deleted: boolean; id: string }>(`/api/autonomous/policies/${encodeURIComponent(policyId)}`),
   createCase: (findingId: number) =>
     postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {}),
   createCaseFromBehavior: (behaviorFindingId: number) =>

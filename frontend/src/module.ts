@@ -7,7 +7,7 @@ import { PluginApp } from './grafana/PluginApp';
 import { PluginPanel } from './grafana/PluginPanel';
 import type { OpsSignalsDataSourceOptions } from './datasource/types';
 
-export const pluginId = 'ops-signals-app';
+export const pluginId = 'breezypoppy3596-ops-signals-app';
 
 export const plugin = new AppPlugin().setRootPage(PluginApp as any);
 

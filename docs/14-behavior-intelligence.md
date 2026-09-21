@@ -43,6 +43,71 @@ Signals
 -> Behavior Finding
 ```
 
+## Configuring a Behavior Definition
+
+A minimal, real example - `config/behavior_definitions.d/memory_pressure.yml` in full:
+
+```yaml
+behavior_definitions:
+  memory_pressure_with_errors:
+    enabled: true
+    version: 1
+    title: Possible memory pressure impacting requests
+    description: >
+      Detects sustained upward memory pressure (trend or baseline shift) occurring together
+      with an error-rate anomaly, suggestive of memory exhaustion starting to affect requests.
+    scope:
+      service: "*"
+    inputs:
+      - alias: memory
+        metric_name: memory_usage
+        analyzers:
+          - trend
+          - baseline_shift
+      - alias: errors
+        metric_name: error_rate
+        analyzers:
+          - anomaly_zscore
+    conditions:
+      all:
+        - fact: errors.anomaly.present
+          operator: equals
+          value: true
+      any:
+        - fact: memory.trend.direction
+          operator: equals
+          value: upward
+        - fact: memory.baseline_shift.present
+          operator: equals
+          value: true
+    correlation:
+      same_analysis_context: true
+      max_time_gap: 20m
+      minimum_overlap: 5m
+    output:
+      category: resource_constraint
+      severity: high
+      title: Possible memory pressure impacting requests
+      summary: >
+        Memory usage is trending upward or shifted to a new baseline while errors are also
+        anomalous in the same window — worth checking for memory exhaustion.
+      evidence:
+        - memory.trend.direction
+        - memory.trend.change_percent
+        - memory.baseline_shift.present
+        - errors.anomaly.count
+```
+
+Reading it top to bottom: `inputs` names the metrics involved and which analyzers must have run
+against them (`memory` needs `trend` or `baseline_shift`, `errors` needs `anomaly_zscore`).
+`conditions` reference *facts* those analyzers produce (`errors.anomaly.present`,
+`memory.trend.direction`) - `all` must hold, plus at least one of `any`. `correlation` bounds how
+close in time the two signals need to be to count as related. `output` is what gets written as the
+Behavior Finding if everything matches.
+
+Drop a new file into `config/behavior_definitions.d/` (any filename - it's a directory of
+independent packs, not one shared file) and restart the backend to pick it up.
+
 ## Current Implementation
 
 - Behavior definitions live in `config/behavior_definitions.d/*.yml` - a directory of files (not

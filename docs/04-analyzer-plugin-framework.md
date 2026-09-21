@@ -68,6 +68,19 @@ The manual path is the same thing without the UI:
 Consider also adding a benchmark scenario - see `benchmark/CONTRIBUTING.md` - so your analyzer's
 behavior is validated against a known-answer dataset instead of only checked by hand.
 
+## Analyzer Workbench (UI)
+
+"Analyzer Workbench" is the sidebar grouping in the web UI (under **Experiments**) that holds
+everything on this page in one place:
+
+- **Labs** - one page per built-in analyzer (Z-Score Anomaly, PyOD Outlier, Prophet Forecast,
+  Ruptures Change Point, STUMPY Motif, Trend) for running that analyzer directly against sample
+  data and inspecting its raw signal output - useful for understanding what an analyzer actually
+  does before deciding whether to route more traffic to it.
+- **Add Analyzer** - the wizard described above under [Extensibility Model](#extensibility-model).
+- **Recommendations** - the Universal Router's live scoring preview for a given series; see
+  [`docs/16-analyzer-recommendation.md`](16-analyzer-recommendation.md).
+
 ## Current Limitations
 
 - HTTP-backed analyzers can be registered (config-only) but not executed yet - the adapter that

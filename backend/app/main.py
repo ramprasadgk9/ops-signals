@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from uuid import UUID
 
@@ -51,7 +52,12 @@ from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import QdrantVectorStore, VectorStore
 from backend.app.models.db import get_engine, get_session_local, init_engine, get_db
 from backend.app.models.entities import Base
-from backend.app.models.schema_compat import ensure_ai_narrative_schema, ensure_case_behavior_link_schema, ensure_learning_schema
+from backend.app.models.schema_compat import (
+    ensure_ai_narrative_schema,
+    ensure_autonomous_policy_scheduling_schema,
+    ensure_case_behavior_link_schema,
+    ensure_learning_schema,
+)
 from backend.app.storage.bootstrap import seed_reference_data
 
 logger = logging.getLogger(__name__)
@@ -213,6 +219,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_learning_schema(get_engine())
         ensure_ai_narrative_schema(get_engine())
         ensure_case_behavior_link_schema(get_engine())
+        ensure_autonomous_policy_scheduling_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
@@ -248,7 +255,20 @@ def create_app(database_url: str | None = None) -> FastAPI:
         assistant_module._services["assistant"] = memory_services["assistant"]
         assistant_module._services["knowledge_bootstrap"] = memory_services["knowledge_bootstrap"]
 
+        scheduler_task: asyncio.Task | None = None
+        if os.getenv("OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED", "true").lower() != "false":
+            from backend.app.autonomous.scheduler import run_scheduler_loop
+
+            scheduler_task = asyncio.create_task(run_scheduler_loop())
+        else:
+            logger.info("Autonomous policy scheduler disabled via OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED")
+
         yield
+
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await scheduler_task
 
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
     

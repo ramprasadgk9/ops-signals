@@ -6,11 +6,11 @@ Ops Signals is a Grafana app plugin for explainable operational analysis.
 
 Use this page as the launch point:
 
-[Launch Ops Signals](http://localhost:3000/a/ops-signals-app/ops-signals)
+[Launch Ops Signals](http://localhost:3000/a/breezypoppy3596-ops-signals-app/ops-signals)
 
 If Grafana still shows `App not found`, use the plugin overview page as the fallback:
 
-[Open plugin overview](http://localhost:3000/plugins/ops-signals-app?page=overview)
+[Open plugin overview](http://localhost:3000/plugins/breezypoppy3596-ops-signals-app?page=overview)
 
 ## What it does
 
@@ -23,7 +23,7 @@ If Grafana still shows `App not found`, use the plugin overview page as the fall
 This is a local development build.
 
 - The plugin is unsigned
-- Grafana is configured to allow loading the unsigned `ops-signals-app` plugin
+- Grafana is configured to allow loading the unsigned `breezypoppy3596-ops-signals-app` plugin
 - The plugin is mounted from `frontend/dist` in the local Docker Compose setup
 
 ## How to open it

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, getCase, listAnalysisRuns, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, searchFindings, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, getCase, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setAutonomousPolicyStatus, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -14,10 +14,10 @@ import { PanelPreview } from './PanelPreview';
 import { Card, Field, styles } from './plainUi';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
-import type { AutonomousPlanItem, AutonomousPreviewResponse, AutonomousRunResponse, GrafanaAnalysisResult, GrafanaCase, GrafanaCaseCreateResponse, GrafanaQueryTarget, MonitoringCategory } from './contracts';
+import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, GrafanaAnalysisResult, GrafanaCase, GrafanaCaseCreateResponse, GrafanaQueryTarget, MonitoringCategory } from './contracts';
 import type { AnalysisRun, BehaviorFinding, Finding } from '../types';
 import { buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
-import { buildAutonomousDashboardData, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
+import { buildAutonomousDashboardData, formatMatchedRule, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
 
 const defaultTarget: GrafanaQueryTarget = {
   datasource: 'Prometheus',
@@ -135,6 +135,8 @@ export function PluginApp(_props: unknown) {
   const [previewResult, setPreviewResult] = useState<AutonomousPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isPreviewingPolicy, setIsPreviewingPolicy] = useState(false);
+  const [previewPolicyError, setPreviewPolicyError] = useState('');
   const [autonomousRunResult, setAutonomousRunResult] = useState<AutonomousRunResponse | null>(null);
   const [autonomousRunError, setAutonomousRunError] = useState('');
   const [isAutonomousRunning, setIsAutonomousRunning] = useState(false);
@@ -513,6 +515,8 @@ export function PluginApp(_props: unknown) {
           previewResult={previewResult}
           previewError={previewError}
           isPreviewing={isPreviewing}
+          isPreviewingPolicy={isPreviewingPolicy}
+          previewPolicyError={previewPolicyError}
           runResult={autonomousRunResult}
           runError={autonomousRunError}
           isRunningOnce={isAutonomousRunning}
@@ -549,6 +553,7 @@ export function PluginApp(_props: unknown) {
           onBackToConfigure={() => {
             setPreviewResult(null);
             setPreviewError('');
+            setAutonomousRunResult(null);
             setAutonomousRunError('');
             setAutonomousInvestigationFinding(null);
             setAutonomousCaseResult(null);
@@ -631,6 +636,31 @@ export function PluginApp(_props: unknown) {
               setPreviewError('Metric plan could not be loaded. Check that the selected backend is reachable, reduce the scope if needed, then try again.');
             } finally {
               setIsPreviewing(false);
+            }
+          }}
+          onPreviewPolicy={async (policy) => {
+            setIsPreviewingPolicy(true);
+            setPreviewPolicyError('');
+            try {
+              const response = await previewAutonomousPlan(backendUrl, {
+                datasource: 'prometheus',
+                backend: policy.backend,
+                scope: policy.scope,
+                monitoring_selection: policy.monitoring_selection,
+                monitoring_categories: policy.monitoring_selection.categories,
+                execution: policy.execution,
+                custom_constraints: {
+                  include_patterns: policy.monitoring_selection.custom_constraints?.include_patterns ?? [],
+                  exclude_patterns: policy.monitoring_selection.custom_constraints?.exclude_patterns ?? [],
+                  required_labels: policy.monitoring_selection.custom_constraints?.required_labels ?? {},
+                  explicit_metrics: policy.monitoring_selection.custom_constraints?.explicit_metrics ?? [],
+                },
+              });
+              setPreviewResult(response);
+            } catch {
+              setPreviewPolicyError('Metric plan could not be loaded. Check that the selected backend is reachable, then try again.');
+            } finally {
+              setIsPreviewingPolicy(false);
             }
           }}
           onRunOnce={async () => {
@@ -909,6 +939,8 @@ function AutonomousAnalysisView({
   previewResult,
   previewError,
   isPreviewing,
+  isPreviewingPolicy,
+  previewPolicyError,
   runResult,
   runError,
   isRunningOnce,
@@ -927,6 +959,7 @@ function AutonomousAnalysisView({
   onCloseInvestigation,
   onCreateCase,
   onPreview,
+  onPreviewPolicy,
   onRunOnce,
 }: {
   backendUrl: string;
@@ -979,6 +1012,8 @@ function AutonomousAnalysisView({
   previewResult: AutonomousPreviewResponse | null;
   previewError: string;
   isPreviewing: boolean;
+  isPreviewingPolicy: boolean;
+  previewPolicyError: string;
   runResult: AutonomousRunResponse | null;
   runError: string;
   isRunningOnce: boolean;
@@ -997,12 +1032,153 @@ function AutonomousAnalysisView({
   onCloseInvestigation: () => void;
   onCreateCase: (finding: Finding) => Promise<void>;
   onPreview: () => Promise<void>;
+  onPreviewPolicy: (policy: AutonomousPolicy) => Promise<void>;
   onRunOnce: () => Promise<void>;
 }) {
   const [previewStatusFilter, setPreviewStatusFilter] = useState<'all' | 'planned' | 'excluded'>('all');
   const [previewCategoryFilter, setPreviewCategoryFilter] = useState<string>('all');
   const [previewConceptFilter, setPreviewConceptFilter] = useState<string>('all');
   const [expandedPreviewMetric, setExpandedPreviewMetric] = useState<string | null>(null);
+
+  // Scheduled-policy state: local to this view, same as the preview filters above - fetched
+  // straight from the backend rather than prop-drilled through PluginApp, since it doesn't need
+  // to be shared with any sibling view.
+  const [activePolicy, setActivePolicy] = useState<AutonomousPolicy | null>(null);
+  const [isLoadingPolicy, setIsLoadingPolicy] = useState(false);
+  const [policyLoadError, setPolicyLoadError] = useState('');
+  const [isEditingSchedule, setIsEditingSchedule] = useState(false);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [isTogglingSchedule, setIsTogglingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState('');
+  const [scheduleMode, setScheduleMode] = useState<'run_once' | 'scheduled'>('run_once');
+  const [scheduleMinutes, setScheduleMinutes] = useState(30);
+  const [forceOverview, setForceOverview] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!backendUrl) return;
+    setIsLoadingPolicy(true);
+    setPolicyLoadError('');
+    listAutonomousPolicies(backendUrl)
+      .then((policies) => {
+        if (active) setActivePolicy(policies[0] ?? null);
+      })
+      .catch(() => {
+        if (active) setPolicyLoadError('Could not load your scheduled policy. Your schedule may still be running - this is a fetch problem, not a sign it was removed.');
+      })
+      .finally(() => {
+        if (active) setIsLoadingPolicy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [backendUrl]);
+
+  const refreshActivePolicy = () => {
+    setIsLoadingPolicy(true);
+    setPolicyLoadError('');
+    listAutonomousPolicies(backendUrl)
+      .then((policies) => setActivePolicy(policies[0] ?? null))
+      .catch(() => setPolicyLoadError('Could not load your scheduled policy. Your schedule may still be running - this is a fetch problem, not a sign it was removed.'))
+      .finally(() => setIsLoadingPolicy(false));
+  };
+
+  const handleSaveSchedule = async () => {
+    setIsSavingSchedule(true);
+    setScheduleError('');
+    try {
+      const request = buildAutonomousPreviewRequest({
+        backend: 'grafana-stack',
+        environment,
+        allServices,
+        selectedServices,
+        allNamespaces,
+        selectedNamespaces,
+        serviceLabel,
+        namespaceLabel,
+        environmentLabel,
+        selectedCategories,
+        executionInterval,
+        analysisWindow,
+        maxMetricsPerRun,
+        maxParallelJobs,
+        customExplicitMetrics,
+        customIncludePatterns,
+        customExcludePatterns,
+      });
+      const payload = {
+        name: 'Production coverage',
+        datasource: request.datasource,
+        backend: request.backend,
+        scope: request.scope,
+        monitoring_selection: request.monitoring_selection!,
+        execution: request.execution,
+        schedule_minutes: scheduleMode === 'scheduled' ? scheduleMinutes : null,
+      };
+      const saved = activePolicy ? await updateAutonomousPolicy(backendUrl, activePolicy.id, payload) : await saveAutonomousPolicy(backendUrl, payload);
+      setActivePolicy(saved);
+      setIsEditingSchedule(false);
+    } catch {
+      setScheduleError('Could not save this schedule. Check that the backend is reachable and try again.');
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
+
+  const handlePauseSchedule = async () => {
+    if (!activePolicy) return;
+    setIsTogglingSchedule(true);
+    try {
+      setActivePolicy(await setAutonomousPolicyStatus(backendUrl, activePolicy.id, false));
+    } catch {
+      setScheduleError('Could not pause this schedule.');
+    } finally {
+      setIsTogglingSchedule(false);
+    }
+  };
+
+  const handleResumeSchedule = async () => {
+    if (!activePolicy) return;
+    setIsTogglingSchedule(true);
+    try {
+      setActivePolicy(await setAutonomousPolicyStatus(backendUrl, activePolicy.id, true));
+    } catch {
+      setScheduleError('Could not resume this schedule.');
+    } finally {
+      setIsTogglingSchedule(false);
+    }
+  };
+
+  const handleBackToConfigure = () => {
+    setForceOverview(false);
+    onBackToConfigure();
+  };
+
+  const applyPolicyToForm = (policy: AutonomousPolicy) => {
+    setEnvironment(policy.scope.environment ?? 'production');
+    setServiceLabel(policy.scope.service_label);
+    setNamespaceLabel(policy.scope.namespace_label);
+    setEnvironmentLabel(policy.scope.environment_label);
+    setAllServices(policy.scope.all_services);
+    setSelectedServices(policy.scope.services);
+    setAllNamespaces(policy.scope.all_namespaces);
+    setSelectedNamespaces(policy.scope.namespaces);
+    setSelectedCategories(policy.monitoring_selection.categories);
+    setCustomExplicitMetrics((policy.monitoring_selection.custom_constraints?.explicit_metrics ?? []).join(','));
+    setCustomIncludePatterns((policy.monitoring_selection.custom_constraints?.include_patterns ?? []).join(','));
+    setCustomExcludePatterns((policy.monitoring_selection.custom_constraints?.exclude_patterns ?? []).join(','));
+    setExecutionInterval(policy.execution.interval);
+    setAnalysisWindow(policy.execution.analysis_window);
+    setMaxMetricsPerRun(String(policy.execution.max_metrics_per_run));
+    setMaxParallelJobs(String(policy.execution.max_parallel_jobs));
+    setScheduleMode(policy.schedule_minutes ? 'scheduled' : 'run_once');
+    if (policy.schedule_minutes) setScheduleMinutes(policy.schedule_minutes);
+  };
+
+  const handleEditSchedule = () => {
+    if (activePolicy) applyPolicyToForm(activePolicy);
+    setIsEditingSchedule(true);
+  };
   const dashboardData = buildAutonomousDashboardData({
     findings,
     cases,
@@ -1019,7 +1195,8 @@ function AutonomousAnalysisView({
   const canRunOnce = Boolean(previewResult?.planned_jobs && !isRunningOnce);
   const hasCompletedAutonomousRun = Boolean(
     runResult?.status === 'completed' ||
-    runResult?.status === 'partial'
+    runResult?.status === 'partial' ||
+    forceOverview
   );
   const hasFailedAutonomousRun = Boolean(
     runResult?.status === 'failed'
@@ -1063,19 +1240,101 @@ function AutonomousAnalysisView({
   };
   const readMultiSelect = (event: React.ChangeEvent<HTMLSelectElement>) => Array.from(event.target.selectedOptions).map((option) => option.value);
 
+  const autonomousTab: 'configure' | 'overview' = uiStage.startsWith('overview') ? 'overview' : 'configure';
+
   return (
     <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          type="button"
+          style={autonomousTab === 'configure' ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : styles.button}
+          onClick={handleBackToConfigure}
+        >
+          Configure
+        </button>
+        <button
+          type="button"
+          style={autonomousTab === 'overview' ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : styles.button}
+          onClick={() => setForceOverview(true)}
+          title="View findings, run history, and coverage details - available even before a run has completed in this session."
+        >
+          Overview
+        </button>
+      </div>
+      {policyLoadError ? (
+        <div style={{ ...styles.alert, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <span>{policyLoadError}</span>
+          <button type="button" style={styles.button} onClick={refreshActivePolicy} disabled={isLoadingPolicy}>
+            {isLoadingPolicy ? 'Retrying...' : 'Retry'}
+          </button>
+        </div>
+      ) : null}
       {showConfigure ? (
       <Card>
+        {activePolicy && !isEditingSchedule ? (
+          <div>
+            <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <span style={{ ...styles.chip, color: activePolicy.enabled ? '#3fcf8e' : 'rgba(204, 204, 220, 0.72)', marginBottom: 8, display: 'inline-block' }}>
+                  {activePolicy.enabled ? '● Scheduled · Active' : 'Scheduled · Paused'}
+                </span>
+                <h2 style={{ margin: 0 }}>{activePolicy.name}</h2>
+                <p style={{ ...styles.muted, margin: '5px 0 0' }}>
+                  {activePolicy.monitoring_selection.categories.join(', ')} &middot; every {activePolicy.schedule_minutes ? `${activePolicy.schedule_minutes}m` : 'n/a'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" style={styles.button} onClick={handleEditSchedule}>Edit</button>
+                {activePolicy.enabled ? (
+                  <button type="button" style={{ ...styles.button, color: '#ff7381', borderColor: 'rgba(255, 115, 129, 0.4)' }} disabled={isTogglingSchedule} onClick={handlePauseSchedule}>
+                    {isTogglingSchedule ? 'Removing...' : 'Remove'}
+                  </button>
+                ) : (
+                  <button type="button" style={styles.button} disabled={isTogglingSchedule} onClick={handleResumeSchedule}>
+                    {isTogglingSchedule ? 'Resuming...' : 'Resume'}
+                  </button>
+                )}
+                <button type="button" style={{ ...styles.button, background: '#3fcf8e', color: '#08130e' }} onClick={() => setForceOverview(true)}>
+                  View Overview &rarr;
+                </button>
+              </div>
+            </div>
+            {scheduleError ? <div style={{ ...styles.alert, marginBottom: 12 }}>{scheduleError}</div> : null}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, paddingTop: 14, borderTop: '1px solid rgba(204, 204, 220, 0.14)' }}>
+              <div>
+                <div style={styles.label}>Last run</div>
+                <div>{activePolicy.last_run_status ?? 'Not run yet'}</div>
+              </div>
+              <div>
+                <div style={styles.label}>Next run</div>
+                <div>{activePolicy.enabled ? (activePolicy.next_run_at ? new Date(activePolicy.next_run_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'n/a') : 'Paused'}</div>
+              </div>
+              <div>
+                <div style={styles.label}>Health</div>
+                <div style={{ color: activePolicy.consecutive_failures > 0 ? '#ff7381' : '#3fcf8e' }}>
+                  {activePolicy.consecutive_failures > 0 ? `${activePolicy.consecutive_failures} failed in a row` : 'Healthy'}
+                </div>
+              </div>
+              <div>
+                <div style={styles.label}>Max metrics / run</div>
+                <div>{activePolicy.execution.max_metrics_per_run}</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+        <>
         <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
             <h2 style={{ margin: 0, color: '#3fcf8e' }}>Configure</h2>
             <p style={{ ...styles.muted, margin: '5px 0 0' }}>
-              Configure the monitoring scope, preview the planned metrics, then execute one autonomous analysis run.
+              Configure the monitoring scope, preview the planned metrics, then run once or schedule it to run automatically.
             </p>
           </div>
-          <span style={{ ...styles.chip, color: '#3fcf8e' }}>Run once</span>
+          <span style={{ ...styles.chip, color: '#3fcf8e' }}>{scheduleMode === 'scheduled' ? 'Scheduled' : 'Run once'}</span>
         </div>
+        {activePolicy && isEditingSchedule ? (
+          <button type="button" style={{ ...styles.button, marginBottom: 12 }} onClick={() => setIsEditingSchedule(false)}>Cancel edit</button>
+        ) : null}
         <div style={{ ...styles.toolbar, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
           <Field label="Data source">
             <select style={styles.input} value={selectedPrometheusUid} onChange={(event) => setSelectedPrometheusUid(event.target.value)}>
@@ -1096,16 +1355,6 @@ function AutonomousAnalysisView({
               ))}
             </select>
           </Field>
-          <Field label="Policy">
-            <select style={styles.input} defaultValue="production-critical">
-              <option value="production-critical">Production Critical Services</option>
-              <option value="all-observed">All Observed Metrics</option>
-              <option value="service-focused">Service Focused Watch</option>
-            </select>
-          </Field>
-          <button type="button" style={{ ...styles.button, ...styles.buttonDisabled }} disabled>
-            Manage policies soon
-          </button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.35fr) minmax(320px, 1fr) minmax(220px, 0.35fr)', gap: 14, marginTop: 16 }}>
@@ -1189,11 +1438,22 @@ function AutonomousAnalysisView({
           <div style={panelStyle('#5794f2')}>
             <h3 style={sectionTitleStyle}>3. Execution Limits</h3>
             <Field label="Mode">
-              <input style={{ ...styles.input, ...styles.inputReadOnly }} value="Run once" readOnly />
+              <select style={styles.input} value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value as 'run_once' | 'scheduled')}>
+                <option value="run_once">One-time</option>
+                <option value="scheduled">Scheduled</option>
+              </select>
             </Field>
-            <Field label="Recurring scheduling">
-              <input style={{ ...styles.input, ...styles.inputReadOnly }} value="Coming soon" readOnly />
-            </Field>
+            {scheduleMode === 'scheduled' ? (
+              <Field label="Run every">
+                <select style={styles.input} value={scheduleMinutes} onChange={(event) => setScheduleMinutes(Number(event.target.value))}>
+                  <option value={5}>5m</option>
+                  <option value={15}>15m</option>
+                  <option value={30}>30m</option>
+                  <option value={60}>1h</option>
+                  <option value={360}>6h</option>
+                </select>
+              </Field>
+            ) : null}
             <Field label="Analysis window">
               <select style={styles.input} value={analysisWindow} onChange={(event) => setAnalysisWindow(event.target.value)}>
                 <option value="30m">30m</option>
@@ -1203,7 +1463,7 @@ function AutonomousAnalysisView({
                 <option value="7d">7d</option>
               </select>
             </Field>
-            <Field label="Analysis interval">
+            <Field label="Query resolution">
               <select style={styles.input} value={executionInterval} onChange={(event) => setExecutionInterval(event.target.value)}>
                 <option value="30s">30s</option>
                 <option value="1m">1m</option>
@@ -1216,21 +1476,35 @@ function AutonomousAnalysisView({
             </Field>
             <Field label="Max parallel jobs">
               <input style={styles.input} type="number" value={maxParallelJobs} min={1} max={200} onChange={(event) => setMaxParallelJobs(event.target.value)} />
+              <div style={{ ...styles.helperText, marginTop: 4 }}>
+                Execution runs sequentially; this setting is reserved for future worker concurrency.
+              </div>
             </Field>
           </div>
         </div>
 
-        <div style={{ marginTop: 16 }}>
+        {scheduleError ? <div style={{ ...styles.alert, marginTop: 12 }}>{scheduleError}</div> : null}
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button type="button" style={canPreview && !isPreviewing ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={!canPreview || isPreviewing} onClick={onPreview}>
             {isPreviewing ? 'Building preview...' : 'Preview metric plan'}
           </button>
+          <button
+            type="button"
+            style={selectedCategories.length && !isSavingSchedule ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : { ...styles.button, ...styles.buttonDisabled }}
+            disabled={!selectedCategories.length || isSavingSchedule}
+            onClick={handleSaveSchedule}
+          >
+            {isSavingSchedule ? 'Saving...' : scheduleMode === 'scheduled' ? 'Save & Schedule' : 'Save'}
+          </button>
         </div>
-        <div style={styles.helperText}>Preview first, then run the planned jobs once. Recurring scheduling is coming soon.</div>
+        <div style={styles.helperText}>Preview first, then run the planned jobs once, or save a schedule so it runs automatically without you.</div>
+        </>
+        )}
       </Card>
       ) : null}
 
       {uiStage === 'preview_loading' ? <PreviewLoadingPanel /> : null}
-      {uiStage === 'preview_error' ? <PreviewErrorPanel onRetry={onPreview} onBack={onBackToConfigure} /> : null}
+      {uiStage === 'preview_error' ? <PreviewErrorPanel onRetry={onPreview} onBack={handleBackToConfigure} /> : null}
       {uiStage === 'preview_ready' ? (
         <PreviewPlanPanel
           result={previewResult}
@@ -1238,7 +1512,7 @@ function AutonomousAnalysisView({
           canRunOnce={canRunOnce}
           isRunningOnce={isRunningOnce}
           onRunOnce={onRunOnce}
-          onBack={onBackToConfigure}
+          onBack={handleBackToConfigure}
           statusFilter={previewStatusFilter}
           setStatusFilter={setPreviewStatusFilter}
           categoryFilter={previewCategoryFilter}
@@ -1250,7 +1524,7 @@ function AutonomousAnalysisView({
         />
       ) : null}
       {uiStage === 'running' ? <AutonomousRunningPanel plannedJobs={previewResult?.planned_jobs ?? runResult?.planned_jobs ?? null} /> : null}
-      {uiStage === 'run_error' ? <RunErrorPanel result={runResult} onRetry={onRunOnce} onBack={onBackToConfigure} /> : null}
+      {uiStage === 'run_error' ? <RunErrorPanel result={runResult} onRetry={onRunOnce} onBack={handleBackToConfigure} /> : null}
       {runResult && ['overview_loading', 'overview_ready', 'overview_empty'].includes(uiStage) ? <AutonomousRunPanel result={runResult} /> : null}
 
       {['overview_loading', 'overview_ready', 'overview_empty', 'overview_error'].includes(uiStage) ? (
@@ -1272,6 +1546,13 @@ function AutonomousAnalysisView({
           onInvestigateInteractive={onInvestigateInteractive}
           onCloseInvestigation={onCloseInvestigation}
           onCreateCase={onCreateCase}
+          onEnableCategory={(category) => {
+            if (!selectedCategories.includes(category)) toggleCategory(category);
+            handleBackToConfigure();
+          }}
+          onPreviewNow={activePolicy ? () => onPreviewPolicy(activePolicy) : undefined}
+          isPreviewingNow={isPreviewingPolicy}
+          previewNowError={previewPolicyError}
           context={{
             sourceLabel: selectedPrometheusUid ? `Prometheus / ${selectedPrometheusUid}` : 'Prometheus / Grafana datasource',
             datasource: selectedPrometheusUid || 'Prometheus',
@@ -1323,6 +1604,10 @@ function GrafanaAutonomousOverview({
   onInvestigateInteractive,
   onCloseInvestigation,
   onCreateCase,
+  onEnableCategory,
+  onPreviewNow,
+  isPreviewingNow,
+  previewNowError,
 }: {
   data: AutonomousDashboardData;
   findings: Finding[];
@@ -1348,6 +1633,10 @@ function GrafanaAutonomousOverview({
   onInvestigateInteractive: (finding: Finding) => void;
   onCloseInvestigation: () => void;
   onCreateCase: (finding: Finding) => Promise<void>;
+  onEnableCategory?: (category: MonitoringCategory) => void;
+  onPreviewNow?: () => void;
+  isPreviewingNow?: boolean;
+  previewNowError?: string;
 }) {
   if (state === 'loading') {
     return (
@@ -1527,7 +1816,7 @@ function GrafanaAutonomousOverview({
       ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.95fr) minmax(280px, 1fr) minmax(260px, 0.85fr)', gap: 12 }}>
-        <CoverageDetailsPanel selection={data.selection} />
+        <CoverageDetailsPanel selection={data.selection} onEnableCategory={onEnableCategory} onPreviewNow={onPreviewNow} isPreviewingNow={isPreviewingNow} previewNowError={previewNowError} />
         <RunHistoryPanel rows={data.executionRows} />
         <CasesPanel data={data} />
       </div>
@@ -1630,13 +1919,13 @@ function ObservedChangesPanel({ data }: { data: AutonomousDashboardData }) {
   );
 }
 
-function CoverageDetailsPanel({ selection }: { selection: AutonomousSelectionSummary }) {
+function CoverageDetailsPanel({ selection, onEnableCategory, onPreviewNow, isPreviewingNow, previewNowError }: { selection: AutonomousSelectionSummary; onEnableCategory?: (category: MonitoringCategory) => void; onPreviewNow?: () => void; isPreviewingNow?: boolean; previewNowError?: string }) {
   const [isOpen, setIsOpen] = useState(false);
   return (
     <div style={panelStyle('#3fcf8e')}>
       <div style={styles.rowBetween}>
         <div>
-          <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>Coverage Details <InfoTip title="Shows how many discovered metrics were selected by the monitoring policy and how many were excluded." /></h3>
+          <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>Coverage Details <InfoTip title="Metrics discovered in this preview vs. how many your policy selected, with a breakdown of why the rest were excluded - so you know which monitoring categories to enable or disable." /></h3>
           <div style={{ ...styles.row, color: '#cfd3e6' }}>
             <span style={{ color: '#5794f2' }}>{formatNullableCount(selection.discovered)} discovered</span>
             <span>·</span>
@@ -1651,7 +1940,7 @@ function CoverageDetailsPanel({ selection }: { selection: AutonomousSelectionSum
           {isOpen ? 'Hide' : 'Show'}
         </button>
       </div>
-      {isOpen ? <div style={{ marginTop: 14 }}><MetricSelectionFunnel selection={selection} /></div> : null}
+      {isOpen ? <div style={{ marginTop: 14 }}><MetricSelectionFunnel selection={selection} onEnableCategory={onEnableCategory} onPreviewNow={onPreviewNow} isPreviewingNow={isPreviewingNow} previewNowError={previewNowError} /></div> : null}
     </div>
   );
 }
@@ -2069,28 +2358,104 @@ function BehaviorDonut({ items, total }: { items: Array<{ label: string; count: 
   );
 }
 
-function MetricSelectionFunnel({ selection }: { selection: AutonomousSelectionSummary }) {
+function MetricSelectionFunnel({ selection, onEnableCategory, onPreviewNow, isPreviewingNow, previewNowError }: { selection: AutonomousSelectionSummary; onEnableCategory?: (category: MonitoringCategory) => void; onPreviewNow?: () => void; isPreviewingNow?: boolean; previewNowError?: string }) {
   const discovered = selection.discovered ?? 0;
   const selected = selection.selected ?? 0;
   const excluded = selection.excluded ?? Math.max(discovered - selected, 0);
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0, 1fr)', gap: 16, alignItems: 'center' }}>
-      <svg viewBox="0 0 160 170" width="150" height="160" aria-label="Metric selection funnel">
-        <polygon points="10,10 150,10 130,62 30,62" fill="#3fcf8e" opacity="0.85" />
-        <polygon points="30,62 130,62 108,112 52,112" fill="#73bf69" opacity="0.9" />
-        <polygon points="52,112 108,112 80,160" fill="#ff9830" opacity="0.92" />
-        <text x="80" y="37" textAnchor="middle" fill="#fff" fontSize="20" fontWeight="800">{formatNullableCount(discovered)}</text>
-        <text x="80" y="88" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="800">{formatNullableCount(selected)}</text>
-        <text x="80" y="135" textAnchor="middle" fill="#fff" fontSize="17" fontWeight="800">{formatNullableCount(excluded)}</text>
-      </svg>
-      <div style={styles.stack}>
-        <div style={styles.rowBetween}><span>Discovered</span><strong>{formatNullableCount(selection.discovered)}</strong></div>
-        <div style={styles.rowBetween}><span>Selected</span><strong>{formatNullableCount(selection.selected)}</strong></div>
-        <div style={styles.rowBetween}><span>Excluded</span><strong>{formatNullableCount(selection.excluded)}</strong></div>
-        <div style={styles.infoNote}>{selection.selectedLabel}</div>
-        <div style={styles.helperText}>Statistical candidate screening is not enabled yet.</div>
-        {selection.reductionPercent !== null ? <div style={{ textAlign: 'center', marginTop: 8 }}><div style={{ color: '#3fcf8e', fontSize: 24, fontWeight: 900 }}>{selection.reductionPercent.toFixed(1)}%</div><div style={styles.helperText}>Reduction</div></div> : null}
+    <div style={styles.stack}>
+      <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0, 1fr)', gap: 16, alignItems: 'center' }}>
+        <svg viewBox="0 0 160 170" width="150" height="160" aria-label="Metric selection funnel">
+          <polygon points="10,10 150,10 130,62 30,62" fill="#3fcf8e" opacity="0.85" />
+          <polygon points="30,62 130,62 108,112 52,112" fill="#73bf69" opacity="0.9" />
+          <polygon points="52,112 108,112 80,160" fill="#ff9830" opacity="0.92" />
+          <text x="80" y="37" textAnchor="middle" fill="#fff" fontSize="20" fontWeight="800">{formatNullableCount(discovered)}</text>
+          <text x="80" y="88" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="800">{formatNullableCount(selected)}</text>
+          <text x="80" y="135" textAnchor="middle" fill="#fff" fontSize="17" fontWeight="800">{formatNullableCount(excluded)}</text>
+        </svg>
+        <div style={styles.stack}>
+          <div style={styles.rowBetween}><span>Discovered</span><strong>{formatNullableCount(selection.discovered)}</strong></div>
+          <div style={styles.rowBetween}><span>Selected</span><strong>{formatNullableCount(selection.selected)}</strong></div>
+          <div style={styles.rowBetween}><span>Excluded</span><strong>{formatNullableCount(selection.excluded)}</strong></div>
+          <div style={styles.infoNote}>{selection.selectedLabel}</div>
+          {selection.reductionPercent !== null ? <div style={{ textAlign: 'center', marginTop: 8 }}><div style={{ color: '#3fcf8e', fontSize: 24, fontWeight: 900 }}>{selection.reductionPercent.toFixed(1)}%</div><div style={styles.helperText}>Reduction</div></div> : null}
+        </div>
       </div>
+      <ExclusionReasonBreakdown selection={selection} onEnableCategory={onEnableCategory} onPreviewNow={onPreviewNow} isPreviewingNow={isPreviewingNow} previewNowError={previewNowError} />
+    </div>
+  );
+}
+
+function ExclusionReasonBreakdown({ selection, onEnableCategory, onPreviewNow, isPreviewingNow, previewNowError }: { selection: AutonomousSelectionSummary; onEnableCategory?: (category: MonitoringCategory) => void; onPreviewNow?: () => void; isPreviewingNow?: boolean; previewNowError?: string }) {
+  const [expandedReason, setExpandedReason] = useState<string | null>(null);
+  if (!selection.reasonsAvailable) {
+    return (
+      <div style={styles.stack}>
+        <div style={{ ...styles.row, alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div style={styles.helperText}>Run a preview to see why each discovered metric was or wasn't selected.</div>
+          {onPreviewNow ? (
+            <button type="button" style={styles.button} onClick={onPreviewNow} disabled={isPreviewingNow}>
+              {isPreviewingNow ? 'Previewing...' : 'Preview now'}
+            </button>
+          ) : null}
+        </div>
+        {previewNowError ? <div style={styles.alert}>{previewNowError}</div> : null}
+      </div>
+    );
+  }
+  if (!selection.reasons.length) {
+    return <div style={styles.helperText}>No metrics were excluded in this preview.</div>;
+  }
+  return (
+    <div style={styles.stack}>
+      <div style={{ fontWeight: 800 }}>Why metrics were excluded</div>
+      {selection.reasons.map((entry) => (
+        <div key={entry.label} style={{ border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 10, background: 'rgba(17, 18, 23, 0.4)' }}>
+          <div style={styles.rowBetween}>
+            <div>
+              <strong>{entry.label}</strong>
+              <span style={{ ...styles.helperText, marginLeft: 8 }}>{entry.count} metric{entry.count === 1 ? '' : 's'}</span>
+            </div>
+            <button type="button" style={{ ...styles.button, padding: '4px 10px', fontSize: 12 }} onClick={() => setExpandedReason(expandedReason === entry.label ? null : entry.label)}>
+              {expandedReason === entry.label ? 'Hide' : 'View list'}
+            </button>
+          </div>
+          <div style={{ ...styles.helperText, marginTop: 4 }}>{entry.description}</div>
+          {entry.wouldEnableCategories?.length ? (
+            <div style={{ ...styles.row, marginTop: 8, flexWrap: 'wrap' }}>
+              {entry.wouldEnableCategories.map((item) => (
+                <span key={item.category} style={{ ...styles.chip, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {humanize(item.category)} ({item.count})
+                  {onEnableCategory ? (
+                    <button
+                      type="button"
+                      style={{ ...styles.button, padding: '2px 8px', fontSize: 11, background: '#3fcf8e', color: '#08130e' }}
+                      onClick={() => onEnableCategory(item.category as MonitoringCategory)}
+                      title={`Enable the ${item.category} category and go back to Configure to preview the change.`}
+                    >
+                      Enable
+                    </button>
+                  ) : null}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {expandedReason === entry.label ? (
+            <div style={{ marginTop: 8, maxHeight: 220, overflowY: 'auto', display: 'grid', gap: 6 }}>
+              {entry.metrics.map((metric, index) => (
+                <div key={`${metric.metricName}:${metric.service ?? ''}:${index}`} style={styles.helperText}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span>{metric.metricName}</span>
+                    <span>{[metric.service, metric.namespace].filter(Boolean).join(' / ') || '—'}</span>
+                  </div>
+                  {metric.supersededByMetric ? <div style={{ color: 'rgba(204, 204, 220, 0.6)' }}>→ superseded by <strong>{metric.supersededByMetric}</strong></div> : null}
+                  {formatMatchedRule(metric.matchedRule) ? <div style={{ color: 'rgba(204, 204, 220, 0.6)' }}>{formatMatchedRule(metric.matchedRule)}</div> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }
@@ -2099,6 +2464,28 @@ function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase();
   const tone = normalized === 'completed' ? '#3fcf8e' : normalized === 'partial' ? '#ffb357' : normalized === 'failed' ? '#f2495c' : '#5794f2';
   return <span style={{ ...styles.chip, width: 'fit-content', color: tone, borderColor: `${tone}66` }}>{humanize(status)}</span>;
+}
+
+function BudgetExcludedAlert({
+  metrics,
+  count,
+}: {
+  metrics?: string[];
+  count?: number;
+}) {
+  if (!metrics || metrics.length === 0) return null;
+  const totalCount = count ?? metrics.length;
+  const remaining = totalCount - 10;
+  return (
+    <div style={{ ...styles.alert, marginTop: 12, backgroundColor: '#22272e', borderColor: '#ffb35766' }}>
+      <strong>Budget-excluded metrics ({totalCount}):</strong>{' '}
+      {metrics.slice(0, 10).join(', ')}
+      {remaining > 0 ? ` (and ${remaining} more)` : ''}.
+      <div style={{ ...styles.muted, marginTop: 4 }}>
+        Each run is independent; budget-excluded metrics are not deferred across runs. Increase max metrics per run or narrow scope to include them.
+      </div>
+    </div>
+  );
 }
 
 function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }) {
@@ -2120,8 +2507,12 @@ function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }
         <Kpi label="Planned jobs" value={result.planned_jobs} />
         <Kpi label="Executed" value={result.executed_jobs} tone="#3fcf8e" />
         <Kpi label="Skipped" value={result.skipped_jobs} />
+        {result.budget_limited_jobs ? (
+          <Kpi label="Budget-limited" value={result.budget_limited_jobs} tone="#ffb357" />
+        ) : null}
         <Kpi label="Failed" value={result.failed_jobs} tone={result.failed_jobs ? '#f2495c' : '#d8d9da'} />
       </div>
+      <BudgetExcludedAlert metrics={result.budget_excluded_metrics} count={result.budget_excluded_metrics_count} />
       <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
         {result.results.map((job) => (
           <div key={`${job.metric_name}:${job.service ?? 'unknown'}:${job.analysis_run_id ?? job.status}`} style={panelStyle(job.status === 'completed' ? '#3fcf8e' : '#f2495c')}>
@@ -2206,7 +2597,11 @@ function PreviewPlanPanel({
         <Kpi label="Metrics discovered" value={result.metrics_discovered} />
         <Kpi label="Selected by monitoring policy" value={result.metrics_selected ?? result.metrics_matched} tone="#3fcf8e" />
         <Kpi label="Excluded" value={result.metrics_excluded} tone="#ffb357" />
+        {result.budget_limited_jobs ? (
+          <Kpi label="Budget-limited" value={result.budget_limited_jobs} tone="#ffb357" />
+        ) : null}
       </div>
+      <BudgetExcludedAlert metrics={result.budget_excluded_metrics} count={result.budget_excluded_metrics_count} />
       <div style={{ ...styles.infoNote, marginTop: 12 }}>Statistical candidate screening is not enabled yet.</div>
       {result.monitoring_summary?.concepts?.length ? (
         <div style={{ ...styles.infoNote, marginTop: 12 }}>

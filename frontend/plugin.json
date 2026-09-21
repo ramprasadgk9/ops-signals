@@ -1,5 +1,5 @@
 {
-  "id": "ops-signals-app",
+  "id": "breezypoppy3596-ops-signals-app",
   "type": "app",
   "name": "Ops Signals",
   "description": "Operational signal analysis and behavior intelligence for Grafana.",
@@ -20,7 +20,7 @@
     {
       "type": "page",
       "name": "Ops Signals",
-      "path": "/a/ops-signals-app/ops-signals",
+      "path": "/a/breezypoppy3596-ops-signals-app/ops-signals",
       "addToNav": true,
       "defaultNav": true
     }

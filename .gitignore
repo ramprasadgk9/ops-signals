@@ -65,3 +65,9 @@ temp/
 # Benchmark reports are generated output (JSON/Markdown written by benchmark/router_benchmark.py
 # on every run) - not source, and re-running the suite locally shouldn't dirty the working tree.
 benchmark/reports/
+
+# Local publication/paper drafts - not meant to be committed to the shared repo.
+publication/
+
+# Local marketing/positioning drafts - not meant to be committed to the shared repo.
+market/
