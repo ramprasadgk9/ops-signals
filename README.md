@@ -551,7 +551,8 @@ underlying model.
 Autonomous analysis previews concrete Prometheus metric jobs from three inputs: monitoring intent
 (categories like performance, capacity, availability, or custom), analysis scope (environment,
 service, namespace, and the Prometheus labels that identify them), and execution policy (interval,
-analysis window, max metrics per run, max parallel jobs). See
+analysis window, max metrics per run, max parallel jobs - though that last one is currently
+reserved rather than enforced, see [Batch Processing](#825-batch-processing)). See
 [`docs/autonomous-analysis-preview.md`](docs/autonomous-analysis-preview.md).
 
 #### 8.2.2 Scheduler
@@ -577,9 +578,17 @@ noisy service can't crowd out the rest of the scope.
 
 #### 8.2.5 Batch Processing
 
-*(Planned - not yet documented; see `max_metrics_per_run` / `max_parallel_jobs` in
-[Configuring Autonomous Analysis](#821-configuring-autonomous-analysis) for the current
-execution-policy knobs.)*
+Execution respects `max_metrics_per_run` (default 500, max 5,000): when classification selects
+more metrics than that budget, the top-ranked ones run and the rest are excluded with
+`exclusion_reason="budget_limit"`, surfaced as `budget_limited_jobs` and `budget_excluded_metrics`.
+Every run is independent - excluded metrics are **not** deferred or carried over to the next run;
+for broader coverage, raise `max_metrics_per_run` or narrow scope with service/namespace filters.
+`max_parallel_jobs` (default 20, max 200) is stored per policy but not yet enforced - execution
+runs sequentially, in a single transaction loop, to keep ordering deterministic and preserve
+database transactional safety across SQLite and PostgreSQL. See
+[`docs/autonomous-analysis-preview.md`](docs/autonomous-analysis-preview.md#execution-budget--independent-run-model)
+and
+[`docs/autonomous-pipeline-architecture.md`](docs/autonomous-pipeline-architecture.md#execution-budget--concurrency-policies).
 
 #### 8.2.6 Continuous Analysis
 
@@ -590,7 +599,9 @@ continuous rather than one-off. *(A dedicated write-up distinguishing the two is
 
 The **Overview** tab (standalone UI) and the Grafana plugin's **Autonomous Analysis** →
 **Overview** stage show the latest run's findings, coverage details, and history for a saved
-policy.
+policy - including `budget_limited_jobs` and `budget_excluded_metrics` from the policy's run
+history, so a policy that has outgrown its execution budget is visible there, not just in a single
+run's response.
 
 ### 8.3 YAML Configuration
 
