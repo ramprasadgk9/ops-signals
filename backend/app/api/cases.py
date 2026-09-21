@@ -343,14 +343,14 @@ def update_investigation(
     
     case.investigation_status = payload.investigation_status
     
-    # Add note if provided
+    # Add note if provided (reassign list so SQLAlchemy tracks JSON mutation)
     if payload.investigation_note:
-        if case.investigation_notes is None:
-            case.investigation_notes = []
-        case.investigation_notes.append({
+        notes = list(case.investigation_notes or [])
+        notes.append({
             "timestamp": datetime.utcnow().isoformat(),
             "note": payload.investigation_note,
         })
+        case.investigation_notes = notes
     
     case.updated_at = datetime.utcnow()
     db.commit()
