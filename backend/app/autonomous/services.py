@@ -603,7 +603,18 @@ class MetricPlanBuilder:
 
         planned_count = sum(1 for item in items if item.planned)
         budget_limited = sum(1 for item in items if item.exclusion_reason == "budget_limit")
+        budget_excluded = sorted(list({item.metric_name for item in items if item.exclusion_reason == "budget_limit"}))
         concepts = self.config.concepts_for_categories(selected_categories)
+        warnings = list(resolved_scope.warnings)
+        if budget_limited > 0:
+            sample_excluded = ", ".join(budget_excluded[:5])
+            more_suffix = f" (and {len(budget_excluded) - 5} more)" if len(budget_excluded) > 5 else ""
+            warnings.append(
+                f"Execution budget limited: {planned_count} of {len(selected_rows)} selected metric jobs planned "
+                f"({budget_limited} excluded by max_metrics_per_run={execution.max_metrics_per_run}). "
+                f"Excluded metrics: {sample_excluded}{more_suffix}. "
+                "Every run is independent; budget-excluded metrics are not deferred to future runs."
+            )
         return MetricAnalysisPlan(
             scope_summary={
                 "environment": resolved_scope.resolved_environment,
@@ -618,6 +629,9 @@ class MetricPlanBuilder:
                 "truncated": resolved_scope.truncated,
                 "starved_metrics_count": resolved_scope.starved_metrics_count,
                 "starved_metrics": resolved_scope.starved_metrics,
+                "budget_limited_jobs": budget_limited,
+                "budget_excluded_metrics_count": len(budget_excluded),
+                "budget_excluded_metrics": budget_excluded[:50],
             },
             monitoring_summary={
                 "categories": [category.value for category in selected_categories],
@@ -629,7 +643,9 @@ class MetricPlanBuilder:
             total_metrics_excluded=max(len(items) - planned_count, 0),
             planned_jobs=planned_count,
             budget_limited_jobs=budget_limited,
-            warnings=resolved_scope.warnings,
+            budget_excluded_metrics_count=len(budget_excluded),
+            budget_excluded_metrics=budget_excluded,
+            warnings=warnings,
             items=items,
         )
 

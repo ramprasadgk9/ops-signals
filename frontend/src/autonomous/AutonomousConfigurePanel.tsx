@@ -391,7 +391,14 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
             {['30s', '1m', '5m', '10m'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
           </TextField>
           <TextField size="small" type="number" label="Max metrics per run" value={maxMetricsPerRun} onChange={(e) => setMaxMetricsPerRun(e.target.value)} />
-          <TextField size="small" type="number" label="Max parallel jobs" value={maxParallelJobs} onChange={(e) => setMaxParallelJobs(e.target.value)} />
+          <TextField
+            size="small"
+            type="number"
+            label="Max parallel jobs"
+            value={maxParallelJobs}
+            onChange={(e) => setMaxParallelJobs(e.target.value)}
+            helperText="Execution runs sequentially; reserved for future worker concurrency."
+          />
         </Stack>
       </Box>
     </Paper>

@@ -75,6 +75,8 @@ AutonomousPolicy
 - `jobs_skipped`
 - `jobs_failed`
 - `findings_created`
+- `budget_limited_jobs` (in policy snapshot and run records)
+- `budget_excluded_metrics` (in policy snapshot and run records)
 
 `AutonomousMetricJob` stores the metric identity, PromQL, category/concept, selection reason, skip reason, timing, failure metadata, and optional `analysis_run_id`.
 
@@ -85,6 +87,16 @@ Current history APIs:
 - `GET /api/autonomous/policy-runs/{policy_run_id}/jobs`
 
 The autonomous overview UI can now migrate from legacy backfilled counts to these native autonomous records.
+
+## Execution Budget & Concurrency Policies
+
+1. **Execution Budget & Independent Runs**:
+   - `max_metrics_per_run` (default 500, max 5,000) caps the number of planned jobs executed per run.
+   - Selected metrics beyond `max_metrics_per_run` are marked with `exclusion_reason="budget_limit"` and returned in `budget_excluded_metrics`.
+   - **Independent Run Model**: Every `run-once` execution is an independent on-demand snapshot. Budget-excluded metrics are not deferred, queued, or carried over across runs. Users configure coverage by sizing `max_metrics_per_run` or scoping policy selectors (`service`, `namespace`).
+2. **Concurrency (`max_parallel_jobs`)**:
+   - `max_parallel_jobs` (default 20, max 200) is stored in execution configuration but execution currently runs sequentially in a single transaction loop.
+   - This ensures deterministic ordering and database transactional integrity across SQLite and PostgreSQL sessions. The configuration field is preserved and reserved for future worker pools.
 
 ## Still Missing For Full Target Architecture
 
