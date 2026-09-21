@@ -115,7 +115,7 @@ memory:
     exclude_current_case: true
 
 ai:
-  enabled: true
+  enabled: false
   provider: ollama
   ollama:
     base_url: http://localhost:11434

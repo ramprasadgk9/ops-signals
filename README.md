@@ -683,7 +683,7 @@ Example MCP client configuration:
     "ops-signals": {
       "command": "python",
       "args": ["-m", "intelligence.cli", "mcp"],
-      "cwd": "/Users/ramprasad/Documents/workspace/github/ops-signals"
+      "cwd": "/path/to/operational-intelligence"
     }
   }
 }
