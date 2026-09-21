@@ -115,6 +115,15 @@ Everything below this line only **reads** from PostgreSQL/Qdrant; nothing here w
 | **Ask Ops Signals** | `POST /api/assistant/chat` | Grounded conversational Q&A over cases, findings, and behaviors — semantic search when memory is enabled, keyword fallback otherwise. |
 | **Grafana Plugin & Dashboards** | panel queries + recommendation preview | Operator-facing visualization inside Grafana. See [`grafana-plugin-architecture.md`](grafana-plugin-architecture.md). |
 
+## Why This Reduces MTTR
+
+The "Consume" stage above is where the architecture actually pays off operationally. An external
+alert manager querying `GET /api/alert-context` *before* it pages someone gets a `likely_real` /
+`likely_noise` recommendation plus similar past cases and their resolutions - so a page that fires
+already comes with "here's what this probably is and how it was fixed last time," instead of an
+engineer starting from zero. Fewer noise pages, and faster real ones: that's the mean-time-to-resolution
+win. See [`docs/01-vision.md`](01-vision.md) for the fuller narrative behind this goal.
+
 ## Roadmap (Not Yet Implemented)
 
 Shown as dashed, muted boxes in Figure 1 — explicitly **not** current capability:
