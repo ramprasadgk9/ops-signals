@@ -16,6 +16,7 @@ This note records the boundary decision for separating Interactive Analysis from
 | `backend.app.autonomous.services.MetricClassificationService` | Autonomous only | Maps monitoring intent to metric concepts and Prometheus metrics. |
 | `backend.app.autonomous.services.MetricPlanBuilder` | Autonomous only | Builds autonomous metric plans and planned request payloads. |
 | `backend.app.autonomous.execution.execute_autonomous_plan_once` | Autonomous only | Coordinates a preview plan execution once; this is not a repeating scheduler. |
+| `backend.app.autonomous.scheduler._run_pending_otlp_analysis_once` / `_analyze_otlp_group` | Autonomous only | A second, independent trigger onto `MetricAnalysisExecutor` - not policy-based like the rest of this table, but the same 60s scheduler loop, folding buffered OTLP push data (`otlp_pending_points`) into analysis runs per `(service, metric_name)` group. See [`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md). |
 | `TimeSeriesRoutingService` / `UniversalTimeSeriesRouter` | Shared domain component | Reusable for routing decisions in both pipelines. |
 | Analyzer implementations | Shared domain component | Reusable technical detectors; neither pipeline should own analyzer logic. |
 | `FindingAggregator` | Shared with caution | Currently still single-series oriented and used for technical metric findings. Autonomous cross-metric narrative/dedup should happen later in separate services. |
@@ -51,6 +52,22 @@ Policy / draft request
 ```
 
 The autonomous path shares low-level router/analyzer/finding/persistence components, but it does not call `SignalPipeline` as its orchestration engine.
+
+A third, parallel trigger onto `MetricAnalysisExecutor` exists for OTLP push data, outside the policy/job model above:
+
+```text
+POST /api/otlp/v1/metrics
+  -> otlp_pending_points (buffered, not yet analyzed)
+  -> scheduler tick (same 60s loop as autonomous policies)
+  -> grouped by (service, metric_name)
+  -> MetricAnalysisExecutor
+  -> PostgresStore / analysis_runs
+```
+
+This reuses `MetricAnalysisExecutor` exactly as the policy-based path does, but has no
+`AutonomousPolicy`/`AutonomousPolicyRun`/`AutonomousMetricJob` control-plane rows of its own - a
+buffered OTLP batch is not a "policy run" in that sense. See
+[`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md).
 
 ## Durable Autonomous Execution State
 

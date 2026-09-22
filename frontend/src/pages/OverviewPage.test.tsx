@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { OverviewPage } from './OverviewPage';
 import { api } from '../api/queries';
+import type { Finding, OperationalCase } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -123,6 +124,64 @@ describe('OverviewPage integration resilience', () => {
     expect(screen.getByText('cpu_usage')).toBeInTheDocument();
     expect(screen.queryByText('Memory Items')).not.toBeInTheDocument();
     expect(screen.queryByText('Finding Severity Trend')).not.toBeInTheDocument();
+  });
+
+  it('only labels a "Needs Attention" row with a case when that exact finding was promoted, not just any finding sharing its metric name', async () => {
+    // Regression test: a prior fallback matched a case to a finding by metric_name alone,
+    // ignoring service - so an un-cased finding from one service showed up mislabeled with the
+    // case ID of an unrelated, differently-serviced finding that happened to share a metric name.
+    const cpuFindingFromCasedService: Finding = {
+      id: 36,
+      service: 'ruptures-lab',
+      metric_name: 'cpu_usage',
+      title: 'cpu_usage is trending in one direction.',
+      summary: 'trend',
+      category: 'behavior_change',
+      health_status: 'significant',
+      importance_score: 0.7,
+      investigation_priority: 2,
+      signal_ids: [],
+      comparison_json: {},
+      created_at: '2026-09-19T15:03:09Z',
+    };
+    const cpuFindingFromUncasedService: Finding = {
+      ...cpuFindingFromCasedService,
+      id: 41,
+      service: 'test-otlp-service',
+      created_at: '2026-09-22T16:24:25Z',
+    };
+    const caseForFirstFinding: OperationalCase = {
+      id: 12,
+      finding_id: 36,
+      analysis_run_id: 'run-36',
+      case_title: 'cpu_usage is trending in one direction.',
+      case_status: 'open',
+      finding_snapshot: cpuFindingFromCasedService,
+      investigation_status: 'not_started',
+      investigation_notes: [],
+      root_cause_status: 'unknown',
+      root_cause_verified: false,
+      outcome_status: 'pending',
+      memory_status: 'not_indexed',
+      created_at: '2026-09-19T15:06:49Z',
+      updated_at: '2026-09-19T15:06:49Z',
+    };
+
+    vi.mocked(api.findings).mockResolvedValue([cpuFindingFromUncasedService, cpuFindingFromCasedService]);
+    vi.mocked(api.cases).mockResolvedValue([caseForFirstFinding]);
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+    vi.mocked(api.overviewSummary).mockResolvedValue(emptySummary);
+    vi.mocked(api.memoryStats).mockResolvedValue(healthyMemory);
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
+
+    renderOverview();
+
+    expect(await screen.findByText('test-otlp-service / cpu_usage')).toBeInTheDocument();
+    expect(screen.getByText('ruptures-lab / cpu_usage')).toBeInTheDocument();
+    // The un-cased finding must show "No case" - not the other finding's "Case #12".
+    expect(screen.getByText('No case')).toBeInTheDocument();
+    expect(screen.getByText('Case #12')).toBeInTheDocument();
+    expect(screen.getAllByText(/Case #12/)).toHaveLength(1);
   });
 
   it('renders empty states without fabricated trend points', async () => {

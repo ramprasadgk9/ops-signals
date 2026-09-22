@@ -40,6 +40,7 @@ import type {
   TimeseriesPoint,
   OverviewSummaryResponse,
   MemoryStatsResponse,
+  OtlpStatus,
   ValidationResult,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
@@ -59,10 +60,12 @@ export type AutonomousQuestionAnswer = {
 
 export const api = {
   health: () => getJson<{ status: string }>('/api/health'),
+  otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
   overviewSummary: (window: '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
   services: () => getJson<string[]>('/api/services'),
   metrics: (service: string) => getJson<string[]>(`/api/services/${service}/metrics`),
   analysisRuns: () => getJson<AnalysisRun[]>('/api/analysis-runs'),
+  analysisRun: (runId: string) => getJson<AnalysisRun>(`/api/analysis-runs/${runId}`),
   capabilities: () => getJson<Capability[]>('/api/capabilities'),
   behaviorDefinitions: () => getJson<BehaviorDefinition[]>('/api/behavior-definitions'),
   behaviorFindings: (analysisRunId?: string, service?: string) => {

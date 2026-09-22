@@ -8,9 +8,7 @@ import {
   Chip,
   Divider,
   IconButton,
-  InputAdornment,
   Stack,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -27,10 +25,10 @@ import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
+import { GlobalSearch } from './GlobalSearch';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
@@ -246,29 +244,7 @@ export function AppShell({ children }: PropsWithChildren) {
           </Tooltip>
         </Stack>
 
-        <TextField
-          size="small"
-          placeholder="Search findings, cases, metrics, services..."
-          sx={{
-            display: { xs: 'none', md: 'block' },
-            maxWidth: 580,
-            justifySelf: 'center',
-            width: '100%',
-            '& .MuiOutlinedInput-root': { height: 46, borderRadius: '8px', bgcolor: '#fff' },
-          }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchRoundedIcon fontSize="small" />
-              </InputAdornment>
-            ),
-            endAdornment: (
-              <InputAdornment position="end">
-                <Chip label="⌘ K" size="small" sx={{ height: 24, fontWeight: 800, color: '#64748b' }} />
-              </InputAdornment>
-            ),
-          }}
-        />
+        <GlobalSearch />
 
         <Stack direction="row" alignItems="center" spacing={1.2} justifyContent="flex-end">
           {[<NotificationsNoneRoundedIcon />, <HelpOutlineRoundedIcon />, <LightModeRoundedIcon />].map((icon, index) => (

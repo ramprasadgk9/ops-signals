@@ -8,6 +8,8 @@ Ops Signals is a vendor-neutral Operational Intelligence framework that transfor
 
 It is designed to help teams move from raw metrics to actionable operational context without replacing existing observability or incident platforms.
 
+Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer. See [`docs/original-contribution.md`](docs/original-contribution.md) for a technical writeup of what's original about the architecture.
+
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
 
 ## Table of Contents
@@ -52,6 +54,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
   - [8.1 Data Sources](#81-data-sources)
     - [8.1.1 Prometheus](#811-prometheus)
     - [8.1.2 CSV Input](#812-csv-input)
+    - [8.1.3 OTLP](#813-otlp)
   - [8.2 Autonomous Analysis](#82-autonomous-analysis)
     - [8.2.1 Configuring Autonomous Analysis](#821-configuring-autonomous-analysis)
     - [8.2.2 Scheduler](#822-scheduler)
@@ -67,6 +70,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
 - [9. Integrations](#9-integrations)
   - [9.1 Grafana Plugin](#91-grafana-plugin)
   - [9.2 MCP Server](#92-mcp-server)
+  - [9.3 OTLP Metrics Ingestion](#93-otlp-metrics-ingestion)
 - [10. Storage & Internals](#10-storage--internals)
   - [10.1 PostgreSQL](#101-postgresql)
   - [10.2 Qdrant](#102-qdrant)
@@ -77,6 +81,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
   - [11.3 Example Autonomous Analysis Run](#113-example-autonomous-analysis-run)
 - [12. Current Limitations](#12-current-limitations)
 - [13. Roadmap](#13-roadmap)
+- [Who's Using Ops Signals?](#whos-using-ops-signals)
 - [14. Contributing](#14-contributing)
 - [15. License](#15-license)
 
@@ -539,6 +544,12 @@ timestamp,service,metric_name,value,env,host,namespace,pod,unit,metric_type
 2026-07-12T14:01:00Z,payments-api,cpu_usage,84.6,prod,ip-10-0-1-5,,payments-7d8c9,percent,gauge
 ```
 
+#### 8.1.3 OTLP
+
+Prometheus and CSV are both pull/upload - Ops Signals asks for the data. OTLP is the reverse: an
+OTel SDK or Collector pushes metrics to Ops Signals. See [§9.3 OTLP Metrics
+Ingestion](#93-otlp-metrics-ingestion) for the endpoint, setup, and guardrails.
+
 ### 8.2 Autonomous Analysis
 
 Configuring how the autonomous scheduler decides what to watch and when to run. See
@@ -691,6 +702,46 @@ Example MCP client configuration:
 
 Use `mcp-write` instead of `mcp` if the client should be allowed to call case update and memory indexing tools.
 
+### 9.3 OTLP Metrics Ingestion
+
+Ops Signals can receive metrics pushed directly from an OpenTelemetry SDK or an OTel Collector,
+in addition to CSV upload and pull-based Prometheus queries:
+
+```
+POST /api/otlp/v1/metrics
+```
+
+Both OTLP/HTTP encodings are supported (`Content-Type: application/x-protobuf` or
+`application/json`). Gauge and Sum (counter) metrics are supported; Histogram,
+ExponentialHistogram, and Summary points are accepted but rejected with a `partial_success`
+response, not silently dropped.
+
+To try it without setting up a real OTel Collector, send a synthetic series and watch a finding
+appear in the UI:
+
+```bash
+./scripts/run_all.sh
+./scripts/send_test_otlp_metrics.py --service demo-service
+```
+
+Point `-t otlphttp` metrics in an OTel Collector config at Ops Signals like this:
+
+```yaml
+exporters:
+  otlphttp:
+    endpoint: http://localhost:8001/api/otlp
+```
+
+The path is `/api/otlp`, not OTLP's spec-default root path - see
+[`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md#3-endpoint) for why.
+Received points are buffered and analyzed on the same 60-second scheduler cycle used for
+autonomous Prometheus monitoring, not per-request - see
+[`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md) for the full design,
+including the volume/cardinality guardrails (`OPS_SIGNALS_MAX_OTLP_BYTES`,
+`OPS_SIGNALS_OTLP_MAX_POINTS_PER_MIN`, `OPS_SIGNALS_OTLP_MAX_SERIES_PER_METRIC`,
+`OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE`) and the self-observability endpoint
+(`GET /api/metrics`, Prometheus exposition format) that exposes how close an instance is to them.
+
 ## 10. Storage & Internals
 
 The two storage layers underneath everything above, and why they're split.
@@ -748,6 +799,9 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
 - Historical retrieval depends on the quality of stored summaries and metadata
 - Some memory workflows are still evolving and should be treated as operational assistance, not automation
 - Analyzer recommendation scoring is deterministic and currently profile-based; it does not yet run deeper analyzer-specific probes
+- OTLP metrics ingestion is single-instance only (no distributed queue), OTLP/HTTP only (no gRPC),
+  and metrics-only (no logs/traces) - see
+  [`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md#10-explicit-non-goals-phase-1)
 
 ## 13. Roadmap
 
@@ -756,9 +810,13 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
 - Add richer case comparison and retrieval views
 - Extend evaluation datasets for regression checks
 - Document release and contribution workflows more fully
-- Kubernetes, cloud-provider, and OpenTelemetry ingestion; ITSM/automation and generic
-  external-system consumers - see the explicitly-labeled roadmap section in
+- Kubernetes and cloud-provider ingestion; ITSM/automation and generic external-system consumers -
+  see the explicitly-labeled roadmap section in
   [`docs/02-architecture.md`](docs/02-architecture.md#roadmap-not-yet-implemented)
+
+## Who's Using Ops Signals?
+
+If you're running Ops Signals somewhere - production, staging, or just evaluating it - we'd like to know. Add yourself to [ADOPTERS.md](ADOPTERS.md) via a short PR, or open an issue if a PR is more than you want to do.
 
 ## 14. Contributing
 

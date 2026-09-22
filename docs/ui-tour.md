@@ -14,7 +14,7 @@ automatically exist in the other.
 | **Overview** | `/` | The landing dashboard — recent findings, case activity, and a summary of what the autonomous scheduler has found. Start here. |
 | **Autonomous Analysis Configure** | `/autonomous-monitoring` | Configure which services/metrics to watch and which monitoring categories to enable, preview the resulting plan, run it once, or save it as a recurring schedule. See [`docs/autonomous-analysis-preview.md`](autonomous-analysis-preview.md). |
 | **Investigations** | `/investigations` | Ad-hoc investigation view for digging into a specific metric or service outside the autonomous flow. |
-| **Findings** | `/findings` | Every single-metric Finding the system has produced, searchable and filterable. See [`docs/06-operational-findings.md`](06-operational-findings.md). |
+| **Findings** | `/findings` | Every single-metric Finding the system has produced, searchable and filterable. Each finding's detail view names which ingestion path produced it (CSV, Prometheus, Datadog, or OTLP) and charts the raw points behind it, for tracing a finding back to what was actually ingested. See [`docs/06-operational-findings.md`](06-operational-findings.md). |
 | **Cases** | `/cases` | Every Case (an investigation promoted from a Finding or Behavior Finding), with its lifecycle state, RCA, and outcome. See [`docs/07-operational-cases.md`](07-operational-cases.md). |
 | **Behavior Intelligence** | `/behavior-intelligence` | Cross-metric Behavior Findings — conditions that only show up when multiple metrics are considered together. See [`docs/14-behavior-intelligence.md`](14-behavior-intelligence.md). |
 | **Behavior Lab** | `/behavior-intelligence/lab` | A sandbox for testing behavior definitions against sample data before enabling them for real. |
@@ -38,7 +38,10 @@ A grouping inside **Experiments**, not a separate top-level tab:
 ### System
 
 **Settings** and **System** (bottom of the sidebar) cover configuration and backend/service health —
-not part of the core analysis workflow, so not covered further here.
+not part of the core analysis workflow, so not covered further here, with one exception: Settings'
+OTLP Ingestion card shows the push endpoint URL and live received/backlog counts — the closest
+equivalent to Prometheus's "Test Connection" for a push-based integration. See
+[`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md).
 
 ## Grafana Plugin
 
