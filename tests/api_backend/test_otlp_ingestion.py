@@ -235,6 +235,15 @@ def test_infer_interval_is_not_fooled_by_two_overlapping_sends_for_the_same_grou
 
 
 def test_scheduler_cycle_analyzes_pending_points_and_clears_the_backlog() -> None:
+    # MetricAnalysisExecutor builds its own PostgresStore when none is passed in - a real Postgres
+    # connection, independent of the SQLAlchemy session this test's app otherwise runs on (see
+    # tests/api_backend/conftest.py's `db_session` fixture, which points at sqlite+pysqlite). CI
+    # has no Postgres for the backend test job by design (only sqlite - see .github/workflows/ci.yml's
+    # comment), so calling it for real here would fail there exactly as it failed locally once a
+    # real Postgres wasn't coincidentally already running. Patched out the same way
+    # test_autonomous_policies.py's scheduler tests already mock execute_autonomous_plan_once -
+    # this test's job is verifying the backlog is grouped and cleared, not re-verifying analyzer
+    # execution (that's MetricAnalysisExecutor's own test coverage).
     app = create_app("sqlite+pysqlite:///:memory:")
     with TestClient(app) as client:
         request = _sample_request(point_count=5)
@@ -249,7 +258,9 @@ def test_scheduler_cycle_analyzes_pending_points_and_clears_the_backlog() -> Non
     with session_local() as db:
         assert db.query(OtlpPendingPointEntity).count() == 5
 
-    _run_pending_otlp_analysis_once()
+    with patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls:
+        _run_pending_otlp_analysis_once()
 
+    assert mock_executor_cls.return_value.execute_dataframe.called
     with session_local() as db:
         assert db.query(OtlpPendingPointEntity).count() == 0
