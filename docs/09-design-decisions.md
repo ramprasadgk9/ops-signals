@@ -16,6 +16,11 @@ The question-answer path is designed to be deterministic instead of relying on f
 
 CSV is used as the portable input contract so different providers can map into the same downstream pipeline.
 
+OTLP push ingestion is a deliberate exception: the receiver controls the shape of the DataFrame it
+builds (unlike CSV, where an arbitrary uploaded file's column names are unknown ahead of time), so
+it constructs canonical columns directly rather than mapping through the CSV contract. See
+[`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md).
+
 ## Explicit Metadata
 
 The project prefers explicit fields such as service, metric, category, and status because they are easier to filter, explain, and evaluate.

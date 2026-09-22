@@ -317,7 +317,8 @@ Future Autonomous Operations
 
 ## Current Scope
 
-- CSV-based ingestion
+- CSV, Prometheus, and OTLP metrics ingestion (see
+  [`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md) for the OTLP path)
 - Analyzer-driven signal generation
 - Finding aggregation
 - Declarative behavior intelligence across multiple signals
