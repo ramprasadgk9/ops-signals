@@ -20,6 +20,10 @@ Base config
   the CLI run path and the CSV upload API. Adding a brand-new provider file alone is not yet
   enough to make it selectable through the upload API - `backend/app/api/ingestion.py` currently
   only accepts `generic`, `prometheus`, or `datadog` as the `provider` form field.
+  `config/providers/otel.yaml` is a deliberate exception: it exists for the OTLP receiver
+  (`backend/app/api/otlp.py`) to look up via `provider="otel"`, not for CSV upload - OTLP data
+  never goes through `CSVAdapter`, so it isn't (and shouldn't be) selectable in the upload form.
+  See [`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md).
 
 ## Backward Compatibility
 

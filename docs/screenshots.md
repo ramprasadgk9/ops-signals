@@ -2,7 +2,7 @@
 
 Ops Signals can be used through two complementary experiences:
 
-- A standalone operational intelligence Web UI for CSV uploads, direct Prometheus analysis, findings, cases, behavior intelligence, operational memory, and assistant retrieval.
+- A standalone operational intelligence Web UI for CSV uploads, direct Prometheus analysis, OTLP metrics ingestion, findings, cases, behavior intelligence, operational memory, and assistant retrieval.
 - A Grafana plugin that fits into existing Grafana and Prometheus workflows and sends selected metric data to the Ops Signals backend analysis pipeline.
 
 The screenshots below show the current product surfaces for an early developer preview. They are intended to help first-time users understand the workflow before running the project locally.

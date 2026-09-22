@@ -141,7 +141,7 @@ not yet implemented and remain a future extension of that same design.
 
 ## Layer Responsibilities
 
-- Canonical Time Series: source metric input (Prometheus or CSV today)
+- Canonical Time Series: source metric input (Prometheus, CSV, or OTLP push today)
 - Validation: checks structure and required fields
 - Normalization: converts provider-specific inputs into a consistent schema
 - PostgreSQL: persistent system of record
@@ -200,7 +200,7 @@ Qdrant should be treated as a retrieval index, not the authoritative record.
 
 Implemented:
 
-- Prometheus and CSV ingestion into PostgreSQL
+- Prometheus, CSV, and OTLP metrics ingestion into PostgreSQL
 - analyzer-based signal generation via the Universal Router + Analyzer Registry
 - optional AI second opinion on analyzer choice (advisory only, divergence surfaced, never authoritative)
 - operational findings and cases
