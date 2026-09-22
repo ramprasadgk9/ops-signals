@@ -1,4 +1,7 @@
-import { Box, Chip, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
+import { useQuery } from '@tanstack/react-query';
+import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
+import { api } from '../api/queries';
 import type { Finding, Signal } from '../types';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
 
@@ -9,7 +12,52 @@ type Props = {
   onClose: () => void;
 };
 
+// Source badge shown next to the ingested-data chart - the answer to "where did this data come
+// from, so I can backtrack if something looks wrong." One label/color per ingestion path this
+// app supports; unrecognized providers fall back to their raw value rather than a wrong label.
+const PROVIDER_LABELS: Record<string, string> = {
+  otel: 'OTLP',
+  prometheus: 'Prometheus',
+  datadog: 'Datadog',
+  csv: 'CSV',
+  generic: 'CSV',
+  custom: 'CSV',
+};
+
+const PROVIDER_COLORS: Record<string, string> = {
+  otel: '#6d28d9',
+  prometheus: '#e4581f',
+  datadog: '#632ca6',
+  csv: '#0f766e',
+  generic: '#0f766e',
+  custom: '#0f766e',
+};
+
+function providerLabel(provider?: string | null): string {
+  if (!provider) return 'Unknown source';
+  return PROVIDER_LABELS[provider] ?? provider;
+}
+
+function providerColor(provider?: string | null): string {
+  if (!provider) return '#64748b';
+  return PROVIDER_COLORS[provider] ?? '#64748b';
+}
+
 export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: Props) {
+  const analysisRunId = finding?.analysis_run_id;
+
+  const analysisRunQuery = useQuery({
+    queryKey: ['finding-drawer-analysis-run', analysisRunId],
+    queryFn: () => api.analysisRun(analysisRunId!),
+    enabled: open && Boolean(analysisRunId),
+  });
+
+  const timeseriesQuery = useQuery({
+    queryKey: ['finding-drawer-timeseries', finding?.service, finding?.metric_name, analysisRunId],
+    queryFn: () => api.timeseries(finding!.service!, finding!.metric_name, analysisRunId!),
+    enabled: open && Boolean(finding?.service) && Boolean(analysisRunId),
+  });
+
   if (!finding) return null;
 
   const getHealthColor = (status?: string): 'error' | 'warning' | 'success' | 'default' => {
@@ -103,6 +151,58 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
             </ListItem>
           )}
         </List>
+
+        {analysisRunId && (
+          <>
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 3, mb: 1 }}>
+              <Typography variant="h6">Ingested Data</Typography>
+              {analysisRunQuery.data && (
+                <Chip
+                  size="small"
+                  label={providerLabel(analysisRunQuery.data.provider)}
+                  sx={{ bgcolor: providerColor(analysisRunQuery.data.provider), color: '#fff', fontWeight: 700 }}
+                />
+              )}
+            </Stack>
+            {analysisRunQuery.data && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                {analysisRunQuery.data.sample_count} points · {analysisRunQuery.data.status} · run {analysisRunId.slice(0, 8)}
+              </Typography>
+            )}
+
+            {timeseriesQuery.isLoading && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                <CircularProgress size={24} />
+              </Box>
+            )}
+            {timeseriesQuery.isError && (
+              <Typography variant="body2" color="error">
+                Could not load the ingested data for this finding.
+              </Typography>
+            )}
+            {timeseriesQuery.data && timeseriesQuery.data.length === 0 && (
+              <Typography variant="body2" color="text.secondary">
+                No raw points found for this analysis run.
+              </Typography>
+            )}
+            {timeseriesQuery.data && timeseriesQuery.data.length > 0 && (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={timeseriesQuery.data}>
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={(value: string) => new Date(value).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    tickLine={false}
+                    axisLine={false}
+                    minTickGap={40}
+                  />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40} />
+                  <RechartsTooltip labelFormatter={(value: string) => new Date(value).toLocaleString()} />
+                  <Line type="monotone" dataKey="value" stroke="#4f46e5" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </>
+        )}
 
         {Object.keys(finding.comparison_json).length > 0 && (
           <>

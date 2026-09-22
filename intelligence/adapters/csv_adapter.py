@@ -41,5 +41,5 @@ class CSVAdapter:
             raise ValueError(f"CSV is missing required columns: {missing}")
 
         provider = (self.config.provider or "generic").lower()
-        if provider not in {"generic", "prometheus", "datadog", "custom"}:
+        if provider not in {"generic", "prometheus", "datadog", "custom", "otel"}:
             raise ValueError(f"Unsupported input provider: {provider}")

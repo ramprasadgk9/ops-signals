@@ -694,6 +694,46 @@ Example MCP client configuration:
 
 Use `mcp-write` instead of `mcp` if the client should be allowed to call case update and memory indexing tools.
 
+### 9.3 OTLP Metrics Ingestion
+
+Ops Signals can receive metrics pushed directly from an OpenTelemetry SDK or an OTel Collector,
+in addition to CSV upload and pull-based Prometheus queries:
+
+```
+POST /api/otlp/v1/metrics
+```
+
+Both OTLP/HTTP encodings are supported (`Content-Type: application/x-protobuf` or
+`application/json`). Gauge and Sum (counter) metrics are supported; Histogram,
+ExponentialHistogram, and Summary points are accepted but rejected with a `partial_success`
+response, not silently dropped.
+
+To try it without setting up a real OTel Collector, send a synthetic series and watch a finding
+appear in the UI:
+
+```bash
+./scripts/run_all.sh
+./scripts/send_test_otlp_metrics.py --service demo-service
+```
+
+Point `-t otlphttp` metrics in an OTel Collector config at Ops Signals like this:
+
+```yaml
+exporters:
+  otlphttp:
+    endpoint: http://localhost:8001/api/otlp
+```
+
+The path is `/api/otlp`, not OTLP's spec-default root path - see
+[`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md#3-endpoint) for why.
+Received points are buffered and analyzed on the same 60-second scheduler cycle used for
+autonomous Prometheus monitoring, not per-request - see
+[`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md) for the full design,
+including the volume/cardinality guardrails (`OPS_SIGNALS_MAX_OTLP_BYTES`,
+`OPS_SIGNALS_OTLP_MAX_POINTS_PER_MIN`, `OPS_SIGNALS_OTLP_MAX_SERIES_PER_METRIC`,
+`OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE`) and the self-observability endpoint
+(`GET /api/metrics`, Prometheus exposition format) that exposes how close an instance is to them.
+
 ## 10. Storage & Internals
 
 The two storage layers underneath everything above, and why they're split.
@@ -751,6 +791,9 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
 - Historical retrieval depends on the quality of stored summaries and metadata
 - Some memory workflows are still evolving and should be treated as operational assistance, not automation
 - Analyzer recommendation scoring is deterministic and currently profile-based; it does not yet run deeper analyzer-specific probes
+- OTLP metrics ingestion is single-instance only (no distributed queue), OTLP/HTTP only (no gRPC),
+  and metrics-only (no logs/traces) - see
+  [`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md#10-explicit-non-goals-phase-1)
 
 ## 13. Roadmap
 
@@ -759,8 +802,8 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
 - Add richer case comparison and retrieval views
 - Extend evaluation datasets for regression checks
 - Document release and contribution workflows more fully
-- Kubernetes, cloud-provider, and OpenTelemetry ingestion; ITSM/automation and generic
-  external-system consumers - see the explicitly-labeled roadmap section in
+- Kubernetes and cloud-provider ingestion; ITSM/automation and generic external-system consumers -
+  see the explicitly-labeled roadmap section in
   [`docs/02-architecture.md`](docs/02-architecture.md#roadmap-not-yet-implemented)
 
 ## Who's Using Ops Signals?
