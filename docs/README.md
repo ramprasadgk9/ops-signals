@@ -31,6 +31,9 @@ How the pieces fit together, what talks to what, and why the two storage layers 
 - [`09-design-decisions.md`](09-design-decisions.md) and [`adr/`](adr/) - the "why," in short
   ADR-style writeups: why Postgres is the system of record, why Qdrant is a retrieval index and not
   the source of truth, why answer composition is deterministic by default, and more.
+- [`original-contribution.md`](original-contribution.md) - a factual summary of what's original in
+  the design (the dual-registry analyzer framework, deterministic routing with a bounded AI role,
+  the non-LLM behavior-correlation engine, and more), with citations back to the docs above.
 
 **External integration**: if you're plugging Ops Signals into your own alerting or automation, the
 consumer surface is `GET /api/alert-context` (pre-page decision support) and

@@ -8,6 +8,8 @@ Ops Signals is a vendor-neutral Operational Intelligence framework that transfor
 
 It is designed to help teams move from raw metrics to actionable operational context without replacing existing observability or incident platforms.
 
+Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer. See [`docs/original-contribution.md`](docs/original-contribution.md) for a technical writeup of what's original about the architecture.
+
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
 
 ## Table of Contents
@@ -77,6 +79,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
   - [11.3 Example Autonomous Analysis Run](#113-example-autonomous-analysis-run)
 - [12. Current Limitations](#12-current-limitations)
 - [13. Roadmap](#13-roadmap)
+- [Who's Using Ops Signals?](#whos-using-ops-signals)
 - [14. Contributing](#14-contributing)
 - [15. License](#15-license)
 
@@ -759,6 +762,10 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
 - Kubernetes, cloud-provider, and OpenTelemetry ingestion; ITSM/automation and generic
   external-system consumers - see the explicitly-labeled roadmap section in
   [`docs/02-architecture.md`](docs/02-architecture.md#roadmap-not-yet-implemented)
+
+## Who's Using Ops Signals?
+
+If you're running Ops Signals somewhere - production, staging, or just evaluating it - we'd like to know. Add yourself to [ADOPTERS.md](ADOPTERS.md) via a short PR, or open an issue if a PR is more than you want to do.
 
 ## 14. Contributing
 

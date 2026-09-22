@@ -7,6 +7,9 @@ name = "ops-signals"
 version = "0.1.0"
 description = "Batch Operational Signal Engine MVP"
 readme = "README.md"
+authors = [
+    { name = "Ramprasad Goturkarnam" },
+]
 requires-python = ">=3.11"
 dependencies = [
     "pandas>=3.0.3",
