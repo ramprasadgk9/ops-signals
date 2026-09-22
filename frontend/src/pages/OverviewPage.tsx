@@ -146,7 +146,12 @@ function NeedsAttentionPanel({ findings, cases }: { findings: Finding[]; cases: 
             </Typography>
           ))}
           {rows.map((finding, index) => {
-            const matchingCase = cases.find((caseItem) => caseItem.finding_id === finding.id || caseItem.finding_snapshot?.metric_name === finding.metric_name);
+            // Matching on finding_id only: a case is only ever created by explicitly promoting
+            // one specific finding (backend/app/api/cases.py), so finding_id is the sole reliable
+            // link. A prior fallback matched on metric_name alone, which mislabeled every
+            // un-cased finding as belonging to any other case that happened to share a metric
+            // name - even from a completely unrelated service.
+            const matchingCase = cases.find((caseItem) => caseItem.finding_id === finding.id);
             const tone = severityTone(finding.health_status);
             const status = matchingCase ? `Case #${matchingCase.id}` : 'No case';
             return (

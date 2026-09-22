@@ -12,9 +12,11 @@ RCA, a resolution, and a recorded outcome. Cases persist to PostgreSQL as the sy
 into Qdrant as a semantic index. Three implemented consumers read from that shared store without writing
 back to it: an external Intelligent Alert Manager consulting prior outcomes before it pages, the in-app
 Ask Ops Signals assistant, and Grafana dashboards. The lighter dashed boxes at the top and bottom of the
-figure (Kubernetes, cloud-provider metrics, OpenTelemetry, ITSM/automation, generic external systems) are
+figure (Kubernetes, cloud-provider metrics, ITSM/automation, generic external systems) are
 **not implemented** — they're kept in the figure as the acknowledged next-step surface, not as a claim
-about current capability. See [Roadmap](#roadmap-not-yet-implemented) below.
+about current capability. See [Roadmap](#roadmap-not-yet-implemented) below. OTLP metrics ingestion is
+implemented (not shown in the figure yet) — see
+[`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md).
 
 A simplified, text-diffable version of the same flow (without the AI/consumer detail) lives at
 [`diagrams/system-architecture.mmd`](diagrams/system-architecture.mmd):
@@ -130,9 +132,12 @@ Shown as dashed, muted boxes in Figure 1 — explicitly **not** current capabili
 
 - **Kubernetes** ingestion (kube-state-metrics, cAdvisor)
 - **Cloud provider** metrics (AWS CloudWatch, GCP Monitoring, Azure Monitor)
-- **OpenTelemetry Collector** ingestion
 - **ITSM / automation** consumer (Jira, ServiceNow — create/update tickets, trigger workflows)
 - Generic **external-system** consumer (arbitrary webhooks, BI/reporting export)
+
+OTLP metrics ingestion (`POST /api/otlp/v1/metrics`) is implemented — see
+[`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md). OTLP logs and traces are
+not yet implemented and remain a future extension of that same design.
 
 ## Layer Responsibilities
 

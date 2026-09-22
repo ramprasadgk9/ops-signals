@@ -1,0 +1,30 @@
+input:
+  source_type: otel
+  provider: otel
+  schema_version: v1
+  file_path: ""
+  history: 1d
+  interval: 1m
+  service: otel-service
+  metric_name: otel_metric
+  timestamp_column: timestamp
+  value_column: value
+  metric_column: metric_name
+  validation:
+    enforce_monotonic_timestamp: false
+    allow_negative_values: true
+    max_gap_minutes: 60
+    max_null_ratio: 0.2
+  required_columns:
+    - metric_name
+    - timestamp
+    - value
+  optional_columns:
+    - service
+    - env
+    - host
+    - namespace
+    - pod
+    - source
+    - unit
+    - metric_type

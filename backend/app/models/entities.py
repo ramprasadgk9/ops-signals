@@ -459,3 +459,31 @@ class BehaviorPatternSuggestionEntity(Base):
     draft_yaml_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class OtlpPendingPointEntity(Base):
+    """A single metric data point received via OTLP push, buffered here between receipt and the
+    next scheduled analysis cycle (backend/app/autonomous/scheduler.py). Deliberately separate
+    from NormalizedPoint/ops_normalized_timeseries_points: that table holds the *output* of a
+    completed analysis run (MetricAnalysisExecutor writes it), while this one is a transient
+    inbox - rows are deleted once a cycle has folded them into an analysis run, so this table's
+    size reflects backlog, not history."""
+
+    __tablename__ = "otlp_pending_points"
+    __table_args__ = (
+        Index("idx_otlp_pending_points_service_metric", "service", "metric_name"),
+        Index("idx_otlp_pending_points_received_at", "received_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    metric_name: Mapped[str] = mapped_column(Text, nullable=False)
+    metric_type: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    service: Mapped[str] = mapped_column(Text, nullable=False)
+    env: Mapped[str | None] = mapped_column(Text, nullable=True)
+    host: Mapped[str | None] = mapped_column(Text, nullable=True)
+    namespace: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pod: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attributes_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

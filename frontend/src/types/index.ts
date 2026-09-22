@@ -812,3 +812,12 @@ export type AssistantChatResponse = {
   sources: AssistantSource[];
   evidence_groups?: AssistantEvidenceGroup[];
 };
+
+export type OtlpStatus = {
+  endpoint_path: string;
+  points_received_total: number;
+  points_rejected_total: Record<string, number>;
+  backlog_size: number;
+  last_analysis_cycle_duration_seconds: number;
+  last_analysis_cycle_groups_processed: number;
+};
