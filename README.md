@@ -54,6 +54,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
   - [8.1 Data Sources](#81-data-sources)
     - [8.1.1 Prometheus](#811-prometheus)
     - [8.1.2 CSV Input](#812-csv-input)
+    - [8.1.3 OTLP](#813-otlp)
   - [8.2 Autonomous Analysis](#82-autonomous-analysis)
     - [8.2.1 Configuring Autonomous Analysis](#821-configuring-autonomous-analysis)
     - [8.2.2 Scheduler](#822-scheduler)
@@ -69,6 +70,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
 - [9. Integrations](#9-integrations)
   - [9.1 Grafana Plugin](#91-grafana-plugin)
   - [9.2 MCP Server](#92-mcp-server)
+  - [9.3 OTLP Metrics Ingestion](#93-otlp-metrics-ingestion)
 - [10. Storage & Internals](#10-storage--internals)
   - [10.1 PostgreSQL](#101-postgresql)
   - [10.2 Qdrant](#102-qdrant)
@@ -541,6 +543,12 @@ timestamp,service,metric_name,value,env,host,namespace,pod,unit,metric_type
 2026-07-12T14:00:00Z,payments-api,cpu_usage,78.2,prod,ip-10-0-1-5,,payments-7d8c9,percent,gauge
 2026-07-12T14:01:00Z,payments-api,cpu_usage,84.6,prod,ip-10-0-1-5,,payments-7d8c9,percent,gauge
 ```
+
+#### 8.1.3 OTLP
+
+Prometheus and CSV are both pull/upload - Ops Signals asks for the data. OTLP is the reverse: an
+OTel SDK or Collector pushes metrics to Ops Signals. See [§9.3 OTLP Metrics
+Ingestion](#93-otlp-metrics-ingestion) for the endpoint, setup, and guardrails.
 
 ### 8.2 Autonomous Analysis
 
