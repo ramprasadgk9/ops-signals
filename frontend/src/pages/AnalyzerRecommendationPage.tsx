@@ -428,10 +428,12 @@ export function AnalyzerRecommendationPage() {
                             // The backend only checks sample_id is not None (as a flag meaning
                             // "a specific historical sample was explicitly chosen") - it never
                             // looks up anything by this value, since the actual sample is matched
-                            // by metric_name/provider below. Leaving this undefined meant picking
-                            // a sample here could never reach the backend's "evaluated" mode.
+                            // by metric_name/provider below. Provider must be overwritten
+                            // unconditionally (not `current.provider ??`) because `provider`
+                            // defaults to 'prometheus' and is therefore never falsy - the sample's
+                            // own service is the only thing the backend can actually match on.
                             sample_id: 1,
-                            provider: current.provider ?? sample.service,
+                            provider: sample.service,
                           }));
                         }
                       }}
