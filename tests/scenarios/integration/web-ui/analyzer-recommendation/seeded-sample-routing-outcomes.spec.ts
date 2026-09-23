@@ -14,31 +14,24 @@ import { makeRunId, seedNormalizedPoints, cleanupRun } from '../../shared/db';
  * pipeline execution, so it only ever buckets into recommended / conditional / not_recommended —
  * there is no "unavailable" state here (that's execution-time only; see csv-upload-routing-outcomes.spec.ts).
  *
- * KNOWN APP BUG (confirmed against a live run, not a test/selector issue): selecting a sample from
- * "Select Existing Sample" never actually gets sent to the backend. The onChange handler
- * (AnalyzerRecommendationPage.tsx ~420-432) copies metric_name into context and sets
- * `sample_id: undefined` — it never attaches the sample's service/analysis_run_id anywhere the
- * chatMutation payload reads from (that payload only sends conversation_id, message,
- * metric_context, options). So clicking "Evaluate with Sample" produces the same request as a
- * plain preliminary evaluation regardless of which sample is selected — confirmed live: the
- * response still comes back `recommendation_mode: "preliminary"` with the "select a representative
- * historical sample" warning still showing, even with a real 120-point sample selected.
- * Cross-checked: POST /api/metric-analyzer-recommendations/evaluate with an explicit
- * analysis_run_id DOES return real evidence-based recommendations, so the backend logic itself is
- * fine — this is a frontend wiring gap. Also surfaced along the way: real recommendation values
- * include at least a 4th value, "rejected", which this page's 3-bucket rendering
- * (recommended/conditional/not_recommended) doesn't account for.
- *
- * Left failing (test.fixme) rather than rewritten around the bug or silently deleted, so the
- * suite stays honest about what's broken. Once the sample-selection wiring is fixed, remove the
- * test.fixme() call below.
+ * Formerly test.fixme() for the app bug tracked as issue #15: the "Select Existing Sample"
+ * onChange handler set `sample_id: undefined` and left `provider` at its default 'prometheus'
+ * (AnalyzerRecommendationPage.tsx ~420-436), so the backend's service-name match against the
+ * selected sample always failed and every evaluation silently fell back to `preliminary` mode
+ * regardless of which sample was picked. Fixed by setting `sample_id` and unconditionally
+ * overwriting `provider` with the selected sample's own service on selection.
  */
+
+// The router's scoring id and the runtime/pipeline analyzer id it executes as aren't always the
+// same string (see docs/JIRA-456-review.md and benchmark/router_benchmark.py's
+// ROUTER_TO_PIPELINE_ANALYZER_ID) - "Copy snippet for X" on this page renders the pipeline id via
+// service.py's _public_analyzer_id(), while expectedOutcomes below is keyed by router id.
+const ROUTER_TO_PIPELINE_ANALYZER_ID: Record<string, string> = { trend_regression: 'trend' };
 
 for (const key of ['ruptures', 'trend', 'stumpy', 'pyodOutlier', 'mixed'] as const) {
   const fixture = analyzerFixtures[key];
 
   test(`seeded sample for ${fixture.file} evaluates to the documented router outcomes`, async ({ page }) => {
-    test.fixme(true, 'Select Existing Sample does not forward the sample identity to the backend — see file header.');
     const runId = makeRunId(`seeded-${key}`);
     await seedNormalizedPoints({
       runId,
@@ -75,7 +68,8 @@ for (const key of ['ruptures', 'trend', 'stumpy', 'pyodOutlier', 'mixed'] as con
         } else {
           await expect(page.getByText(outcome, { exact: true }).first()).toBeVisible();
         }
-        await expect(page.getByRole('button', { name: `Copy snippet for ${analyzerId}` })).toBeVisible();
+        const pipelineAnalyzerId = ROUTER_TO_PIPELINE_ANALYZER_ID[analyzerId] ?? analyzerId;
+        await expect(page.getByRole('button', { name: `Copy snippet for ${pipelineAnalyzerId}` })).toBeVisible();
       }
     } finally {
       await cleanupRun({ runId });
