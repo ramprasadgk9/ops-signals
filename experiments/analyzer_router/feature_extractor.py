@@ -342,9 +342,17 @@ def _spikiness(values: np.ndarray) -> tuple[float, int, int]:
     abs_diffs = np.abs(diffs)
     median_diff = float(np.median(abs_diffs))
     mad = float(np.median(np.abs(abs_diffs - median_diff)))
+    # Deliberately no std(diffs)-based term here anymore: it used to be part of this max(), but
+    # np.std is not robust to the very outliers this threshold exists to catch - with enough
+    # injected spikes to noticeably move the raw variance (empirically, as few as ~8 out of 288
+    # points), std(diffs) inflates almost linearly with the injected magnitude itself, so the
+    # threshold chased the outliers upward and they could never cross it no matter how extreme
+    # (confirmed: identical 0.0 spikiness from magnitude 6 through 60 on the PyOD Outlier Lab's
+    # default shape - see issue #21). median_diff + 10*mad is already a high-breakdown robust
+    # estimator and does the job; std(values)*0.08 stays as a small noise floor since it isn't the
+    # term that was breaking down.
     threshold = max(
         median_diff + (10.0 * mad),
-        float(np.std(diffs, ddof=0)) * 6.0,
         float(np.std(values, ddof=0)) * 0.08,
         1e-9,
     )
