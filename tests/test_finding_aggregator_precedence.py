@@ -262,8 +262,23 @@ def test_anomaly_and_trend_keeps_anomaly_primary() -> None:
 
 
 def test_seasonality_and_forecast_use_forecastable_narrative() -> None:
-    seasonal = _signal("seasonality", analyzer_id="stumpy", summary="cpu_usage repeats a regular seasonal pattern.")
-    forecast = _signal("forecast", analyzer_id="prophet", summary="cpu_usage has a forecastable recurring pattern.")
+    # Both signals need their own finding_rule_matched=True here: stumpy and prophet are both in
+    # _FINDING_RULE_GATED_ANALYZERS (they always emit a signal, matched or not), so combining them
+    # into one narrative should only happen when each is independently finding-worthy - not merely
+    # "both present" (see issue #20, where an unmatched stumpy signal used to rescue an unmatched
+    # prophet signal into a false finding on a purely seasonal series with no real deviation).
+    seasonal = _signal(
+        "seasonality",
+        analyzer_id="stumpy",
+        summary="cpu_usage repeats a regular seasonal pattern.",
+        evidence={"finding_rule_matched": True},
+    )
+    forecast = _signal(
+        "forecast",
+        analyzer_id="prophet",
+        summary="cpu_usage has a forecastable recurring pattern.",
+        evidence={"finding_rule_matched": True},
+    )
 
     finding = _finding([seasonal, forecast], {"detected_profiles": ["seasonal"]})
 
