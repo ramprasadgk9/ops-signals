@@ -126,6 +126,27 @@ class PrometheusConnectionConfig(BaseModel):
         return value.rstrip("/") if value else None
 
 
+class SlackConfig(BaseModel):
+    enabled: bool = False
+    webhook_url: str | None = None
+    minimum_importance: float = 0.7
+    timeout_seconds: float = 10.0
+
+    @field_validator("minimum_importance")
+    @classmethod
+    def minimum_importance_valid(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("minimum_importance must be between 0 and 1")
+        return value
+
+    @field_validator("webhook_url")
+    @classmethod
+    def webhook_url_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            return None
+        return value
+
+
 def _parse_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
@@ -162,6 +183,15 @@ def get_prometheus_config() -> PrometheusConnectionConfig:
         max_total_samples=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_TOTAL_SAMPLES", "100000")),
         min_step_seconds=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MIN_STEP_SECONDS", "1")),
         max_step_seconds=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_STEP_SECONDS", "86400")),
+    )
+
+
+def get_slack_config() -> SlackConfig:
+    return SlackConfig(
+        enabled=_parse_bool(os.getenv("OPS_SIGNALS_SLACK_ENABLED"), False),
+        webhook_url=os.getenv("OPS_SIGNALS_SLACK_WEBHOOK_URL") or None,
+        minimum_importance=float(os.getenv("OPS_SIGNALS_SLACK_MIN_IMPORTANCE", "0.7")),
+        timeout_seconds=float(os.getenv("OPS_SIGNALS_SLACK_TIMEOUT_SECONDS", "10")),
     )
 
 

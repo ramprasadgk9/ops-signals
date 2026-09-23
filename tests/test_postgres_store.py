@@ -11,7 +11,7 @@ from sqlalchemy import Integer
 
 from intelligence.findings.schema import OperationalFinding
 from intelligence.signals.schema import OperationalSignal
-from intelligence.storage.postgres_store import PostgresStore
+from intelligence.storage.postgres_store import PostgresStore, register_findings_hook
 
 
 def _config(table_prefix: str = "ops_") -> SimpleNamespace:
@@ -167,6 +167,44 @@ def test_save_findings_empty_list_is_a_no_op(store: PostgresStore) -> None:
     store.save_findings([])
 
     assert store.fetch_findings().empty
+
+
+@pytest.fixture(autouse=True)
+def _reset_findings_hook() -> Iterator[None]:
+    # register_findings_hook sets process-global state; every test that touches it must
+    # leave the registry clean, or a hook registered here could fire (and raise, since its
+    # fakes go out of scope) inside an unrelated test's save_findings call later in the run.
+    yield
+    register_findings_hook(None)
+
+
+def test_save_findings_invokes_the_registered_hook_with_the_saved_findings(store: PostgresStore) -> None:
+    received: list[list[OperationalFinding]] = []
+    register_findings_hook(received.append)
+
+    findings = [_finding(title="hook test")]
+    store.save_findings(findings)
+
+    assert len(received) == 1
+    assert received[0][0].title == "hook test"
+
+
+def test_save_findings_swallows_a_hook_exception(store: PostgresStore) -> None:
+    def _boom(findings: list[OperationalFinding]) -> None:
+        raise RuntimeError("downstream integration is down")
+
+    register_findings_hook(_boom)
+
+    # Must not raise, and the findings themselves must still be persisted.
+    store.save_findings([_finding(title="still saved")])
+
+    assert store.fetch_findings()["title"].tolist() == ["still saved"]
+
+
+def test_save_findings_with_no_hook_registered_is_unaffected(store: PostgresStore) -> None:
+    store.save_findings([_finding(title="no hook")])
+
+    assert store.fetch_findings()["title"].tolist() == ["no hook"]
 
 
 def test_fetch_findings_orders_by_importance_score_desc(store: PostgresStore) -> None:
