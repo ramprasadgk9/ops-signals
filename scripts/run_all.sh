@@ -7,6 +7,14 @@ VENV_DIR="${ROOT_DIR}/.venv"
 BACKEND_PORT="${BACKEND_PORT:-8001}"
 FRONTEND_PORT="${FRONTEND_PORT:-5174}"
 
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  echo "Loading $ROOT_DIR/.env"
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   echo ".venv is missing. Run scripts/setup.sh first."
   exit 1

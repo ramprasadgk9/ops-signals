@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select
@@ -12,6 +13,24 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from intelligence.config import AppConfig
 from intelligence.findings.schema import OperationalFinding
 from intelligence.signals.schema import OperationalSignal
+
+logger = logging.getLogger(__name__)
+
+# Optional post-write hook, set via register_findings_hook(). Kept generic (not
+# Slack-specific) so this storage layer stays framework-agnostic — it doesn't know or
+# care what consumes the signal, only that findings were just persisted.
+_on_findings_saved: Callable[[list[OperationalFinding]], None] | None = None
+
+
+def register_findings_hook(callback: Callable[[list[OperationalFinding]], None] | None) -> None:
+    """Register a callback invoked with every batch of findings right after they're saved.
+
+    Best-effort: an exception raised by the callback is logged and swallowed by
+    save_findings, never propagated, so a broken downstream integration can never fail
+    the analysis pipeline that just produced these findings.
+    """
+    global _on_findings_saved
+    _on_findings_saved = callback
 
 
 class PostgresStore:
@@ -199,6 +218,11 @@ class PostgresStore:
         records = [finding.to_record() for finding in findings]
         with self.engine.begin() as connection:
             connection.execute(self.findings_table.insert(), records)
+        if _on_findings_saved is not None:
+            try:
+                _on_findings_saved(findings)
+            except Exception:
+                logger.warning("findings hook raised", exc_info=True)
 
     def fetch_signals(self) -> pd.DataFrame:
         with self.engine.begin() as connection:

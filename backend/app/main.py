@@ -41,12 +41,13 @@ from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
-from backend.app.config import MemoryConfig, get_settings
+from backend.app.config import MemoryConfig, get_settings, get_slack_config
 from backend.app.config import AIConfig
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.notifications.slack_client import SlackNotifier
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.ai.factory import build_optional_ai_services
 from backend.app.memory.qdrant_initializer import QdrantInitializer
@@ -61,6 +62,7 @@ from backend.app.models.schema_compat import (
     ensure_learning_schema,
 )
 from backend.app.storage.bootstrap import seed_reference_data
+from intelligence.storage.postgres_store import register_findings_hook
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +258,16 @@ def create_app(database_url: str | None = None) -> FastAPI:
         from backend.app.api import assistant as assistant_module
         assistant_module._services["assistant"] = memory_services["assistant"]
         assistant_module._services["knowledge_bootstrap"] = memory_services["knowledge_bootstrap"]
+
+        # Slack notifications: config-driven, disabled unless OPS_SIGNALS_SLACK_ENABLED=true
+        # and a webhook URL are both set. SlackNotifier no-ops internally when disabled, so
+        # this registration is unconditional — one code path either way.
+        slack_config = get_slack_config()
+        if slack_config.enabled and slack_config.webhook_url:
+            logger.info("Slack notifications enabled")
+        else:
+            logger.info("Slack notifications disabled")
+        register_findings_hook(SlackNotifier(slack_config).notify_findings)
 
         scheduler_task: asyncio.Task | None = None
         if os.getenv("OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED", "true").lower() != "false":
