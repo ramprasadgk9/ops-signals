@@ -37,13 +37,7 @@ class FindingAggregator:
         findings: list[OperationalFinding] = []
         comparison_json: dict[str, object] = {}
         for (service, metric_name), grouped_signals in signals_by_key.items():
-            if self._skip_by_pyod_finding_rule(grouped_signals):
-                continue
-            if self._skip_by_stumpy_finding_rule(grouped_signals):
-                continue
-            if self._skip_by_prophet_finding_rule(grouped_signals):
-                continue
-            if self._skip_by_zscore_finding_rule(grouped_signals):
+            if any(self._skip_by_finding_rule(grouped_signals, analyzer_id) for analyzer_id in self._FINDING_RULE_GATED_ANALYZERS):
                 continue
 
             metric_points = points.copy()
@@ -77,41 +71,34 @@ class FindingAggregator:
         findings.sort(key=lambda item: item.importance_score, reverse=True)
         return FindingAggregationResult(findings=findings, comparison_json=comparison_json)
 
-    def _skip_by_pyod_finding_rule(self, signals: list[OperationalSignal]) -> bool:
-        pyod_signals = [signal for signal in signals if signal.analyzer_id == "pyod_outlier"]
-        if not pyod_signals:
-            return False
-        non_pyod_signals = [signal for signal in signals if signal.analyzer_id != "pyod_outlier"]
-        if non_pyod_signals:
-            return False
-        return not any(signal.evidence.get("finding_rule_matched") is True for signal in pyod_signals)
+    # These 4 analyzers always emit a signal once they have enough data (so labs and the CSV
+    # preview can still show forecast/score/relative-error diagnostics on a non-finding run),
+    # tagging whether their own finding_rules threshold was actually crossed via
+    # evidence["finding_rule_matched"] - unlike trend/ruptures/baseline_shift, which only ever
+    # emit a signal once their own threshold is already crossed, so their mere presence already
+    # means a real detection.
+    _FINDING_RULE_GATED_ANALYZERS = {"pyod_outlier", "stumpy", "prophet", "anomaly_zscore"}
 
-    def _skip_by_stumpy_finding_rule(self, signals: list[OperationalSignal]) -> bool:
-        stumpy_signals = [signal for signal in signals if signal.analyzer_id == "stumpy"]
-        if not stumpy_signals:
+    def _skip_by_finding_rule(self, signals: list[OperationalSignal], analyzer_id: str) -> bool:
+        own_signals = [signal for signal in signals if signal.analyzer_id == analyzer_id]
+        if not own_signals:
             return False
-        non_stumpy_signals = [signal for signal in signals if signal.analyzer_id != "stumpy"]
-        if non_stumpy_signals:
+        if any(signal.evidence.get("finding_rule_matched") is True for signal in own_signals):
             return False
-        return not any(signal.evidence.get("finding_rule_matched") is True for signal in stumpy_signals)
-
-    def _skip_by_prophet_finding_rule(self, signals: list[OperationalSignal]) -> bool:
-        prophet_signals = [signal for signal in signals if signal.analyzer_id == "prophet"]
-        if not prophet_signals:
-            return False
-        non_prophet_signals = [signal for signal in signals if signal.analyzer_id != "prophet"]
-        if non_prophet_signals:
-            return False
-        return not any(signal.evidence.get("finding_rule_matched") is True for signal in prophet_signals)
-
-    def _skip_by_zscore_finding_rule(self, signals: list[OperationalSignal]) -> bool:
-        zscore_signals = [signal for signal in signals if signal.analyzer_id == "anomaly_zscore"]
-        if not zscore_signals:
-            return False
-        non_zscore_signals = [signal for signal in signals if signal.analyzer_id != "anomaly_zscore"]
-        if non_zscore_signals:
-            return False
-        return not any(signal.evidence.get("finding_rule_matched") is True for signal in zscore_signals)
+        # Only rescue this analyzer's own non-match if something else in the group is
+        # independently finding-worthy: an analyzer that doesn't use this pattern at all (its
+        # presence already means a real detection), or another finding-rule-gated analyzer whose
+        # own rule actually matched. Previously this rescued on "is there any other analyzer's
+        # signal at all", which let e.g. stumpy's own non-matching pattern_discovery signal rescue
+        # prophet's own non-matching forecast on a purely seasonal series with no real deviation -
+        # see issue #20 (both signals were noise; two pieces of noise aren't a finding).
+        other_signals = [signal for signal in signals if signal.analyzer_id != analyzer_id]
+        for signal in other_signals:
+            if signal.analyzer_id not in self._FINDING_RULE_GATED_ANALYZERS:
+                return False
+            if signal.evidence.get("finding_rule_matched") is True:
+                return False
+        return True
 
     def _category(self, signals: list[OperationalSignal]) -> str:
         counts = Counter(signal.signal_type for signal in signals)
