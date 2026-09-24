@@ -73,7 +73,9 @@ def test_spikiness_is_actually_computed_and_wired_through_instead_of_hardcoded_z
     service = MetricAnalyzerRecommendationService()
     series = list(range(20))
 
-    with patch("backend.app.metric_analyzer_recommendations.service._spikiness", return_value=(0.73, 2, 1)) as mock_spikiness:
+    # With a real series the profile comes from the production extractor, so that's where the
+    # real spikiness is computed.
+    with patch("experiments.analyzer_router.feature_extractor._spikiness", return_value=(0.73, 2, 1)) as mock_spikiness:
         profile = service._build_router_profile(_profile([float(v) for v in series]), _timeseries([float(v) for v in series]))
 
     mock_spikiness.assert_called_once()
@@ -87,3 +89,47 @@ def test_no_timeseries_falls_back_to_the_previous_safe_defaults():
     profile = service._build_router_profile(_profile(SHIFT_SERIES), None)
 
     assert profile.spikiness == 0.0
+
+
+def _fixture_series(name: str) -> tuple[MetricProfile, list[tuple[datetime, float]]]:
+    import csv
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "sample_data" / "ops_signals_test_series" / f"{name}.csv"
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    values = [float(row["cpu_usage"]) for row in rows]
+    timeseries = [(datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")), value) for row, value in zip(rows, values)]
+    return _profile(values), timeseries
+
+
+def test_a_real_sample_is_profiled_like_a_real_analysis_run_so_behavior_matched_analyzers_can_win():
+    """Regression: the hand-built router profile had no detected_profiles, so the router's
+    profile-match step saw "no behavior detected" and returned not_recommended for every
+    behavior-restricted analyzer - ruptures included, on the textbook regime-shift sample. With a
+    real series the profile now comes from the router's own extractor, like analysis does."""
+    service = MetricAnalyzerRecommendationService()
+    profile, timeseries = _fixture_series("01_ruptures_abrupt_regime_shift")
+
+    router_profile = service._build_router_profile(profile, timeseries)
+    recommendations = {item["analyzer_id"]: item["recommendation"] for item in service.recommend(profile, "all", [], timeseries)}
+
+    assert "regime_change" in router_profile.detected_profiles
+    assert recommendations["ruptures"] == "recommended"
+
+
+def test_every_sample_gets_its_intended_analyzer_recommended():
+    """Each bundled test series was built for one analyzer; the page's advice for it should
+    match what a real analysis run's router says - that analyzer, recommended."""
+    service = MetricAnalyzerRecommendationService()
+    intended = {
+        "01_ruptures_abrupt_regime_shift": "ruptures",
+        "02_trend_smooth_linear_increase": "trend",
+        "03_stumpy_repeating_motif": "stumpy",
+        "04_pyod_adtk_isolated_spikes": "pyod_outlier",
+        "05_kats_mixed_behavior": "kats",
+    }
+    for name, analyzer_id in intended.items():
+        profile, timeseries = _fixture_series(name)
+        recommendations = {item["analyzer_id"]: item["recommendation"] for item in service.recommend(profile, "all", [], timeseries)}
+        assert recommendations[analyzer_id] == "recommended", (name, recommendations)

@@ -243,14 +243,14 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
             analysis_run_id = payload.get("analysis_run_id")
             if analysis_run_id is not None:
                 analysis_run_id = str(analysis_run_id).strip() or None
-            profile, _ = service.profile_sample(db, service_name, metric_name, analysis_run_id)
+            profile, timeseries = service.profile_sample(db, service_name, metric_name, analysis_run_id)
             sample = next((item for item in service.list_samples(db) if item["service"] == service_name and item["metric_name"] == metric_name and item["analysis_run_id"] == analysis_run_id), None)
             if not sample:
                 raise ValueError("sample not found")
             analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
             selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
             selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])
-            recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers)]
+            recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers, timeseries)]
             return RecommendationResponseOut(sample=MetricSampleOut(**sample), profile=MetricProfileOut(**asdict(profile)), recommendations=recommendations).model_dump()
         if name == "question_answer":
             routed = QuestionRouter(db).route(question_id=arguments["question_id"], service=arguments["service"], metric_name=arguments["metric_name"], analysis_run_id=arguments["analysis_run_id"])

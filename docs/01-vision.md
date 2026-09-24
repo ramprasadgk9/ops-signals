@@ -324,6 +324,10 @@ Future Autonomous Operations
 - Declarative behavior intelligence across multiple signals
 - Operational cases
 - Qdrant-backed retrieval
+- Alert enrichment: Alertmanager alerts analyzed on arrival and posted to Slack with what happened,
+  what changed (deploys and other change events), and whether it has been seen before (see
+  [`docs/alert-enrichment.md`](alert-enrichment.md))
+- Slack notifications for high-importance findings
 
 ## Non-Goals
 

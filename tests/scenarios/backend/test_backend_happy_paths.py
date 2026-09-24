@@ -126,7 +126,10 @@ def test_recommendation_api_scenario_returns_grouped_analyzer_decisions_for_tren
     assert payload["profile"]["sample_count"] == 72
     assert "recommended" in groups
     assert {"recommended", "conditional", "not_recommended"}.intersection(groups)
+    # A straight upward line: the trend analyzer is the right pick. (This used to expect
+    # statsforecast_forecast, the only analyzer that could win while the page's router profile
+    # lacked detected_profiles and every behavior-restricted analyzer was rejected.)
     assert any(
-        item["analyzer_id"] == "statsforecast_forecast" and item["recommendation"] == "recommended"
+        item["analyzer_id"] == "trend" and item["recommendation"] == "recommended"
         for item in recommendations
     )

@@ -733,7 +733,7 @@ def evaluate_metric_sample(payload: dict[str, Any], db: Session = Depends(get_db
     if not service_name or not metric_name:
         raise HTTPException(status_code=400, detail="service and metric_name are required")
     try:
-        profile, _ = _recommendation_service.profile_sample(db, service_name, metric_name, analysis_run_id)
+        profile, timeseries = _recommendation_service.profile_sample(db, service_name, metric_name, analysis_run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -753,7 +753,7 @@ def evaluate_metric_sample(payload: dict[str, Any], db: Session = Depends(get_db
     analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
     selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
     selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])
-    recommendations = [AnalyzerRecommendationOut(**item) for item in _recommendation_service.recommend(profile, selection_mode, selected_analyzers)]
+    recommendations = [AnalyzerRecommendationOut(**item) for item in _recommendation_service.recommend(profile, selection_mode, selected_analyzers, timeseries)]
     return RecommendationResponseOut(
         sample=MetricSampleOut(**sample),
         profile=MetricProfileOut(**asdict(profile)),
