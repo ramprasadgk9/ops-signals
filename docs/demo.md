@@ -27,7 +27,7 @@ available, Compose builds them from source instead, which takes 10+ minutes the 
 
 `checkout-api` has served p95 latency around 180ms all day. Then:
 
-1. **Deploy `v2.14.0`** lands, 28 minutes before you ran `up`.
+1. **Deploy `v2.14.0`** lands, 48 minutes before you ran `up`.
 2. **Three minutes later**, p95 latency steps up to about 320ms and stays there.
 3. **The `CheckoutApiLatencyHigh` alert fires** (a plain Prometheus threshold rule) and
    Alertmanager routes it to Ops Signals.

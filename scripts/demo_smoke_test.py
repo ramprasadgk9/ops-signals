@@ -38,6 +38,11 @@ def message_text(payload: dict) -> str:
     return "\n".join(parts)
 
 
+def section(text: str, start: str, end: str) -> str:
+    after = text.split(start, 1)[1] if start in text else ""
+    return after.split(end, 1)[0]
+
+
 def wait_for_alert_message(slack_url: str, timeout_seconds: int) -> str:
     deadline = time.monotonic() + timeout_seconds
     last_error = "no messages yet"
@@ -63,9 +68,12 @@ def main() -> int:
     print(f"waiting up to {args.timeout}s for the enriched alert at {args.slack_url} ...", flush=True)
     text = wait_for_alert_message(args.slack_url.rstrip("/"), args.timeout)
 
+    # Only the "What happened" section: the similar past case further down is also a baseline
+    # shift, so a check over the whole message would pass even if today's analysis missed it.
+    what_happened = section(text, "What happened", "What changed")
     checks = [
-        ("analysis found the latency shift", "baseline shift" in text and "Not analyzed" not in text),
-        ("change start time reported", "Change started around" in text),
+        ("analysis found the latency shift", "baseline shift" in what_happened),
+        ("change start time reported", "Change started around" in what_happened),
         ("deploy v2.14.0 correlated", "deploy `v2.14.0`" in text),
         ("verdict from past outcomes", "Verdict: *likely real*" in text),
         ("similar past case matched", "Most similar case:" in text),
