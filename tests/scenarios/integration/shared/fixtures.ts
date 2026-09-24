@@ -7,7 +7,7 @@ import type { SeedPoint } from './db';
 // sample_data/ops_signals_test_series/README.md. Reused as-is rather than inventing new waveforms.
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../sample_data/ops_signals_test_series');
 
-export type RoutingOutcome = 'recommended' | 'conditional' | 'not_recommended';
+export type RoutingOutcome = 'recommended' | 'optional' | 'conditional' | 'not_recommended';
 
 /** Title Case bucket labels used by ValidateDataPage's Router Decisions panel — see
  * routerBucketLabel() in frontend/src/pages/ValidateDataPage.tsx. Distinct vocabulary from the
@@ -63,7 +63,9 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '04_pyod_adtk_isolated_spikes.csv'),
     service: 'test-pyod-adtk-isolated-spikes',
     metricName: 'cpu_usage',
-    expectedOutcomes: { pyod_outlier: 'recommended', ruptures: 'not_recommended' },
+    // pyod_outlier is 'optional' since the router's spikiness fix (issue #21) - it was
+    // not_recommended before, when the spikiness threshold chased the injected spikes.
+    expectedOutcomes: { pyod_outlier: 'optional', ruptures: 'not_recommended' },
     // README says PyOD/ADTK should be primary here; the live router instead recommends
     // stumpy/prophet/trend_regression/darts and rejects pyod_outlier/adtk. Asserting real
     // behavior per this suite's scope decision — see the discrepancy note in the spec file.

@@ -137,6 +137,31 @@ describe('AnalyzerRecommendationPage scenarios', () => {
     expect(screen.queryByText('Second Opinion')).not.toBeInTheDocument();
   });
 
+  it('renders every recommendation value the backend returns, so optional and rejected analyzers are never dropped', async () => {
+    const base = preliminaryResponse.recommendations[0];
+    vi.mocked(api.metricAnalyzerSamples).mockResolvedValue([]);
+    vi.mocked(api.metricAnalyzerChat).mockResolvedValue({
+      ...preliminaryResponse,
+      recommendations: [
+        { ...base, analyzer_id: 'pyod_outlier', display_name: 'PyOD Outlier', recommendation: 'optional' },
+        { ...base, analyzer_id: 'kats', display_name: 'Kats', recommendation: 'rejected' },
+        { ...base, analyzer_id: 'forecasting', display_name: 'Forecasting', recommendation: 'conditional' },
+      ],
+    });
+
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText(/Metric Name/), { target: { value: 'cpu_usage' } });
+    fireEvent.change(screen.getByLabelText(/Metric Description/), { target: { value: 'CPU usage.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'CPU Template' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Get Preliminary Recommendation' }));
+
+    expect(await screen.findByText('Recommendation Results')).toBeInTheDocument();
+    for (const analyzerId of ['pyod_outlier', 'kats', 'forecasting']) {
+      expect(screen.getByRole('button', { name: `Copy snippet for ${analyzerId}` })).toBeInTheDocument();
+    }
+  });
+
   it('shows the AI second opinion and flags divergence from the router without hiding the deterministic recommendations', async () => {
     vi.mocked(api.metricAnalyzerSamples).mockResolvedValue([]);
     vi.mocked(api.metricAnalyzerChat).mockResolvedValue(evaluatedResponseWithAiOpinion);

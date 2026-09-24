@@ -62,6 +62,24 @@ function recommendationColor(recommendation: string) {
   return 'error';
 }
 
+// Column tint per recommendation color (success/warning/error), for the bucket and its cards.
+const BUCKET_TINT = {
+  success: { bucket: 'rgba(34, 197, 94, 0.06)', card: 'rgba(34, 197, 94, 0.08)' },
+  warning: { bucket: 'rgba(250, 204, 21, 0.08)', card: 'rgba(250, 204, 21, 0.10)' },
+  error: { bucket: 'rgba(239, 68, 68, 0.06)', card: 'rgba(239, 68, 68, 0.08)' },
+} as const;
+
+// The router returns recommended / optional / not_recommended, and can also return rejected or
+// overridden; the legacy scorers return conditional. Always show the three main buckets, then
+// add a bucket for any other value actually present, so no analyzer is ever silently dropped
+// (optional ones used to be: this page only rendered a hard-coded list).
+const PRIMARY_BUCKETS = ['recommended', 'optional', 'not_recommended'];
+
+function recommendationBuckets(recommendations: { recommendation: string }[]): string[] {
+  const extra = recommendations.map((item) => item.recommendation).filter((value) => !PRIMARY_BUCKETS.includes(value));
+  return [...PRIMARY_BUCKETS, ...extra.filter((value, index) => extra.indexOf(value) === index)];
+}
+
 function uniquePush(values: string[], value: string) {
   return values.includes(value) ? values : [...values, value];
 }
@@ -543,9 +561,9 @@ export function AnalyzerRecommendationPage() {
               <Alert severity="info">Preliminary recommendation. Upload or select a representative historical sample to verify analyzer fitness and calculate evidence-based confidence.</Alert>
             ) : null}
             <Grid container spacing={2}>
-              {(['recommended', 'conditional', 'not_recommended'] as const).map((bucket) => (
+              {recommendationBuckets(chatResult.recommendations).map((bucket) => (
                 <Grid key={bucket} size={{ xs: 12, md: 4 }}>
-                  <Paper sx={{ p: 1.5, bgcolor: bucket === 'recommended' ? 'rgba(34, 197, 94, 0.06)' : bucket === 'conditional' ? 'rgba(250, 204, 21, 0.08)' : 'rgba(239, 68, 68, 0.06)' }}>
+                  <Paper sx={{ p: 1.5, bgcolor: BUCKET_TINT[recommendationColor(bucket)].bucket }}>
                   <Typography variant="subtitle1" sx={{ mb: 1, textTransform: 'capitalize' }}>{bucket.split('_').join(' ')}</Typography>
                     <Stack spacing={1}>
                       {chatResult.recommendations.filter((item) => item.recommendation === bucket).map((item) => (
@@ -554,7 +572,7 @@ export function AnalyzerRecommendationPage() {
                           sx={{
                             p: 2,
                             borderRadius: 2,
-                            bgcolor: bucket === 'recommended' ? 'rgba(34, 197, 94, 0.08)' : bucket === 'conditional' ? 'rgba(250, 204, 21, 0.10)' : 'rgba(239, 68, 68, 0.08)',
+                            bgcolor: BUCKET_TINT[recommendationColor(bucket)].card,
                             border: '1px solid rgba(0,0,0,0.08)',
                           }}
                         >
