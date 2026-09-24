@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -200,6 +201,12 @@ class PostgresStore:
         )
 
     def _connection_string(self) -> str:
+        # Same variable the backend API uses (backend/app/config.py), so a deployment that points
+        # the backend at its database (compose, Helm) doesn't also need a config.yaml edit for
+        # analysis runs to reach it.
+        url = os.getenv("OPS_INTEL_DATABASE_URL")
+        if url and url.strip():
+            return url.strip()
         pg = self.config.storage.postgres
         return f"postgresql+psycopg://{pg.user}:{pg.password}@{pg.host}:{pg.port}/{pg.database}"
 

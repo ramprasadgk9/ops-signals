@@ -12,6 +12,9 @@ What the project is, and how to get it running.
   analyzers → signals → findings.
 - [`01-vision.md`](01-vision.md) - the fuller product vision, including the MTTR framing referenced
   throughout these docs.
+- [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with an incident already
+  in progress (a deploy, a latency shift, an enriched alert, a matching past case). Start here to
+  see it working before installing anything.
 - **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,
   open the UI. Start here to actually install it.
 - [`grafana-plugin-local-setup.md`](grafana-plugin-local-setup.md) - installing the Grafana app

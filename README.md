@@ -8,6 +8,22 @@ Ops Signals is a vendor-neutral Operational Intelligence framework that transfor
 
 It is designed to help teams move from raw metrics to actionable operational context without replacing existing observability or incident platforms.
 
+![Ops Signals demo: a deploy causes a latency shift, the alert is enriched with what happened, what changed, and a matching past incident](docs/screenshots/images/demo/ops-signals-demo.gif)
+
+### Try it in one command
+
+```bash
+git clone https://github.com/ramprasadgk9/operational-intelligence.git
+cd operational-intelligence
+docker compose -f docker-compose.demo.yml up
+```
+
+This starts Ops Signals with an incident already in progress: a deploy, then a latency shift, then
+a Prometheus alert. About a minute later, open **http://localhost:8090** to see the enriched alert
+as it would appear in Slack, and **http://localhost:8080** for the full UI. You only need Docker:
+no Python, Node, Slack workspace or data of your own. See [`docs/demo.md`](docs/demo.md) for what's
+running and how it works.
+
 Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer. See [`docs/original-contribution.md`](docs/original-contribution.md) for a technical writeup of what's original about the architecture.
 
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
@@ -348,6 +364,9 @@ reverse. See [PostgreSQL vs. Qdrant](#103-postgresql-vs-qdrant) for the field-le
 [`docs/09-design-decisions.md`](docs/09-design-decisions.md) for why they're split this way.
 
 ## 6. Quick Start
+
+Just want to see it working? The [one-command demo](docs/demo.md) needs only Docker. The steps below
+set up a development install that you can point at your own data.
 
 ### 6.1 Prerequisites
 

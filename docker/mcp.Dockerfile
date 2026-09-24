@@ -11,6 +11,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt pyproject.toml ./
+# CPU-only torch first (sentence-transformers needs it): PyPI's default linux/amd64 wheel bundles
+# several GB of CUDA libraries the backend never uses. requirements.txt then finds torch satisfied.
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install -r requirements.txt
 
 COPY backend ./backend

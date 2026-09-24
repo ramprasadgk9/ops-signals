@@ -1,0 +1,10 @@
+groups:
+  - name: ops-signals-demo
+    rules:
+      - alert: CheckoutApiLatencyHigh
+        expr: request_latency_p95{service="checkout-api"} > 280
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "checkout-api p95 latency above 280ms"

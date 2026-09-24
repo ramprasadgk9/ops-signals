@@ -1,0 +1,212 @@
+# Five-minute demo: one command brings up Ops Signals with a realistic incident already in progress.
+#
+#   docker compose -f docker-compose.demo.yml up
+#
+# Then open http://localhost:8080 (Ops Signals) and http://localhost:8090 (the Slack-style
+# channel where the enriched alert lands). Full walkthrough: docs/demo.md.
+#
+# The story: deploy v2.14.0 of checkout-api lands, p95 latency steps from ~180ms to ~320ms three
+# minutes later, and a Prometheus alert fires. Ops Signals analyzes the series, finds the deploy,
+# and matches a resolved incident from three weeks ago (fixed by a rollback).
+#
+# Start over with a fresh incident:   docker compose -f docker-compose.demo.yml down -v
+# Post to a real Slack channel too:   DEMO_SLACK_WEBHOOK_URL=https://hooks.slack.com/... docker compose -f docker-compose.demo.yml up
+#
+# Runs as its own compose project (no host ports for Postgres/Qdrant), so it doesn't collide with
+# the development stack from scripts/run_all.sh.
+
+name: ops-signals-demo
+
+x-backend-image: &backend-image
+  image: ghcr.io/ramprasadgk9/ops-signals-backend:${OPS_SIGNALS_VERSION:-latest}
+  # Pulls the published image; if it can't (not published yet, offline), builds it locally instead.
+  pull_policy: missing
+  build:
+    context: .
+    dockerfile: docker/backend.Dockerfile
+
+x-backend-env: &backend-env
+  OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
+  OPS_SIGNALS_QDRANT_URL: http://qdrant:6333
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: ops_signals
+      POSTGRES_USER: ops_signals
+      POSTGRES_PASSWORD: ops_signals
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops_signals -d ops_signals"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # The image has no curl/wget; bash's /dev/tcp is enough to know the port is open.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    <<: *backend-image
+    environment:
+      <<: *backend-env
+      OPS_SIGNALS_PROMETHEUS_URL: http://prometheus:9090
+      OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED: "true"
+      OPS_SIGNALS_ALERT_SLACK_WEBHOOK_URL: ${DEMO_SLACK_WEBHOOK_URL:-http://slack-sink:8090/webhook}
+      OPS_SIGNALS_UI_BASE_URL: http://localhost:${DEMO_WEB_PORT:-8080}
+      # The embedding model is baked into the image; never reach out to HuggingFace.
+      HF_HUB_OFFLINE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      default:
+        # docker/nginx.web.conf proxies /api/ to this name.
+        aliases: [ops-signals-backend]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      # First start embeds the bundled docs into Qdrant before the API answers.
+      start_period: 300s
+
+  web:
+    image: ghcr.io/ramprasadgk9/ops-signals-web:${OPS_SIGNALS_VERSION:-latest}
+    pull_policy: missing
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    ports:
+      - "${DEMO_WEB_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # --- the incident ------------------------------------------------------------------------------
+
+  # Writes the timeline and 7h of checkout-api history (OpenMetrics) into the demo-state volume.
+  demo-history:
+    image: python:3.12-alpine
+    command: ["python", "/demo/backfill_history.py"]
+    volumes:
+      - ./demo:/demo:ro
+      - demo_state:/demo-state
+    restart: "no"
+
+  # Turns that history into Prometheus blocks before Prometheus starts, so the analyzers have a
+  # baseline to compare against from the first minute.
+  prometheus-backfill:
+    image: prom/prometheus:v2.54.1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -f /prometheus/.demo-backfilled ]; then echo "history already backfilled"; exit 0; fi
+        promtool tsdb create-blocks-from openmetrics /demo-state/history.om /prometheus \
+          && touch /prometheus/.demo-backfilled
+    volumes:
+      - demo_state:/demo-state:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      demo-history:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # Live scrape target that continues the backfilled series.
+  demo-metrics:
+    image: python:3.12-alpine
+    command: ["python", "/demo/metrics_target.py"]
+    volumes:
+      - ./demo:/demo:ro
+      - demo_state:/demo-state:ro
+    depends_on:
+      demo-history:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      # So "view rule source" links in the alert message open from the host.
+      - "--web.external-url=http://localhost:${DEMO_PROMETHEUS_PORT:-9091}"
+    ports:
+      - "${DEMO_PROMETHEUS_PORT:-9091}:9090"
+    volumes:
+      - ./demo/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./demo/config/alert-rules.yml:/etc/prometheus/rules/demo.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      prometheus-backfill:
+        condition: service_completed_successfully
+      demo-metrics:
+        condition: service_started
+    restart: unless-stopped
+
+  # Records the deploys and a resolved past incident through the API, then exits.
+  demo-seeder:
+    <<: *backend-image
+    command: ["python", "/demo/seed.py"]
+    environment:
+      <<: *backend-env
+      DEMO_BACKEND_URL: http://backend:8000
+      DEMO_WEB_URL: http://localhost:${DEMO_WEB_PORT:-8080}
+      DEMO_SLACK_SINK_URL: http://localhost:${DEMO_SLACK_PORT:-8090}
+    volumes:
+      - ./demo:/demo:ro
+      - demo_state:/demo-state
+    depends_on:
+      backend:
+        condition: service_healthy
+      demo-history:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # Starts only once seeding is done, so the alert always reaches a fully seeded backend.
+  # Prometheus keeps re-sending the firing alert until Alertmanager is up.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/tmp/alertmanager"
+      - "--web.external-url=http://localhost:${DEMO_ALERTMANAGER_PORT:-9094}"
+    ports:
+      - "${DEMO_ALERTMANAGER_PORT:-9094}:9093"
+    volumes:
+      - ./demo/config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    depends_on:
+      demo-seeder:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Stand-in for Slack: renders the webhook messages the backend posts.
+  slack-sink:
+    image: python:3.12-alpine
+    command: ["python", "/demo/slack_sink.py"]
+    environment:
+      SLACK_SINK_STORE: /demo-state/slack-messages.jsonl
+    ports:
+      - "${DEMO_SLACK_PORT:-8090}:8090"
+    volumes:
+      - ./demo:/demo:ro
+      - demo_state:/demo-state
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  prometheus_data:
+  demo_state:

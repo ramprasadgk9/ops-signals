@@ -80,9 +80,10 @@ def _finding(**overrides) -> OperationalFinding:
     return OperationalFinding(**payload)
 
 
-def test_connection_string_uses_psycopg_driver() -> None:
+def test_connection_string_uses_psycopg_driver(monkeypatch) -> None:
     # create_engine() never opens a connection eagerly, so this exercises the real
     # _connection_string() against a real (unreachable) postgres config without a live DB.
+    monkeypatch.delenv("OPS_INTEL_DATABASE_URL", raising=False)
     config = _config()
     config.storage.postgres.host = "db.internal"
     config.storage.postgres.port = 6543
@@ -93,6 +94,17 @@ def test_connection_string_uses_psycopg_driver() -> None:
     instance = PostgresStore(config)
 
     assert instance._connection_string() == "postgresql+psycopg://ops:secret@db.internal:6543/ops_signals"
+
+
+def test_connection_string_prefers_database_url_env(monkeypatch) -> None:
+    # Containers (docker-compose, Helm) configure the database only through this variable.
+    monkeypatch.setenv("OPS_INTEL_DATABASE_URL", "postgresql+psycopg://u:p@postgres:5432/ops_signals")
+    config = _config()
+    config.storage.postgres.host = "localhost"
+
+    instance = PostgresStore(config)
+
+    assert instance._connection_string() == "postgresql+psycopg://u:p@postgres:5432/ops_signals"
 
 
 def test_init_db_creates_all_tables(store: PostgresStore) -> None:

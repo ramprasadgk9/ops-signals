@@ -1,0 +1,15 @@
+# Alertmanager for docker-compose.demo.yml: every alert goes to the Ops Signals receiver.
+# In a real setup, keep your existing receivers and add Ops Signals as an extra route with
+# `continue: true` - see docs/alert-enrichment-plan.md.
+route:
+  receiver: ops-signals
+  group_by: [alertname, service]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: ops-signals
+    webhook_configs:
+      - url: http://backend:8000/api/integrations/alertmanager
+        send_resolved: true
