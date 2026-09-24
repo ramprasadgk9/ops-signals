@@ -64,6 +64,19 @@ def detect_primary_change_point(
     return best
 
 
+def change_point_time(timestamps: pd.Series, values: pd.Series, change_point_index: int) -> str | None:
+    """ISO timestamp of the first sample after the break.
+
+    detect_primary_change_point() indexes into the *finite* values only, so the index is mapped
+    back through the same filter rather than used directly against the (possibly NaN-holed) frame.
+    """
+    finite = np.isfinite(pd.to_numeric(values, errors="coerce").to_numpy(dtype=float))
+    finite_timestamps = pd.to_datetime(timestamps.to_numpy()[finite], utc=True)
+    if not 0 <= change_point_index < len(finite_timestamps):
+        return None
+    return finite_timestamps[change_point_index].isoformat()
+
+
 class RupturesAnalyzer(Analyzer):
     analyzer_id = "ruptures"
 
@@ -136,6 +149,7 @@ class RupturesAnalyzer(Analyzer):
                     summary=summary,
                     evidence={
                         "change_point_index": int(best_index),
+                        "change_point_time": change_point_time(ordered["timestamp"], ordered["value"], best_index),
                         "left_mean": round(left_mean, 4),
                         "right_mean": round(right_mean, 4),
                         "percent_change": round(percent_change, 4),

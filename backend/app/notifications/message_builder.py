@@ -41,3 +41,176 @@ def build_finding_blocks(finding: OperationalFinding) -> dict:
             },
         ],
     }
+
+
+# --- Alert enrichment (docs/alert-enrichment-plan.md §H) -------------------------------------
+# Built from the stored enrichment dict (ops_alert_enrichments.enrichment_json), so what's posted
+# and what's stored can never disagree, and a stored enrichment can be re-rendered later.
+
+_SOURCE_LABEL = {
+    "alertmanager": "Alertmanager alert",
+    "generic": "External alert",
+}
+_VERDICT_TEXT = {
+    "likely_real": "likely real",
+    "likely_noise": "likely noise",
+    "insufficient_history": "not enough history",
+}
+_SECTION_MAX_LEN = 2900  # Slack section text limit is 3000
+
+
+def _clip(text: str, limit: int = _SECTION_MAX_LEN) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _link(url: str | None, label: str) -> str:
+    return f"<{url}|{label}>" if url else label
+
+
+def _hhmm(iso_value: str | None) -> str:
+    return iso_value[11:16] + " UTC" if iso_value and len(iso_value) >= 16 else "unknown time"
+
+
+def _minutes(value: float) -> str:
+    minutes = round(abs(value))
+    if minutes < 1:
+        return "<1 min"
+    if minutes < 120:
+        return f"{minutes} min"
+    return f"{minutes / 60:.1f} h"
+
+
+def _what_happened(analysis: dict) -> str:
+    status = analysis.get("status")
+    finding = analysis.get("finding") or {}
+    lookback_hours = round((analysis.get("lookback_seconds") or 0) / 3600, 1)
+    if status in {"analyzed", "reused"} and finding:
+        lines = [f"*{finding.get('title', 'Finding')}*", finding.get("summary") or ""]
+        if analysis.get("change_point_time"):
+            lines.append(f"Change started around *{_hhmm(analysis['change_point_time'])}*.")
+        if status == "reused" and analysis.get("detected_before_alert_minutes"):
+            lines.append(
+                f"🔎 Ops Signals detected this *{_minutes(analysis['detected_before_alert_minutes'])} before* the alert fired."
+            )
+        if analysis.get("early"):
+            lines.append(
+                f"_Early analysis: only {analysis.get('post_change_points', 0)} data points since the alert started._"
+            )
+        return "\n".join(line for line in lines if line)
+    if status == "no_significant_change":
+        return f"No significant change detected in the last {lookback_hours:g}h of this series."
+    if status in {"skipped", "failed"}:
+        return f"Not analyzed: {analysis.get('reason_text') or analysis.get('reason') or 'unknown reason'}."
+    return "Not analyzed."
+
+
+def _what_changed(changes: dict | None, service: str | None) -> str:
+    if not service:
+        return "No service label on this alert, so change events can't be matched."
+    if changes is None:
+        return "Change-event lookup unavailable."
+    matches = changes.get("matches") or []
+    if not changes.get("service_has_any_events"):
+        return f"No change events have ever been recorded for `{service}` - send deploys to `POST /api/events` to see them here."
+    if not matches:
+        return f"No changes recorded for `{service}` in the {changes.get('window_before_minutes', 30)} min before the change."
+    lines = []
+    for match in matches:
+        label = f"{match.get('event_type', 'change')} `{match.get('version') or match.get('description') or 'unversioned'}`"
+        # minutes_before_anchor > 0: the change event came first, so the problem started *after* it.
+        when = match.get("minutes_before_anchor", 0.0)
+        relation = f"{_minutes(when)} after" if when >= 0 else f"{_minutes(when)} before"
+        who = f" by {match['author']}" if match.get("author") else ""
+        lines.append(f"• Started *{relation}* {_link(match.get('url'), label)}{who}")
+    return "\n".join(lines)
+
+
+def _seen_before(context: dict | None, ui_base_url: str) -> str:
+    if not context:
+        return "History lookup unavailable."
+    history = context.get("history") or {}
+    total = history.get("total_prior_occurrences") or 0
+    verdict = _VERDICT_TEXT.get(context.get("recommendation"), context.get("recommendation") or "unknown")
+    lines = [f"Verdict: *{verdict}*"]
+    if total:
+        lines.append(
+            f"{total} prior occurrence(s): {history.get('confirmed', 0)} confirmed, {history.get('rejected', 0)} rejected."
+        )
+        if history.get("most_common_root_cause"):
+            lines.append(f"Most common cause: _{history['most_common_root_cause']}_")
+    similar = context.get("similar_cases") or []
+    if similar:
+        top = similar[0]
+        title = _link(f"{ui_base_url}/cases/{top['case_id']}", f"#{top['case_id']} {top.get('title', '')}".strip())
+        lines.append(f"Most similar case: {title} ({round(top.get('similarity_score', 0) * 100)}% match)")
+        if top.get("outcome_summary"):
+            lines.append(f"↳ Fix: {top['outcome_summary']}")
+    raw = context.get("raw_activity") or {}
+    if not total and not similar:
+        if raw.get("total_occurrences"):
+            lines.append(f"Seen {raw['total_occurrences']} time(s) in past findings, but no case was ever filed.")
+        else:
+            lines.append("First time Ops Signals has seen this alert.")
+    return "\n".join(lines)
+
+
+def build_alert_enrichment_blocks(enrichment: dict, ui_base_url: str) -> dict:
+    alert = enrichment.get("alert") or {}
+    source_label = _SOURCE_LABEL.get(enrichment.get("source"), "External alert")
+    analysis = enrichment.get("analysis") or {}
+    finding = analysis.get("finding") or {}
+    icon = _SEVERITY_ICON.get(finding.get("health_status"), "🔔")
+    service = alert.get("service")
+    header_text = f"{icon} [FIRING] {alert.get('name', 'alert')}" + (f" · {service}" if service else "")
+
+    origin_parts = [f"🔔 *{source_label}*", f"rule `{alert.get('name', 'alert')}`"]
+    if alert.get("severity"):
+        origin_parts.append(f"severity: {alert['severity']}")
+    origin_parts.append(f"fired {_hhmm(alert.get('starts_at'))}")
+    source_links = [
+        _link(alert.get("generator_url"), "view rule source") if alert.get("generator_url") else None,
+        _link(alert.get("external_url"), "Alertmanager") if alert.get("external_url") else None,
+    ]
+    origin = " · ".join(origin_parts + [link for link in source_links if link])
+
+    blocks: list[dict] = [
+        {"type": "header", "text": {"type": "plain_text", "text": header_text[:_HEADER_MAX_LEN], "emoji": True}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _clip(origin, 2900)}]},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _clip(f"*Alert:* {alert.get('summary') or alert.get('name')}")}},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*📈 What happened*\n" + _what_happened(analysis))}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🚀 What changed*\n" + _what_changed(enrichment.get("changes"), service))}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🧠 Seen before*\n" + _seen_before(enrichment.get("context"), ui_base_url))}},
+    ]
+    links = [_link(f"{ui_base_url}/findings", "Open findings"), _link(f"{ui_base_url}/cases", "Create a case")]
+    fingerprint = alert.get("fingerprint")
+    footer = (
+        f"Enriched by Ops Signals from an {source_label.lower()}"
+        + (f" · fingerprint `{fingerprint}`" if fingerprint else "")
+        + (f" · metric `{alert['metric_key']}`" if alert.get("metric_key") else "")
+        + " · " + " · ".join(links)
+    )
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": _clip(footer, 2900)}]})
+    return {"text": header_text[:_HEADER_MAX_LEN], "blocks": blocks}
+
+
+def build_alert_resolved_blocks(enrichment: dict, ui_base_url: str, open_minutes: float | None) -> dict:
+    alert = enrichment.get("alert") or {}
+    source_label = _SOURCE_LABEL.get(enrichment.get("source"), "External alert")
+    service = alert.get("service")
+    header_text = f"✅ [RESOLVED] {alert.get('name', 'alert')}" + (f" · {service}" if service else "")
+    duration = f" after {_minutes(open_minutes)}" if open_minutes is not None else ""
+    body = (
+        f"🔔 *{source_label}* `{alert.get('name', 'alert')}` resolved{duration}.\n"
+        f"Was it real? Record the outcome on a {_link(f'{ui_base_url}/cases', 'case')} so the next alert knows."
+    )
+    fingerprint = alert.get("fingerprint")
+    footer = f"Enriched by Ops Signals from an {source_label.lower()}" + (f" · fingerprint `{fingerprint}`" if fingerprint else "")
+    return {
+        "text": header_text[:_HEADER_MAX_LEN],
+        "blocks": [
+            {"type": "header", "text": {"type": "plain_text", "text": header_text[:_HEADER_MAX_LEN], "emoji": True}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": body}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]},
+        ],
+    }

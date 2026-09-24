@@ -11,7 +11,7 @@ from sqlalchemy import Integer
 
 from intelligence.findings.schema import OperationalFinding
 from intelligence.signals.schema import OperationalSignal
-from intelligence.storage.postgres_store import PostgresStore, register_findings_hook
+from intelligence.storage.postgres_store import PostgresStore, register_findings_hook, suppress_findings_hook
 
 
 def _config(table_prefix: str = "ops_") -> SimpleNamespace:
@@ -199,6 +199,29 @@ def test_save_findings_swallows_a_hook_exception(store: PostgresStore) -> None:
     store.save_findings([_finding(title="still saved")])
 
     assert store.fetch_findings()["title"].tolist() == ["still saved"]
+
+
+def test_suppress_findings_hook_skips_the_hook_but_still_saves(store: PostgresStore) -> None:
+    received: list[list[OperationalFinding]] = []
+    register_findings_hook(received.append)
+
+    with suppress_findings_hook():
+        store.save_findings([_finding(title="suppressed")])
+
+    assert received == []
+    assert store.fetch_findings()["title"].tolist() == ["suppressed"]
+
+
+def test_suppress_findings_hook_resets_after_the_block_even_on_error(store: PostgresStore) -> None:
+    received: list[list[OperationalFinding]] = []
+    register_findings_hook(received.append)
+
+    with pytest.raises(RuntimeError):
+        with suppress_findings_hook():
+            raise RuntimeError("pipeline failed")
+    store.save_findings([_finding(title="after")])
+
+    assert len(received) == 1
 
 
 def test_save_findings_with_no_hook_registered_is_unaffected(store: PostgresStore) -> None:

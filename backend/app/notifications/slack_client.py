@@ -41,18 +41,24 @@ class SlackNotifier:
                 )
 
     def _post(self, payload: dict) -> None:
-        body = json.dumps(payload).encode("utf-8")
-        request = Request(
-            self.config.webhook_url,
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urlopen(request, timeout=self.config.timeout_seconds) as response:
-                if response.status >= 300:
-                    raise RuntimeError(f"Slack webhook returned HTTP {response.status}")
-        except HTTPError as exc:
-            raise RuntimeError(f"Slack webhook returned HTTP {exc.code}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"Slack webhook unreachable: {exc.reason}") from exc
+        post_to_slack_webhook(self.config.webhook_url, payload, self.config.timeout_seconds)
+
+
+def post_to_slack_webhook(webhook_url: str, payload: dict, timeout_seconds: float) -> None:
+    """POST one Block Kit payload to a Slack incoming webhook. Raises RuntimeError on failure;
+    callers decide whether that's fatal (it never is for notifications)."""
+    body = json.dumps(payload).encode("utf-8")
+    request = Request(
+        webhook_url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            if response.status >= 300:
+                raise RuntimeError(f"Slack webhook returned HTTP {response.status}")
+    except HTTPError as exc:
+        raise RuntimeError(f"Slack webhook returned HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Slack webhook unreachable: {exc.reason}") from exc

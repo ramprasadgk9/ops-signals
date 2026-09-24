@@ -34,13 +34,18 @@ How the pieces fit together, what talks to what, and why the two storage layers 
 - [`otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md) - the OTLP/HTTP metrics
   ingestion path: the receiver, volume/cardinality guardrails, how received points reach the
   scheduler's existing analysis cycle, and the self-observability endpoints.
+- [`alert-enrichment.md`](alert-enrichment.md) - Slack finding notifications and alert enrichment:
+  Alertmanager alerts analyzed on arrival and posted to Slack with what happened, what changed, and
+  similar past cases. Why it matters, how it fits the pipeline, and setup. Design details:
+  [`alert-enrichment-plan.md`](alert-enrichment-plan.md).
 - [`original-contribution.md`](original-contribution.md) - a factual summary of what's original in
   the design (the dual-registry analyzer framework, deterministic routing with a bounded AI role,
   the non-LLM behavior-correlation engine, and more), with citations back to the docs above.
 
 **External integration**: if you're plugging Ops Signals into your own alerting or automation, the
-consumer surface is `GET /api/alert-context` (pre-page decision support) and
-`POST /api/assistant/chat` (conversational Q&A) - both documented in `02-architecture.md`'s
+consumer surface is `POST /api/integrations/alertmanager` (enrich alerts as they fire - see
+[`alert-enrichment.md`](alert-enrichment.md)), `GET /api/alert-context` (pre-page decision support) and
+`POST /api/assistant/chat` (conversational Q&A) - the last two documented in `02-architecture.md`'s
 "Consume" section.
 
 ## 3. Analyzers

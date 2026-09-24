@@ -147,6 +147,49 @@ class SlackConfig(BaseModel):
         return value
 
 
+class AlertEnrichmentConfig(BaseModel):
+    """Alertmanager receiver + change-event correlation (docs/alert-enrichment-plan.md).
+
+    Durations are seconds. Disabled by default: the receiver returns 200 without doing anything
+    until OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED=true.
+    """
+
+    enabled: bool = False
+    receiver_token: str | None = None
+    events_token: str | None = None
+    # Slack: enrichment and notification are separate - notify="none" keeps enriching and storing
+    # every alert but never posts.
+    notify: str = "slack"
+    slack_webhook_url: str | None = None
+    slack_timeout_seconds: float = 10.0
+    notify_severities: list[str] = Field(default_factory=list)
+    notify_on_resolve: bool = True
+    service_labels: list[str] = Field(default_factory=lambda: ["service", "job", "app", "app_kubernetes_io_name"])
+    lookback_seconds: int = 6 * 3600
+    min_step_seconds: int = 30
+    scrape_interval_seconds: int = 30
+    max_points: int = 2000
+    min_points: int = 30
+    post_change_grace_seconds: int = 600
+    min_post_change_points: int = 10
+    retry_delays_seconds: list[int] = Field(default_factory=lambda: [180, 360])
+    reuse_window_seconds: int = 1800
+    dedupe_window_seconds: int = 6 * 3600
+    correlation_before_seconds: int = 1800
+    correlation_after_seconds: int = 300
+    excluded_analyzers: list[str] = Field(default_factory=lambda: ["prophet"])
+    ui_base_url: str = "http://localhost:3000"
+    max_concurrent_analyses: int = 4
+
+    @field_validator("notify")
+    @classmethod
+    def notify_valid(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in {"slack", "none"}:
+            raise ValueError("notify must be 'slack' or 'none'")
+        return value
+
+
 def _parse_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
@@ -193,6 +236,56 @@ def get_slack_config() -> SlackConfig:
         minimum_importance=float(os.getenv("OPS_SIGNALS_SLACK_MIN_IMPORTANCE", "0.7")),
         timeout_seconds=float(os.getenv("OPS_SIGNALS_SLACK_TIMEOUT_SECONDS", "10")),
     )
+
+
+def parse_duration_seconds(value: str) -> int:
+    """'30s' / '10m' / '6h' / '2d' / '45' (seconds) -> seconds."""
+    raw = value.strip().lower()
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    if raw and raw[-1] in units:
+        return int(float(raw[:-1]) * units[raw[-1]])
+    return int(float(raw))
+
+
+def _env(name: str) -> str | None:
+    """Env var, with set-but-empty (`KEY=` in .env) treated as unset so defaults still apply."""
+    value = os.getenv(name)
+    return value if value is not None and value.strip() else None
+
+
+def _parse_list(value: str | None) -> list[str] | None:
+    """Comma-separated list; None when unset, [] for the literal `none`."""
+    if value is None:
+        return None
+    if value.strip().lower() == "none":
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def get_alert_enrichment_config() -> AlertEnrichmentConfig:
+    config = AlertEnrichmentConfig(
+        enabled=_parse_bool(_env("OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED"), False),
+        receiver_token=_env("OPS_SIGNALS_ALERT_RECEIVER_TOKEN"),
+        events_token=_env("OPS_SIGNALS_EVENTS_TOKEN"),
+        notify=_env("OPS_SIGNALS_ALERT_NOTIFY") or "slack",
+        slack_webhook_url=_env("OPS_SIGNALS_ALERT_SLACK_WEBHOOK_URL") or _env("OPS_SIGNALS_SLACK_WEBHOOK_URL"),
+        notify_on_resolve=_parse_bool(_env("OPS_SIGNALS_ALERT_NOTIFY_ON_RESOLVE"), True),
+        ui_base_url=(_env("OPS_SIGNALS_UI_BASE_URL") or "http://localhost:3000").rstrip("/"),
+    )
+    severities = _parse_list(_env("OPS_SIGNALS_ALERT_NOTIFY_SEVERITIES"))
+    if severities is not None:
+        config.notify_severities = [severity.lower() for severity in severities]
+    service_labels = _parse_list(_env("OPS_SIGNALS_ALERT_SERVICE_LABELS"))
+    if service_labels:
+        config.service_labels = service_labels
+    excluded = _parse_list(_env("OPS_SIGNALS_ALERT_EXCLUDED_ANALYZERS"))
+    if excluded is not None:
+        config.excluded_analyzers = excluded
+    if _env("OPS_SIGNALS_ALERT_LOOKBACK"):
+        config.lookback_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_LOOKBACK"])
+    if _env("OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"):
+        config.scrape_interval_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"])
+    return config
 
 
 def get_settings() -> Settings:

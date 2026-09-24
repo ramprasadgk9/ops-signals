@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import pandas as pd
 from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select
@@ -31,6 +33,22 @@ def register_findings_hook(callback: Callable[[list[OperationalFinding]], None] 
     """
     global _on_findings_saved
     _on_findings_saved = callback
+
+
+# Set by callers that do their own notification for the run they're about to execute (alert
+# enrichment posts one combined Slack message per alert), so the generic hook doesn't post a
+# second, plain message for the same findings. A ContextVar so it only covers the calling
+# thread/task, never a concurrent autonomous run.
+_findings_hook_suppressed: ContextVar[bool] = ContextVar("findings_hook_suppressed", default=False)
+
+
+@contextmanager
+def suppress_findings_hook() -> Iterator[None]:
+    token = _findings_hook_suppressed.set(True)
+    try:
+        yield
+    finally:
+        _findings_hook_suppressed.reset(token)
 
 
 class PostgresStore:
@@ -218,7 +236,7 @@ class PostgresStore:
         records = [finding.to_record() for finding in findings]
         with self.engine.begin() as connection:
             connection.execute(self.findings_table.insert(), records)
-        if _on_findings_saved is not None:
+        if _on_findings_saved is not None and not _findings_hook_suppressed.get():
             try:
                 _on_findings_saved(findings)
             except Exception:

@@ -1,0 +1,23 @@
+# Demo rules for trying alert enrichment locally. Both fire continuously on the mock metrics, so
+# each is enriched once per Alertmanager repeat window - use scripts/send_test_alert.py to fire
+# fresh alerts on demand.
+groups:
+  - name: ops-signals-demo
+    rules:
+      # Metric alert: Ops Signals pulls the series from Prometheus and runs the analyzers.
+      - alert: DemoMixedLabLatencyHigh
+        expr: request_latency_p95{service="mixed-lab"} > 300
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "mixed-lab p95 latency above 300ms (demo rule)"
+
+      # Status alert: Ops Signals skips analysis (a 0/1 series) but still adds changes + history.
+      - alert: DemoMockTargetUp
+        expr: up{job="ops-signals-mock"} == 1
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "mock metrics target is up (demo status rule)"
