@@ -35,6 +35,13 @@ A grouping inside **Experiments**, not a separate top-level tab:
 - **Recommendations** — the Universal Router's live recommendation preview for a given series. See
   [`docs/16-analyzer-recommendation.md`](16-analyzer-recommendation.md).
 
+### Not a page: alert enrichment and Slack
+
+Alert enrichment and finding notifications have no tab: their output is a Slack message. Each
+enriched alert's analysis still produces an ordinary finding, so it appears under **Findings**, and
+the change events it correlates are available at `GET /api/events`. See
+[`docs/alert-enrichment.md`](alert-enrichment.md), or run [`docs/demo.md`](demo.md) to see one.
+
 ### System
 
 **Settings** and **System** (bottom of the sidebar) cover configuration and backend/service health —

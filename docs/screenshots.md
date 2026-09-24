@@ -7,6 +7,10 @@ Ops Signals can be used through two complementary experiences:
 
 The screenshots below show the current product surfaces for an early developer preview. They are intended to help first-time users understand the workflow before running the project locally.
 
+They're recorded from the [one-command demo](demo.md) with a few extra sample services added, so
+every number in them is real analyzer output. To regenerate them after a UI change, see
+[Refreshing these screenshots](#refreshing-these-screenshots).
+
 ## Standalone Web Application
 
 The standalone Web UI is the primary operational workspace. It is designed around investigation flow: start with data, review findings, create cases, preserve knowledge, and retrieve prior context.
@@ -59,6 +63,24 @@ The assistant answers grounded questions using findings, cases, behavior intelli
 
 ![Operational Assistant](screenshots/images/web/08-assistant.png)
 
+### Analyzer Recommendation
+
+Select a stored sample and Ops Signals profiles it the same way a real analysis run does, then shows which analyzers fit its behavior (here, an abrupt regime shift: ruptures and kats), which are optional, and which don't fit, with the evidence behind each.
+
+![Analyzer Recommendation](screenshots/images/web/09-analyzer-recommendation.png)
+
+## Alert Enrichment in Slack
+
+When a Prometheus alert fires, Alertmanager sends it to Ops Signals, which posts one message answering what happened (the analyzers' reading of the alerting series), what changed (deploys near the change point), and whether it has been seen before (similar resolved cases and how they were fixed). There's no page for this in the UI: the Slack message is the output. See [`alert-enrichment.md`](alert-enrichment.md).
+
+The demo's enriched alert, as rendered by the demo's Slack stand-in:
+
+![Enriched alert from the demo](screenshots/images/slack/enriched-alert-demo.png)
+
+The same messages in a real Slack workspace, including a status alert that skips analysis but still gets the change and history sections:
+
+![Enriched alerts in Slack](screenshots/images/slack/alert-enrichment-messages.png)
+
 ## Grafana Plugin
 
 The Grafana plugin lets users analyze metrics without leaving Grafana by using:
@@ -94,7 +116,7 @@ Users can inspect supporting evidence, analyzer output, severity, confidence, an
 
 ### Recent Cases
 
-Users can review recent investigation cases connected to prior findings and operational memory.
+Creating a case from a finding opens its investigation workflow alongside the recent investigations connected to prior findings and operational memory.
 
 ![Grafana Recent Cases](screenshots/images/grafana-plugin/04-recent-cases.png)
 
@@ -103,6 +125,12 @@ Users can review recent investigation cases connected to prior findings and oper
 Users can ask grounded questions from the Grafana plugin while staying connected to the same Ops Signals backend.
 
 ![Grafana Ask Ops Signals](screenshots/images/grafana-plugin/05-ask-ops-signals.png)
+
+### Autonomous Analysis
+
+The plugin's Autonomous mode configures which services, namespaces, and monitoring categories to watch, then runs the plan once or on a schedule.
+
+![Grafana Autonomous Analysis](screenshots/images/grafana-plugin/06-autonomous-analysis.png)
 
 ## Typical Workflow
 
@@ -115,11 +143,28 @@ Users can ask grounded questions from the Grafana plugin while staying connected
 7. Publish the completed case to Operational Memory.
 8. Retrieve related knowledge through the Operational Assistant.
 9. Optionally run analysis directly within Grafana.
+10. When an alert fires, get what happened, what changed, and seen before in Slack.
+
+## Refreshing these screenshots
+
+All of them are recorded by a script, so they can be refreshed after a UI change instead of
+retaken by hand:
+
+```bash
+docker compose -f docker-compose.demo.yml up -d
+./scripts/demo_smoke_test.py
+./scripts/record_screenshots.sh
+```
+
+The script adds the extra sample services on top of the demo (`demo/screenshots/seed_showcase.py`),
+then drives each screen in a headless browser (`demo/screenshots/capture.cjs`). The Grafana plugin
+screens also need the development stack's Grafana, Prometheus, and mock metrics
+(`docker compose up -d grafana prometheus mock-metrics`); set `SKIP_GRAFANA=1` to record only the
+web and Slack screens.
 
 ## Learn More
 
 - [README](../README.md)
 - [Standalone Overview API](17-standalone-overview-api.md)
 - [Standalone Prometheus Analysis](18-standalone-prometheus-analysis.md)
-- [Release Review](release-review.md)
 - [Release Process](13-release-process.md)

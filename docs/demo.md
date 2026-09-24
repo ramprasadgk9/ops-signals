@@ -110,6 +110,9 @@ This writes `docs/screenshots/images/demo/ops-signals-demo.gif`:
 It drives the frontend's Playwright Chromium (`cd frontend && npx playwright install chromium`)
 through the same screens each time, then assembles the frames with Pillow from the project virtualenv.
 
+The screenshot gallery ([`screenshots.md`](screenshots.md)) is recorded from the demo the same way,
+with `./scripts/record_screenshots.sh`.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

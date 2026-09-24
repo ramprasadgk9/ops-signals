@@ -7,7 +7,16 @@ flowchart LR
   F --> G[Finding Aggregator]
   G --> H[Operational Findings]
   H --> I[Operational Cases]
-  I --> J[Embedding Service]
-  J --> K[Qdrant]
-  K --> L[Similar-Case Retrieval]
-  L --> M[React UI]
+  I --> J[Behavior Intelligence]
+  J --> K[Behavior Findings]
+  K --> I
+  I --> L[Embedding Service]
+  L --> M[Qdrant]
+  M --> N[Similar-Case / Alert-Context Retrieval]
+  N --> O[React UI / External Consumers]
+  P[Alertmanager alert] --> Q[Alert Enrichment]
+  Q -->|alerting series, on demand| E
+  R[CI/CD change events] --> D
+  N --> Q
+  Q --> S[Slack]
+  H -->|importance >= min| S

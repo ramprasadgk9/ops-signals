@@ -190,8 +190,9 @@ CSV / metric sample
   -> findings, and separately cross-metric behavior findings
   -> either can become a case (RCA, resolution, recorded outcome)
   -> PostgreSQL (system of record) + Qdrant (semantic index)
-  -> consumed by: the in-app assistant, Grafana, or an external alert manager checking prior
-     outcomes before it acts
+  -> consumed by: the in-app assistant, Grafana, alert enrichment (an Alertmanager alert in, one
+     Slack message out: what happened, what changed, seen before), or an external alert manager
+     checking prior outcomes before it acts
 ```
 
 ```mermaid
@@ -205,6 +206,9 @@ flowchart LR
   E2 --> F
   F --> G[Ask questions and reuse memory]
   F --> H[External alert manager checks prior outcomes]
+  I[Alertmanager alert] --> C
+  F --> J[Enriched alert in Slack]
+  I --> J
 ```
 
 This is not a replacement for Prometheus, Datadog, Grafana, or incident-management platforms.
@@ -267,10 +271,21 @@ below is how to actually work with each piece.
 
 ![Grafana Analysis Results](docs/screenshots/images/grafana-plugin/02-metrics-analysis.png)
 
+#### Enriched Alerts in Slack
+
+When a Prometheus alert fires, Ops Signals posts one message that says what happened, what changed,
+and whether it has been seen before. This one is from the [demo](docs/demo.md), shown in its Slack
+stand-in; see [Alert Enrichment](#95-alert-enrichment-alertmanager-to-slack) for real Slack.
+
+![Enriched alert: a latency shift, the deploy before it, and a matching past incident with its fix](docs/screenshots/images/slack/enriched-alert-demo.png)
+
 #### Two ways to use Ops Signals
 
 - **Standalone Web UI:** Supports CSV upload, direct Prometheus analysis, findings, cases, behavior intelligence, operational memory, and assistant retrieval.
 - **Grafana Plugin:** Supports metric analysis within an existing Grafana and Prometheus environment using the active Grafana time range.
+
+Alert enrichment and finding notifications have no page of their own: their output is the Slack
+message.
 
 ### 4.2 Operational Findings
 
