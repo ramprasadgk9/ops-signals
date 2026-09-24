@@ -9,6 +9,7 @@ from statistics import mean, pstdev, pvariance
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -164,8 +165,9 @@ class MetricAnalyzerRecommendationService:
         selected_analyzers: list[str] | None = None,
         timeseries: list[tuple[Any, float]] | None = None,
     ) -> list[dict[str, Any]]:
-        router_profile = self._build_router_profile(profile, timeseries)
-        decisions = self._build_router().recommend_analyzers_for_profile(router_profile)
+        router = self._build_router()
+        router_profile = self._build_router_profile(profile, timeseries, router)
+        decisions = router.recommend_analyzers_for_profile(router_profile)
         selected = set(selected_analyzers or [])
         mode = selection_mode.lower().strip()
         if mode == "recommended_only":
@@ -192,8 +194,30 @@ class MetricAnalyzerRecommendationService:
             for decision in decisions
         ]
 
+    def _build_router_profile(
+        self,
+        profile: MetricProfile,
+        timeseries: list[tuple[Any, float]] | None = None,
+        router: UniversalTimeSeriesRouter | None = None,
+    ) -> Any:
+        # With real sample data, profile it exactly the way a real analysis run does (the router's
+        # own profile_dataframe -> feature_extractor.extract_series_profile), so this page gives
+        # the same advice analysis would. That profile carries detected_profiles (baseline_shift,
+        # trend, spike, ...), which the router's profile-match step needs: without it, every
+        # analyzer restricted to specific behaviors scored as "did not match" and came back
+        # not_recommended - including ruptures on an obvious regime shift.
+        if timeseries:
+            frame = pd.DataFrame({"timestamp": [ts for ts, _ in timeseries], "value": [value for _, value in timeseries]})
+            validation, series_profile, _ = (router or self._build_router()).profile_dataframe(frame, "timestamp", "value")
+            if validation.valid:
+                return series_profile
+        return self._fallback_router_profile(profile, timeseries)
+
     @staticmethod
-    def _build_router_profile(profile: MetricProfile, timeseries: list[tuple[Any, float]] | None = None) -> Any:
+    def _fallback_router_profile(profile: MetricProfile, timeseries: list[tuple[Any, float]] | None = None) -> Any:
+        # Used only when there's no real series to profile (the preliminary chat path, which has
+        # no underlying data at all) or the extractor rejects it. It has no detected_profiles, so
+        # behavior-restricted analyzers can't match - acceptable for a preliminary estimate only.
         # spikiness and shift_index are the two features the router's scoring rules lean on most
         # heavily (they drive most of pyod_outlier's and ruptures' score). Computed here from the
         # real values via the same functions the production analysis pipeline uses
@@ -253,8 +277,9 @@ class MetricAnalyzerRecommendationService:
         if not ai_services:
             return {"available": False, "unavailable_reason": "AI assistance is not configured"}
 
-        router_profile = self._build_router_profile(profile, timeseries)
-        decisions = self._build_router().recommend_analyzers_for_profile(router_profile)
+        router = self._build_router()
+        router_profile = self._build_router_profile(profile, timeseries, router)
+        decisions = router.recommend_analyzers_for_profile(router_profile)
         eligible_decisions = [decision for decision in decisions if decision.eligible] or decisions
         router_top = max(eligible_decisions, key=lambda decision: decision.final_score, default=None)
 

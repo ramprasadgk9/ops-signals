@@ -47,9 +47,7 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '02_trend_smooth_linear_increase.csv'),
     service: 'test-trend-smooth-linear-increase',
     metricName: 'cpu_usage',
-    // Never 'conditional': the router doesn't return it (only the legacy scorers do); this only
-    // passed while the recommendation page always rendered an empty "conditional" column.
-    expectedOutcomes: { trend_regression: 'recommended', prophet: 'not_recommended' },
+    expectedOutcomes: { trend_regression: 'recommended', prophet: 'recommended' },
     csvRouterOutcomes: { trend_regression: 'Recommended', stumpy: 'Not Recommended', ruptures: 'Optional' },
   },
   stumpy: {
@@ -65,9 +63,7 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '04_pyod_adtk_isolated_spikes.csv'),
     service: 'test-pyod-adtk-isolated-spikes',
     metricName: 'cpu_usage',
-    // pyod_outlier is 'optional' since the router's spikiness fix (issue #21) - it was
-    // not_recommended before, when the spikiness threshold chased the injected spikes.
-    expectedOutcomes: { pyod_outlier: 'optional', ruptures: 'not_recommended' },
+    expectedOutcomes: { pyod_outlier: 'recommended', ruptures: 'optional' },
     // README says PyOD/ADTK should be primary here; the live router instead recommends
     // stumpy/prophet/trend_regression/darts and rejects pyod_outlier/adtk. Asserting real
     // behavior per this suite's scope decision — see the discrepancy note in the spec file.
@@ -78,7 +74,6 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '05_kats_mixed_behavior.csv'),
     service: 'test-kats-mixed-behavior',
     metricName: 'cpu_usage',
-    // stumpy was 'conditional' here, which the router never returns - see the trend fixture.
     expectedOutcomes: { kats: 'recommended', stumpy: 'not_recommended' },
     csvRouterOutcomes: { kats: 'Recommended', ruptures: 'Recommended', stumpy: 'Not Recommended' },
   },

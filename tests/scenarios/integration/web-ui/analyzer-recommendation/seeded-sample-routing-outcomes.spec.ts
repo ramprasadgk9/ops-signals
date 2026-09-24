@@ -62,14 +62,16 @@ for (const key of ['ruptures', 'trend', 'stumpy', 'pyodOutlier', 'mixed'] as con
       await page.getByRole('button', { name: 'Evaluate with Sample' }).click();
       await expect(page.getByText('Recommendation Results')).toBeVisible({ timeout: 30_000 });
 
+      // Each analyzer's result card holds its snippet button and a chip with its recommendation.
+      // Checking the chip inside that one card, not text anywhere on the page: bucket headings
+      // ("recommended", "not recommended") used to satisfy page-wide checks for any analyzer.
       for (const [analyzerId, outcome] of Object.entries(fixture.expectedOutcomes)) {
-        if (outcome === 'not_recommended') {
-          await expect(page.getByText('not recommended')).toBeVisible();
-        } else {
-          await expect(page.getByText(outcome, { exact: true }).first()).toBeVisible();
-        }
         const pipelineAnalyzerId = ROUTER_TO_PIPELINE_ANALYZER_ID[analyzerId] ?? analyzerId;
-        await expect(page.getByRole('button', { name: `Copy snippet for ${pipelineAnalyzerId}` })).toBeVisible();
+        const snippetButton = page.getByRole('button', { name: `Copy snippet for ${pipelineAnalyzerId}` });
+        await expect(snippetButton).toBeVisible();
+        // Innermost element containing the button (ancestors come first in document order).
+        const card = page.locator('div').filter({ has: snippetButton }).last();
+        await expect(card.getByText(outcome, { exact: true })).toBeVisible();
       }
     } finally {
       await cleanupRun({ runId });

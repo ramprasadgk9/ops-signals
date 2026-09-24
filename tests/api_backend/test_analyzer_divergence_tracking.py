@@ -72,8 +72,10 @@ def _seed_trending_series(db_session_local, *, service_name: str = "checkout-ser
 def _discover_router_ground_truth(db_session_local) -> tuple[str, str, str]:
     probe = MetricAnalyzerRecommendationService()
     with db_session_local() as db:
-        profile, _ = probe.profile_sample(db, "checkout-service", "memory_usage", "run-divergence")
-    router_profile = probe._build_router_profile(profile)
+        profile, timeseries = probe.profile_sample(db, "checkout-service", "memory_usage", "run-divergence")
+    # Same inputs the endpoint uses (the real series, not just the summary profile), so this
+    # ground truth is the router's actual top pick for this sample.
+    router_profile = probe._build_router_profile(profile, timeseries)
     decisions = probe._build_router().recommend_analyzers_for_profile(router_profile)
     eligible = [decision for decision in decisions if decision.eligible] or decisions
     top = max(eligible, key=lambda decision: decision.final_score)
