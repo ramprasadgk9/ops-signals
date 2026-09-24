@@ -32,7 +32,10 @@ BASELINE_RPS = 420.0
 
 STEP_SECONDS = 15  # matches the demo Prometheus scrape_interval
 HISTORY_HOURS = 7  # alert enrichment looks back 6h by default
-SHIFT_MINUTES_AGO = 25
+# Far enough back that the shift is unmistakable in the 6h analysis window whatever the wave and
+# noise are doing: at 25 minutes about 1 run in 3 read it as a trend instead (no change point, so
+# the deploy was matched against the alert time); from 35 minutes on it's detected every time.
+SHIFT_MINUTES_AGO = 45
 DEPLOY_MINUTES_BEFORE_SHIFT = 3
 
 CURRENT_DEPLOY_VERSION = "v2.14.0"
