@@ -47,7 +47,9 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '02_trend_smooth_linear_increase.csv'),
     service: 'test-trend-smooth-linear-increase',
     metricName: 'cpu_usage',
-    expectedOutcomes: { trend_regression: 'recommended', prophet: 'conditional' },
+    // Never 'conditional': the router doesn't return it (only the legacy scorers do); this only
+    // passed while the recommendation page always rendered an empty "conditional" column.
+    expectedOutcomes: { trend_regression: 'recommended', prophet: 'not_recommended' },
     csvRouterOutcomes: { trend_regression: 'Recommended', stumpy: 'Not Recommended', ruptures: 'Optional' },
   },
   stumpy: {
@@ -76,7 +78,8 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '05_kats_mixed_behavior.csv'),
     service: 'test-kats-mixed-behavior',
     metricName: 'cpu_usage',
-    expectedOutcomes: { kats: 'recommended', stumpy: 'conditional' },
+    // stumpy was 'conditional' here, which the router never returns - see the trend fixture.
+    expectedOutcomes: { kats: 'recommended', stumpy: 'not_recommended' },
     csvRouterOutcomes: { kats: 'Recommended', ruptures: 'Recommended', stumpy: 'Not Recommended' },
   },
 };
