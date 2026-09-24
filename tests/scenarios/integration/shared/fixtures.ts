@@ -7,7 +7,7 @@ import type { SeedPoint } from './db';
 // sample_data/ops_signals_test_series/README.md. Reused as-is rather than inventing new waveforms.
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../sample_data/ops_signals_test_series');
 
-export type RoutingOutcome = 'recommended' | 'conditional' | 'not_recommended';
+export type RoutingOutcome = 'recommended' | 'optional' | 'conditional' | 'not_recommended';
 
 /** Title Case bucket labels used by ValidateDataPage's Router Decisions panel — see
  * routerBucketLabel() in frontend/src/pages/ValidateDataPage.tsx. Distinct vocabulary from the
@@ -47,7 +47,9 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '02_trend_smooth_linear_increase.csv'),
     service: 'test-trend-smooth-linear-increase',
     metricName: 'cpu_usage',
-    expectedOutcomes: { trend_regression: 'recommended', prophet: 'conditional' },
+    // Never 'conditional': the router doesn't return it (only the legacy scorers do); this only
+    // passed while the recommendation page always rendered an empty "conditional" column.
+    expectedOutcomes: { trend_regression: 'recommended', prophet: 'not_recommended' },
     csvRouterOutcomes: { trend_regression: 'Recommended', stumpy: 'Not Recommended', ruptures: 'Optional' },
   },
   stumpy: {
@@ -63,7 +65,9 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '04_pyod_adtk_isolated_spikes.csv'),
     service: 'test-pyod-adtk-isolated-spikes',
     metricName: 'cpu_usage',
-    expectedOutcomes: { pyod_outlier: 'recommended', ruptures: 'not_recommended' },
+    // pyod_outlier is 'optional' since the router's spikiness fix (issue #21) - it was
+    // not_recommended before, when the spikiness threshold chased the injected spikes.
+    expectedOutcomes: { pyod_outlier: 'optional', ruptures: 'not_recommended' },
     // README says PyOD/ADTK should be primary here; the live router instead recommends
     // stumpy/prophet/trend_regression/darts and rejects pyod_outlier/adtk. Asserting real
     // behavior per this suite's scope decision — see the discrepancy note in the spec file.
@@ -74,7 +78,8 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '05_kats_mixed_behavior.csv'),
     service: 'test-kats-mixed-behavior',
     metricName: 'cpu_usage',
-    expectedOutcomes: { kats: 'recommended', stumpy: 'conditional' },
+    // stumpy was 'conditional' here, which the router never returns - see the trend fixture.
+    expectedOutcomes: { kats: 'recommended', stumpy: 'not_recommended' },
     csvRouterOutcomes: { kats: 'Recommended', ruptures: 'Recommended', stumpy: 'Not Recommended' },
   },
 };

@@ -44,8 +44,9 @@ test('search and severity filters narrow the cases table to the expected rows', 
 
     // Severity filter: first combobox is status, second is severity (neither has an accessible
     // label tied to its purpose — both are named by their currently-selected option text).
+    // Scoped to <main> because the app header's global search is a combobox too.
     await page.getByPlaceholder('Search cases...').fill(runId);
-    const severitySelect = page.getByRole('combobox').nth(1);
+    const severitySelect = page.getByRole('main').getByRole('combobox').nth(1);
     await severitySelect.click();
     await page.getByRole('option', { name: 'Critical' }).click();
     await expect(page.getByText(criticalTitle, { exact: true })).toBeVisible();

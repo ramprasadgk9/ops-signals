@@ -11,6 +11,9 @@ import { makeRunId, seedFinding, createCaseFromFinding, getCaseById, cleanupRun 
  * MUI Select's `label` prop doesn't wire up an accessible name here either (same issue as
  * AnalyzerRecommendationPage's "Select Existing Sample" — confirmed live), so these use
  * getByRole('combobox') scoped to one tab panel at a time, where exactly one combobox is visible.
+ * The scoping matters: the app header's global search is an Autocomplete, also a combobox, so an
+ * unscoped page.getByRole('combobox') matches two elements. getByRole('tabpanel') skips the
+ * hidden panels, leaving only the selected one.
  */
 test('investigation, root cause, and resolution updates all persist to Postgres', async ({ page }) => {
   const runId = makeRunId('case-workflow');
@@ -27,7 +30,7 @@ test('investigation, root cause, and resolution updates all persist to Postgres'
 
     // --- Investigation ---
     await page.getByRole('tab', { name: 'Investigation' }).click();
-    await page.getByRole('combobox').click();
+    await page.getByRole('tabpanel').getByRole('combobox').click();
     await page.getByRole('option', { name: 'In Progress' }).click();
     const noteText = `Checked dashboards, ruled out deploy correlation. ${runId}`;
     await page.getByLabel('Investigation note').fill(noteText);
@@ -44,7 +47,7 @@ test('investigation, root cause, and resolution updates all persist to Postgres'
 
     // --- Root Cause ---
     await page.getByRole('tab', { name: 'Root Cause' }).click();
-    await page.getByRole('combobox').click();
+    await page.getByRole('tabpanel').getByRole('combobox').click();
     await page.getByRole('option', { name: 'Identified' }).click();
     const rcaSummary = `Checkout deploy increased request volume, saturating CPU. ${runId}`;
     await page.getByLabel('Root cause summary').fill(rcaSummary);
@@ -66,7 +69,7 @@ test('investigation, root cause, and resolution updates all persist to Postgres'
     // dedicated fixme'd test below). "Escalated" isn't a final state, so it isn't subject to that
     // validation, and still exercises the same Select-and-Save flow.
     await page.getByRole('tab', { name: 'Resolution' }).click();
-    await page.getByRole('combobox').click();
+    await page.getByRole('tabpanel').getByRole('combobox').click();
     await page.getByRole('option', { name: 'Escalated' }).click();
     const outcomeSummary = `Needs platform team involvement. ${runId}`;
     const correctiveAction = `Escalate to platform team. ${runId}`;
@@ -110,7 +113,7 @@ test('marking a case Resolved from the Resolution tab actually resolves it', asy
   try {
     await page.goto(`/cases/${caseId}`);
     await page.getByRole('tab', { name: 'Resolution' }).click();
-    await page.getByRole('combobox').click();
+    await page.getByRole('tabpanel').getByRole('combobox').click();
     await page.getByRole('option', { name: 'Resolved' }).click();
     await page.getByRole('button', { name: 'Save Resolution' }).click();
 
