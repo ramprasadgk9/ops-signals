@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-
-import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -21,76 +18,18 @@ from backend.app.models.prometheus import (
     PrometheusPreviewOut,
     PrometheusQueryRequest,
 )
-from backend.app.services.prometheus_service import PrometheusQueryService, configured_connection
+from backend.app.services.prometheus_service import (
+    PrometheusQueryService,
+    _observed_interval,
+    _prometheus_series_to_normalized,
+    configured_connection,
+)
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from intelligence.pipeline import SignalPipeline
-from intelligence.normalize.normalizer import CORE_COLUMNS
 
 
 router = APIRouter(prefix="/api/prometheus", tags=["prometheus"])
 analysis_router = APIRouter(prefix="/api/analysis", tags=["analysis"])
-
-
-def _format_interval(seconds: int) -> str:
-    if seconds >= 60 and seconds % 60 == 0:
-        return f"{max(int(seconds / 60), 1)}m"
-    return f"{max(seconds, 1)}s"
-
-
-def _observed_interval(samples: list[object], fallback_seconds: int) -> str:
-    timestamps = sorted(
-        sample.timestamp
-        for sample in samples
-        if isinstance(getattr(sample, "timestamp", None), datetime)
-    )
-    if len(timestamps) < 2:
-        return _format_interval(fallback_seconds)
-
-    diffs = sorted(
-        int((timestamps[index] - timestamps[index - 1]).total_seconds())
-        for index in range(1, len(timestamps))
-        if (timestamps[index] - timestamps[index - 1]).total_seconds() > 0
-    )
-    if not diffs:
-        return _format_interval(fallback_seconds)
-
-    return _format_interval(diffs[len(diffs) // 2])
-
-
-def _prometheus_series_to_normalized(
-    *,
-    samples: list[object],
-    labels: dict[str, str],
-    service: str,
-    metric: str,
-) -> pd.DataFrame:
-    rows = []
-    metric_name = labels.get("__name__") or metric
-    service_name = labels.get("service") or labels.get("service_name") or labels.get("job") or labels.get("app") or service
-    for sample in samples:
-        rows.append(
-            {
-                "metric_name": metric_name,
-                "timestamp": sample.timestamp,
-                "value": sample.value,
-                "service": service_name,
-                "env": labels.get("env") or labels.get("environment"),
-                "host": labels.get("instance"),
-                "namespace": labels.get("namespace"),
-                "pod": labels.get("pod"),
-                "source": "prometheus",
-                "unit": None,
-                "metric_type": None,
-                "tags_json": {key: value for key, value in labels.items() if key != "__name__"},
-            }
-        )
-    normalized = pd.DataFrame.from_records(rows)
-    for column in CORE_COLUMNS:
-        if column not in normalized.columns:
-            normalized[column] = None
-    if "tags_json" not in normalized.columns:
-        normalized["tags_json"] = [{} for _ in range(len(normalized))]
-    return normalized[[*CORE_COLUMNS, "tags_json"]].sort_values("timestamp").reset_index(drop=True)
 
 
 def get_prometheus_query_service(

@@ -12,6 +12,9 @@ What the project is, and how to get it running.
   analyzers → signals → findings.
 - [`01-vision.md`](01-vision.md) - the fuller product vision, including the MTTR framing referenced
   throughout these docs.
+- [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with an incident already
+  in progress (a deploy, a latency shift, an enriched alert, a matching past case). Start here to
+  see it working before installing anything.
 - **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,
   open the UI. Start here to actually install it.
 - [`grafana-plugin-local-setup.md`](grafana-plugin-local-setup.md) - installing the Grafana app
@@ -34,13 +37,18 @@ How the pieces fit together, what talks to what, and why the two storage layers 
 - [`otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md) - the OTLP/HTTP metrics
   ingestion path: the receiver, volume/cardinality guardrails, how received points reach the
   scheduler's existing analysis cycle, and the self-observability endpoints.
+- [`alert-enrichment.md`](alert-enrichment.md) - Slack finding notifications and alert enrichment:
+  Alertmanager alerts analyzed on arrival and posted to Slack with what happened, what changed, and
+  similar past cases. Why it matters, how it fits the pipeline, and setup. Design details:
+  [`alert-enrichment-plan.md`](alert-enrichment-plan.md).
 - [`original-contribution.md`](original-contribution.md) - a factual summary of what's original in
   the design (the dual-registry analyzer framework, deterministic routing with a bounded AI role,
   the non-LLM behavior-correlation engine, and more), with citations back to the docs above.
 
 **External integration**: if you're plugging Ops Signals into your own alerting or automation, the
-consumer surface is `GET /api/alert-context` (pre-page decision support) and
-`POST /api/assistant/chat` (conversational Q&A) - both documented in `02-architecture.md`'s
+consumer surface is `POST /api/integrations/alertmanager` (enrich alerts as they fire - see
+[`alert-enrichment.md`](alert-enrichment.md)), `GET /api/alert-context` (pre-page decision support) and
+`POST /api/assistant/chat` (conversational Q&A) - the last two documented in `02-architecture.md`'s
 "Consume" section.
 
 ## 3. Analyzers

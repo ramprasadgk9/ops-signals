@@ -11,7 +11,7 @@ from sqlalchemy import Integer
 
 from intelligence.findings.schema import OperationalFinding
 from intelligence.signals.schema import OperationalSignal
-from intelligence.storage.postgres_store import PostgresStore, register_findings_hook
+from intelligence.storage.postgres_store import PostgresStore, register_findings_hook, suppress_findings_hook
 
 
 def _config(table_prefix: str = "ops_") -> SimpleNamespace:
@@ -80,9 +80,10 @@ def _finding(**overrides) -> OperationalFinding:
     return OperationalFinding(**payload)
 
 
-def test_connection_string_uses_psycopg_driver() -> None:
+def test_connection_string_uses_psycopg_driver(monkeypatch) -> None:
     # create_engine() never opens a connection eagerly, so this exercises the real
     # _connection_string() against a real (unreachable) postgres config without a live DB.
+    monkeypatch.delenv("OPS_INTEL_DATABASE_URL", raising=False)
     config = _config()
     config.storage.postgres.host = "db.internal"
     config.storage.postgres.port = 6543
@@ -93,6 +94,17 @@ def test_connection_string_uses_psycopg_driver() -> None:
     instance = PostgresStore(config)
 
     assert instance._connection_string() == "postgresql+psycopg://ops:secret@db.internal:6543/ops_signals"
+
+
+def test_connection_string_prefers_database_url_env(monkeypatch) -> None:
+    # Containers (docker-compose, Helm) configure the database only through this variable.
+    monkeypatch.setenv("OPS_INTEL_DATABASE_URL", "postgresql+psycopg://u:p@postgres:5432/ops_signals")
+    config = _config()
+    config.storage.postgres.host = "localhost"
+
+    instance = PostgresStore(config)
+
+    assert instance._connection_string() == "postgresql+psycopg://u:p@postgres:5432/ops_signals"
 
 
 def test_init_db_creates_all_tables(store: PostgresStore) -> None:
@@ -199,6 +211,29 @@ def test_save_findings_swallows_a_hook_exception(store: PostgresStore) -> None:
     store.save_findings([_finding(title="still saved")])
 
     assert store.fetch_findings()["title"].tolist() == ["still saved"]
+
+
+def test_suppress_findings_hook_skips_the_hook_but_still_saves(store: PostgresStore) -> None:
+    received: list[list[OperationalFinding]] = []
+    register_findings_hook(received.append)
+
+    with suppress_findings_hook():
+        store.save_findings([_finding(title="suppressed")])
+
+    assert received == []
+    assert store.fetch_findings()["title"].tolist() == ["suppressed"]
+
+
+def test_suppress_findings_hook_resets_after_the_block_even_on_error(store: PostgresStore) -> None:
+    received: list[list[OperationalFinding]] = []
+    register_findings_hook(received.append)
+
+    with pytest.raises(RuntimeError):
+        with suppress_findings_hook():
+            raise RuntimeError("pipeline failed")
+    store.save_findings([_finding(title="after")])
+
+    assert len(received) == 1
 
 
 def test_save_findings_with_no_hook_registered_is_unaffected(store: PostgresStore) -> None:

@@ -8,6 +8,22 @@ Ops Signals is a vendor-neutral Operational Intelligence framework that transfor
 
 It is designed to help teams move from raw metrics to actionable operational context without replacing existing observability or incident platforms.
 
+![Ops Signals demo: a deploy causes a latency shift, the alert is enriched with what happened, what changed, and a matching past incident](docs/screenshots/images/demo/ops-signals-demo.gif)
+
+### Try it in one command
+
+```bash
+git clone https://github.com/ramprasadgk9/operational-intelligence.git
+cd operational-intelligence
+docker compose -f docker-compose.demo.yml up
+```
+
+This starts Ops Signals with an incident already in progress: a deploy, then a latency shift, then
+a Prometheus alert. About a minute later, open **http://localhost:8090** to see the enriched alert
+as it would appear in Slack, and **http://localhost:8080** for the full UI. You only need Docker:
+no Python, Node, Slack workspace or data of your own. See [`docs/demo.md`](docs/demo.md) for what's
+running and how it works.
+
 Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer. See [`docs/original-contribution.md`](docs/original-contribution.md) for a technical writeup of what's original about the architecture.
 
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
@@ -71,6 +87,8 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
   - [9.1 Grafana Plugin](#91-grafana-plugin)
   - [9.2 MCP Server](#92-mcp-server)
   - [9.3 OTLP Metrics Ingestion](#93-otlp-metrics-ingestion)
+  - [9.4 Slack Notifications](#94-slack-notifications)
+  - [9.5 Alert Enrichment (Alertmanager to Slack)](#95-alert-enrichment-alertmanager-to-slack)
 - [10. Storage & Internals](#10-storage--internals)
   - [10.1 PostgreSQL](#101-postgresql)
   - [10.2 Qdrant](#102-qdrant)
@@ -211,6 +229,11 @@ Historical similarity does not prove two cases share the same root cause.
 - Autonomous Prometheus monitoring - configure scope and policy, run once or on a recurring
   schedule, see results inline
 - A benchmark suite validating router accuracy, detection accuracy, false-positive behavior, and Behavior Intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
+- Alert enrichment - when a Prometheus alert fires, Alertmanager sends it to Ops Signals, which runs
+  the analyzers on the alerting series, matches recent deploys, looks up past cases, and posts one
+  Slack message answering "what happened, what changed, have we seen it before" - see
+  [Alert Enrichment](#95-alert-enrichment-alertmanager-to-slack)
+- Slack notifications for high-importance findings - see [Slack Notifications](#94-slack-notifications)
 - React UI for findings, questions, signals, cases, and history
 
 Every detection analyzer is a published, peer-reviewed method, not invented here - see
@@ -289,7 +312,7 @@ interactive and autonomous execution.
 ### 5.1 High-Level Architecture
 
 ```text
-Canonical CSV / Prometheus
+Canonical CSV / Prometheus / OTLP, or an Alertmanager alert (analyzes the alerting series on demand)
   -> Validation
   -> Normalization
   -> PostgreSQL
@@ -302,7 +325,8 @@ Canonical CSV / Prometheus
   -> Qdrant
   -> Similar-Case / Alert-Context Retrieval
   -> Analyzer Recommendation
-  -> React UI, Ask Ops Signals, or an external alert manager (via GET /api/alert-context)
+  -> React UI, Ask Ops Signals, Slack (finding notifications and enriched alerts),
+     or an external alert manager (via GET /api/alert-context)
 ```
 
 A more detailed version of this diagram, with per-stage code references, lives in
@@ -340,6 +364,9 @@ reverse. See [PostgreSQL vs. Qdrant](#103-postgresql-vs-qdrant) for the field-le
 [`docs/09-design-decisions.md`](docs/09-design-decisions.md) for why they're split this way.
 
 ## 6. Quick Start
+
+Just want to see it working? The [one-command demo](docs/demo.md) needs only Docker. The steps below
+set up a development install that you can point at your own data.
 
 ### 6.1 Prerequisites
 
@@ -653,7 +680,7 @@ threshold you tune directly - see
 
 ## 9. Integrations
 
-Two ways to plug Ops Signals into tools you already use.
+Ways to plug Ops Signals into tools you already use.
 
 ### 9.1 Grafana Plugin
 
@@ -742,6 +769,63 @@ including the volume/cardinality guardrails (`OPS_SIGNALS_MAX_OTLP_BYTES`,
 `OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE`) and the self-observability endpoint
 (`GET /api/metrics`, Prometheus exposition format) that exposes how close an instance is to them.
 
+### 9.4 Slack Notifications
+
+Pushes high-importance findings to a Slack channel, so a problem that autonomous analysis finds at
+03:00 doesn't wait for someone to open the UI.
+
+1. Create a Slack incoming webhook (Slack app settings, api.slack.com/apps → Incoming Webhooks).
+2. In `.env` (see `.env.example`):
+   ```bash
+   OPS_SIGNALS_SLACK_ENABLED=true
+   OPS_SIGNALS_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+   OPS_SIGNALS_SLACK_MIN_IMPORTANCE=0.7
+   ```
+3. Restart the backend, then check the wiring with `./scripts/send_test_slack_finding.py`.
+
+Only findings with importance at or above `OPS_SIGNALS_SLACK_MIN_IMPORTANCE` are posted. A broken
+webhook is logged and never fails the analysis.
+
+### 9.5 Alert Enrichment (Alertmanager to Slack)
+
+![Enriched alerts in Slack](docs/screenshots/images/slack/alert-enrichment-messages.png)
+
+A plain alert says only that a threshold was crossed. The on-call engineer then spends the first
+minutes of every page working out *what happened, what changed, and whether it's been seen before*.
+Alert enrichment answers those three questions in the alert itself.
+
+When a Prometheus rule fires, Alertmanager sends the alert to Ops Signals as an **extra** receiver
+(your existing routes are untouched). Ops Signals then:
+
+1. pulls the alerting series from Prometheus and runs the analyzers → **📈 What happened**
+   ("sustained baseline shift ~621 → ~425 ms, started around 23:59 UTC"), or reuses a finding that
+   autonomous analysis already produced and says how much earlier it was detected;
+2. matches deploys/config changes your CI sent to `POST /api/events` → **🚀 What changed**
+   ("started 7 min after deploy `v2.0.0`");
+3. runs the existing alert-context lookup → **🧠 Seen before** (prior occurrences, confirmed vs
+   noise, most similar resolved case and its fix);
+4. posts one Slack message, clearly marked as coming from an **Alertmanager alert**, with a
+   **✅ [RESOLVED]** follow-up when the alert clears.
+
+It adds a trigger and an output around the existing pipeline, not new analysis logic. The finding
+lands in the normal findings tables and the UI, and every alert is recorded in
+`ops_alert_enrichments`. Status, `absent()` and log alerts skip the analysis, say why, and still get
+the change and history sections. Nothing is ever dropped or hidden.
+
+**Try it locally.** Set `OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED=true` and a Slack webhook in `.env`,
+then:
+
+```bash
+./scripts/run_all.sh              # also starts a local Alertmanager + demo alert rules
+./scripts/send_test_alert.py      # fire a test alert on demand (--scenario status, --deploy-minutes-ago 5, ...)
+```
+
+**Connect your own Alertmanager** by adding a webhook receiver pointing at
+`/api/integrations/alertmanager` with `continue: true`, pointing `OPS_SIGNALS_PROMETHEUS_URL` at the
+same Prometheus, and (optionally) sending deploy events from CI. Full guide - why it matters,
+architecture, Alertmanager config, per-rule annotations, Slack controls and troubleshooting:
+[`docs/alert-enrichment.md`](docs/alert-enrichment.md).
+
 ## 10. Storage & Internals
 
 The two storage layers underneath everything above, and why they're split.
@@ -799,6 +883,10 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
 - Historical retrieval depends on the quality of stored summaries and metadata
 - Some memory workflows are still evolving and should be treated as operational assistance, not automation
 - Analyzer recommendation scoring is deterministic and currently profile-based; it does not yet run deeper analyzer-specific probes
+- Alert enrichment analyzes Prometheus-compatible alerts only (Grafana-managed and Loki alerts get
+  the change and history sections), uses one Prometheus connection, and posts resolve follow-ups as
+  new Slack messages rather than threads - see
+  [`docs/alert-enrichment.md`](docs/alert-enrichment.md#current-limitations)
 - OTLP metrics ingestion is single-instance only (no distributed queue), OTLP/HTTP only (no gRPC),
   and metrics-only (no logs/traces) - see
   [`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md#10-explicit-non-goals-phase-1)

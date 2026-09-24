@@ -11,7 +11,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt pyproject.toml ./
+# CPU-only torch first (sentence-transformers needs it): PyPI's default linux/amd64 wheel bundles
+# several GB of CUDA libraries the backend never uses. requirements.txt then finds torch satisfied.
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install -r requirements.txt
+
+# Bake the operational-memory embedding model (config.yaml memory.embedding.model) into the image,
+# so the first start needs no HuggingFace download.
+ENV HF_HOME=/app/.cache/huggingface
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
 COPY backend ./backend
 COPY intelligence ./intelligence

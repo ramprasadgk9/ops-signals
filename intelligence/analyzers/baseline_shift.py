@@ -5,7 +5,7 @@ import math
 import pandas as pd
 
 from intelligence.analyzers.base import Analyzer
-from intelligence.analyzers.ruptures import detect_primary_change_point
+from intelligence.analyzers.ruptures import change_point_time, detect_primary_change_point
 from intelligence.capability import Capability
 from intelligence.signals.schema import OperationalSignal
 
@@ -100,6 +100,9 @@ class BaselineShiftAnalyzer(Analyzer):
                         "percent_change": round(percent_change, 4),
                         "threshold_percent": self.threshold_percent,
                         "change_point_index": int(result["change_point_index"]),
+                        "change_point_time": change_point_time(
+                            ordered["timestamp"], ordered["value"], int(result["change_point_index"])
+                        ),
                         "score": round(score, 4),
                         "change_threshold": round(self.change_threshold, 4),
                         "min_segment_size": self.min_segment_size,

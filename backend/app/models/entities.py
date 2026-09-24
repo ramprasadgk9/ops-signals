@@ -487,3 +487,62 @@ class OtlpPendingPointEntity(Base):
     pod: Mapped[str | None] = mapped_column(Text, nullable=True)
     attributes_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ChangeEventEntity(Base):
+    """A deploy/config/flag change reported by CI/CD via POST /api/events. Alert enrichment
+    correlates these with an alert's change point ("started 6 min after deploy v2.3.1") - a
+    temporal hint, never a claim of causation."""
+
+    __tablename__ = "ops_change_events"
+    __table_args__ = (Index("idx_change_events_service_ts", "service", "timestamp"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    service: Mapped[str] = mapped_column(Text, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    env: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attributes_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AlertEnrichmentEntity(Base):
+    """One firing occurrence of an external alert (Alertmanager or generic) and what Ops Signals
+    added to it. Doubles as the dedupe store (fingerprint) and the audit trail - including alerts
+    whose Slack post was suppressed, so "why didn't I get a message?" has an answer."""
+
+    __tablename__ = "ops_alert_enrichments"
+    __table_args__ = (Index("idx_alert_enrichments_fingerprint", "fingerprint", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    alert_name: Mapped[str] = mapped_column(Text, nullable=False)
+    service: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metric_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    severity: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    labels_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    annotations_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    generator_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    external_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    promql: Mapped[str | None] = mapped_column(Text, nullable=True)
+    analysis_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    analysis_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finding_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    change_event_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    recommendation: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    enrichment_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    message_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    notify_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    slack_posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

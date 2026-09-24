@@ -1,0 +1,41 @@
+# Opt-in overlay: adds Alertmanager and demo alert rules so alert enrichment can be tried locally
+# (docs/alert-enrichment-plan.md). Prometheus switches to a config that loads the rules and sends
+# alerts to Alertmanager; Alertmanager sends them to the Ops Signals backend on the host (:8001,
+# run_all.sh's default port).
+#
+# scripts/run_all.sh starts this automatically when OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED=true.
+# By hand:
+#   docker compose -f docker-compose.yml -f docker-compose.alerting.yml up -d prometheus alertmanager
+#
+# Tear down (back to the plain stack):
+#   docker compose -f docker-compose.yml -f docker-compose.alerting.yml rm -sf alertmanager
+#   docker compose up -d prometheus
+
+services:
+  prometheus:
+    volumes:
+      - ./grafana/prometheus/prometheus.alerting.yml:/etc/prometheus/prometheus.yml:ro
+      - ./grafana/prometheus/rules:/etc/prometheus/rules:ro
+    depends_on:
+      - mock-metrics
+      - alertmanager
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ops-signals-alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--web.external-url=http://localhost:9093"
+      # Throwaway notification state (the image's /alertmanager is a volume that survives
+      # recreation): a recreated container re-sends active alerts instead of remembering they
+      # were already delivered within repeat_interval - what you want for a local demo.
+      - "--storage.path=/tmp/alertmanager"
+    ports:
+      - "9093:9093"
+    volumes:
+      # scripts/run_all.sh points this at a generated copy targeting its BACKEND_PORT.
+      - ${OPS_SIGNALS_ALERTMANAGER_CONFIG:-./grafana/alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
+    # host.docker.internal works out of the box on Docker Desktop; this makes it work on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

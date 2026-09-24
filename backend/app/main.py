@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
+from backend.app.api.alerts import router as alerts_router
 from backend.app.api.analysis_runs import router as analysis_runs_router
 from backend.app.api.admin_analyzers import router as admin_analyzers_router
 from backend.app.api.analyzer_labs import router as analyzer_labs_router
@@ -20,6 +21,7 @@ from backend.app.api.assistant import router as assistant_router
 from backend.app.api.analyzer_router import router as analyzer_router
 from backend.app.api.autonomous import router as autonomous_router
 from backend.app.api.mcp import router as mcp_router
+from backend.app.api.events import router as events_router
 from backend.app.api.experiments import router as experiments_router
 from backend.app.api.behavior_definitions import router as behavior_definitions_router
 from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
@@ -329,6 +331,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(assistant_router)
     app.include_router(mcp_router)
     app.include_router(testing_router)
+    app.include_router(alerts_router)
+    app.include_router(events_router)
     
     # Register memory router
     app.include_router(memory_router)

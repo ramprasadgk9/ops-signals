@@ -39,6 +39,10 @@ services:
       OPS_SIGNALS_PROMETHEUS_URL: http://prometheus:9090
     ports:
       - "8000:8000"
+    networks:
+      default:
+        # docker/nginx.web.conf proxies /api/ to this name.
+        aliases: [ops-signals-backend]
     depends_on:
       postgres:
         condition: service_healthy
