@@ -5,7 +5,7 @@ detection or a recommendation was produced, what's it actually based on?** Some 
 pipeline rest on published, peer-reviewed methods. One part - the router's analyzer suitability
 scores - does not, and this page says so plainly rather than leaving that gap to be discovered.
 
-## The 7 detection analyzers: published methods, not invented here
+## The detection analyzers: published methods, not invented here
 
 Every analyzer that actually detects something in the data is a real, established, cited
 technique - Ops Signals applies them to operational time series, it doesn't invent new statistics.
@@ -19,9 +19,23 @@ technique - Ops Signals applies them to operational time series, it doesn't inve
 | `pyod_outlier` | Isolated outlier points | KNN-based outlier scoring | Zhao, Y., Nasrullah, Z., & Li, Z. (2019). *PyOD: A Python Toolbox for Scalable Outlier Detection.* JMLR, 20(96), 1-7. | [`intelligence/analyzers/pyod_outlier.py`](../intelligence/analyzers/pyod_outlier.py) |
 | `anomaly_zscore` | Points far from the recent mean | Standard-score / sigma-threshold control | Shewhart, W. A. (1931). *Economic Control of Quality of Manufactured Product.* The foundational statistical-process-control concept behind sigma-threshold anomaly detection. | [`intelligence/analyzers/anomaly_zscore.py`](../intelligence/analyzers/anomaly_zscore.py) |
 | `trend` | Sustained upward/downward slope | Ordinary Least Squares regression | Classical least-squares regression, implemented via Seabold, S., & Perktold, J. (2010). *statsmodels: Econometric and statistical modeling with Python.* Proceedings of the 9th Python in Science Conference. | [`intelligence/analyzers/trend.py`](../intelligence/analyzers/trend.py) |
+| `seasonal_anomaly` | Values unusual for their time of day or week | STL decomposition, then a MAD-based robust z-score on the remainder | Cleveland, R. B., Cleveland, W. S., McRae, J. E., & Terpenning, I. (1990). *STL: A Seasonal-Trend Decomposition Procedure Based on Loess.* Journal of Official Statistics, 6(1), 3-73. &nbsp;+&nbsp; Iglewicz, B., & Hoaglin, D. C. (1993). *How to Detect and Handle Outliers.* ASQC Quality Press (the 0.6745 · deviation / MAD modified z-score). | [`backend/app/analyzers/custom/seasonal_anomaly.py`](../backend/app/analyzers/custom/seasonal_anomaly.py) |
 
 If you're evaluating whether the *detection* math is legitimate: yes - every one of these is a
 citable, independently-published method, not something invented for this project.
+
+Two notes on what sits around those methods:
+
+- `seasonal_anomaly` only runs on a daily or weekly cycle found by `calendar_seasonality` in
+  [`experiments/analyzer_router/feature_extractor.py`](../experiments/analyzer_router/feature_extractor.py):
+  classical decomposition (a centred moving average one period wide removes the level) followed by
+  the autocorrelation at exactly one period. Its practical-size gates - a deviation of at least
+  20% of the metric's normal daily swing and 5% of the expected value, on top of the robust
+  z-score - are hand-picked defaults, chosen so the analyzer stays silent on every benchmark and
+  sample dataset without an injected anomaly.
+- `data_health` (gaps and flatlines) is not a statistical method at all: it compares each
+  stretch against simple, explicit rules about the metric's own reporting cadence and rate of
+  change (see [`backend/app/analyzers/custom/data_health.py`](../backend/app/analyzers/custom/data_health.py)).
 
 ## The router's suitability scores: heuristic, and we say so
 

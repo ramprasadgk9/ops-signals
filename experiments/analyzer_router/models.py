@@ -61,6 +61,11 @@ class SeriesProfile:
     seasonality_peak_strength: float = 0.0
     transient_spike_count: int = 0
     persistent_jump_count: int = 0
+    # Strength of a daily or weekly cycle (see calendar_seasonality in feature_extractor.py) -
+    # separate from seasonality_strength, which is built for sharp repeating shapes and reads a
+    # smooth daily cycle as noise. Only seasonal_anomaly's scoring uses it today.
+    calendar_seasonality_strength: float = 0.0
+    calendar_seasonality_lag: int | None = None
     detected_profiles: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 

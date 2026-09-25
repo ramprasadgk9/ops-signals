@@ -38,6 +38,7 @@ expected_router:
     - trend_regression
     - adtk
     - pyod
+    - seasonal_anomaly
   required_detected_profiles:
     - baseline_shift
     - regime_change

@@ -31,6 +31,7 @@ expected_router:
     - stumpy
     - trend_regression
     - alibi_detect
+    - seasonal_anomaly
   forbidden_recommended:
     - pyod
     - adtk

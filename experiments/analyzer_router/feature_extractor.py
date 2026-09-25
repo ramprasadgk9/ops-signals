@@ -124,6 +124,9 @@ def _profile(df: pd.DataFrame, timestamp_column: str | None, value_column: str, 
     if seasonality_strength >= 0.42 and trend_strength < 0.28:
         trend_strength = 0.0
     autocorrelation = _autocorrelation(y)
+    calendar_strength, calendar_lag = (
+        calendar_seasonality(y, sampling_interval_seconds) if regular_sampling else (0.0, None)
+    )
     detected_profiles = _detect_profiles(
         shift_index=shift_index,
         seasonality_strength=seasonality_strength,
@@ -165,9 +168,48 @@ def _profile(df: pd.DataFrame, timestamp_column: str | None, value_column: str, 
         seasonality_peak_strength=seasonality_peak_strength,
         transient_spike_count=transient_spike_count,
         persistent_jump_count=persistent_jump_count,
+        calendar_seasonality_strength=calendar_strength,
+        calendar_seasonality_lag=calendar_lag,
         detected_profiles=detected_profiles,
         notes=[],
     )
+
+
+CALENDAR_PERIODS_SECONDS = (86_400, 604_800)
+MIN_CALENDAR_CYCLES = 3
+
+
+def calendar_seasonality(values: np.ndarray, interval_seconds: int | None) -> tuple[float, int | None]:
+    """How strongly the series repeats on a daily or weekly cycle, as (strength 0-1, period in
+    points). Classical decomposition: a centred moving average one period wide removes the level
+    (and any trend or level shift), then the strength is the autocorrelation of what's left at
+    exactly one period - how closely each day (or week) matches the next. Noise, random walks,
+    level shifts and isolated spikes score near 0; a clear daily cycle scores near 1.
+
+    _seasonality_strength works on point-to-point differences, which suits sharp repeating shapes
+    but flattens a smooth daily cycle into noise; this measures the cycle on the values
+    themselves. A period needs MIN_CALENDAR_CYCLES full cycles of data. When both fit, the daily
+    cycle wins unless the weekly one is clearly stronger.
+    """
+    if not interval_seconds or interval_seconds <= 0:
+        return 0.0, None
+    best_strength, best_lag = 0.0, None
+    for period_seconds in CALENDAR_PERIODS_SECONDS:
+        if period_seconds % interval_seconds:
+            continue
+        lag = period_seconds // interval_seconds
+        if lag < 4 or len(values) < MIN_CALENDAR_CYCLES * lag:
+            continue
+        level = pd.Series(values).rolling(lag, center=True).mean().to_numpy()
+        cycle = values - level
+        left, right = cycle[:-lag], cycle[lag:]
+        usable = ~np.isnan(left) & ~np.isnan(right)
+        if usable.sum() < lag or np.std(left[usable]) <= 1e-12 or np.std(right[usable]) <= 1e-12:
+            continue
+        strength = max(0.0, float(np.corrcoef(left[usable], right[usable])[0, 1]))
+        if best_lag is None or strength > best_strength + 0.1:
+            best_strength, best_lag = strength, int(lag)
+    return float(min(1.0, best_strength)), best_lag
 
 
 def _detect_profiles(

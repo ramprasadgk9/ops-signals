@@ -37,6 +37,20 @@
   also reports a metric that went silent before the end of the query window, as an ongoing
   `data_gap`; CSV uploads and OTLP pushes have no window end, so that check is off there. Gaps
   longer than the provider's `max_gap_minutes` still fail the upload before any analyzer runs.
+- Added the `seasonal_anomaly` analyzer (`config/analyzer_registry.d/custom_seasonal_anomaly.yml`),
+  which flags values that are unusual for their time of day or week - e.g. 3am traffic at a
+  daytime level - using STL decomposition and a MAD-based robust z-score. It needs at least 3 days
+  (or 3 weeks) of data with a daily (or weekly) cycle and stays silent otherwise.
+- Added `calendar_seasonality_strength` to the router's series profile: how strongly a series
+  repeats daily or weekly. The existing `seasonality_strength` reads a smooth daily cycle as noise,
+  so it scored 0 on typical daily traffic; the new measure is used only by `seasonal_anomaly`'s
+  scoring, so no other analyzer's routing changes. Wizard scoring rules can use it.
+- **Behavior change:** on a series with a strong daily cycle, `seasonal_anomaly` now wins one of
+  the router's execution slots. Across the benchmark and sample datasets this changed two
+  scheduled-run results: on `cpu_complex_forecast_v1` it replaces `stumpy` (findings unchanged),
+  and on `cpu_seasonal_forecast_v1` it replaces `trend`, so the finding now reads "predictable
+  recurring or forecastable behaviour" instead of "trending in one direction", matching the
+  scenario's ground truth.
 - Fixed: after a CSV upload on New Analysis, Router Decisions said "Executed analyzers: none" and
   marked every analyzer "execution unavailable", because the page dropped the execution details
   the backend returned. It now shows which analyzers completed or were skipped, and why.

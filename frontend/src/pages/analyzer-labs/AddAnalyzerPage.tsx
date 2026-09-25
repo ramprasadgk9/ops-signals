@@ -188,7 +188,7 @@ type YamlPreview = {
 type WorkflowState = 'done' | 'current' | 'waiting' | 'blocked';
 
 const profileOptions = ['seasonal', 'motif', 'repeating_pattern', 'trend', 'baseline_shift', 'regime_change', 'anomaly', 'outlier', 'spike', 'forecast', 'mixed'];
-const metricOptions = ['sample_count', 'regular_sampling', 'seasonality_strength', 'trend_strength', 'shift_index', 'spikiness', 'missing_percentage', 'irregular_sampling_percentage', 'constant_value_percentage', 'behavior_mix'];
+const metricOptions = ['sample_count', 'regular_sampling', 'seasonality_strength', 'trend_strength', 'shift_index', 'spikiness', 'missing_percentage', 'irregular_sampling_percentage', 'constant_value_percentage', 'calendar_seasonality_strength', 'behavior_mix'];
 const runtimeTypeOptions: RuntimeDesign['type'][] = ['not_implemented', 'internal_python', 'external_http'];
 const runtimeTypeLabels: Record<RuntimeDesign['type'], string> = {
   not_implemented: 'Custom Python (recommended)',

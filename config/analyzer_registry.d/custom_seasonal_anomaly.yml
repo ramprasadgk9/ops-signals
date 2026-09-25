@@ -1,0 +1,32 @@
+analyzers:
+  seasonal_anomaly:
+    display_name: Seasonal Anomaly
+    enabled: true
+    class_path: backend.app.analyzers.custom.seasonal_anomaly.SeasonalAnomalyAnalyzer
+    router:
+      supported_profiles:
+      - seasonal_cycle
+      eligibility_rules:
+        min_samples: 100
+        requires_numeric: true
+        requires_regular_sampling: true
+      scoring_rules:
+        base: 0.3
+        rules:
+        - metric: calendar_seasonality_strength
+          gte: 0.5
+          add: 0.5
+        - metric: calendar_seasonality_strength
+          gte: 0.7
+          add: 0.2
+      explanation_templates:
+        selected: The series repeats on a daily or weekly cycle, so values can be judged
+          against what is normal for that time of day or week.
+        excluded: Needs at least 3 days of regularly sampled data with a daily or weekly
+          cycle.
+    runtime_params:
+      zscore_threshold: 3.5
+      min_calendar_strength: 0.5
+      min_deviation_ratio: 0.2
+      min_relative_deviation: 0.05
+      grouping_gap: 15m
