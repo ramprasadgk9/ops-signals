@@ -37,10 +37,14 @@ def evaluate_eligibility(capability: AnalyzerCapability, profile: SeriesProfile)
     if rules.get("requires_numeric") and profile.valid_sample_count <= 0:
         return EligibilityResult(False, 0.0, ["No valid numeric observations remain."], warnings)
 
-    if profile.constant_value_percentage >= 95.0:
+    # A data-health style analyzer exists to report exactly the flat, gappy or zero-variance
+    # series the checks below reject for everyone else - it opts out of those three.
+    accepts_flat_or_gappy = bool(rules.get("accepts_flat_or_gappy_series"))
+
+    if profile.constant_value_percentage >= 95.0 and not accepts_flat_or_gappy:
         return EligibilityResult(False, 0.0, ["The series is effectively constant."], ["Constant signal detected."])
 
-    if profile.missing_percentage > 30:
+    if profile.missing_percentage > 30 and not accepts_flat_or_gappy:
         return EligibilityResult(False, 0.0, ["Missing or invalid values exceed the rejection threshold."], ["High missingness."])
 
     if profile.valid_sample_count < 30:
@@ -49,7 +53,7 @@ def evaluate_eligibility(capability: AnalyzerCapability, profile: SeriesProfile)
     if profile.irregular_sampling_percentage > 40 and rules.get("requires_regular_sampling"):
         return EligibilityResult(False, 0.0, ["The series is too irregular for this analyzer."], ["Irregular sampling exceeds threshold."])
 
-    if profile.stddev == 0:
+    if profile.stddev == 0 and not accepts_flat_or_gappy:
         return EligibilityResult(False, 0.0, ["The signal has no variance."], warnings)
 
     if profile.variance < float(rules.get("min_variance", 0.0) or 0.0):

@@ -65,6 +65,35 @@ The manual path is the same thing without the UI:
 4. Restart the backend (or wait for `--reload` to pick up the change) - registrations are loaded
    fresh at process startup, not hot-reloaded per request.
 
+A registered analyzer runs on CSV/interactive runs and on scheduled (autonomous) runs alike -
+both build analyzers from `config/analyzer_registry.d/` through the same shared code
+(`intelligence/analyzer_selection.py`) - and appears in the Recommendations view.
+
+Two options exist for guard-style analyzers such as a data-health check (both are also switches
+in the wizard):
+
+- `router.eligibility_rules.accepts_flat_or_gappy_series: true` - the router normally rejects a
+  series for every analyzer when it is at least 95% one value, more than 30% missing, or has zero
+  variance. With this set, those three checks are skipped for this analyzer only.
+- `always_run: true` (top level, next to `class_path`) - runs on every analysis the router doesn't
+  `REJECT` it for, outside the `max_analyzers` / `min_score` contest, so a cheap check never loses
+  a slot to a higher-scoring shape analyzer.
+
+```yaml
+analyzers:
+  data_health:
+    display_name: Data Health
+    class_path: backend.app.analyzers.custom.data_health.DataHealthAnalyzer
+    always_run: true
+    router:
+      supported_profiles: [mixed]
+      eligibility_rules: {min_samples: 30, accepts_flat_or_gappy_series: true}
+      scoring_rules:
+        base: 0.3
+        rules:
+          - {metric: constant_value_percentage, gte: 95.0, add: 0.5}
+```
+
 Consider also adding a benchmark scenario - see `benchmark/CONTRIBUTING.md` - so your analyzer's
 behavior is validated against a known-answer dataset instead of only checked by hand.
 

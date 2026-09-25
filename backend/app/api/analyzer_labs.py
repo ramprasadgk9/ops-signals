@@ -291,6 +291,7 @@ def _config_to_registration_dict(config: AnalyzerConfigIn) -> dict:
             "explanation_templates": legacy_shape["explanation_templates"],
         },
         "runtime_params": dict(config.runtime_params or {}),
+        **({"always_run": True} if config.always_run else {}),
     }
 
 

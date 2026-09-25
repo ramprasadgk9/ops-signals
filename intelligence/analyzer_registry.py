@@ -24,6 +24,7 @@ SUPPORTED_PROFILE_METRICS = {
     "spikiness",
     "missing_percentage",
     "irregular_sampling_percentage",
+    "constant_value_percentage",
     "behavior_mix",
 }
 SUPPORTED_OPERATORS = {"gte", "gt", "lte", "lt", "equals"}
@@ -69,6 +70,10 @@ class AnalyzerRegistration:
     http: HttpAnalyzerSpec | None
     router: RouterSpec
     runtime_params: dict[str, Any] = field(default_factory=dict)
+    # Runs on every analysis the router doesn't REJECT it for, outside the max_analyzers /
+    # min_score contest - for cheap guard-style analyzers (e.g. a data-health check) that must
+    # never lose a slot to a higher-scoring shape analyzer.
+    always_run: bool = False
 
 
 def _validate_entry(analyzer_id: str, data: dict[str, Any]) -> list[str]:
@@ -133,6 +138,7 @@ def _parse_entry(analyzer_id: str, data: dict[str, Any], source_file: str) -> An
             router_ids=list(router_data.get("router_ids", [])),
         ),
         runtime_params=dict(data.get("runtime_params") or {}),
+        always_run=bool(data.get("always_run", False)),
     )
 
 

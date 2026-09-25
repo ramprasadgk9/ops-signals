@@ -65,6 +65,8 @@ type AnalyzerConfig = {
   min_samples: number;
   requires_regular_sampling: boolean;
   requires_numeric: boolean;
+  accepts_flat_or_gappy_series?: boolean;
+  always_run?: boolean;
   base_score: number;
   scoring_rules: ScoringRule[];
   runtime_params: Record<string, unknown>;
@@ -186,7 +188,7 @@ type YamlPreview = {
 type WorkflowState = 'done' | 'current' | 'waiting' | 'blocked';
 
 const profileOptions = ['seasonal', 'motif', 'repeating_pattern', 'trend', 'baseline_shift', 'regime_change', 'anomaly', 'outlier', 'spike', 'forecast', 'mixed'];
-const metricOptions = ['sample_count', 'regular_sampling', 'seasonality_strength', 'trend_strength', 'shift_index', 'spikiness', 'missing_percentage', 'irregular_sampling_percentage', 'behavior_mix'];
+const metricOptions = ['sample_count', 'regular_sampling', 'seasonality_strength', 'trend_strength', 'shift_index', 'spikiness', 'missing_percentage', 'irregular_sampling_percentage', 'constant_value_percentage', 'behavior_mix'];
 const runtimeTypeOptions: RuntimeDesign['type'][] = ['not_implemented', 'internal_python', 'external_http'];
 const runtimeTypeLabels: Record<RuntimeDesign['type'], string> = {
   not_implemented: 'Custom Python (recommended)',
@@ -1153,6 +1155,10 @@ export function AddAnalyzerPage() {
             <TextField type="number" label="Minimum Samples" value={form.min_samples} onChange={(event) => setForm({ ...form, min_samples: Number(event.target.value) })} />
             <FormControlLabel control={<Switch checked={form.requires_regular_sampling} onChange={(event) => setForm({ ...form, requires_regular_sampling: event.target.checked })} />} label="Requires Regular Sampling" />
             <FormControlLabel control={<Switch checked={form.requires_numeric} onChange={(event) => setForm({ ...form, requires_numeric: event.target.checked })} />} label="Requires Numeric Values" />
+          </Stack>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <FormControlLabel control={<Switch checked={Boolean(form.accepts_flat_or_gappy_series)} onChange={(event) => setForm({ ...form, accepts_flat_or_gappy_series: event.target.checked })} />} label="Accepts Flat or Gappy Series" />
+            <FormControlLabel control={<Switch checked={Boolean(form.always_run)} onChange={(event) => setForm({ ...form, always_run: event.target.checked })} />} label="Always Run (skip top-N selection)" />
           </Stack>
 
           <Button

@@ -20,6 +20,17 @@
 - Renamed `OPS_INTEL_DATABASE_URL` to `OPS_SIGNALS_DATABASE_URL`, so every setting uses the same
   `OPS_SIGNALS_` prefix. The old name still works, and the new one wins when both are set.
 - The API now calls itself "Ops Signals API" (it was "Ops Intelligence API").
+- Analyzers added through the Add Analyzer wizard now run on scheduled (autonomous) runs too.
+  Those runs used to build only the 7 built-ins from a hardcoded list; they now read
+  `config/analyzer_registry.d/` like CSV runs do.
+- Analyzers added through the wizard now appear in the Recommendations view, MCP and the AI
+  second opinion. The recommendation service used to skip `config/analyzer_registry.d/`.
+- Added two registry options for guard-style analyzers, also available as wizard switches:
+  `accepts_flat_or_gappy_series` (don't reject flat, gappy or zero-variance series) and
+  `always_run` (run outside the `max_analyzers` limit). Scoring rules can now use
+  `constant_value_percentage`.
+- Fixed: on a scheduled run, an analyzer that raised an error crashed the run with a `NameError`
+  instead of being recorded as failed.
 
 ## 0.2.0 - 2026-09-14
 

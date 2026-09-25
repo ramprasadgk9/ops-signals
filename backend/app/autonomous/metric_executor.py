@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,15 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.app.behavior_intelligence.service import BehaviorIntelligenceService
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
 from backend.app.services.timeseries_routing_service import TimeSeriesRoutingService
-from intelligence.analyzers import (
-    BaselineShiftAnalyzer,
-    ProphetAnalyzer,
-    PyODOutlierAnalyzer,
-    RupturesAnalyzer,
-    STUMPYAnalyzer,
-    TrendAnalyzer,
-    ZScoreAnomalyAnalyzer,
-)
+from intelligence.analyzer_selection import RegistryAnalyzerSelection
 from intelligence.config import AppConfig
 from intelligence.finding_aggregator import FindingAggregator
 from intelligence.findings.schema import OperationalFinding
@@ -28,6 +21,8 @@ from intelligence.importance_score import score_signals
 from intelligence.normalize.normalizer import normalize_timeseries
 from intelligence.signals.schema import OperationalSignal
 from intelligence.storage.postgres_store import PostgresStore
+
+logger = logging.getLogger(__name__)
 
 ROUTER_VERSION = "1.0"
 FEATURE_EXTRACTOR_VERSION = "1.0"
@@ -47,12 +42,13 @@ class MetricAnalysisExecutionResult:
     behavior_findings_count: int
 
 
-class MetricAnalysisExecutor:
+class MetricAnalysisExecutor(RegistryAnalyzerSelection):
     """Autonomous technical executor for one logical time series.
 
     This intentionally does not inherit from or call SignalPipeline. It reuses
-    shared low-level components: normalization, router, analyzers, scoring,
-    finding aggregation, behavior evaluation, and PostgresStore persistence.
+    shared low-level components: normalization, router, analyzer construction and
+    selection (RegistryAnalyzerSelection), scoring, finding aggregation, behavior
+    evaluation, and PostgresStore persistence.
     """
 
     def __init__(self, config: AppConfig, store: PostgresStore | None = None) -> None:
@@ -215,231 +211,6 @@ class MetricAnalysisExecutor:
         result = TimeSeriesRoutingService().route_normalized(normalized)
         return result.analyzer_routing, result.profile, result.registry_version
 
-    def _build_analyzers(self, analyzer_routing: list[dict[str, object]]) -> list:
-        allowed = self._allowed_pipeline_analyzers(analyzer_routing)
-        analyzers = []
-        baseline_cfg = self.config.analysis.analyzers.get("baseline_shift")
-        if baseline_cfg and baseline_cfg.enabled and self._should_run_analyzer("baseline_shift", allowed):
-            baseline_params = self._baseline_shift_params(baseline_cfg.params)
-            analyzers.append(
-                BaselineShiftAnalyzer(
-                    threshold_percent=baseline_params["threshold_percent"],
-                    min_segment_size=int(baseline_params["min_segment_size"]),
-                    change_threshold=baseline_params["change_threshold"],
-                    ruptures_algorithm=str(baseline_params["ruptures_algorithm"]),
-                    ruptures_model=str(baseline_params["ruptures_model"]),
-                    ruptures_jump=int(baseline_params["ruptures_jump"]),
-                    ruptures_n_bkps=int(baseline_params["ruptures_n_bkps"]),
-                )
-            )
-        ruptures_cfg = self.config.analysis.analyzers.get("ruptures")
-        if ruptures_cfg and ruptures_cfg.enabled and self._should_run_analyzer("ruptures", allowed):
-            ruptures_params = self._baseline_shift_params(ruptures_cfg.params)
-            analyzers.append(
-                RupturesAnalyzer(
-                    min_segment_size=int(ruptures_params["min_segment_size"]),
-                    change_threshold=ruptures_params["change_threshold"],
-                )
-            )
-        anomaly_cfg = self.config.analysis.analyzers.get("anomaly_zscore")
-        if anomaly_cfg and anomaly_cfg.enabled and self._should_run_analyzer("anomaly_zscore", allowed):
-            anomaly_impl = self._analyzer_implementation(anomaly_cfg.params) or {}
-            analyzers.append(
-                ZScoreAnomalyAnalyzer(
-                    zscore_threshold=float(anomaly_impl.get("zscore_threshold", anomaly_cfg.params.get("zscore_threshold", 3.0))),
-                    grouping_gap=str(anomaly_impl.get("grouping_gap", anomaly_cfg.params.get("grouping_gap", "15m"))),
-                    finding_rules=self._analyzer_finding_rules(anomaly_cfg.params),
-                    implementation=anomaly_impl,
-                )
-            )
-        pyod_outlier_cfg = self.config.analysis.analyzers.get("pyod_outlier")
-        if pyod_outlier_cfg and pyod_outlier_cfg.enabled and self._should_run_analyzer("pyod_outlier", allowed):
-            pyod_impl = self._analyzer_implementation(pyod_outlier_cfg.params) or {}
-            analyzers.append(
-                PyODOutlierAnalyzer(
-                    detector_type=str(pyod_impl.get("detector_type", pyod_outlier_cfg.params.get("detector_type", "knn"))),
-                    contamination=float(pyod_impl.get("contamination", pyod_outlier_cfg.params.get("contamination", 0.05))),
-                    grouping_gap=str(pyod_impl.get("grouping_gap", pyod_outlier_cfg.params.get("grouping_gap", "15m"))),
-                    min_samples=int(pyod_impl.get("min_samples", pyod_outlier_cfg.params.get("min_samples", 50))),
-                    finding_rule=self._analyzer_finding_rules(pyod_outlier_cfg.params),
-                    implementation=pyod_impl,
-                )
-            )
-        trend_cfg = self.config.analysis.analyzers.get("trend")
-        if trend_cfg and trend_cfg.enabled and self._should_run_analyzer("trend", allowed):
-            analyzers.append(
-                TrendAnalyzer(
-                    min_slope_percent=float(trend_cfg.params["min_slope_percent"])
-                    if "min_slope_percent" in trend_cfg.params
-                    else None,
-                    finding_rules=self._analyzer_finding_rules(trend_cfg.params),
-                    implementation=self._analyzer_implementation(trend_cfg.params),
-                )
-            )
-        stumpy_cfg = self.config.analysis.analyzers.get("stumpy")
-        if stumpy_cfg and stumpy_cfg.enabled and self._should_run_analyzer("stumpy", allowed):
-            stumpy_impl = self._analyzer_implementation(stumpy_cfg.params) or {}
-            analyzers.append(
-                STUMPYAnalyzer(
-                    window_size=int(stumpy_impl.get("window_size", stumpy_cfg.params.get("window_size", 20))),
-                    motif_count=int(stumpy_impl.get("motif_count", stumpy_cfg.params.get("motif_count", 1))),
-                    profile_threshold=float(stumpy_impl.get("profile_threshold", stumpy_cfg.params.get("profile_threshold", 2.0))),
-                    finding_rules=self._analyzer_finding_rules(stumpy_cfg.params),
-                    implementation=stumpy_impl,
-                )
-            )
-        prophet_cfg = self.config.analysis.analyzers.get("prophet")
-        if prophet_cfg and prophet_cfg.enabled and self._should_run_analyzer("prophet", allowed):
-            prophet_impl = self._analyzer_implementation(prophet_cfg.params) or {}
-            analyzers.append(
-                ProphetAnalyzer(
-                    horizon_points=int(prophet_impl.get("horizon_points", prophet_cfg.params.get("horizon_points", 10))),
-                    changepoint_prior_scale=float(prophet_impl.get("changepoint_prior_scale", prophet_cfg.params.get("changepoint_prior_scale", 0.05))),
-                    uncertainty_threshold=float(prophet_impl.get("uncertainty_threshold", prophet_cfg.params.get("uncertainty_threshold", 0.15))),
-                    finding_rules=self._analyzer_finding_rules(prophet_cfg.params),
-                    implementation=prophet_impl,
-                )
-            )
-        return analyzers
-
-    def _allowed_pipeline_analyzers(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
-        selected_router_ids = self._selected_router_analyzers(analyzer_routing)
-        if selected_router_ids is None:
-            return None
-
-        allowed: set[str] = set()
-        router_to_pipeline = self._router_to_pipeline_analyzers()
-        for analyzer_id in selected_router_ids:
-            allowed.update(router_to_pipeline.get(analyzer_id, {analyzer_id}))
-        return allowed
-
-    def _selected_router_analyzers(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
-        mode = (self.config.analysis.selection_mode or "all").lower().strip()
-        if mode == "all" or not analyzer_routing:
-            return None
-        selected = set(self.config.analysis.selected_analyzers or [])
-        if mode == "manual_override":
-            recommended_router_ids = {
-                str(decision["analyzer_id"])
-                for decision in analyzer_routing
-                if str(decision.get("recommendation")) == "RECOMMENDED"
-            }
-            recommended_router_ids.update(selected)
-            return recommended_router_ids
-
-        if mode == "recommended_only":
-            return {
-                str(decision["analyzer_id"])
-                for decision in analyzer_routing
-                if str(decision.get("recommendation")) == "RECOMMENDED"
-            }
-
-        if mode != "recommended_threshold":
-            return None
-
-        execution_config = self.config.analysis.recommendation_execution
-        allowed_recommendations = {"RECOMMENDED"}
-        if execution_config.include_optional:
-            allowed_recommendations.add("OPTIONAL")
-        candidates = [
-            (self._decision_score(decision), str(decision["analyzer_id"]))
-            for decision in analyzer_routing
-            if str(decision.get("recommendation")) in allowed_recommendations
-            and self._decision_score(decision) >= execution_config.min_score
-        ]
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        max_analyzers = max(1, execution_config.max_analyzers)
-        return {analyzer_id for _, analyzer_id in candidates[:max_analyzers]}
-
-    def _executed_analyzer_snapshots(
-        self,
-        analyzer_routing: list[dict[str, object]],
-        executed_analyzers: list[str],
-        failed_analyzers: dict[str, str] | None = None,
-        selected_analyzers: set[str] | None = None,
-    ) -> list[dict[str, object]]:
-        failed_analyzers = failed_analyzers or {}
-        executed_set = set(executed_analyzers)
-        failed_set = set(failed_analyzers)
-        selected_router_ids = selected_analyzers
-        snapshots = []
-        routed_ids = {str(decision.get("analyzer_id")) for decision in analyzer_routing}
-        router_to_pipeline = self._router_to_pipeline_analyzers()
-        for decision in analyzer_routing:
-            router_analyzer_id = str(decision.get("analyzer_id"))
-            pipeline_ids = sorted(router_to_pipeline.get(router_analyzer_id, {router_analyzer_id}))
-            matching_executed = [pipeline_id for pipeline_id in pipeline_ids if pipeline_id in executed_set]
-            matching_failed = [pipeline_id for pipeline_id in pipeline_ids if pipeline_id in failed_set]
-            recommended = str(decision.get("recommendation")) == "RECOMMENDED"
-            selected = (
-                router_analyzer_id in selected_router_ids
-                if selected_router_ids is not None
-                else bool(recommended and pipeline_ids)
-            )
-            status = "completed" if matching_executed else "skipped"
-            reason = None
-            if matching_failed:
-                status = "failed"
-                reason = "; ".join(f"{pipeline_id}: {failed_analyzers[pipeline_id]}" for pipeline_id in matching_failed)
-            if not selected:
-                selected = False
-                status = "skipped"
-                if recommended:
-                    reason = "Recommended, but below the execution threshold or capped by max_analyzers."
-                else:
-                    reason = f"Router decision was {decision.get('recommendation')}."
-            elif not matching_executed:
-                if not matching_failed:
-                    reason = "No enabled pipeline analyzer is available for this recommended router analyzer."
-            snapshots.append(
-                {
-                    "router_analyzer_id": router_analyzer_id,
-                    "display_name": decision.get("display_name") or router_analyzer_id,
-                    "recommendation": decision.get("recommendation"),
-                    "selected": selected,
-                    "pipeline_analyzer_ids": pipeline_ids,
-                    "executed_pipeline_analyzer_ids": matching_executed,
-                    "failed_pipeline_analyzer_ids": matching_failed,
-                    "execution_status": status,
-                    "execution_reason": reason,
-                }
-            )
-        for analyzer_id in executed_analyzers:
-            router_analyzer_id = analyzer_id
-            if router_analyzer_id in routed_ids:
-                continue
-            snapshots.append(
-                {
-                    "router_analyzer_id": router_analyzer_id,
-                    "display_name": router_analyzer_id,
-                    "recommendation": "UNROUTED",
-                    "selected": True,
-                    "pipeline_analyzer_ids": [analyzer_id],
-                    "executed_pipeline_analyzer_ids": [analyzer_id],
-                    "failed_pipeline_analyzer_ids": [],
-                    "execution_status": "completed",
-                    "execution_reason": None,
-                }
-            )
-        for analyzer_id, error in failed_analyzers.items():
-            router_analyzer_id = analyzer_id
-            if router_analyzer_id in routed_ids:
-                continue
-            snapshots.append(
-                {
-                    "router_analyzer_id": router_analyzer_id,
-                    "display_name": router_analyzer_id,
-                    "recommendation": "UNROUTED",
-                    "selected": True,
-                    "pipeline_analyzer_ids": [analyzer_id],
-                    "executed_pipeline_analyzer_ids": [],
-                    "failed_pipeline_analyzer_ids": [analyzer_id],
-                    "execution_status": "failed",
-                    "execution_reason": f"{analyzer_id}: {error}",
-                }
-            )
-        return snapshots
-
     def _evaluate_behavior_intelligence(self, signals: list[OperationalSignal], analysis_run_id: str, db: Session | None = None) -> None:
         behavior_definitions_path = self._repo_root() / "config" / "behavior_definitions.d"
         if not behavior_definitions_path.exists():
@@ -479,74 +250,6 @@ class MetricAnalysisExecutor:
         signal_count = db.execute(select(func.count(SignalEntity.id)).where(SignalEntity.analysis_run_id == analysis_run_id)).scalar() or 0
         behavior_count = db.execute(select(func.count(BehaviorFindingEntity.id)).where(BehaviorFindingEntity.analysis_run_id == analysis_run_id)).scalar() or 0
         return int(signal_count), int(findings_count), int(behavior_count)
-
-    @staticmethod
-    def _router_to_pipeline_analyzers() -> dict[str, set[str]]:
-        return {"trend_regression": {"trend"}}
-
-    @staticmethod
-    def _decision_score(decision: dict[str, object]) -> float:
-        try:
-            return float(decision.get("final_score") or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
-
-    @staticmethod
-    def _analyzer_finding_rules(params: dict[str, object]) -> dict[str, object] | None:
-        rules = params.get("finding_rules")
-        if isinstance(rules, dict):
-            return rules
-        legacy_rule = params.get("finding_rule")
-        if isinstance(legacy_rule, dict):
-            return legacy_rule
-        return None
-
-    @staticmethod
-    def _analyzer_implementation(params: dict[str, object]) -> dict[str, object] | None:
-        implementation = params.get("implementation")
-        return implementation if isinstance(implementation, dict) else None
-
-    @staticmethod
-    def _baseline_shift_params(params: dict[str, object]) -> dict[str, float | int | str]:
-        ruptures_params = params.get("ruptures") if isinstance(params.get("ruptures"), dict) else {}
-        finding_rules = params.get("finding_rules") if isinstance(params.get("finding_rules"), dict) else {}
-        statistical_gate = params.get("statistical_gate") if isinstance(params.get("statistical_gate"), dict) else {}
-        operational_significance = (
-            params.get("operational_significance") if isinstance(params.get("operational_significance"), dict) else {}
-        )
-        return {
-            "threshold_percent": float(
-                finding_rules.get(  # type: ignore[union-attr]
-                    "min_change_percent",
-                    operational_significance.get("min_change_percent", params.get("threshold_percent", 25)),  # type: ignore[union-attr]
-                )
-            ),
-            "min_segment_size": int(
-                ruptures_params.get("min_size", params.get("min_segment_size", 5))  # type: ignore[union-attr]
-            ),
-            "change_threshold": float(
-                finding_rules.get(  # type: ignore[union-attr]
-                    "min_effect_size",
-                    statistical_gate.get("min_effect_size", params.get("change_threshold", 1.5)),  # type: ignore[union-attr]
-                )
-            ),
-            "ruptures_algorithm": str(
-                ruptures_params.get("algorithm", params.get("ruptures_algorithm", "binseg"))  # type: ignore[union-attr]
-            ),
-            "ruptures_model": str(
-                ruptures_params.get("model", params.get("ruptures_model", "l2"))  # type: ignore[union-attr]
-            ),
-            "ruptures_jump": int(
-                ruptures_params.get("jump", params.get("ruptures_jump", 5))  # type: ignore[union-attr]
-            ),
-            "ruptures_n_bkps": int(
-                ruptures_params.get("n_bkps", params.get("ruptures_n_bkps", 1))  # type: ignore[union-attr]
-            ),
-        }
-
-    @staticmethod
-    def _should_run_analyzer(analyzer_id: str, allowed: set[str] | None) -> bool:
-        return allowed is None or analyzer_id in allowed
 
     @staticmethod
     def _repo_root() -> Path:
