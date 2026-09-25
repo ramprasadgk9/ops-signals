@@ -1,7 +1,7 @@
 # IAM Benchmark Implementation Plan: Multi-Source Operational Intelligence vs. Direct Agentic LLMs
 
 **Document Version:** 1.0  
-**Target Milestone:** Phase 2 — Multi-Source Benchmark & Patent/Publication Validation  
+**Target Milestone:** Phase 2 — Multi-Source Benchmark & Publication Validation  
 **Primary Authors:** Ops Signals Core Architecture Team  
 
 > **Provenance note:** this plan was carried over from `feature/iam-benchmark` for reference. The
@@ -14,8 +14,8 @@
 
 ## 1. Executive Summary & Strategic Motivation
 
-### The Reviewer Challenge (Patent & Publication Defense)
-In applied AI and systems research (e.g., SOSP, OSDI, ICSE, USENIX ATC) as well as patent examination, the primary critique against specialized operational intelligence frameworks is:
+### The Reviewer Challenge (Publication Defense)
+In applied AI and systems research (e.g., SOSP, OSDI, ICSE, USENIX ATC), the primary critique against specialized operational intelligence frameworks is:
 
 > *"Why do we need a specialized Incident Analysis & Memory (IAM) architecture? Why can't an engineer simply prompt a frontier LLM (e.g., Claude 3.5 Sonnet, GPT-4o, or Gemini 1.5 Pro) with function calling and give it direct access to Prometheus, Loki, and Kubernetes tools?"*
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Renamed `OPS_INTEL_DATABASE_URL` to `OPS_SIGNALS_DATABASE_URL`, so every setting uses the same
+  `OPS_SIGNALS_` prefix. The old name still works, and the new one wins when both are set.
+- The API now calls itself "Ops Signals API" (it was "Ops Intelligence API").
+
 ## 0.2.0 - 2026-09-14
 
 - Let a Behavior Finding (a correlated, cross-metric pattern) be promoted to a Case, not just a

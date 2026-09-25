@@ -11,7 +11,7 @@ backend:
     type: ClusterIP
     port: 8000
   env:
-    OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
+    OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
     OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
     OPS_SIGNALS_PROMETHEUS_URL: http://prometheus-server:9090
 
@@ -32,7 +32,7 @@ mcp:
     pullPolicy: IfNotPresent
   replicas: 1
   env:
-    OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
+    OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
     OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
 
 ingress:

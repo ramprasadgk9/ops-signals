@@ -188,7 +188,7 @@ OPS_SIGNALS_GRAFANA_URL="http://localhost:3000" \
 OPS_SIGNALS_WEB_UI_BACKEND_URL="http://localhost:${WEB_UI_BACKEND_PORT}" \
 OPS_SIGNALS_PLUGIN_BACKEND_URL="http://localhost:${PLUGIN_BACKEND_PORT}" \
 OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" \
-OPS_INTEL_DATABASE_URL="${OPS_INTEL_DATABASE_URL:-postgresql+psycopg://ops_signals:ops_signals@localhost:5432/ops_signals}" \
+OPS_SIGNALS_DATABASE_URL="${OPS_SIGNALS_DATABASE_URL:-postgresql+psycopg://ops_signals:ops_signals@localhost:5432/ops_signals}" \
 NODE_PATH=./node_modules \
   npx playwright test ${PLAYWRIGHT_PROJECT:+--project="$PLAYWRIGHT_PROJECT"} || test_exit_code=$?
 
