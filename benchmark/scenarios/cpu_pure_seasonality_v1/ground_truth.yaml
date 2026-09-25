@@ -24,6 +24,7 @@ expected_router:
     - prophet
     - kats
     - darts
+    - seasonal_anomaly
   forbidden_recommended:
     - ruptures
     - river

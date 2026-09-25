@@ -25,6 +25,7 @@ SUPPORTED_PROFILE_METRICS = {
     "missing_percentage",
     "irregular_sampling_percentage",
     "constant_value_percentage",
+    "calendar_seasonality_strength",
     "behavior_mix",
 }
 SUPPORTED_OPERATORS = {"gte", "gt", "lte", "lt", "equals"}

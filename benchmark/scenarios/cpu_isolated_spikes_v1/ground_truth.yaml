@@ -30,6 +30,7 @@ expected_router:
     - darts
     - trend_regression
     - kats
+    - seasonal_anomaly
   required_detected_profiles:
     - spike
     - anomaly

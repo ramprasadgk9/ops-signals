@@ -28,6 +28,7 @@ expected_router:
     - alibi_detect
     - adtk
     - pyod
+    - seasonal_anomaly
   required_detected_profiles:
     - trend
   forbidden_detected_profiles:

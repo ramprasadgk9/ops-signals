@@ -46,6 +46,7 @@ expected_router:
   forbidden_recommended:
     - stumpy
     - prophet
+    - seasonal_anomaly
   required_detected_profiles:
     - baseline_shift
     - regime_change
