@@ -1,5 +1,5 @@
 dataset:
-  csv_path: "/Users/ramprasad/Documents/workspace/github/ops-signals/experiments/datasets/rds_cpu_utilization_cc0c53.csv"
+  csv_path: "experiments/datasets/rds_cpu_utilization_cc0c53.csv"
   timestamp_column: null
   value_column: null
   label_column: null

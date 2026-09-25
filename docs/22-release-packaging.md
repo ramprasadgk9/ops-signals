@@ -38,21 +38,21 @@ ghcr.io/your-org/ops-signals-mcp:0.1.0
 Use your own registry:
 
 ```bash
-IMAGE_REGISTRY=ghcr.io/ramprasad ./scripts/release/build_deployment_images.sh 0.1.0
+IMAGE_REGISTRY=ghcr.io/ramprasadgk9 ./scripts/release/build_deployment_images.sh 0.1.0
 ```
 
 Push images:
 
 ```bash
-docker push ghcr.io/ramprasad/ops-signals-backend:0.1.0
-docker push ghcr.io/ramprasad/ops-signals-web:0.1.0
-docker push ghcr.io/ramprasad/ops-signals-mcp:0.1.0
+docker push ghcr.io/ramprasadgk9/ops-signals-backend:0.1.0
+docker push ghcr.io/ramprasadgk9/ops-signals-web:0.1.0
+docker push ghcr.io/ramprasadgk9/ops-signals-mcp:0.1.0
 ```
 
 ## Build Everything
 
 ```bash
-IMAGE_REGISTRY=ghcr.io/ramprasad ./scripts/release/package_release_artifacts.sh 0.1.0
+IMAGE_REGISTRY=ghcr.io/ramprasadgk9 ./scripts/release/package_release_artifacts.sh 0.1.0
 ```
 
 This builds the Grafana plugin ZIP and all three deployment images.
@@ -76,11 +76,11 @@ Qdrant:      http://localhost:6333
 
 ```bash
 helm upgrade --install ops-signals ./helm/ops-signals \
-  --set backend.image.repository=ghcr.io/ramprasad/ops-signals-backend \
+  --set backend.image.repository=ghcr.io/ramprasadgk9/ops-signals-backend \
   --set backend.image.tag=0.1.0 \
-  --set web.image.repository=ghcr.io/ramprasad/ops-signals-web \
+  --set web.image.repository=ghcr.io/ramprasadgk9/ops-signals-web \
   --set web.image.tag=0.1.0 \
-  --set mcp.image.repository=ghcr.io/ramprasad/ops-signals-mcp \
+  --set mcp.image.repository=ghcr.io/ramprasadgk9/ops-signals-mcp \
   --set mcp.image.tag=0.1.0
 ```
 
