@@ -51,6 +51,15 @@
   and on `cpu_seasonal_forecast_v1` it replaces `trend`, so the finding now reads "predictable
   recurring or forecastable behaviour" instead of "trending in one direction", matching the
   scenario's ground truth.
+- Fixed: Ask Ops Signals only knew about 4 analyzers (a fixed list), and described any other one
+  as a baseline-shift analyzer. It now builds its analyzer knowledge from the analyzer registry, so
+  every analyzer that can run - including `data_health`, `seasonal_anomaly` and ones added through
+  the Add Analyzer wizard - gets an accurate description.
+- Ask Ops Signals routing: naming an analyzer (e.g. "seasonal_anomaly", "data health") leads with
+  that analyzer's documentation; data-quality and time-of-day phrasing ("stuck", "stopped
+  reporting", "time of day") also searches findings; "How does X work?" now searches for X instead
+  of returning the architecture overview; and when no documentation matches a question, the generic
+  fallback documentation is listed after real findings or cases instead of leading the answer.
 - Fixed: after a CSV upload on New Analysis, Router Decisions said "Executed analyzers: none" and
   marked every analyzer "execution unavailable", because the page dropped the execution details
   the backend returned. It now shows which analyzers completed or were skipped, and why.

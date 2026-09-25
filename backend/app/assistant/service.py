@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -20,6 +22,7 @@ from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
+from intelligence.analyzer_registry import load_registrations
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ class OperationalIntelligenceAssistant:
             routes.append("BEHAVIOR_SEARCH")
         if any(keyword in text for keyword in ["memory", "historical", "seen before"]):
             routes.append("MEMORY_SEARCH")
-        if any(keyword in text for keyword in ["analyzer", "stumpy", "ruptures", "prophet", "baseline", "zscore"]):
+        if any(keyword in text for keyword in ["analyzer", "stumpy", "ruptures", "prophet", "baseline", "zscore", *_registered_analyzer_terms()]):
             routes.append("ANALYZER_SEARCH")
         if any(keyword in text for keyword in ["architecture", "docs", "documentation", "how does", "what does", "what is", "benchmark", "configuration", "config", "api", "qdrant", "vector db"]):
             routes.append("DOCUMENT_SEARCH")
@@ -68,10 +71,23 @@ class OperationalIntelligenceAssistant:
             # including DOCUMENT_SEARCH here does, because it's driven by embeddings, not strings.
             routes = ["DOCUMENT_SEARCH", "CASE_SEARCH", "FINDING_SEARCH", "MEMORY_SEARCH"]
 
+        # Applied after the fallback on purpose: these phrasings only ever add a findings search.
+        # Matched earlier, "Did anything unusual happen?" would stop reaching the broad fallback
+        # above and lose its documentation, case and memory search.
+        if any(term in text for term in _DATA_AND_SEASONAL_TERMS):
+            routes.append("FINDING_SEARCH")
+
         deduped: list[str] = []
         for route in routes:
             if route not in deduped:
                 deduped.append(route)
+        # A question naming one specific analyzer ("What is the seasonal_anomaly analyzer?") is
+        # about that analyzer, so its documentation should lead the answer rather than whichever
+        # finding the findings search happened to return first. A question that names none ("What
+        # analyzer detected the cpu change?") keeps its order.
+        if "ANALYZER_SEARCH" in deduped and any(term in text for term in _registered_analyzer_terms()):
+            deduped.remove("ANALYZER_SEARCH")
+            deduped.insert(0, "ANALYZER_SEARCH")
         return deduped
 
     @staticmethod
@@ -124,6 +140,10 @@ class OperationalIntelligenceAssistant:
         intent = self._intent_from_routes(routes)
         sources: list[AssistantSource] = []
         groups: list[AssistantEvidenceGroup] = []
+        # Documentation found only by the generic fallback query (nothing matched the question
+        # itself) is kept, but placed after real evidence instead of leading the answer with an
+        # architecture overview when a matching finding or case exists.
+        fallback_groups: list[AssistantEvidenceGroup] = []
 
         for route in routes:
             if route == "CASE_SEARCH":
@@ -136,14 +156,21 @@ class OperationalIntelligenceAssistant:
                 historical_sources, _ = self._answer_historical(payload, db)
                 group = AssistantEvidenceGroup(source_type="historical_case", label="Operational Memory", count=len(historical_sources), sources=historical_sources)
             elif route in {"DOCUMENT_SEARCH", "ANALYZER_SEARCH"}:
-                app_sources, _ = self._answer_application(payload)
+                app_sources, used_fallback = self._application_sources(payload)
                 group = AssistantEvidenceGroup(source_type="app_documentation", label="Documentation", count=len(app_sources), sources=app_sources)
+                if used_fallback:
+                    if group.count:
+                        fallback_groups.append(group)
+                    continue
             else:
                 continue
 
             if group.count:
                 groups.append(group)
                 sources.extend(group.sources)
+        for group in fallback_groups:
+            groups.append(group)
+            sources.extend(group.sources)
 
         sources = self._dedupe_sources(sources)
         knowledge_used = [group.label for group in groups]
@@ -488,13 +515,25 @@ class OperationalIntelligenceAssistant:
         return sources, f"Historical match found: case {top.title} ({top.score:.2f}). Open the source cases for the evidence and resolution details."
 
     def _answer_application(self, payload: AssistantChatRequest) -> tuple[list[AssistantSource], str]:
+        sources, _ = self._application_sources(payload)
+        if not sources:
+            return sources, "I could not find a relevant documentation match."
+        top = sources[0]
+        return sources, f"Documentation match found in {top.title}. I used the repository docs and architecture notes to answer this question."
+
+    def _application_sources(self, payload: AssistantChatRequest) -> tuple[list[AssistantSource], bool]:
+        """Documentation matching the question, and whether it came only from the generic
+        fallback query because nothing matched the question itself."""
         query_text = payload.message
         lowered = payload.message.lower()
-        if "analyzer" in lowered and "what are" in lowered:
+        if "analyzer" in lowered and any(phrase in lowered for phrase in ("what are", "which", "available", "list")):
             query_text = "What are analyzers? analyzer concept analyzer registry signals findings behaviors architecture"
         elif "behavior intelligence" in lowered:
             query_text = "Behavior intelligence behavior definitions signals findings correlation architecture"
-        elif "architecture" in lowered or "how does" in lowered:
+        elif "architecture" in lowered:
+            # Only an explicit architecture question gets the canned architecture query. "How does X
+            # work?" used to be rewritten too, which threw away X - "How does data_health detect
+            # gaps?" came back as the architecture overview. Those now search on the question itself.
             query_text = "Operational Intelligence architecture PostgreSQL Qdrant analyzer registry signals findings cases"
         vector = self.services.embedder.encode(query_text)
         # 0.3, not 0.55 (the request schema's default minimum_score) or the 0.4 this used to floor
@@ -516,7 +555,9 @@ class OperationalIntelligenceAssistant:
             for row in results
             if row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
         ]
+        used_fallback = False
         if not sources:
+            used_fallback = True
             fallback_results = self.services.docs_store.search(
                 vector=self.services.embedder.encode("Analyzers, behavior intelligence, architecture, configuration, storage, Qdrant, PostgreSQL"),
                 limit=payload.top_k * 2,
@@ -533,11 +574,30 @@ class OperationalIntelligenceAssistant:
                 for row in fallback_results
                 if row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
             ]
-        if not sources:
-            return sources, "I could not find a relevant documentation match."
-        top = sources[0]
-        return sources, f"Documentation match found in {top.title}. I used the repository docs and architecture notes to answer this question."
+        return sources, used_fallback
 
+
+# Phrasings of data-quality and time-of-day questions ("did anything get stuck", "unusual for this
+# time of day") that name no finding/analyzer keyword but are answered by findings.
+_DATA_AND_SEASONAL_TERMS = (
+    "stuck", "flatline", "flat line", "stopped reporting", "stopped sending", "not reporting",
+    "missing data", "data gap", "data quality", "time of day", "seasonal", "unusual",
+)
+
+
+@lru_cache(maxsize=1)
+def _registered_analyzer_terms() -> tuple[str, ...]:
+    """Every registered analyzer's id and display name, lower-cased - "seasonal_anomaly" and
+    "seasonal anomaly", "data_health" and "data health" - so a question naming any analyzer that
+    can run, including one added through the Add Analyzer wizard, is routed to analyzer docs.
+    Only multi-word or underscored terms are kept: a one-word id is either an ordinary word
+    ("trend", which would pull analyzer docs into every trend question) or already a keyword above.
+    Read once per process; the registry is only reloaded on restart anyway."""
+    registry_dir = Path(__file__).resolve().parents[3] / "config" / "analyzer_registry.d"
+    terms: set[str] = set()
+    for registration in load_registrations(registry_dir):
+        terms.update({registration.analyzer_id.lower(), registration.analyzer_id.replace("_", " ").lower(), registration.display_name.lower()})
+    return tuple(sorted(term for term in terms if any(separator in term for separator in ("_", " ", "-"))))
 
 def _query_terms(message: str) -> list[str]:
     stopwords = {"the", "this", "that", "with", "from", "show", "what", "which", "about", "related", "any", "does", "case", "cases"}
