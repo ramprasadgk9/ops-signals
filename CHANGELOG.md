@@ -36,6 +36,9 @@
   rather than joining the metric's behavior finding. Gaps longer than the provider's
   `max_gap_minutes` still fail the upload before any analyzer runs, and a metric that went silent
   at the very end of the window isn't detected yet.
+- Fixed: after a CSV upload on New Analysis, Router Decisions said "Executed analyzers: none" and
+  marked every analyzer "execution unavailable", because the page dropped the execution details
+  the backend returned. It now shows which analyzers completed or were skipped, and why.
 - Fixed: on a scheduled run, an analyzer that raised an error crashed the run with a `NameError`
   instead of being recorded as failed.
 
