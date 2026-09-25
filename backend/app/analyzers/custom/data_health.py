@@ -26,7 +26,14 @@ class DataHealthAnalyzer(Analyzer):
     metrics that are sparse or constant by design:
       - a gap is only reported for a series that normally reports (little missing data elsewhere);
       - a flatline is only reported for a series that normally changes from point to point, so an
-        error counter sitting at 0 or a replica count that is always 3 is not flagged.
+        error counter sitting at 0 or a replica count that is always 3 is not flagged;
+      - a series that only jitters around one value (e.g. the rate of a counter that ticks once per
+        scrape) counts as constant, not as "normally changing";
+      - a flatline at the metric's own floor or ceiling is not reported: an error rate parked at
+        its minimum while load is low is clamped, not stalled. It counts as a floor or ceiling only
+        if the metric also sits at exactly that value at other times - a counter or a climbing
+        gauge that freezes at its latest (and so highest) value never has, so that stall is still
+        reported, as is a value frozen mid-range or beyond where the metric normally goes.
 
     A series that went silent before the end of the window can't be seen in the data alone -
     normalization ends each series at its last point. Runs that know the requested window end
@@ -43,6 +50,9 @@ class DataHealthAnalyzer(Analyzer):
         min_flatline_minutes: float = 30.0,
         min_flatline_points: int = 5,
         min_normal_change_ratio: float = 0.8,
+        max_constant_spread_ratio: float = 1e-4,
+        edge_tolerance_ratio: float = 0.05,
+        min_edge_repeats: int = 3,
         **config: object,
     ) -> None:
         self.gap_multiple = float(gap_multiple)
@@ -50,6 +60,9 @@ class DataHealthAnalyzer(Analyzer):
         self.min_flatline_minutes = float(min_flatline_minutes)
         self.min_flatline_points = max(2, int(min_flatline_points))
         self.min_normal_change_ratio = float(min_normal_change_ratio)
+        self.max_constant_spread_ratio = float(max_constant_spread_ratio)
+        self.edge_tolerance_ratio = float(edge_tolerance_ratio)
+        self.min_edge_repeats = max(1, int(min_edge_repeats))
         self.config = config
         self.analysis_window_end: pd.Timestamp | None = None
 
@@ -169,6 +182,8 @@ class DataHealthAnalyzer(Analyzer):
         if len(present) < self.min_flatline_points + 2:
             return []
         values = present["value"].to_numpy(dtype=float)
+        if self._constant_by_design(values):
+            return []
         unchanged = np.isclose(values[1:], values[:-1], rtol=0.0, atol=1e-12)
         signals: list[OperationalSignal] = []
         for start, end in _runs(np.concatenate([[False], unchanged])):
@@ -186,8 +201,10 @@ class DataHealthAnalyzer(Analyzer):
             normal_change_ratio = float(1.0 - outside.mean())
             if normal_change_ratio < self.min_normal_change_ratio:
                 continue
-            still_flat = last == len(present) - 1
             value = float(values[first])
+            if self._at_floor_or_ceiling(value, np.concatenate([values[:first], values[last + 1 :]])):
+                continue
+            still_flat = last == len(present) - 1
             summary = (
                 f"{_series_label(ordered)} was stuck at {value:g} for {_duration_text(duration)} "
                 f"({points} identical points)"
@@ -214,6 +231,35 @@ class DataHealthAnalyzer(Analyzer):
                 )
             )
         return signals
+
+    def _constant_by_design(self, values: np.ndarray) -> bool:
+        """True for a series that only jitters around one level: its typical point-to-point change
+        (the median of the non-zero changes) is under max_constant_spread_ratio of its typical
+        magnitude. Measured on the changes rather than the overall spread, so a long stuck stretch
+        can't make a series that otherwise moves look constant. A rising counter total is exempt:
+        its steps are small next to its magnitude too, but a counter that stops increasing is
+        exactly a stall worth reporting."""
+        steps = np.abs(np.diff(values))
+        moving = steps[steps > 1e-12]
+        if len(moving) == 0 or bool(np.all(np.diff(values) >= 0)):
+            return False
+        return float(np.median(moving)) <= self.max_constant_spread_ratio * float(np.median(np.abs(values)))
+
+    def _at_floor_or_ceiling(self, value: float, outside: np.ndarray) -> bool:
+        """True when a flat value is a level the metric is clamped to: it sits at the edge of where
+        the rest of the series goes (within edge_tolerance_ratio of its range from the minimum or
+        maximum) AND the metric is at exactly that value at least min_edge_repeats other times.
+        The second test is what separates a floor from a stall at the series' latest high: an
+        error rate returns to exactly its floor whenever load drops, while a counter or climbing
+        gauge never repeats the value it freezes at."""
+        if len(outside) == 0:
+            return False
+        low, high = float(np.min(outside)), float(np.max(outside))
+        tolerance = self.edge_tolerance_ratio * (high - low)
+        if abs(value - low) > tolerance and abs(value - high) > tolerance:
+            return False
+        repeats = int(np.sum(np.isclose(outside, value, rtol=0.0, atol=1e-12)))
+        return repeats >= self.min_edge_repeats
 
     def _signal(
         self,

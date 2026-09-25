@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+import logging
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -14,7 +16,11 @@ from backend.app.behavior_intelligence.loader import load_definitions
 from backend.app.capabilities.builtins import BUILTIN_CAPABILITIES
 from backend.app.models.entities import Base
 from backend.app.memory.embedder import Embedder
-from intelligence.analyzers import BaselineShiftAnalyzer, RupturesAnalyzer, TrendAnalyzer, ZScoreAnomalyAnalyzer
+from backend.app.questions.catalog import QUESTION_CATALOG
+from intelligence.analyzer_registry import AnalyzerRegistration, AnalyzerRegistrationError, instantiate, load_registrations
+from intelligence.analyzers.base import Analyzer
+
+logger = logging.getLogger(__name__)
 
 # Kept well under the embedder's practical input limit so a chunk's meaning isn't diluted by
 # being crammed against the model's context ceiling.
@@ -515,7 +521,7 @@ class ApplicationKnowledgeBootstrapService:
 
     def _analyzer_documents(self) -> list[ApplicationKnowledgeDocument]:
         docs: list[ApplicationKnowledgeDocument] = []
-        for analyzer in self._registered_analyzers():
+        for registration, analyzer in self._analyzer_registrations():
             capability = analyzer.capability()
             title = f"{capability.title} Analyzer"
             if analyzer.analyzer_id == "ruptures":
@@ -557,7 +563,7 @@ class ApplicationKnowledgeBootstrapService:
                 preprocessing = ["Avoid flat series unless you expect strong spikes."]
                 required_history = "Enough points to estimate a meaningful mean and standard deviation."
                 required_sample = "At least three points, preferably more."
-            else:
+            elif analyzer.analyzer_id == "baseline_shift":
                 purpose = "Detect sustained changes in the normal operating level."
                 detects = "Baseline shifts between the first and second half of the window."
                 questions = [
@@ -569,6 +575,18 @@ class ApplicationKnowledgeBootstrapService:
                 preprocessing = ["Prefer stable samples with at least one sustained window."]
                 required_history = "At least four points."
                 required_sample = "A window that can be split into two halves."
+            else:
+                # Any other registered analyzer - including ones added through the Add Analyzer
+                # wizard - is described from what it declares about itself, never from another
+                # analyzer's hand-written text.
+                purpose = capability.description
+                detects = _own_docstring(analyzer) or capability.description
+                questions = _question_labels(capability.supported_question_ids)
+                limitations = ["See the analyzer's own documentation and registry settings for its thresholds."]
+                preprocessing = ["Use normalized metric data; empty time buckets stay as gaps rather than being filled."]
+                min_samples = registration.router.eligibility_rules.get("min_samples")
+                required_sample = f"At least {min_samples} valid samples." if min_samples else "Enough samples for the analyzer's own checks."
+                required_history = required_sample
             content = "\n".join(
                 [
                     f"Analyzer name: {title}",
@@ -610,11 +628,30 @@ class ApplicationKnowledgeBootstrapService:
             )
         return docs
 
-    def _registered_analyzers(self):
-        return [
-            BaselineShiftAnalyzer(threshold_percent=25),
-            RupturesAnalyzer(min_segment_size=5, change_threshold=1.5),
-            ZScoreAnomalyAnalyzer(zscore_threshold=3.0, grouping_gap="15m"),
-            TrendAnalyzer(min_slope_percent=10),
-        ]
+    def _registered_analyzers(self) -> list[Analyzer]:
+        return [analyzer for _, analyzer in self._analyzer_registrations()]
 
+    def _analyzer_registrations(self) -> list[tuple[AnalyzerRegistration, Analyzer]]:
+        """Every enabled analyzer in config/analyzer_registry.d/ - the same registry the pipeline
+        runs from - so the assistant knows about each analyzer that can actually run, including
+        ones added through the Add Analyzer wizard. This used to be a fixed list of four."""
+        pairs: list[tuple[AnalyzerRegistration, Analyzer]] = []
+        for registration in load_registrations(self.repo_root / "config" / "analyzer_registry.d"):
+            if not registration.enabled:
+                continue
+            try:
+                pairs.append((registration, instantiate(registration)))
+            except AnalyzerRegistrationError as exc:
+                logger.warning("Skipping analyzer %s in assistant knowledge: %s", registration.analyzer_id, exc)
+        return pairs
+
+
+def _own_docstring(analyzer: Analyzer) -> str:
+    """The analyzer class's own docstring, not one inherited from a base class."""
+    doc = type(analyzer).__dict__.get("__doc__")
+    return " ".join(inspect.cleandoc(doc).split()) if doc else ""
+
+
+def _question_labels(question_ids: list[str]) -> list[str]:
+    labels = {str(item["id"]): str(item["label"]) for item in QUESTION_CATALOG}
+    return [labels.get(question_id, question_id.replace("_", " ").capitalize() + "?") for question_id in question_ids]
