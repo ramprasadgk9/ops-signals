@@ -259,3 +259,58 @@ def test_both_run_paths_pass_the_query_end_to_analyzers(monkeypatch) -> None:
         run(runner)
 
         assert spy.window_end == pd.Timestamp("2026-09-01T23:59:00Z"), type(runner).__name__
+
+
+# --- Floors, ceilings and jitter (false positives seen on live mock-metrics data) ----------------
+
+
+def test_error_rate_parked_at_its_floor_while_load_is_low_is_not_a_flatline() -> None:
+    # The mock target's formula: error_rate is exactly 0.006 whenever cpu <= 72%. Like the live
+    # trend-lab series that fired: one long quiet stretch on the floor, busy the rest of the day
+    # with a few brief dips back down to it.
+    rng = np.random.default_rng(9)
+    cpu = 0.80 + rng.normal(0, 0.03, len(INDEX))
+    cpu[60:180] = 0.60
+    cpu[[20, 21, 220, 221, 260]] = 0.65
+    error_rate = np.round(np.clip(0.006 + np.maximum(cpu - 0.72, 0.0) * 0.22, 0.0, 0.35), 5)
+
+    assert _signals(_normalized(error_rate, metric="error_rate")) == []
+
+
+def test_rate_that_only_jitters_around_a_constant_is_not_a_flatline() -> None:
+    # rate() of a counter that ticks once per scrape: constant apart from float jitter, with
+    # occasional stretches where the jitter happens to pause.
+    rng = np.random.default_rng(10)
+    rate = 1 / 15 + rng.normal(0, 2.4e-7, len(INDEX))
+    rate[100:130] = 1 / 15
+
+    assert _signals(_normalized(rate, metric="requests_rate")) == []
+
+
+def test_counter_total_that_stops_increasing_is_still_a_flatline() -> None:
+    total = np.cumsum(np.random.default_rng(11).integers(5, 15, len(INDEX))).astype(float)
+    total[240:] = total[239]
+
+    [signal] = _signals(_normalized(total, metric="requests_total"))
+
+    assert signal.signal_type == "flatline"
+    assert signal.evidence["still_flat_at_end"] is True
+
+
+def test_gauge_that_freezes_at_its_latest_high_is_still_a_flatline() -> None:
+    memory = 40 + INDEX * 0.1 + np.random.default_rng(12).normal(0, 0.5, len(INDEX))
+    memory[250:] = memory[249]
+
+    [signal] = _signals(_normalized(memory, metric="memory_usage"))
+
+    assert signal.signal_type == "flatline"
+
+
+def test_series_stuck_for_most_of_the_window_then_recovering_is_still_a_flatline() -> None:
+    # The stuck stretch dominates the series; it must not make the series look constant by design.
+    values = np.where(INDEX < 276, 42.0, 42 + np.random.default_rng(13).normal(0, 6, len(INDEX)))
+
+    [signal] = _signals(_normalized(values, metric="queue_depth"))
+
+    assert signal.signal_type == "flatline"
+    assert signal.evidence["identical_points"] == 276
