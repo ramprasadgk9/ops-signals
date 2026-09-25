@@ -175,7 +175,8 @@ def test_recommended_threshold_selects_top_recommended_executable_analyzers() ->
         ]
     )
 
-    assert allowed == {"ruptures", "trend", "stumpy"}
+    # data_health is registered always_run, so it runs outside the 3 slots rather than taking one.
+    assert allowed == {"ruptures", "trend", "stumpy", "data_health"}
     assert "kats" not in allowed
 
 

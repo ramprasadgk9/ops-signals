@@ -333,6 +333,8 @@ export function ValidateDataPage() {
   const [resultSignals, setResultSignals] = useState<ValidationSignal[]>([]);
   const [resultFindings, setResultFindings] = useState<ValidationFinding[]>([]);
   const [routerDecisions, setRouterDecisions] = useState<CsvAnalyzerRoutingDecision[]>([]);
+  const [routerExecutions, setRouterExecutions] = useState<AnalyzerExecution[]>([]);
+  const [executedAnalyzers, setExecutedAnalyzers] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<Array<Record<string, unknown>>>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -421,6 +423,8 @@ export function ValidateDataPage() {
       setResultSignals(result.signals);
       setResultFindings(result.findings);
       setRouterDecisions((result.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]);
+      setRouterExecutions(result.analyzer_executions ?? []);
+      setExecutedAnalyzers(result.executed_analyzers ?? []);
       setPreviewRows(result.normalized_preview);
     },
     onError: (err: unknown) => {
@@ -1106,7 +1110,7 @@ export function ValidateDataPage() {
 
       {mode === 'csv' ? (
         <>
-          <RouterDecisionPanel decisions={routerDecisions} />
+          <RouterDecisionPanel decisions={routerDecisions} executions={routerExecutions} executedAnalyzers={executedAnalyzers} />
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Signals</Typography>{resultSignals.length === 0 ? <Typography variant="body2" color="text.secondary">No signals returned yet.</Typography> : resultSignals.map((signal) => <Card key={signal.signal_id} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={signal.signal_type} size="small" /><Chip label={signal.severity} size="small" /><Chip label={signal.analyzer_id} size="small" /></Stack><Typography variant="subtitle1">{signal.summary}</Typography><Typography variant="body2" color="text.secondary">{signal.metric_name} · {signal.service ?? 'n/a'} · confidence {signal.confidence.toFixed(2)}</Typography></Stack></Card>)}</Stack></CardContent></Card>
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">No findings returned yet.</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={finding.health_status} size="small" /><Chip label={finding.category} size="small" /></Stack><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography><Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
         </>

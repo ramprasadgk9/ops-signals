@@ -33,6 +33,7 @@ SUPPORTED_PROFILE_METRICS = {
     "spikiness",
     "missing_percentage",
     "irregular_sampling_percentage",
+    "constant_value_percentage",
     "behavior_mix",
 }
 SUPPORTED_OPERATORS = {"gte", "gt", "lte", "lt", "equals"}
@@ -56,6 +57,8 @@ class AnalyzerConfigIn(BaseModel):
     min_samples: int = 30
     requires_regular_sampling: bool = False
     requires_numeric: bool = True
+    accepts_flat_or_gappy_series: bool = False
+    always_run: bool = False
     base_score: float = 0.3
     scoring_rules: list[ScoringRuleIn]
     runtime_params: dict[str, Any] = Field(default_factory=dict)
@@ -138,6 +141,7 @@ def _ui_to_registry(data: AnalyzerConfigIn) -> dict[str, Any]:
             "min_samples": data.min_samples,
             "requires_numeric": data.requires_numeric,
             **({"requires_regular_sampling": True} if data.requires_regular_sampling else {}),
+            **({"accepts_flat_or_gappy_series": True} if data.accepts_flat_or_gappy_series else {}),
         },
         "suitability_rules": {},
         "scoring_rules": {
@@ -201,6 +205,8 @@ def _new_registration_to_ui(registration: AnalyzerRegistration) -> AnalyzerConfi
         min_samples=int(registration.router.eligibility_rules.get("min_samples", 30)),
         requires_regular_sampling=bool(registration.router.eligibility_rules.get("requires_regular_sampling", False)),
         requires_numeric=bool(registration.router.eligibility_rules.get("requires_numeric", True)),
+        accepts_flat_or_gappy_series=bool(registration.router.eligibility_rules.get("accepts_flat_or_gappy_series", False)),
+        always_run=registration.always_run,
         base_score=float(registration.router.scoring_rules.get("base", 0.3)),
         scoring_rules=[_registry_rule_to_ui(rule) for rule in registration.router.scoring_rules.get("rules", [])],
         runtime_params=dict(registration.runtime_params),

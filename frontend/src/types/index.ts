@@ -547,6 +547,7 @@ export type CsvValidationResult = {
   analyzer_selection_mode?: string;
   analyzer_routing?: Array<Record<string, unknown>>;
   executed_analyzers?: string[];
+  analyzer_executions?: AnalyzerExecution[];
 };
 
 export type CsvAnalyzerRoutingDecision = {

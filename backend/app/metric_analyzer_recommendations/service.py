@@ -333,7 +333,10 @@ class MetricAnalyzerRecommendationService:
         return [str(requirements)]
 
     def _build_router(self) -> UniversalTimeSeriesRouter:
-        registry = AnalyzerRegistry(self.registry_path or "experiments/analyzer_router/analyzer_registry.yaml")
+        # No path: the same registry the pipeline's router uses (built-ins plus analyzers promoted
+        # through the Add Analyzer wizard into config/analyzer_registry.d/), so recommendations
+        # show every analyzer that can actually be routed. An explicit path skips that merge.
+        registry = AnalyzerRegistry(self.registry_path)
         if self.registry_path is None:
             custom_path = Path("config/custom_analyzers.yaml")
             if custom_path.exists():
@@ -371,74 +374,6 @@ class MetricAnalyzerRecommendationService:
         if sample_signature:
             payload["sample_signature"] = sample_signature
         return sha256(repr(payload).encode("utf-8")).hexdigest()
-
-    def _trend(self, profile: MetricProfile) -> dict[str, Any]:
-        fitness = max(0.0, min(1.0, profile.trend_strength * 0.9 + (0.1 if profile.metric_behavior in {"gauge", "latency", "duration"} else 0.0)))
-        decision = "recommended" if fitness >= 0.75 else "conditional" if fitness >= 0.5 else "not_recommended"
-        return self._result("trend", "Trend Analyzer", fitness, decision, "Useful when the series has a stable directional change.", {
-            "trend_slope": round(profile.trend_slope, 6),
-            "trend_strength": round(profile.trend_strength, 4),
-            "regular_sampling": profile.regular_sampling,
-        }, [], [], {"min_slope_percent": 10})
-
-    def _baseline_shift(self, profile: MetricProfile) -> dict[str, Any]:
-        fitness = 1.0 - min(1.0, profile.constant_value_ratio + profile.missing_ratio)
-        decision = "recommended" if profile.variance > 0 and fitness >= 0.7 else "conditional" if fitness >= 0.45 else "not_recommended"
-        return self._result("baseline_shift", "Baseline Shift Analyzer", fitness, decision, "Useful when the metric shows a sustained level change.", {
-            "constant_value_ratio": round(profile.constant_value_ratio, 4),
-            "missing_ratio": round(profile.missing_ratio, 4),
-            "variance": round(profile.variance, 4),
-        }, [], [], {"threshold_percent": 25})
-
-    def _ruptures(self, profile: MetricProfile) -> dict[str, Any]:
-        fitness = max(0.0, min(1.0, 0.55 + (0.35 if profile.variance > 0.01 else 0.0) + (0.1 if profile.missing_ratio < 0.1 else 0.0)))
-        decision = "recommended" if fitness >= 0.75 else "conditional" if fitness >= 0.5 else "not_recommended"
-        return self._result("ruptures", "Ruptures", fitness, decision, "Useful when the series has persistent regime or baseline changes.", {
-            "variance": round(profile.variance, 4),
-            "missing_ratio": round(profile.missing_ratio, 4),
-            "regular_sampling": profile.regular_sampling,
-            "trend_strength": round(profile.trend_strength, 4),
-        }, ["Needs enough history to compare regimes"], [], {"min_segment_size": 5, "change_threshold": 1.5})
-
-    def _anomaly(self, profile: MetricProfile) -> dict[str, Any]:
-        fitness = min(1.0, (1.0 - profile.constant_value_ratio) * 0.7 + profile.stddev / (abs(profile.mean) + 1e-9) * 0.3)
-        decision = "recommended" if fitness >= 0.7 else "conditional" if fitness >= 0.5 else "not_recommended"
-        return self._result("anomaly_zscore", "Anomaly Z-Score Analyzer", fitness, decision, "Useful when the series has variance and isolated spikes.", {
-            "stddev": round(profile.stddev, 4),
-            "mean": round(profile.mean, 4),
-            "constant_value_ratio": round(profile.constant_value_ratio, 4),
-        }, [], [], {"zscore_threshold": 3.0})
-
-    def _stumpy(self, profile: MetricProfile) -> dict[str, Any]:
-        fitness = max(0.0, min(1.0, profile.seasonality_strength * 0.8 + (0.2 if profile.regular_sampling and profile.sample_count >= 20 else 0.0)))
-        decision = "recommended" if fitness >= 0.75 else "conditional" if fitness >= 0.5 else "not_recommended"
-        return self._result("stumpy", "STUMPY", fitness, decision, "Useful when repeated motifs or recurring patterns are present.", {
-            "seasonality_strength": round(profile.seasonality_strength, 4),
-            "regular_sampling": profile.regular_sampling,
-        }, ["Best with dense regular samples"], [], {"window": 60})
-
-    def _forecast(self, profile: MetricProfile) -> dict[str, Any]:
-        fitness = max(0.0, min(1.0, 0.4 + (0.3 if profile.sample_count >= 50 else 0.0) + (0.3 if profile.seasonality_strength > 0.4 else 0.0)))
-        decision = "recommended" if fitness >= 0.75 else "conditional" if fitness >= 0.5 else "not_recommended"
-        return self._result("forecasting", "Forecasting", fitness, decision, "Useful when the metric has enough history and a stable seasonal signal.", {
-            "sample_count": profile.sample_count,
-            "seasonality_strength": round(profile.seasonality_strength, 4),
-        }, ["Needs more history for high confidence"], [], {"backtest": "naive_baseline"})
-
-    def _result(self, analyzer_id: str, display_name: str, fitness: float, recommendation: str, summary: str, evidence: dict[str, Any], requirements: list[str], warnings: list[str], parameters_tested: dict[str, Any]) -> dict[str, Any]:
-        decision_confidence = round(min(1.0, 0.55 + fitness * 0.45), 4)
-        return {
-            "analyzer_id": analyzer_id,
-            "display_name": display_name,
-            "recommendation": recommendation,
-            "fitness_score": round(fitness, 4),
-            "decision_confidence": decision_confidence,
-            "summary": summary,
-            "evidence": evidence,
-            "requirements": requirements,
-            "warnings": warnings,
-            "parameters_tested": parameters_tested,
-        }
 
     @staticmethod
     def _infer_interval_seconds(timestamps: list[Any]) -> int | None:

@@ -20,6 +20,28 @@
 - Renamed `OPS_INTEL_DATABASE_URL` to `OPS_SIGNALS_DATABASE_URL`, so every setting uses the same
   `OPS_SIGNALS_` prefix. The old name still works, and the new one wins when both are set.
 - The API now calls itself "Ops Signals API" (it was "Ops Intelligence API").
+- Analyzers added through the Add Analyzer wizard now run on scheduled (autonomous) runs too.
+  Those runs used to build only the 7 built-ins from a hardcoded list; they now read
+  `config/analyzer_registry.d/` like CSV runs do.
+- Analyzers added through the wizard now appear in the Recommendations view, MCP and the AI
+  second opinion. The recommendation service used to skip `config/analyzer_registry.d/`.
+- Added two registry options for guard-style analyzers, also available as wizard switches:
+  `accepts_flat_or_gappy_series` (don't reject flat, gappy or zero-variance series) and
+  `always_run` (run outside the `max_analyzers` limit). Scoring rules can now use
+  `constant_value_percentage`.
+- Added the `data_health` analyzer (`config/analyzer_registry.d/custom_data_health.yml`), which
+  reports a metric that stopped reporting (`data_gap`) or got stuck at one value (`flatline`). It
+  runs on every analysis and only reports stretches that are unusual for that metric, so sparse or
+  constant-by-design metrics stay quiet. Its signals become a separate `data_quality` finding
+  rather than joining the metric's behavior finding. On Prometheus runs (scheduled and direct) it
+  also reports a metric that went silent before the end of the query window, as an ongoing
+  `data_gap`; CSV uploads and OTLP pushes have no window end, so that check is off there. Gaps
+  longer than the provider's `max_gap_minutes` still fail the upload before any analyzer runs.
+- Fixed: after a CSV upload on New Analysis, Router Decisions said "Executed analyzers: none" and
+  marked every analyzer "execution unavailable", because the page dropped the execution details
+  the backend returned. It now shows which analyzers completed or were skipped, and why.
+- Fixed: on a scheduled run, an analyzer that raised an error crashed the run with a `NameError`
+  instead of being recorded as failed.
 
 ## 0.2.0 - 2026-09-14
 

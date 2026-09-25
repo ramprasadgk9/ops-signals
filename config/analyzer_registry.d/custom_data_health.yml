@@ -1,0 +1,31 @@
+analyzers:
+  data_health:
+    display_name: Data Health
+    enabled: true
+    class_path: backend.app.analyzers.custom.data_health.DataHealthAnalyzer
+    router:
+      supported_profiles:
+      - data_quality
+      eligibility_rules:
+        min_samples: 30
+        requires_numeric: true
+        accepts_flat_or_gappy_series: true
+      scoring_rules:
+        base: 0.3
+        rules:
+        - metric: constant_value_percentage
+          gte: 95.0
+          add: 0.5
+        - metric: missing_percentage
+          gt: 5.0
+          add: 0.3
+      explanation_templates:
+        selected: Checks whether the metric stopped reporting or stopped changing.
+        excluded: Needs at least 30 numeric samples to judge gaps and flatlines.
+    runtime_params:
+      gap_multiple: 5
+      max_normal_missing_ratio: 0.2
+      min_flatline_minutes: 30
+      min_flatline_points: 5
+      min_normal_change_ratio: 0.8
+    always_run: true
