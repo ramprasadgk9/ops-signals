@@ -83,6 +83,7 @@ class SignalPipeline(RegistryAnalyzerSelection):
 
             analyzer_routing, series_profile, registry_version = self._route_analyzers(normalized)
             analyzers = self._build_analyzers(analyzer_routing)
+            self._apply_analysis_window(analyzers, run_metadata)
             selected_analyzers = [analyzer.analyzer_id for analyzer in analyzers]
             selected_router_analyzers = self._selected_router_analyzers(analyzer_routing)
             executed_analyzer_snapshots = self._executed_analyzer_snapshots(

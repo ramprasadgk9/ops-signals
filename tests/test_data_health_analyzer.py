@@ -151,3 +151,111 @@ def test_registered_data_health_is_eligible_on_a_flat_series_and_always_runs() -
     assert decisions["data_health"]["eligible"] is True
     assert decisions["ruptures"]["recommendation"] == "REJECTED"
     assert "data_health" in {analyzer.analyzer_id for analyzer in pipeline._build_analyzers(routing)}
+
+
+# --- Silence at the end of the analysis window -------------------------------------------------
+
+
+def _with_window_end(normalized: pd.DataFrame, window_end: pd.Timestamp) -> list[OperationalSignal]:
+    analyzer = DataHealthAnalyzer()
+    analyzer.set_analysis_window_end(window_end)
+    return analyzer.analyze(normalized)
+
+
+def test_silence_before_the_window_end_is_an_ongoing_gap() -> None:
+    normalized = _normalized(_noisy_cpu(), drop=range(270, 288))
+    window_end = TIMESTAMPS[-1] + pd.Timedelta(minutes=5)
+
+    [signal] = _with_window_end(normalized, window_end)
+
+    assert signal.signal_type == "data_gap"
+    assert signal.severity == "high"
+    assert signal.evidence["ongoing"] is True
+    assert signal.evidence["last_seen"] == TIMESTAMPS[269].isoformat()
+    assert signal.end_time == window_end.to_pydatetime()
+    assert "has not reported since 2026-09-01 22:25 UTC" in signal.summary
+
+
+def test_trailing_silence_is_not_checked_without_a_window_end() -> None:
+    assert _signals(_normalized(_noisy_cpu(), drop=range(270, 288))) == []
+
+
+def test_normal_lag_before_the_window_end_is_not_reported() -> None:
+    normalized = _normalized(_noisy_cpu())
+
+    assert _with_window_end(normalized, TIMESTAMPS[-1] + pd.Timedelta(minutes=10)) == []
+
+
+def test_trailing_silence_on_a_sparse_by_design_series_is_not_reported() -> None:
+    normalized = _normalized(_noisy_cpu(), drop=[*range(1, 250, 2), *range(250, 288)])
+
+    assert _with_window_end(normalized, TIMESTAMPS[-1]) == []
+
+
+class _WindowSpy:
+    analyzer_id = "window_spy"
+
+    def __init__(self) -> None:
+        self.window_end = None
+
+    def set_analysis_window_end(self, window_end) -> None:
+        self.window_end = window_end
+
+    def analyze(self, dataframe):
+        return []
+
+
+class _NoHook:
+    analyzer_id = "no_hook"
+
+    def analyze(self, dataframe):
+        return []
+
+
+def test_window_end_is_parsed_capped_at_now_and_only_given_to_analyzers_that_opt_in() -> None:
+    spy, other = _WindowSpy(), _NoHook()
+
+    SignalPipeline._apply_analysis_window([spy, other], {"to": "2026-09-01T12:00:00+02:00"})
+    assert spy.window_end == pd.Timestamp("2026-09-01T10:00:00Z")
+    assert not hasattr(other, "window_end")
+
+    SignalPipeline._apply_analysis_window([spy], {"to": "2999-01-01T00:00:00Z"})
+    assert spy.window_end <= pd.Timestamp.now(tz="UTC")
+
+    untouched = _WindowSpy()
+    for metadata in (None, {}, {"to": None}, {"to": "not a date"}):
+        SignalPipeline._apply_analysis_window([untouched], metadata)
+    assert untouched.window_end is None
+
+
+class _RecordingStore:
+    engine = None
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+def test_both_run_paths_pass_the_query_end_to_analyzers(monkeypatch) -> None:
+    from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
+
+    normalized = _normalized(_noisy_cpu())
+    run_metadata = {"to": "2026-09-01T23:59:00Z"}
+    config = load_config(PROJECT_ROOT / "config.yaml")
+    config.output.save_question_answers = False
+    config.capabilities.auto_register = False
+    config.questions.auto_generate_from_capabilities = False
+
+    for runner, run in (
+        (SignalPipeline(config=config, store=_RecordingStore()), lambda r: r.run_normalized(normalized, run_metadata=run_metadata)),
+        (MetricAnalysisExecutor(config, store=_RecordingStore()), lambda r: r.execute_normalized(normalized, run_metadata=run_metadata, db=object())),
+    ):
+        spy = _WindowSpy()
+        monkeypatch.setattr(runner, "_route_analyzers", lambda frame: ([], {}, "test"))
+        monkeypatch.setattr(runner, "_build_analyzers", lambda routing, spy=spy: [spy])
+        monkeypatch.setattr(runner, "_evaluate_behavior_intelligence", lambda *args, **kwargs: None)
+        if hasattr(runner, "_counts"):
+            monkeypatch.setattr(runner, "_counts", lambda *args, **kwargs: (0, 0, 0))
+
+        run(runner)
+
+        assert spy.window_end == pd.Timestamp("2026-09-01T23:59:00Z"), type(runner).__name__

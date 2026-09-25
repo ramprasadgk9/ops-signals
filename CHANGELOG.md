@@ -33,9 +33,10 @@
   reports a metric that stopped reporting (`data_gap`) or got stuck at one value (`flatline`). It
   runs on every analysis and only reports stretches that are unusual for that metric, so sparse or
   constant-by-design metrics stay quiet. Its signals become a separate `data_quality` finding
-  rather than joining the metric's behavior finding. Gaps longer than the provider's
-  `max_gap_minutes` still fail the upload before any analyzer runs, and a metric that went silent
-  at the very end of the window isn't detected yet.
+  rather than joining the metric's behavior finding. On Prometheus runs (scheduled and direct) it
+  also reports a metric that went silent before the end of the query window, as an ongoing
+  `data_gap`; CSV uploads and OTLP pushes have no window end, so that check is off there. Gaps
+  longer than the provider's `max_gap_minutes` still fail the upload before any analyzer runs.
 - Fixed: after a CSV upload on New Analysis, Router Decisions said "Executed analyzers: none" and
   marked every analyzer "execution unavailable", because the page dropped the execution details
   the backend returned. It now shows which analyzers completed or were skipped, and why.

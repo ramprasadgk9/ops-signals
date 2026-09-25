@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pandas as pd
 
 from intelligence.analyzer_registry import (
     AnalyzerRegistration,
@@ -57,6 +60,29 @@ class RegistryAnalyzerSelection:
                     exc,
                 )
         return analyzers
+
+    @staticmethod
+    def _apply_analysis_window(analyzers: list[Analyzer], run_metadata: dict[str, object] | None) -> None:
+        """Tells analyzers that opt in (by defining set_analysis_window_end) where the requested
+        analysis window ends - run_metadata["to"], which Prometheus-backed runs set to the query
+        end. Normalized data stops at the last point received, so without this an analyzer can't
+        tell that a series went silent before the window ended. Runs with no "to" (CSV uploads,
+        OTLP pushes) leave every analyzer untouched. A window end in the future is capped at now,
+        so a query range ending later than now isn't mistaken for silence."""
+        raw_end = (run_metadata or {}).get("to")
+        if not raw_end:
+            return
+        try:
+            window_end = pd.Timestamp(raw_end)
+        except (TypeError, ValueError):
+            logger.warning("Ignoring unparseable analysis window end %r", raw_end)
+            return
+        window_end = window_end.tz_localize("UTC") if window_end.tzinfo is None else window_end.tz_convert("UTC")
+        window_end = min(window_end, pd.Timestamp(datetime.now(timezone.utc)))
+        for analyzer in analyzers:
+            setter = getattr(analyzer, "set_analysis_window_end", None)
+            if callable(setter):
+                setter(window_end)
 
     def _override_params_for(self, analyzer_id: str, override_cfg: AnalyzerConfig | None) -> dict[str, object]:
         """Translates config/analyzers.yaml's per-analyzer `params` override into the kwarg shape

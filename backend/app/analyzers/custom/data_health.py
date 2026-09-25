@@ -28,8 +28,10 @@ class DataHealthAnalyzer(Analyzer):
       - a flatline is only reported for a series that normally changes from point to point, so an
         error counter sitting at 0 or a replica count that is always 3 is not flagged.
 
-    Not covered yet: a series that went silent at the very end of the window. Normalization ends
-    the series at its last point, so that needs the query end time passed in.
+    A series that went silent before the end of the window can't be seen in the data alone -
+    normalization ends each series at its last point. Runs that know the requested window end
+    (Prometheus-backed runs) pass it in through set_analysis_window_end; the trailing silence is
+    then reported as an ongoing `data_gap`. Without it (CSV uploads, OTLP pushes) that check is off.
     """
 
     analyzer_id = "data_health"
@@ -49,6 +51,10 @@ class DataHealthAnalyzer(Analyzer):
         self.min_flatline_points = max(2, int(min_flatline_points))
         self.min_normal_change_ratio = float(min_normal_change_ratio)
         self.config = config
+        self.analysis_window_end: pd.Timestamp | None = None
+
+    def set_analysis_window_end(self, window_end: pd.Timestamp) -> None:
+        self.analysis_window_end = window_end
 
     def capability(self) -> Capability:
         return Capability(
@@ -74,7 +80,48 @@ class DataHealthAnalyzer(Analyzer):
                 continue
             signals.extend(self._gaps(ordered, interval))
             signals.extend(self._flatlines(ordered, interval))
+            signals.extend(self._trailing_silence(ordered, interval))
         return signals
+
+    def _trailing_silence(self, ordered: pd.DataFrame, interval: pd.Timedelta) -> list[OperationalSignal]:
+        if self.analysis_window_end is None:
+            return []
+        present = ordered[ordered["value"].notna()]
+        if present.empty:
+            return []
+        last_seen = present["timestamp"].iloc[-1]
+        silence = self.analysis_window_end - last_seen
+        if silence < interval * self.gap_multiple:
+            return []
+        normal_missing_ratio = float(ordered["value"].isna().mean())
+        if normal_missing_ratio > self.max_normal_missing_ratio:
+            return []
+        missed = int(silence / interval)
+        summary = (
+            f"{_series_label(ordered)} has not reported since {last_seen.strftime('%Y-%m-%d %H:%M UTC')} - "
+            f"{_duration_text(silence)} before the end of the analysis window ({missed} expected point(s) missing)."
+        )
+        return [
+            self._signal(
+                ordered,
+                signal_type="data_gap",
+                severity="high",
+                confidence=0.9,
+                start=last_seen,
+                end=self.analysis_window_end,
+                summary=summary,
+                evidence={
+                    "gap_minutes": round(silence.total_seconds() / 60.0, 2),
+                    "missing_points": missed,
+                    "interval_seconds": interval.total_seconds(),
+                    "normal_missing_ratio": round(normal_missing_ratio, 4),
+                    "last_seen": last_seen.isoformat(),
+                    "resumed_at": None,
+                    "ongoing": True,
+                    "analysis_window_end": self.analysis_window_end.isoformat(),
+                },
+            )
+        ]
 
     def _gaps(self, ordered: pd.DataFrame, interval: pd.Timedelta) -> list[OperationalSignal]:
         missing = ordered["value"].isna().to_numpy()
