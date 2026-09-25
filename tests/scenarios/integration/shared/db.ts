@@ -131,6 +131,31 @@ export async function seedFinding(params: {
   return findingId;
 }
 
+/** Seeds a minimal analysis_runs row with router learning snapshots populated -
+ * AnalyzerLearningService.create_from_case_resolution (invoked by PATCH /api/cases/{id}/resolution
+ * whenever a case is resolved with a learning_outcome_status) 400s with "analysis run is missing
+ * router learning snapshots" unless series_profile_json and router_decisions_json are both set, and
+ * 404s with "analysis run not found" if no analysis_runs row exists for the case's analysis_run_id
+ * at all. seedFinding alone never creates one, so any test that resolves a seeded case needs this too. */
+export async function seedAnalysisRun(params: { runId: string; service: string; metricName: string }): Promise<void> {
+  const now = new Date();
+  await pool.query(
+    `insert into analysis_runs
+       (id, source_type, service, metric_name, start_time, end_time, sample_count, status,
+        series_profile_json, router_decisions_json, created_at)
+     values ($1, 'integration_seed', $2, $3, $4, $5, 1, 'completed', $6, $7, now())`,
+    [
+      params.runId,
+      params.service,
+      params.metricName,
+      now,
+      now,
+      JSON.stringify({ scenario: 'integration' }),
+      JSON.stringify([{ scenario: 'integration' }]),
+    ]
+  );
+}
+
 /** Seeds ops_behavior_findings directly — for testing the occurrence_count/last_seen_at display
  * on BehaviorIntelligencePage without waiting on a real detection to fire and re-fire. */
 export async function seedBehaviorFinding(params: {

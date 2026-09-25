@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { env } from '../../shared/env';
-import { makeRunId, seedFinding, createCaseFromFinding, getCaseById, cleanupRun } from '../../shared/db';
+import { makeRunId, seedFinding, seedAnalysisRun, createCaseFromFinding, getCaseById, cleanupRun } from '../../shared/db';
 
 /**
  * Drives all three case workflow tabs (Investigation / Root Cause / Resolution) against one real
@@ -89,19 +89,15 @@ test('investigation, root cause, and resolution updates all persist to Postgres'
 });
 
 test('marking a case Resolved from the Resolution tab actually resolves it', async ({ page }) => {
-  test.fixme(
-    true,
-    'PATCH /api/cases/{id}/resolution 400s with "learning_outcome_status is required when resolving or ' +
-      'closing a case" whenever outcome_status is a final state (resolved/closed) — confirmed live via ' +
-      'direct curl. The Resolution tab UI has no field for learning_outcome_status at all (not in ' +
-      'CaseDetailsPage.tsx, not in the updateResolution() payload type in api/queries.ts), and ' +
-      'updateResolutionMutation has no onError handler, so this fails completely silently: the Select ' +
-      'shows "Resolved" and nothing on screen indicates the save failed, but outcome_status stays whatever ' +
-      'it was before. This blocks the one workflow the Resolution tab exists for. Needs either a ' +
-      'learning_outcome_status field added to the UI, or the backend requirement relaxed/defaulted.'
-  );
-
-  const runId = makeRunId('case-resolve-bug');
+  // Regression test for #18: PATCH /api/cases/{id}/resolution 400s with "learning_outcome_status is
+  // required when resolving or closing a case" whenever outcome_status is a final state
+  // (resolved/closed). Fixed in fcd5880 by adding a required "Learning Outcome" select to the
+  // Resolution tab (shown only once Outcome Status is a final state) plus an error Alert wired to
+  // updateResolutionMutation.isError, so a failed save no longer looks identical to a successful one.
+  // analysis_runs.id is VARCHAR(64) - makeRunId's "integration-<scenario>-<uuid36>" format leaves
+  // at most 15 chars for the scenario name before overflowing it (confirmed live).
+  const runId = makeRunId('resolve-bug');
+  await seedAnalysisRun({ runId, service: 'checkout-api', metricName: 'memory_usage' });
   const findingId = await seedFinding({
     runId,
     service: 'checkout-api',
@@ -115,6 +111,12 @@ test('marking a case Resolved from the Resolution tab actually resolves it', asy
     await page.getByRole('tab', { name: 'Resolution' }).click();
     await page.getByRole('tabpanel').getByRole('combobox').click();
     await page.getByRole('option', { name: 'Resolved' }).click();
+
+    // The Learning Outcome select only renders once Outcome Status is a final state - it's the
+    // second combobox in the Resolution tab panel once it appears.
+    await page.getByRole('tabpanel').getByRole('combobox').nth(1).click();
+    await page.getByRole('option', { name: 'Confirmed — this was a real issue' }).click();
+
     await page.getByRole('button', { name: 'Save Resolution' }).click();
 
     await expect
