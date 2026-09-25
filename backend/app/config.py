@@ -288,5 +288,40 @@ def get_alert_enrichment_config() -> AlertEnrichmentConfig:
     return config
 
 
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+]
+
+
+class SecurityConfig(BaseModel):
+    """API access controls (docs/security-model.md).
+
+    Everything defaults to the safe side except the token: with no OPS_SIGNALS_API_TOKEN the API is
+    open, which keeps the local demo frictionless - so it must only be reachable from a trusted network.
+    """
+
+    api_token: str | None = None
+    enable_testing_api: bool = False
+    allow_file_writes: bool = False
+    cors_origins: list[str] = Field(default_factory=lambda: list(DEFAULT_CORS_ORIGINS))
+
+
+def get_security_config() -> SecurityConfig:
+    config = SecurityConfig(
+        api_token=_env("OPS_SIGNALS_API_TOKEN"),
+        enable_testing_api=_parse_bool(_env("OPS_SIGNALS_ENABLE_TESTING_API"), False),
+        allow_file_writes=_parse_bool(_env("OPS_SIGNALS_ALLOW_FILE_WRITES"), False),
+    )
+    origins = _parse_list(_env("OPS_SIGNALS_CORS_ORIGINS"))
+    if origins is not None:
+        config.cors_origins = origins
+    return config
+
+
 def get_settings() -> Settings:
     return Settings()

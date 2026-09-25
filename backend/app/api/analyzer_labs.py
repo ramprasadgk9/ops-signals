@@ -19,6 +19,7 @@ from backend.app.api.admin_analyzers import AnalyzerConfigIn, _ui_to_registry, _
 from backend.app.api.ingestion import PreviewPipelineStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalyzerConfigSuggestionEntity, AnalyzerDraftEntity, NormalizedPoint
+from backend.app.security import require_file_writes
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
 from experiments.analyzer_router.models import SeriesProfile
@@ -416,8 +417,16 @@ def _registry_with_pending_implementation(config: AnalyzerConfigIn) -> dict:
     return data
 
 
+def _comment_safe(text: str) -> str:
+    """User text for a docstring or comment in generated code: one line, and no quote or backslash
+    that could end the docstring and turn the rest into code that runs when the adapter is imported."""
+    return " ".join(text.replace('"', "'").replace("\\", "/").split())
+
+
 def _adapter_stub_text(config: AnalyzerConfigIn) -> str:
     class_name = _adapter_class_name(config.analyzer_id)
+    display_name = _comment_safe(config.display_name)
+    library = _comment_safe(config.library)
     return f'''from __future__ import annotations
 
 import pandas as pd
@@ -428,7 +437,7 @@ from intelligence.signals.schema import OperationalSignal
 
 
 class {class_name}(Analyzer):
-    """Adapter stub for {config.display_name}.
+    """Adapter stub for {display_name}.
 
     Input:
         dataframe: normalized time-series rows with timestamp, value, metric_name,
@@ -447,7 +456,7 @@ class {class_name}(Analyzer):
     def capability(self) -> Capability:
         return Capability(
             id="{config.analyzer_id}",
-            title="{config.display_name}",
+            title={config.display_name!r},
             description="Custom analyzer adapter. Implement analyze() before enabling execution.",
             analyzer_id=self.analyzer_id,
             enabled=True,
@@ -455,7 +464,7 @@ class {class_name}(Analyzer):
         )
 
     def analyze(self, dataframe: pd.DataFrame) -> list[OperationalSignal]:
-        # TODO: Call {config.library} or your API/model here.
+        # TODO: Call {library} or your API/model here.
         # Expected dataframe columns:
         #   timestamp, value, metric_name, service, env
         #
@@ -471,7 +480,7 @@ class {class_name}(Analyzer):
         #       start_time=dataframe["timestamp"].min().to_pydatetime(),
         #       end_time=dataframe["timestamp"].max().to_pydatetime(),
         #       summary="Describe what the analyzer found.",
-        #       evidence={{"library": "{config.library}"}},
+        #       evidence={{"library": "{library}"}},
         #   )
         return []
 '''
@@ -716,7 +725,7 @@ def save_analyzer_draft(payload: AnalyzerDraftIn, db: Session = Depends(get_db))
     return _draft_to_out(row)
 
 
-@router.post("/drafts/{draft_id}/promote", response_model=AnalyzerDraftOut)
+@router.post("/drafts/{draft_id}/promote", response_model=AnalyzerDraftOut, dependencies=[Depends(require_file_writes)])
 def promote_analyzer_draft(draft_id: int, db: Session = Depends(get_db)) -> AnalyzerDraftOut:
     """Registers the draft with the real pipeline and router by writing
     config/analyzer_registry.d/custom_{analyzer_id}.yml (see intelligence/analyzer_registry.py
@@ -755,7 +764,7 @@ def promote_analyzer_draft(draft_id: int, db: Session = Depends(get_db)) -> Anal
     return _draft_to_out(row)
 
 
-@router.post("/drafts/{draft_id}/backend-support", response_model=BackendSupportOut)
+@router.post("/drafts/{draft_id}/backend-support", response_model=BackendSupportOut, dependencies=[Depends(require_file_writes)])
 def add_backend_support(draft_id: int, db: Session = Depends(get_db)) -> BackendSupportOut:
     row = db.get(AnalyzerDraftEntity, draft_id)
     if row is None:
@@ -1047,7 +1056,7 @@ def test_routing_with_lab_data(payload: LabRoutingTestIn) -> LabRoutingTestOut:
         temp_path.unlink(missing_ok=True)
 
 
-@router.delete("/analyzers/{analyzer_id}", response_model=dict)
+@router.delete("/analyzers/{analyzer_id}", response_model=dict, dependencies=[Depends(require_file_writes)])
 def delete_analyzer_completely(
     analyzer_id: str,
     delete_code_file: bool = Query(default=False),

@@ -1263,7 +1263,11 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
       setCaseDetails(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      setWorkflowError(`Testing reset failed. ${message}`);
+      setWorkflowError(
+        message.startsWith('Request failed: 404')
+          ? 'Testing reset is disabled on this backend. Start it with OPS_SIGNALS_ENABLE_TESTING_API=true to use it.'
+          : `Testing reset failed. ${message}`
+      );
     } finally {
       setIsResettingTestData(false);
     }

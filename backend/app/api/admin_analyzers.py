@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.app.security import require_file_writes
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
 from experiments.analyzer_router.models import SeriesProfile
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
@@ -246,7 +247,7 @@ def validate_analyzer(data: AnalyzerConfigIn) -> dict[str, str]:
     return {"status": "valid"}
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_file_writes)])
 def save_analyzer(data: AnalyzerConfigIn) -> AnalyzerConfigOut:
     _validate_analyzer(data)
     custom = _read_yaml(CUSTOM_ANALYZERS_PATH)
@@ -256,7 +257,7 @@ def save_analyzer(data: AnalyzerConfigIn) -> AnalyzerConfigOut:
     return _registry_analyzer_to_ui(data.analyzer_id, analyzers[data.analyzer_id], "custom")
 
 
-@router.delete("/{analyzer_id}")
+@router.delete("/{analyzer_id}", dependencies=[Depends(require_file_writes)])
 def delete_custom_analyzer(analyzer_id: str) -> dict[str, Any]:
     new_registration_path = CUSTOM_ANALYZER_REGISTRY_DIR / f"custom_{analyzer_id}.yml"
     if new_registration_path.exists():

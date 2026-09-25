@@ -43,7 +43,7 @@ from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
-from backend.app.config import MemoryConfig, get_settings, get_slack_config
+from backend.app.config import MemoryConfig, get_security_config, get_settings, get_slack_config
 from backend.app.config import AIConfig
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
@@ -63,6 +63,7 @@ from backend.app.models.schema_compat import (
     ensure_case_behavior_link_schema,
     ensure_learning_schema,
 )
+from backend.app.security import require_api_token
 from backend.app.storage.bootstrap import seed_reference_data
 from intelligence.storage.postgres_store import register_findings_hook
 
@@ -286,23 +287,27 @@ def create_app(database_url: str | None = None) -> FastAPI:
             with suppress(asyncio.CancelledError):
                 await scheduler_task
 
-    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
-    
+    security = get_security_config()
+    if not security.api_token:
+        logger.warning(
+            "OPS_SIGNALS_API_TOKEN is not set: the API is open to anyone who can reach it. "
+            "Only run it on a trusted network (docs/security-model.md)."
+        )
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        lifespan=lifespan,
+        dependencies=[Depends(require_api_token)],
+    )
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:5174",
-            "http://127.0.0.1:5174",
-        ],
+        allow_origins=security.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Register routers
     app.include_router(services_router)
     app.include_router(admin_analyzers_router)
@@ -330,13 +335,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(learning_outcomes_router)
     app.include_router(assistant_router)
     app.include_router(mcp_router)
-    app.include_router(testing_router)
     app.include_router(alerts_router)
     app.include_router(events_router)
     
     # Register memory router
     app.include_router(memory_router)
-    
+
+    # Wipes all findings, cases and memory: only for demos and test suites.
+    if security.enable_testing_api:
+        logger.warning("OPS_SIGNALS_ENABLE_TESTING_API is on: /api/testing/reset-operational-data can wipe all data")
+        app.include_router(testing_router)
+
     return app
 
 

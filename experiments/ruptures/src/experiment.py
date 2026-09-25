@@ -19,8 +19,13 @@ from .report import build_report, save_report
 from .ruptures_runner import run_ruptures
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
 def _load_dataframe(csv_path: str) -> pd.DataFrame:
-    return pd.read_csv(csv_path)
+    # Relative paths are relative to the repo root, so configs work from any working directory.
+    path = Path(csv_path)
+    return pd.read_csv(path if path.is_absolute() else REPO_ROOT / path)
 
 
 def _dataset_name(csv_path: str) -> str:

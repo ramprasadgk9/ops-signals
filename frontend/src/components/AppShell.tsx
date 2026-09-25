@@ -13,6 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
 import CrisisAlertRoundedIcon from '@mui/icons-material/CrisisAlertRounded';
@@ -258,7 +259,9 @@ export function AppShell({ children }: PropsWithChildren) {
               )}
             </IconButton>
           ))}
-          <Avatar sx={{ width: 40, height: 40, bgcolor: '#60a5fa', fontSize: 13, fontWeight: 900 }}>RG</Avatar>
+          <Avatar sx={{ width: 40, height: 40, bgcolor: '#60a5fa' }}>
+            <PersonRoundedIcon />
+          </Avatar>
           <KeyboardArrowDownRoundedIcon sx={{ color: '#64748b', display: { xs: 'none', sm: 'block' } }} />
         </Stack>
       </Box>

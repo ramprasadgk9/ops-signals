@@ -60,6 +60,33 @@ function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, '');
 }
 
+// The plugin calls the backend straight from the browser, so the optional API token
+// (OPS_SIGNALS_API_TOKEN) lives in this browser's storage - anyone using this Grafana in this
+// browser can read it. See docs/security-model.md.
+const API_TOKEN_STORAGE_KEY = 'opsSignals.apiToken';
+
+export function getApiToken(): string {
+  try {
+    return window.localStorage.getItem(API_TOKEN_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function setApiToken(token: string) {
+  try {
+    if (token.trim()) window.localStorage.setItem(API_TOKEN_STORAGE_KEY, token.trim());
+    else window.localStorage.removeItem(API_TOKEN_STORAGE_KEY);
+  } catch {
+    // Storage blocked: requests go without a token.
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getApiToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function buildRequestError(response: Response) {
   let detail = '';
   try {
@@ -85,7 +112,7 @@ async function buildRequestError(response: Response) {
 }
 
 async function fetchJson<T>(baseUrl: string, path: string): Promise<T> {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`);
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { headers: authHeaders() });
   if (!response.ok) {
     throw await buildRequestError(response);
   }
@@ -95,7 +122,7 @@ async function fetchJson<T>(baseUrl: string, path: string): Promise<T> {
 async function postJson<T>(baseUrl: string, path: string, payload?: unknown): Promise<T> {
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -110,7 +137,7 @@ async function postJsonWithTimeout<T>(baseUrl: string, path: string, payload: un
   try {
     const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -131,7 +158,7 @@ async function postJsonWithTimeout<T>(baseUrl: string, path: string, payload: un
 async function patchJson<T>(baseUrl: string, path: string, payload: unknown): Promise<T> {
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -141,7 +168,7 @@ async function patchJson<T>(baseUrl: string, path: string, payload: unknown): Pr
 }
 
 async function deleteJson<T>(baseUrl: string, path: string): Promise<T> {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { method: 'DELETE' });
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { method: 'DELETE', headers: authHeaders() });
   if (!response.ok) {
     throw await buildRequestError(response);
   }

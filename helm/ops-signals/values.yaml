@@ -1,6 +1,23 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# See docs/security-model.md. The API has no auth unless a token is set, so either set one or keep the
+# backend on a trusted network.
+security:
+  # An existing Secret holding the API token. The backend requires it on every request; the web UI's
+  # nginx adds it server-side. Empty name = no token.
+  apiTokenSecret:
+    name: ""
+    key: api-token
+  # Lets the analyzer and behavior labs write registrations, adapter code and definition packs on
+  # the backend's filesystem.
+  allowFileWrites: false
+  # POST /api/testing/reset-operational-data - wipes all findings, cases and memory.
+  enableTestingApi: false
+  # Comma-separated origins allowed to call the API from a browser (e.g. your Grafana URL). Empty =
+  # the built-in localhost defaults.
+  corsOrigins: ""
+
 backend:
   image:
     repository: ghcr.io/your-org/ops-signals-backend

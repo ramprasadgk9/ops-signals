@@ -13,6 +13,7 @@ from backend.app.alerts.enrichment import AlertEnrichmentService
 from backend.app.alerts.schemas import AlertmanagerWebhook, AlertReceiptOut, GenericAlertRequest, NormalizedAlert
 from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config, get_prometheus_config
 from backend.app.models.db import get_session_local
+from backend.app.security import receiver_token_or_api_token
 
 router = APIRouter(prefix="/api", tags=["alerts"])
 
@@ -35,7 +36,7 @@ def require_receiver_token(
     authorization: str | None = Header(default=None),
     config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> None:
-    check_bearer_token(authorization, config.receiver_token)
+    check_bearer_token(authorization, receiver_token_or_api_token(config.receiver_token))
 
 
 def _accept(

@@ -2,7 +2,7 @@
   "experiment_id": "af80d70d-6433-4f9a-820e-70938447b532",
   "dataset": {
     "name": "rds_cpu_utilization_cc0c53",
-    "file_path": "/Users/ramprasad/Documents/workspace/github/ops-signals/experiments/datasets/rds_cpu_utilization_cc0c53.csv",
+    "file_path": "experiments/datasets/rds_cpu_utilization_cc0c53.csv",
     "rows": 4032,
     "columns": 2,
     "timestamp_column": "timestamp",

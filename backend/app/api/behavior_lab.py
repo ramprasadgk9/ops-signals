@@ -28,6 +28,7 @@ from backend.app.behavior_intelligence.schemas import (
 from backend.app.behavior_intelligence.validator import BehaviorDefinitionValidator
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorPatternSuggestionEntity, NormalizedPoint, SignalEntity
+from backend.app.security import require_file_writes
 
 router = APIRouter(prefix="/api/behavior-definitions", tags=["behavior-definitions"])
 
@@ -209,7 +210,7 @@ def dismiss_suggestion(suggestion_id: int, db: Session = Depends(get_db)) -> Beh
     return record
 
 
-@router.post("/suggestions/{suggestion_id}/promote", response_model=BehaviorPatternSuggestionOut)
+@router.post("/suggestions/{suggestion_id}/promote", response_model=BehaviorPatternSuggestionOut, dependencies=[Depends(require_file_writes)])
 def promote_suggestion(suggestion_id: int, payload: PromoteSuggestionRequest, db: Session = Depends(get_db)) -> BehaviorPatternSuggestionEntity:
     """Writes the suggestion's draft definition into a pack file under config/behavior_definitions.d/
     (created if it doesn't exist yet, appended to if it does) — same "review, don't auto-enable"
@@ -236,7 +237,7 @@ def promote_suggestion(suggestion_id: int, payload: PromoteSuggestionRequest, db
     return record
 
 
-@router.post("/save-to-pack", response_model=SaveDraftResult)
+@router.post("/save-to-pack", response_model=SaveDraftResult, dependencies=[Depends(require_file_writes)])
 def save_draft_to_pack(payload: SaveDraftRequest) -> SaveDraftResult:
     """Freeform version of promote_suggestion — for a definition authored from scratch in the
     Behavior Lab rather than mined. Refuses to save an invalid definition (unlike promote, which

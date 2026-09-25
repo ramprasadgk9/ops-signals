@@ -128,6 +128,7 @@ trap cleanup EXIT INT TERM
 # to be fully up before starting the second, avoids the race entirely.
 echo "Starting web-ui backend on :${WEB_UI_BACKEND_PORT}..."
 BACKEND_PORT="$WEB_UI_BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" \
+  OPS_SIGNALS_ALLOW_FILE_WRITES=true OPS_SIGNALS_ENABLE_TESTING_API=true \
   "$PYTHON_BIN" -m uvicorn backend.app.main:app --port "$WEB_UI_BACKEND_PORT" >"$web_ui_backend_log" 2>&1 &
 web_ui_backend_pid=$!
 
@@ -145,6 +146,7 @@ done
 
 echo "Starting plugin backend on :${PLUGIN_BACKEND_PORT}..."
 BACKEND_PORT="$PLUGIN_BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" \
+  OPS_SIGNALS_ALLOW_FILE_WRITES=true OPS_SIGNALS_ENABLE_TESTING_API=true \
   "$PYTHON_BIN" -m uvicorn backend.app.main:app --port "$PLUGIN_BACKEND_PORT" >"$plugin_backend_log" 2>&1 &
 plugin_backend_pid=$!
 
