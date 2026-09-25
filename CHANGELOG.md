@@ -17,6 +17,9 @@
 - Fixed: an analyzer's display name and library went into the generated adapter code unescaped,
   so a crafted name could inject code that ran when the adapter was imported.
 - Added [`docs/security-model.md`](docs/security-model.md).
+- Renamed `OPS_INTEL_DATABASE_URL` to `OPS_SIGNALS_DATABASE_URL`, so every setting uses the same
+  `OPS_SIGNALS_` prefix. The old name still works, and the new one wins when both are set.
+- The API now calls itself "Ops Signals API" (it was "Ops Intelligence API").
 
 ## 0.2.0 - 2026-09-14
 

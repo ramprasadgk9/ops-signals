@@ -209,7 +209,7 @@ def seed_past_incident(anchor: datetime) -> dict[str, object]:
 def backdate_past_incident(past: dict[str, object], times: dict[str, datetime]) -> None:
     from sqlalchemy import create_engine, text
 
-    url = os.environ["OPS_INTEL_DATABASE_URL"]
+    url = os.environ.get("OPS_SIGNALS_DATABASE_URL") or os.environ["OPS_INTEL_DATABASE_URL"]
     run_id, case_id = past["analysis_run_id"], past["case_id"]
     detected, resolved = times["detected_at"], times["resolved_at"]
     engine = create_engine(url)

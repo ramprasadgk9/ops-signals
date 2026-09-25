@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: docker/backend.Dockerfile
     environment:
-      OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
+      OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
       OPS_SIGNALS_QDRANT_URL: http://qdrant:6333
       OPS_SIGNALS_PROMETHEUS_URL: http://prometheus:9090
       # See docs/security-model.md. Without a token the API is open to anyone who can reach port 8000.
@@ -72,7 +72,7 @@ services:
       context: .
       dockerfile: docker/mcp.Dockerfile
     environment:
-      OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
+      OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
       OPS_SIGNALS_QDRANT_URL: http://qdrant:6333
     stdin_open: true
     tty: true

@@ -4,15 +4,14 @@ import os
 from dataclasses import dataclass
 from pydantic import BaseModel, Field, field_validator
 
+from intelligence.storage.database_url import database_url_from_env
+
 
 @dataclass(slots=True)
 class Settings:
-    app_name: str = "Ops Intelligence API"
+    app_name: str = "Ops Signals API"
     app_version: str = "1.0.0"
-    database_url: str = os.getenv(
-        "OPS_INTEL_DATABASE_URL",
-        "postgresql+psycopg://ops_signals:ops_signals@localhost:5432/ops_signals",
-    )
+    database_url: str = database_url_from_env() or "postgresql+psycopg://ops_signals:ops_signals@localhost:5432/ops_signals"
 
 
 # Memory Configuration Models

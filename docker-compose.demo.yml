@@ -26,7 +26,7 @@ x-backend-image: &backend-image
     dockerfile: docker/backend.Dockerfile
 
 x-backend-env: &backend-env
-  OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
+  OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
   OPS_SIGNALS_QDRANT_URL: http://qdrant:6333
   # So the Analyzer Lab works in the demo; it only writes inside this throwaway container.
   OPS_SIGNALS_ALLOW_FILE_WRITES: "true"

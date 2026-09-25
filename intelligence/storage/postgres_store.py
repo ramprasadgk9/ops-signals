@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -15,6 +14,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from intelligence.config import AppConfig
 from intelligence.findings.schema import OperationalFinding
+from intelligence.storage.database_url import database_url_from_env
 from intelligence.signals.schema import OperationalSignal
 
 logger = logging.getLogger(__name__)
@@ -204,9 +204,9 @@ class PostgresStore:
         # Same variable the backend API uses (backend/app/config.py), so a deployment that points
         # the backend at its database (compose, Helm) doesn't also need a config.yaml edit for
         # analysis runs to reach it.
-        url = os.getenv("OPS_INTEL_DATABASE_URL")
-        if url and url.strip():
-            return url.strip()
+        url = database_url_from_env()
+        if url:
+            return url
         pg = self.config.storage.postgres
         return f"postgresql+psycopg://{pg.user}:{pg.password}@{pg.host}:{pg.port}/{pg.database}"
 

@@ -83,6 +83,7 @@ def _finding(**overrides) -> OperationalFinding:
 def test_connection_string_uses_psycopg_driver(monkeypatch) -> None:
     # create_engine() never opens a connection eagerly, so this exercises the real
     # _connection_string() against a real (unreachable) postgres config without a live DB.
+    monkeypatch.delenv("OPS_SIGNALS_DATABASE_URL", raising=False)
     monkeypatch.delenv("OPS_INTEL_DATABASE_URL", raising=False)
     config = _config()
     config.storage.postgres.host = "db.internal"
@@ -96,15 +97,30 @@ def test_connection_string_uses_psycopg_driver(monkeypatch) -> None:
     assert instance._connection_string() == "postgresql+psycopg://ops:secret@db.internal:6543/ops_signals"
 
 
-def test_connection_string_prefers_database_url_env(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({"OPS_SIGNALS_DATABASE_URL": "postgresql+psycopg://u:p@new:5432/db"}, "postgresql+psycopg://u:p@new:5432/db"),
+        # The old name still works, so existing compose files, Helm values and .env files don't break.
+        ({"OPS_INTEL_DATABASE_URL": "postgresql+psycopg://u:p@old:5432/db"}, "postgresql+psycopg://u:p@old:5432/db"),
+        (
+            {"OPS_SIGNALS_DATABASE_URL": "postgresql+psycopg://u:p@new:5432/db", "OPS_INTEL_DATABASE_URL": "postgresql+psycopg://u:p@old:5432/db"},
+            "postgresql+psycopg://u:p@new:5432/db",
+        ),
+    ],
+)
+def test_connection_string_prefers_database_url_env(monkeypatch, env: dict[str, str], expected: str) -> None:
     # Containers (docker-compose, Helm) configure the database only through this variable.
-    monkeypatch.setenv("OPS_INTEL_DATABASE_URL", "postgresql+psycopg://u:p@postgres:5432/ops_signals")
+    monkeypatch.delenv("OPS_SIGNALS_DATABASE_URL", raising=False)
+    monkeypatch.delenv("OPS_INTEL_DATABASE_URL", raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
     config = _config()
     config.storage.postgres.host = "localhost"
 
     instance = PostgresStore(config)
 
-    assert instance._connection_string() == "postgresql+psycopg://u:p@postgres:5432/ops_signals"
+    assert instance._connection_string() == expected
 
 
 def test_init_db_creates_all_tables(store: PostgresStore) -> None:
