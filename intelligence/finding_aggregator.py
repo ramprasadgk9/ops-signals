@@ -11,6 +11,11 @@ from intelligence.importance_score import score_finding
 from intelligence.signals.schema import OperationalSignal
 from intelligence.window_compare import compare_windows
 
+# Signals saying the data itself is broken (stopped reporting, stopped changing). They become their
+# own finding per metric instead of joining the metric's behavior finding, so "the data is broken"
+# is never blended with - or allowed to rescue - a behavior finding built on that same data.
+DATA_HEALTH_SIGNAL_TYPES = {"data_gap", "flatline"}
+
 
 @dataclass(slots=True)
 class FindingAggregationResult:
@@ -29,14 +34,14 @@ class FindingAggregator:
         if not signal_list:
             return FindingAggregationResult(findings=[], comparison_json={})
 
-        signals_by_key: dict[tuple[str | None, str], list[OperationalSignal]] = {}
+        signals_by_key: dict[tuple[str | None, str, bool], list[OperationalSignal]] = {}
         for signal in signal_list:
-            key = (signal.service, signal.metric_name)
+            key = (signal.service, signal.metric_name, signal.signal_type in DATA_HEALTH_SIGNAL_TYPES)
             signals_by_key.setdefault(key, []).append(signal)
 
         findings: list[OperationalFinding] = []
         comparison_json: dict[str, object] = {}
-        for (service, metric_name), grouped_signals in signals_by_key.items():
+        for (service, metric_name, _), grouped_signals in signals_by_key.items():
             if any(self._skip_by_finding_rule(grouped_signals, analyzer_id) for analyzer_id in self._FINDING_RULE_GATED_ANALYZERS):
                 continue
 
@@ -102,6 +107,8 @@ class FindingAggregator:
 
     def _category(self, signals: list[OperationalSignal]) -> str:
         counts = Counter(signal.signal_type for signal in signals)
+        if DATA_HEALTH_SIGNAL_TYPES.intersection(counts):
+            return "data_quality"
         if counts.get("ruptures", 0) or counts.get("baseline_shift", 0) or counts.get("trend", 0):
             return "behavior_change"
         if counts.get("anomaly", 0):
@@ -130,6 +137,12 @@ class FindingAggregator:
         series_profile: dict[str, object] | None = None,
     ) -> str:
         signal_types = {signal.signal_type for signal in signals}
+        if DATA_HEALTH_SIGNAL_TYPES >= signal_types:
+            if signal_types == DATA_HEALTH_SIGNAL_TYPES:
+                return f"{metric_name} stopped reporting and got stuck at a constant value during the selected time window."
+            if "data_gap" in signal_types:
+                return f"{metric_name} stopped reporting data during the selected time window."
+            return f"{metric_name} got stuck at a constant value during the selected time window."
         if self._has_structural_change(signals, series_profile):
             return f"{metric_name} experienced a persistent baseline shift during the selected time window."
         if "baseline_shift" in signal_types:
@@ -152,6 +165,9 @@ class FindingAggregator:
         series_profile: dict[str, object] | None = None,
     ) -> str:
         signal_types = {signal.signal_type for signal in signals}
+        if DATA_HEALTH_SIGNAL_TYPES >= signal_types:
+            ordered = sorted(signals, key=lambda signal: signal.start_time)
+            return " ".join(signal.summary for signal in ordered)
         ruptures = next((signal for signal in signals if signal.signal_type == "ruptures"), None)
         baseline = next((signal for signal in signals if signal.signal_type == "baseline_shift"), None)
         trend = next((signal for signal in signals if signal.signal_type == "trend"), None)

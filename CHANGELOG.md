@@ -29,6 +29,13 @@
   `accepts_flat_or_gappy_series` (don't reject flat, gappy or zero-variance series) and
   `always_run` (run outside the `max_analyzers` limit). Scoring rules can now use
   `constant_value_percentage`.
+- Added the `data_health` analyzer (`config/analyzer_registry.d/custom_data_health.yml`), which
+  reports a metric that stopped reporting (`data_gap`) or got stuck at one value (`flatline`). It
+  runs on every analysis and only reports stretches that are unusual for that metric, so sparse or
+  constant-by-design metrics stay quiet. Its signals become a separate `data_quality` finding
+  rather than joining the metric's behavior finding. Gaps longer than the provider's
+  `max_gap_minutes` still fail the upload before any analyzer runs, and a metric that went silent
+  at the very end of the window isn't detected yet.
 - Fixed: on a scheduled run, an analyzer that raised an error crashed the run with a `NameError`
   instead of being recorded as failed.
 
