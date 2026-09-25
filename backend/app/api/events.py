@@ -15,6 +15,7 @@ from backend.app.alerts.correlation import as_utc
 from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
 from backend.app.models.db import get_db
 from backend.app.models.entities import ChangeEventEntity
+from backend.app.security import receiver_token_or_api_token
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -69,7 +70,7 @@ def require_events_token(
     authorization: str | None = Header(default=None),
     config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> None:
-    check_bearer_token(authorization, config.events_token)
+    check_bearer_token(authorization, receiver_token_or_api_token(config.events_token))
 
 
 def _to_out(row: ChangeEventEntity) -> ChangeEventOut:

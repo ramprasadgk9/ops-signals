@@ -21,3 +21,14 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
+
+{{/* OPS_SIGNALS_API_TOKEN from security.apiTokenSecret; renders nothing when no Secret is named. */}}
+{{- define "ops-signals.apiTokenEnv" -}}
+{{- with .Values.security.apiTokenSecret.name }}
+- name: OPS_SIGNALS_API_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: {{ $.Values.security.apiTokenSecret.key }}
+{{- end }}
+{{- end }}

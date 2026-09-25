@@ -24,6 +24,9 @@ as it would appear in Slack, and **http://localhost:8080** for the full UI. You 
 no Python, Node, Slack workspace or data of your own. See [`docs/demo.md`](docs/demo.md) for what's
 running and how it works.
 
+> **Run it on a trusted network.** The API has no authentication unless you set
+> `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [Security model](#69-security-model).
+
 Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer. See [`docs/original-contribution.md`](docs/original-contribution.md) for a technical writeup of what's original about the architecture.
 
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
@@ -56,6 +59,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
   - [6.6 Connect a Data Source](#66-connect-a-data-source)
   - [6.7 Optional: Enable Local AI](#67-optional-enable-local-ai)
   - [6.8 Troubleshooting](#68-troubleshooting)
+  - [6.9 Security model](#69-security-model)
   - [Scripts Reference](#scripts-reference)
 - [7. Using Ops Signals](#7-using-ops-signals)
   - [7.1 UI Tour](#71-ui-tour)
@@ -462,6 +466,21 @@ See [Operational Intelligence Assistant](#77-operational-intelligence-assistant)
 | `postgres did not become ready in time` or `qdrant did not become ready in time` | Docker is still starting, or the port is already taken | `docker compose ps` and `docker compose logs postgres` (or `qdrant`); confirm ports `5432`/`6333` are free |
 | A port (`8001`, `5174`, `9090`) is already in use | Another process is bound to it | Stop that process, or see `scripts/run_all.sh` for the ports it uses |
 | `permission denied` running a script | The script isn't marked executable | `chmod +x scripts/*.sh` |
+
+### 6.9 Security model
+
+Ops Signals is meant to run inside a trusted network, next to your Prometheus and Grafana:
+
+- **No authentication by default.** Set `OPS_SIGNALS_API_TOKEN` and every endpoint except
+  `/api/health` requires `Authorization: Bearer <token>`. The alert and event receivers accept their
+  own token, or the API token if they don't have one.
+- **Dangerous endpoints are off by default.** `OPS_SIGNALS_ENABLE_TESTING_API=true` turns on the
+  endpoint that wipes all data. `OPS_SIGNALS_ALLOW_FILE_WRITES=true` lets the analyzer and behavior
+  labs write files on the server. The dev scripts turn both on.
+- **CORS** is limited to local dev origins. Add your Grafana URL with `OPS_SIGNALS_CORS_ORIGINS`.
+
+[`docs/security-model.md`](docs/security-model.md) covers how each client (web UI, Grafana plugin,
+Alertmanager) sends the token, the Helm and Compose settings, and the known limitations.
 
 ### Scripts Reference
 
@@ -893,6 +912,8 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
 
 ## 12. Current Limitations
 
+- Authentication is a single optional shared token, with no users or roles. Run it on a trusted
+  network - see [`docs/security-model.md`](docs/security-model.md)
 - No autonomous remediation
 - No claim that similarity equals root-cause equivalence
 - Historical retrieval depends on the quality of stored summaries and metadata

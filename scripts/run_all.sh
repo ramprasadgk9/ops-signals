@@ -120,7 +120,8 @@ ui_log="${ROOT_DIR}/.tmp_ops_signals_ui.log"
 echo "Starting backend API on :${BACKEND_PORT}..."
 OPS_SIGNALS_PROMETHEUS_URL="${OPS_SIGNALS_PROMETHEUS_URL:-http://localhost:9090}" \
   OPS_SIGNALS_UI_BASE_URL="${OPS_SIGNALS_UI_BASE_URL:-http://localhost:${FRONTEND_PORT}}" \
-  BACKEND_PORT="$BACKEND_PORT" "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --reload-dir "$ROOT_DIR/backend" --port "$BACKEND_PORT" >"$api_log" 2>&1 &
+  BACKEND_PORT="$BACKEND_PORT" OPS_SIGNALS_ALLOW_FILE_WRITES="${OPS_SIGNALS_ALLOW_FILE_WRITES:-true}" OPS_SIGNALS_ENABLE_TESTING_API="${OPS_SIGNALS_ENABLE_TESTING_API:-true}" \
+  "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --reload-dir "$ROOT_DIR/backend" --port "$BACKEND_PORT" >"$api_log" 2>&1 &
 api_pid=$!
 
 echo "Starting frontend on :${FRONTEND_PORT}..."

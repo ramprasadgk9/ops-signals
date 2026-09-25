@@ -10,6 +10,15 @@ from backend.app.models.db import get_engine, get_session_local, init_engine
 from backend.app.models.entities import Base
 
 
+@pytest.fixture(autouse=True)
+def api_security_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The existing API tests exercise the analyzer and behavior labs, which write files - production
+    defaults are covered in test_api_security.py. No API token, whatever the developer's shell has."""
+    monkeypatch.setenv('OPS_SIGNALS_ALLOW_FILE_WRITES', 'true')
+    monkeypatch.delenv('OPS_SIGNALS_API_TOKEN', raising=False)
+    monkeypatch.delenv('OPS_SIGNALS_ENABLE_TESTING_API', raising=False)
+
+
 @pytest.fixture()
 def db_session() -> Generator:
     init_engine('sqlite+pysqlite:///:memory:')

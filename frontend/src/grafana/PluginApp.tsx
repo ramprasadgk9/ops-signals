@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, getCase, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setAutonomousPolicyStatus, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, getApiToken, getCase, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -775,6 +775,25 @@ type InteractiveCardProps = {
   onRun: () => Promise<void>;
 };
 
+/** Only needed when the backend sets OPS_SIGNALS_API_TOKEN. Saved in this browser on blur; requests
+ * made after that carry it. */
+function ApiTokenField() {
+  const [token, setToken] = useState(getApiToken);
+  return (
+    <Field label="API token (optional)">
+      <input
+        style={styles.input}
+        type="password"
+        autoComplete="off"
+        value={token}
+        placeholder="Only if the backend requires one"
+        onChange={(event) => setToken(event.target.value)}
+        onBlur={() => setApiToken(token)}
+      />
+    </Field>
+  );
+}
+
 function InteractiveAnalysisCard(props: InteractiveCardProps) {
   return (
     <Card>
@@ -820,6 +839,7 @@ function InteractiveAnalysisCard(props: InteractiveCardProps) {
             ))}
           </select>
         </Field>
+        <ApiTokenField />
         <Field label="Service">
           <input
             style={styles.input}
@@ -1355,6 +1375,7 @@ function AutonomousAnalysisView({
               ))}
             </select>
           </Field>
+          <ApiTokenField />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.35fr) minmax(320px, 1fr) minmax(220px, 0.35fr)', gap: 14, marginTop: 16 }}>

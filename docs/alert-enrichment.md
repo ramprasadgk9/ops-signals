@@ -186,7 +186,8 @@ Design details, decision tables and trade-offs: [`alert-enrichment-plan.md`](ale
    ```
    `type` is one of `deploy`, `config`, `feature_flag`, `scale`, `rollback`, `other`.
 5. **Set the tokens** for any non-local deployment (`OPS_SIGNALS_ALERT_RECEIVER_TOKEN`,
-   `OPS_SIGNALS_EVENTS_TOKEN`). Both endpoints accept writes and are open when unset.
+   `OPS_SIGNALS_EVENTS_TOKEN`). A receiver without its own token uses `OPS_SIGNALS_API_TOKEN`
+   instead, and is open only when neither is set. See [security-model.md](security-model.md).
 
 #### Per-rule annotations (optional)
 

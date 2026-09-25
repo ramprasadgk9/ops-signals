@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **Behavior change:** `POST /api/testing/reset-operational-data` is gone unless
+  `OPS_SIGNALS_ENABLE_TESTING_API=true`, and the endpoints that write files on the server (saving,
+  promoting and deleting analyzers, generating adapter code, saving behavior definitions to a pack)
+  return 403 unless `OPS_SIGNALS_ALLOW_FILE_WRITES=true`. The dev scripts turn both on, and the
+  demo turns on file writes.
+- Added an optional API token (`OPS_SIGNALS_API_TOKEN`) that protects every endpoint except
+  `/api/health`. The alert and event receivers use it when they have no token of their own. The web
+  UI's nginx adds it on the server side, the Grafana plugin has a field for it, and Helm reads it
+  from a Secret.
+- CORS origins are now configurable with `OPS_SIGNALS_CORS_ORIGINS`.
+- Fixed: the behavior-definition `pack_file` accepted paths, so a request could write YAML outside
+  `config/behavior_definitions.d/`. It must now be a bare `.yml`/`.yaml` file name.
+- Fixed: an analyzer's display name and library went into the generated adapter code unescaped,
+  so a crafted name could inject code that ran when the adapter was imported.
+- Added [`docs/security-model.md`](docs/security-model.md).
+
 ## 0.2.0 - 2026-09-14
 
 - Let a Behavior Finding (a correlated, cross-metric pattern) be promoted to a Case, not just a

@@ -28,6 +28,15 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- include "ops-signals.apiTokenEnv" . | nindent 12 }}
+            - name: OPS_SIGNALS_ALLOW_FILE_WRITES
+              value: {{ .Values.security.allowFileWrites | quote }}
+            - name: OPS_SIGNALS_ENABLE_TESTING_API
+              value: {{ .Values.security.enableTestingApi | quote }}
+            {{- with .Values.security.corsOrigins }}
+            - name: OPS_SIGNALS_CORS_ORIGINS
+              value: {{ . | quote }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /api/health

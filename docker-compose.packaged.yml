@@ -37,6 +37,10 @@ services:
       OPS_INTEL_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
       OPS_SIGNALS_QDRANT_URL: http://qdrant:6333
       OPS_SIGNALS_PROMETHEUS_URL: http://prometheus:9090
+      # See docs/security-model.md. Without a token the API is open to anyone who can reach port 8000.
+      OPS_SIGNALS_API_TOKEN: ${OPS_SIGNALS_API_TOKEN:-}
+      OPS_SIGNALS_ALLOW_FILE_WRITES: ${OPS_SIGNALS_ALLOW_FILE_WRITES:-false}
+      OPS_SIGNALS_ENABLE_TESTING_API: ${OPS_SIGNALS_ENABLE_TESTING_API:-false}
     ports:
       - "8000:8000"
     networks:
@@ -54,6 +58,9 @@ services:
     build:
       context: .
       dockerfile: docker/web.Dockerfile
+    environment:
+      # nginx adds it to every /api/ request, so the browser never sees it.
+      OPS_SIGNALS_API_TOKEN: ${OPS_SIGNALS_API_TOKEN:-}
     ports:
       - "8080:8080"
     depends_on:

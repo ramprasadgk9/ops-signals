@@ -4,6 +4,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+# A bare file name inside config/behavior_definitions.d/ - no directories, so no path traversal.
+PACK_FILE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml$"
+
 
 class BehaviorConditionOut(BaseModel):
     fact: str
@@ -137,12 +140,12 @@ class BehaviorPatternSuggestionOut(BaseModel):
 
 
 class PromoteSuggestionRequest(BaseModel):
-    pack_file: str = "suggested_patterns.yml"
+    pack_file: str = Field(default="suggested_patterns.yml", pattern=PACK_FILE_PATTERN)
 
 
 class SaveDraftRequest(BaseModel):
     definition: BehaviorDefinitionDraftIn
-    pack_file: str = "custom_patterns.yml"
+    pack_file: str = Field(default="custom_patterns.yml", pattern=PACK_FILE_PATTERN)
 
 
 class SaveDraftResult(BaseModel):
