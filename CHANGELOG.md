@@ -51,6 +51,11 @@
   and on `cpu_seasonal_forecast_v1` it replaces `trend`, so the finding now reads "predictable
   recurring or forecastable behaviour" instead of "trending in one direction", matching the
   scenario's ground truth.
+- Fixed: the Autonomous Monitoring overview stayed on "No autonomous analysis has been completed
+  yet" even while scheduled runs were completing. It only showed a manual "Run once" from the same
+  page, and once a scheduled policy is saved that button is no longer shown. It now shows the
+  latest finished scheduled run - its metric counts, run history, and the findings and cases from
+  that run's analyses - while a manual run in the page still takes priority.
 - Fixed: `data_health` reported false "stuck" flatlines on the local mock metrics - `error_rate`
   parked at its 0.006 floor while CPU was low, and `rate(promhttp_metric_handler_requests_total[5m])`,
   which is constant apart from float jitter. A flat stretch is no longer reported when the metric
