@@ -126,7 +126,7 @@ Prometheus rule fires
   themselves. Alert enrichment is the built-in consumer of the same logic.
 - A generic `POST /api/alerts` accepts alerts from non-Alertmanager sources in a simple JSON shape.
 
-Design details, decision tables and trade-offs: [`alert-enrichment-plan.md`](alert-enrichment-plan.md).
+Design details, decision tables and trade-offs: [`design/alert-enrichment-plan.md`](design/alert-enrichment-plan.md).
 
 ### What you need to do
 

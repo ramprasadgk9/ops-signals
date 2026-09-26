@@ -27,7 +27,7 @@ running and how it works.
 > **Run it on a trusted network.** The API has no authentication unless you set
 > `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [Security model](#69-security-model).
 
-Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer. See [`docs/original-contribution.md`](docs/original-contribution.md) for a technical writeup of what's original about the architecture.
+Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer.
 
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
 
@@ -794,10 +794,10 @@ exporters:
 ```
 
 The path is `/api/otlp`, not OTLP's spec-default root path - see
-[`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md#3-endpoint) for why.
+[`docs/design/otlp-metrics-ingestion-plan.md`](docs/design/otlp-metrics-ingestion-plan.md#3-endpoint) for why.
 Received points are buffered and analyzed on the same 60-second scheduler cycle used for
 autonomous Prometheus monitoring, not per-request - see
-[`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md) for the full design,
+[`docs/design/otlp-metrics-ingestion-plan.md`](docs/design/otlp-metrics-ingestion-plan.md) for the full design,
 including the volume/cardinality guardrails (`OPS_SIGNALS_MAX_OTLP_BYTES`,
 `OPS_SIGNALS_OTLP_MAX_POINTS_PER_MIN`, `OPS_SIGNALS_OTLP_MAX_SERIES_PER_METRIC`,
 `OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE`) and the self-observability endpoint
@@ -925,7 +925,7 @@ configuration, a scheduled run, and the resulting findings/coverage in the Overv
   [`docs/alert-enrichment.md`](docs/alert-enrichment.md#current-limitations)
 - OTLP metrics ingestion is single-instance only (no distributed queue), OTLP/HTTP only (no gRPC),
   and metrics-only (no logs/traces) - see
-  [`docs/otlp-metrics-ingestion-plan.md`](docs/otlp-metrics-ingestion-plan.md#10-explicit-non-goals-phase-1)
+  [`docs/design/otlp-metrics-ingestion-plan.md`](docs/design/otlp-metrics-ingestion-plan.md#10-explicit-non-goals-phase-1)
 
 ## 13. Roadmap
 

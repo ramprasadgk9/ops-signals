@@ -1,4 +1,4 @@
--- New table for OTLP push ingestion (docs/otlp-metrics-ingestion-plan.md). Created automatically
+-- New table for OTLP push ingestion (docs/design/otlp-metrics-ingestion-plan.md). Created automatically
 -- at backend startup via Base.metadata.create_all (backend/app/main.py) since it's a new table,
 -- not an alter to an existing one - this file documents the same change for anyone reading
 -- migration history by hand, same convention as 003_autonomous_policy_scheduling.sql.

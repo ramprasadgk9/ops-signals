@@ -1,6 +1,6 @@
 """Flattens an OTLP ExportMetricsServiceRequest into plain point records.
 
-Scope: Gauge and Sum (counter) metrics only, per docs/otlp-metrics-ingestion-plan.md §2.
+Scope: Gauge and Sum (counter) metrics only, per docs/design/otlp-metrics-ingestion-plan.md §2.
 Histogram, ExponentialHistogram, and Summary points are counted and rejected here rather than
 silently dropped or crashed on - the caller reports the count back to the sender via the OTLP
 response's partial_success field, which is the spec-intended way to say "received but not fully

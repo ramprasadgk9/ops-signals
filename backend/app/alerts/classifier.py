@@ -1,7 +1,7 @@
 """Decide whether an alert's series is worth running the analyzers on.
 
 Every accepted alert is still enriched and (if configured) posted - this only gates the "What
-happened" analysis. Rules are evaluated in order; the first match wins (docs/alert-enrichment-plan.md §C).
+happened" analysis. Rules are evaluated in order; the first match wins (docs/design/alert-enrichment-plan.md §C).
 """
 
 from __future__ import annotations

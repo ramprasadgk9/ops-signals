@@ -1,12 +1,11 @@
 # Alert Enrichment: Alertmanager Receiver + Change Events (Technical Plan)
 
-**Status:** Components A-H (receiver through Slack posting) implemented on branch
-`feature/alert-enrichment-receiver`. Not yet built: the read API, retention cleanup, and docs/recipes
-(§5 I). Target: public launch, Oct 12, 2026.
+**Status:** Components A-H (receiver through Slack posting) are implemented. Not yet built: the
+read API and retention cleanup. User-facing setup lives in [`alert-enrichment.md`](../alert-enrichment.md).
 
-**Extends:** [`GET /api/alert-context`](../backend/app/api/memory.py) (history lookup),
-[`POST /analysis/prometheus`](../backend/app/api/direct_prometheus.py) (on-demand Prometheus analysis),
-[`SlackNotifier`](../backend/app/notifications/slack_client.py) (finding notifications).
+**Extends:** [`GET /api/alert-context`](../../backend/app/api/memory.py) (history lookup),
+[`POST /analysis/prometheus`](../../backend/app/api/direct_prometheus.py) (on-demand Prometheus analysis),
+[`SlackNotifier`](../../backend/app/notifications/slack_client.py) (finding notifications).
 
 ---
 
@@ -355,7 +354,7 @@ def correlate_changes(db, service, anchor: datetime,
 
 ### G. Alert-context extraction
 
-Move the body of `get_alert_context` ([`api/memory.py`](../backend/app/api/memory.py)) into
+Move the body of `get_alert_context` ([`api/memory.py`](../../backend/app/api/memory.py)) into
 `backend/app/memory/alert_context.py::build_alert_context(db, metric_name, service, message,
 similarity, embedder, assistant) -> AlertContextResponse`. The route becomes a thin wrapper.
 **No behavior change**: the existing `tests/api_backend/test_alert_context.py` must pass unchanged.
@@ -364,7 +363,7 @@ The enrichment service calls the same function in-process (no HTTP hop).
 ### H. Slack
 
 **1. Suppress the global hook for alert-triggered runs.** `register_findings_hook` in
-[`postgres_store.py`](../intelligence/storage/postgres_store.py) fires `SlackNotifier.notify_findings`
+[`postgres_store.py`](../../intelligence/storage/postgres_store.py) fires `SlackNotifier.notify_findings`
 for *every* pipeline run. Without a change, one alert would produce two Slack messages. Add:
 
 ```python

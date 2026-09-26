@@ -1,6 +1,6 @@
 """Integration tests for the OTLP push receiver (POST /api/otlp/v1/metrics), the self-observability
 endpoint (GET /api/metrics), and one pass of the scheduler's OTLP backlog analysis cycle. See
-docs/otlp-metrics-ingestion-plan.md for the design this implements."""
+docs/design/otlp-metrics-ingestion-plan.md for the design this implements."""
 
 from __future__ import annotations
 

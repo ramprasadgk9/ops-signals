@@ -3,7 +3,7 @@
 OTLP is the first always-on, sender-controlled-volume ingestion path in this codebase - CSV is a
 one-time upload and Prometheus is an on-demand pull the app itself paces, so neither needed this.
 Three independent caps here, each guarding a different failure mode; see
-docs/otlp-metrics-ingestion-plan.md §6 for the full rationale. All are in-process only, matching
+docs/design/otlp-metrics-ingestion-plan.md §6 for the full rationale. All are in-process only, matching
 this app's existing documented single-backend-instance assumption
 (backend/app/autonomous/scheduler.py) - not a distributed rate limit or cardinality store.
 """
@@ -49,7 +49,7 @@ class RateLimiter:
 class CardinalityTracker:
     """Tracks distinct (metric_name, attribute-set) combinations seen since process start.
     Resets on restart - an accepted limitation for a single-instance deployment, not a correctness
-    bug; see docs/otlp-metrics-ingestion-plan.md."""
+    bug; see docs/design/otlp-metrics-ingestion-plan.md."""
 
     def __init__(self, max_series_per_metric: int) -> None:
         self.max_series_per_metric = max_series_per_metric

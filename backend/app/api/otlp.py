@@ -4,10 +4,10 @@ POST /api/otlp/v1/metrics - not the OTLP-spec-default root path /v1/metrics, bec
 docker/nginx.web.conf only proxies /api/ to the backend and every other route in this app already
 lives under /api/*. Still spec-compliant: an OTel Collector's otlphttp exporter accepts an
 explicit `endpoint: http://<host>:<port>/api/otlp` and auto-appends /v1/metrics itself. See
-docs/otlp-metrics-ingestion-plan.md §3.
+docs/design/otlp-metrics-ingestion-plan.md §3.
 
 Scope: metrics only (Gauge/Sum), OTLP/HTTP only (protobuf and JSON bodies), store-then-analyze-on-
-a-timer rather than per-request analysis - see docs/otlp-metrics-ingestion-plan.md §2 for why.
+a-timer rather than per-request analysis - see docs/design/otlp-metrics-ingestion-plan.md §2 for why.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
 async def otlp_status() -> dict[str, object]:
     """Plain-JSON summary for the Settings page's OTLP card - the passive "is data arriving"
     signal that has no active-test equivalent the way Prometheus's Test Connection does, since
-    Ops Signals never initiates an OTLP connection (see docs/otlp-metrics-ingestion-plan.md §3)."""
+    Ops Signals never initiates an OTLP connection (see docs/design/otlp-metrics-ingestion-plan.md §3)."""
     return {"endpoint_path": "/api/otlp/v1/metrics", **otlp_metrics_snapshot()}
 
 

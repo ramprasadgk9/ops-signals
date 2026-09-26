@@ -147,7 +147,7 @@ class SlackConfig(BaseModel):
 
 
 class AlertEnrichmentConfig(BaseModel):
-    """Alertmanager receiver + change-event correlation (docs/alert-enrichment-plan.md).
+    """Alertmanager receiver + change-event correlation (docs/design/alert-enrichment-plan.md).
 
     Durations are seconds. Disabled by default: the receiver returns 200 without doing anything
     until OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED=true.
