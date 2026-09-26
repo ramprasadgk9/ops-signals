@@ -1,0 +1,303 @@
+# Known-answer questions for Ask Ops Signals. Each one names where the answer lives - a file
+# (`source`, the knowledge document's source_path) and, for Markdown docs, the section heading
+# (`section`, matched as a substring of the cited section's heading path) - plus phrases the
+# answering passage must contain (`contains`, case-insensitive).
+#
+# `expect` lists every place that is a correct citation; any one of them counts as a hit. Every
+# listed section must itself contain every `contains` phrase - test_assistant_golden checks this,
+# so a doc edit that moves or removes an answer fails loudly instead of silently lowering the score.
+#
+# category `out_of_scope`: nothing in the corpus answers the question. Reported, not scored.
+
+questions:
+  # --- Setup and running ------------------------------------------------------------------------
+  - id: python-versions
+    category: docs
+    question: Which Python versions does setup support?
+    contains: ["3.13"]
+    expect:
+      - {source: README.md, section: "6.1 Prerequisites"}
+      - {source: README.md, section: "6.8 Troubleshooting"}
+
+  - id: frontend-port
+    category: docs
+    question: What port does the web UI run on after run_all.sh?
+    contains: ["5174"]
+    expect:
+      - {source: README.md, section: "6.4 Start Ops Signals"}
+      - {source: README.md, section: "6.5 Open the Application"}
+      - {source: README.md, section: "Scripts Reference"}
+
+  - id: grafana-backend-port
+    category: docs
+    question: Which port does the Grafana plugin backend use?
+    contains: ["8002"]
+    expect:
+      - {source: README.md, section: "Scripts Reference"}
+
+  - id: postgres-not-ready
+    category: docs
+    question: Setup says postgres did not become ready in time. What should I check?
+    contains: ["docker compose ps"]
+    expect:
+      - {source: README.md, section: "6.8 Troubleshooting"}
+
+  - id: enable-local-ai
+    category: docs
+    question: How do I enable local AI answers?
+    contains: ["--profile ai"]
+    expect:
+      - {source: README.md, section: "6.7 Optional: Enable Local AI"}
+      - {source: docs/23-ask-ops-signals-assistant.md, section: "Enabling Local AI"}
+
+  - id: default-ollama-model
+    category: docs
+    question: Which model does the ai compose profile pull by default?
+    contains: ["qwen2.5:3b"]
+    expect:
+      - {source: README.md, section: "6.7 Optional: Enable Local AI"}
+
+  - id: assistant-api-key
+    category: docs
+    question: Does Ask Ops Signals need an API key or cloud LLM?
+    contains: ["no api key"]
+    expect:
+      - {source: docs/23-ask-ops-signals-assistant.md, section: "Enabling Local AI"}
+      - {source: README.md, section: "6.7 Optional: Enable Local AI"}
+      - {source: README.md, section: "7.7 Operational Intelligence Assistant"}
+
+  - id: test-mcp
+    category: docs
+    question: How do I check the MCP server works locally?
+    contains: ["test_mcp.sh"]
+    expect:
+      - {source: README.md, section: "Scripts Reference"}
+
+  # --- Security ---------------------------------------------------------------------------------
+  - id: auth-default
+    category: docs
+    question: Is the API authenticated by default?
+    contains: ["no authentication"]
+    expect:
+      - {source: docs/security-model.md, section: "What's open by default"}
+      - {source: README.md, section: "6.9 Security model"}
+
+  - id: enable-auth
+    category: docs
+    question: How do I turn on API authentication?
+    contains: ["OPS_SIGNALS_API_TOKEN", "Bearer"]
+    expect:
+      - {source: docs/security-model.md, section: "Turning on authentication"}
+      - {source: README.md, section: "6.9 Security model"}
+
+  - id: file-writes-flag
+    category: docs
+    question: What does OPS_SIGNALS_ALLOW_FILE_WRITES do?
+    contains: ["OPS_SIGNALS_ALLOW_FILE_WRITES", "403"]
+    expect:
+      - {source: docs/security-model.md, section: "What's open by default"}
+
+  - id: cors-grafana
+    category: docs
+    question: How do I allow my Grafana URL through CORS?
+    contains: ["OPS_SIGNALS_CORS_ORIGINS"]
+    expect:
+      - {source: docs/security-model.md, section: "CORS"}
+      - {source: README.md, section: "6.9 Security model"}
+
+  # --- Configuration ----------------------------------------------------------------------------
+  - id: config-merge-order
+    category: docs
+    question: In what order are configuration files merged?
+    contains: ["Provider overrides"]
+    expect:
+      - {source: docs/15-configuration.md, section: "Merge Order"}
+
+  - id: csv-upload-providers
+    category: docs
+    question: Which providers can I pick when uploading a CSV?
+    contains: ["datadog"]
+    expect:
+      - {source: docs/15-configuration.md, section: "Files"}
+
+  - id: behavior-definition-config
+    category: docs
+    question: How do I configure a behavior definition?
+    contains: ["behavior_definitions.d"]
+    expect:
+      - {source: docs/14-behavior-intelligence.md, section: "Configuring a Behavior Definition"}
+
+  # --- Ingestion and integrations ---------------------------------------------------------------
+  - id: otlp-endpoint
+    category: docs
+    question: What endpoint should an OTel Collector send metrics to?
+    contains: ["/api/otlp"]
+    expect:
+      - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
+      - {source: README.md, section: "9.3 OTLP Metrics Ingestion"}
+
+  - id: otlp-not-root-path
+    category: docs
+    question: Why is the OTLP endpoint not at /v1/metrics?
+    contains: ["nginx"]
+    expect:
+      - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
+
+  - id: alert-enrichment-local
+    category: docs
+    question: How do I try alert enrichment locally?
+    contains: ["OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED"]
+    expect:
+      - {source: docs/alert-enrichment.md, section: "Try it locally"}
+
+  - id: send-test-alert
+    category: docs
+    question: How can I fire a test alert?
+    contains: ["send_test_alert.py"]
+    expect:
+      - {source: docs/alert-enrichment.md, section: "Try it locally"}
+
+  - id: connect-alertmanager
+    category: docs
+    question: How do I connect my existing Alertmanager without breaking current routes?
+    contains: ["continue: true"]
+    expect:
+      - {source: docs/alert-enrichment.md, section: "Connect your real Alertmanager"}
+
+  # --- Architecture and decisions ---------------------------------------------------------------
+  - id: adr-postgres
+    category: docs
+    question: Why is PostgreSQL the system of record?
+    contains: ["transactional integrity"]
+    expect:
+      - {source: docs/adr/ADR-004-postgresql-system-of-record.md}
+
+  - id: adr-deterministic-answers
+    category: docs
+    question: Why does the assistant use deterministic answer composition?
+    contains: ["explainable"]
+    expect:
+      - {source: docs/adr/ADR-007-deterministic-answer-composition.md}
+
+  - id: outcome-categories
+    category: docs
+    question: What outcome categories can a resolved case have?
+    contains: ["partially_confirmed", "inconclusive"]
+    expect:
+      - {source: docs/outcome-based-learning.md, section: "Outcome Categories"}
+
+  - id: benchmark-coverage
+    category: docs
+    question: What does the benchmark suite measure?
+    contains: ["Router accuracy"]
+    expect:
+      - {source: docs/24-benchmark-suite.md, section: "What's Covered"}
+
+  - id: discovery-cap-vs-budget
+    category: docs
+    question: What is the difference between the discovery cap and the execution budget?
+    contains: ["discovery cap", "execution budget"]
+    expect:
+      - {source: docs/autonomous-analysis-preview.md, section: "Two Different Limits"}
+
+  - id: max-parallel-jobs
+    category: docs
+    question: What does max_parallel_jobs control?
+    contains: ["max_parallel_jobs"]
+    expect:
+      - {source: docs/autonomous-analysis-preview.md, section: "Execution Concurrency"}
+
+  - id: router-scores-heuristic
+    category: docs
+    question: Are the analyzer router suitability scores validated?
+    contains: ["heuristic"]
+    expect:
+      - {source: docs/26-analyzer-methodology.md, section: "suitability scores"}
+
+  # --- Grafana plugin and release ---------------------------------------------------------------
+  - id: plugin-missing
+    category: docs
+    question: The Grafana plugin does not appear in Grafana. What do I do?
+    contains: ["plugin"]
+    expect:
+      - {source: docs/grafana-plugin-local-setup.md, section: "Plugin Does Not Appear"}
+
+  - id: plugin-signature
+    category: docs
+    question: Grafana says invalid plugin signature
+    contains: ["signature"]
+    expect:
+      - {source: docs/grafana-plugin-local-setup.md, section: "Invalid Plugin Signature"}
+
+  - id: kubernetes-deploy
+    category: docs
+    question: How do I deploy Ops Signals to Kubernetes?
+    contains: ["helm"]
+    expect:
+      - {source: docs/22-release-packaging.md, section: "Kubernetes Deployment"}
+
+  # --- Analyzers (generated knowledge documents) ------------------------------------------------
+  - id: data-health-gaps
+    category: analyzers
+    question: How does data_health detect gaps?
+    contains: ["stopped reporting"]
+    expect:
+      - {source: "generated://analyzers/data_health"}
+
+  - id: seasonal-anomaly
+    category: analyzers
+    question: What does the seasonal_anomaly analyzer detect?
+    contains: ["time of day"]
+    expect:
+      - {source: "generated://analyzers/seasonal_anomaly"}
+
+  - id: list-analyzers
+    category: analyzers
+    question: Which analyzers are available?
+    contains: ["seasonal_anomaly", "data_health"]
+    expect:
+      - {source: "generated://concepts/analyzers-overview"}
+
+  # --- Informal phrasing ------------------------------------------------------------------------
+  - id: informal-purpose
+    category: informal
+    question: whats use of this application
+    contains: ["analyz"]
+    expect:
+      - {source: "generated://application-overview"}
+      - {source: README.md, section: "1. In One Sentence"}
+      - {source: README.md, section: "3. What Ops Signals Does"}
+
+  - id: informal-slack
+    category: informal
+    question: how do i get my alerts into slack
+    contains: ["slack"]
+    expect:
+      - {source: docs/alert-enrichment.md}
+      - {source: README.md, section: "9.4 Slack Notifications"}
+      - {source: README.md, section: "9.5 Alert Enrichment"}
+
+  - id: informal-otel
+    category: informal
+    question: where do i point otel
+    contains: ["/api/otlp"]
+    expect:
+      - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
+      - {source: README.md, section: "9.3 OTLP Metrics Ingestion"}
+
+  - id: informal-wipe-data
+    category: informal
+    question: how do i wipe all the data and start over
+    contains: ["delet"]
+    expect:
+      - {source: docs/security-model.md, section: "What's open by default"}
+      - {source: docs/grafana-plugin-local-setup.md, section: "Clear DB For Testing"}
+
+  # --- Not answerable from the corpus -----------------------------------------------------------
+  - id: oos-kafka
+    category: out_of_scope
+    question: How do I configure Kafka ingestion?
+
+  - id: oos-weather
+    category: out_of_scope
+    question: What's the weather in Paris?
