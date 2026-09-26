@@ -14,6 +14,7 @@ from backend.app.assistant.knowledge_bootstrap import (
 )
 from backend.app.assistant.schemas import AssistantChatRequest, AssistantChatResponse
 from backend.app.assistant.service import OperationalIntelligenceAssistant
+from backend.app.config import get_security_config
 from backend.app.models.db import get_db
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,9 @@ def knowledge_status(
 ) -> ApplicationKnowledgeStatus:
     if not bootstrap:
         raise HTTPException(status_code=503, detail="Assistant knowledge bootstrap is not initialized")
-    return bootstrap.get_status()
+    status = bootstrap.get_status()
+    status.docs_authoring_enabled = get_security_config().allow_file_writes
+    return status
 
 
 @router.post("/knowledge/bootstrap", response_model=ApplicationKnowledgeBootstrapResult)

@@ -162,6 +162,16 @@ class ApplicationKnowledgeBootstrapResult:
 
 
 @dataclass(slots=True)
+class KnowledgeChanges:
+    """Docs that differ from the index right now - what a reindex would do - found by content
+    hash, without embedding anything."""
+
+    added: list[str] = field(default_factory=list)
+    changed: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class ApplicationKnowledgeStatus:
     collection_name: str
     collection_exists: bool
@@ -170,6 +180,11 @@ class ApplicationKnowledgeStatus:
     missing_document_ids: list[str] = field(default_factory=list)
     # The most recent bootstrap in this process (startup or a reindex request); None before one.
     last_bootstrap: ApplicationKnowledgeBootstrapResult | None = None
+    # Documents currently indexed, and docs that changed since (None when it couldn't be checked).
+    document_count: int = 0
+    pending_changes: KnowledgeChanges | None = None
+    # Whether this server may write files - the Docs check page saves golden questions only then.
+    docs_authoring_enabled: bool = False
 
 
 class ApplicationKnowledgeBootstrapService:
@@ -300,6 +315,12 @@ class ApplicationKnowledgeBootstrapService:
         exists = self._collection_exists()
         vector_count = self._vector_count() if exists else 0
         verification = self.verify_required_documents() if exists else KnowledgeVerificationResult(False, 0, False, sorted(self.REQUIRED_DOCUMENT_IDS))
+        existing = self._existing_documents() if exists else {}
+        try:
+            pending = self._diff(existing, self._build_documents())
+        except Exception as exc:
+            logger.warning("Could not check docs for changes since the last reindex: %s", exc)
+            pending = None
         return ApplicationKnowledgeStatus(
             collection_name=self.COLLECTION_NAME,
             collection_exists=exists,
@@ -307,7 +328,26 @@ class ApplicationKnowledgeBootstrapService:
             required_documents_present=verification.required_documents_present,
             missing_document_ids=verification.missing_document_ids,
             last_bootstrap=self.last_result,
+            document_count=len(existing),
+            pending_changes=pending,
         )
+
+    def pending_changes(self) -> KnowledgeChanges:
+        """What a reindex would do right now, without doing it (about 20 ms: reads and hashes the
+        docs, embeds nothing)."""
+        return self._diff(self._existing_documents() if self._collection_exists() else {}, self._build_documents())
+
+    def _diff(self, existing: dict[str, "_IndexedDocument"], documents: list[ApplicationKnowledgeDocument]) -> KnowledgeChanges:
+        changes = KnowledgeChanges()
+        current = {doc.document_id for doc in documents}
+        for doc in documents:
+            previous = existing.get(doc.document_id)
+            if previous is None:
+                changes.added.append(doc.source_path or doc.document_id)
+            elif previous.content_hash != self._content_hash(doc):
+                changes.changed.append(doc.source_path or doc.document_id)
+        changes.removed = sorted(existing[document_id].source_path or document_id for document_id in set(existing) - current)
+        return changes
 
     def verify_required_documents(self) -> KnowledgeVerificationResult:
         exists = self._collection_exists()

@@ -309,3 +309,38 @@ def test_the_reindex_endpoint_reports_what_changed_and_status_remembers_it(tmp_p
     assert reindex["added"] == ["docs/new.md"]
     assert reindex["changed"] == [] and reindex["removed"] == []
     assert status["last_bootstrap"]["added"] == ["docs/new.md"]
+
+
+def test_status_lists_docs_changed_since_the_last_reindex_without_embedding_them(tmp_path: Path) -> None:
+    repo, client = _repo_with_guide(tmp_path), QdrantClient(":memory:")
+    _service(repo, client, _CountingEmbedder()).bootstrap()
+    (repo / "docs" / "guide.md").write_text(_GUIDE + "\n## Upgrading\n\nPull.\n", encoding="utf-8")
+    (repo / "docs" / "new.md").write_text("# New\n\nText.\n", encoding="utf-8")
+    embedder = _CountingEmbedder()
+    service = _service(repo, client, embedder)
+
+    status = service.get_status()
+
+    assert (status.pending_changes.added, status.pending_changes.changed, status.pending_changes.removed) == (["docs/new.md"], ["docs/guide.md"], [])
+    assert status.document_count > 0 and embedder.texts == []
+
+    service.bootstrap()
+
+    after = service.get_status().pending_changes
+    assert (after.added, after.changed, after.removed) == ([], [], [])
+
+
+def test_status_says_whether_this_server_can_save_golden_questions(tmp_path: Path, monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from backend.app.api import assistant as assistant_module
+    from backend.app.main import create_app
+
+    service = _service(_repo_with_guide(tmp_path), QdrantClient(":memory:"), _CountingEmbedder())
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[assistant_module.get_knowledge_bootstrap] = lambda: service
+
+    for flag, expected in (("false", False), ("true", True)):
+        monkeypatch.setenv("OPS_SIGNALS_ALLOW_FILE_WRITES", flag)
+        with TestClient(app) as client:
+            assert client.get("/api/assistant/knowledge/status").json()["docs_authoring_enabled"] is expected
