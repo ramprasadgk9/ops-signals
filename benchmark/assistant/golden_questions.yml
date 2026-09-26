@@ -8,6 +8,10 @@
 # so a doc edit that moves or removes an answer fails loudly instead of silently lowering the score.
 #
 # category `out_of_scope`: nothing in the corpus answers the question. Reported, not scored.
+# category `known_gap`: the docs answer it but the assistant doesn't cite the right section yet.
+# Reported, not scored; the benchmark says when one starts passing, so it can become `docs`.
+#
+# Questions saved from the Ask Ops Signals Docs check page are appended at the end.
 
 questions:
   # --- Setup and running ------------------------------------------------------------------------

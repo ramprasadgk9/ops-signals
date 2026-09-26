@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.app.assistant.knowledge_bootstrap import (
@@ -13,6 +14,16 @@ from backend.app.assistant.knowledge_bootstrap import (
     ApplicationKnowledgeStatus,
 )
 from backend.app.assistant import feedback
+from backend.app.assistant.docs_check import (
+    DocsCheckService,
+    DocsCoverage,
+    DraftQuestion,
+    EvaluateRequest,
+    EvaluateResult,
+    GoldenSetError,
+    SaveTestsRequest,
+    SaveTestsResult,
+)
 from backend.app.assistant.schemas import (
     AssistantChatRequest,
     AssistantChatResponse,
@@ -22,7 +33,8 @@ from backend.app.assistant.schemas import (
     FlaggedQuestion,
 )
 from backend.app.assistant.service import OperationalIntelligenceAssistant
-from backend.app.config import get_security_config
+from backend.app.config import SecurityConfig, get_security_config
+from backend.app.security import require_file_writes
 from backend.app.models.db import get_db
 
 logger = logging.getLogger(__name__)
@@ -97,3 +109,62 @@ def patch_feedback(feedback_id: int, payload: AssistantFeedbackUpdate, db: Sessi
 @router.get("/feedback/flagged", response_model=list[FlaggedQuestion])
 def list_flagged_questions(limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db)) -> list[FlaggedQuestion]:
     return feedback.flagged_questions(db, limit=limit)
+
+
+# --- Docs check ------------------------------------------------------------------------------------
+
+
+def get_docs_check(
+    bootstrap: ApplicationKnowledgeBootstrapService | None = Depends(get_knowledge_bootstrap),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> DocsCheckService:
+    if not bootstrap:
+        raise HTTPException(status_code=503, detail="Assistant knowledge bootstrap is not initialized")
+    return DocsCheckService(
+        bootstrap=bootstrap,
+        assistant=assistant,
+        ai_services=assistant.services.ai_services if assistant else None,
+        repo_root=bootstrap.repo_root,
+    )
+
+
+class DraftRequest(BaseModel):
+    source_path: str
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+@router.get("/docs-check/coverage", response_model=DocsCoverage)
+def docs_coverage(service: DocsCheckService = Depends(get_docs_check)) -> DocsCoverage:
+    return service.coverage()
+
+
+@router.post("/docs-check/draft", response_model=list[DraftQuestion])
+def draft_doc_questions(payload: DraftRequest, service: DocsCheckService = Depends(get_docs_check)) -> list[DraftQuestion]:
+    try:
+        return service.draft_questions(payload.source_path, limit=payload.limit)
+    except GoldenSetError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/docs-check/evaluate", response_model=EvaluateResult)
+def evaluate_doc_question(payload: EvaluateRequest, db: Session = Depends(get_db), service: DocsCheckService = Depends(get_docs_check)) -> EvaluateResult:
+    try:
+        return service.evaluate(payload, db)
+    except GoldenSetError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@router.post("/docs-check/tests", response_model=SaveTestsResult)
+def save_doc_tests(
+    payload: SaveTestsRequest,
+    db: Session = Depends(get_db),
+    service: DocsCheckService = Depends(get_docs_check),
+    security: SecurityConfig = Depends(get_security_config),
+) -> SaveTestsResult:
+    """Appends questions to the golden set. `dry_run` only returns the YAML and needs no file writes."""
+    if not payload.dry_run:
+        require_file_writes(security)
+    try:
+        return service.save_tests(payload, db)
+    except GoldenSetError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))

@@ -21,20 +21,17 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import yaml
-
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService, ApplicationKnowledgeDocument
-from backend.app.assistant.markdown_sections import split_sections
+from backend.app.assistant.golden import UNSCORED_CATEGORIES, Expectation, GoldenQuestion, contains_all, load_golden, validate_golden
 from backend.app.assistant.schemas import AssistantChatRequest, AssistantSource
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-GOLDEN_PATH = PROJECT_ROOT / "benchmark" / "assistant" / "golden_questions.yml"
 REPORT_DIR = PROJECT_ROOT / "benchmark" / "reports"
 
 # What each client actually sends: MemoryChatPage.tsx, grafana/backendClient.ts, and the
@@ -45,25 +42,6 @@ SURFACES: dict[str, dict[str, Any]] = {
     "api": {},
 }
 SCORED_METRICS = ("doc_hit@1", "doc_hit@3", "section_hit@3", "evidence_has_answer", "answer_has_answer")
-
-
-@dataclass(slots=True)
-class Expectation:
-    source: str
-    section: str | None = None
-
-
-@dataclass(slots=True)
-class GoldenQuestion:
-    id: str
-    category: str
-    question: str
-    contains: list[str] = field(default_factory=list)
-    expect: list[Expectation] = field(default_factory=list)
-
-    @property
-    def scored(self) -> bool:
-        return self.category != "out_of_scope"
 
 
 @dataclass(slots=True)
@@ -80,66 +58,6 @@ class QuestionResult:
     surface: str
     checks: dict[str, bool]
     top_sources: list[CitedSource]
-
-
-def load_golden(path: Path = GOLDEN_PATH) -> list[GoldenQuestion]:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))["questions"]
-    return [
-        GoldenQuestion(
-            id=item["id"],
-            category=item["category"],
-            question=item["question"],
-            contains=list(item.get("contains", [])),
-            expect=[Expectation(source=exp["source"], section=exp.get("section")) for exp in item.get("expect", [])],
-        )
-        for item in raw
-    ]
-
-
-def _contains_all(text: str, phrases: list[str]) -> bool:
-    lowered = text.lower()
-    return all(phrase.lower() in lowered for phrase in phrases)
-
-
-def _section_text(document: ApplicationKnowledgeDocument, section: str) -> str | None:
-    """Text of the section whose heading path contains `section`, including its subsections."""
-    sections = split_sections(document.content)
-    for index, candidate in enumerate(sections):
-        if section.lower() not in candidate.breadcrumb.lower():
-            continue
-        parts = [candidate.text]
-        for following in sections[index + 1 :]:
-            if following.level <= candidate.level:
-                break
-            parts.append(following.text)
-        return "\n".join(parts)
-    return None
-
-
-def validate_golden(questions: list[GoldenQuestion], documents: list[ApplicationKnowledgeDocument]) -> list[str]:
-    """Every problem with the golden set against the current corpus: duplicate ids, an expected
-    source or section that doesn't exist, or one that doesn't contain the expected phrases."""
-    by_path = {document.source_path: document for document in documents}
-    errors: list[str] = []
-    seen: set[str] = set()
-    for question in questions:
-        if question.id in seen:
-            errors.append(f"{question.id}: duplicate id")
-        seen.add(question.id)
-        if question.scored and not question.expect:
-            errors.append(f"{question.id}: scored question has no expectations")
-        for expectation in question.expect:
-            document = by_path.get(expectation.source)
-            if document is None:
-                errors.append(f"{question.id}: no knowledge document with source_path {expectation.source!r}")
-                continue
-            text = document.content if expectation.section is None else _section_text(document, expectation.section)
-            if text is None:
-                errors.append(f"{question.id}: {expectation.source} has no section matching {expectation.section!r}")
-            elif not _contains_all(text, question.contains):
-                where = expectation.source + (f" > {expectation.section}" if expectation.section else "")
-                errors.append(f"{question.id}: {where} does not contain all of {question.contains}")
-    return errors
 
 
 class _EmptyRows:
@@ -235,8 +153,8 @@ def evaluate(
                 "doc_hit@1": hit_within(1, need_section=False),
                 "doc_hit@3": hit_within(3, need_section=False),
                 "section_hit@3": hit_within(3, need_section=True),
-                "evidence_has_answer": bool(question.contains) and _contains_all(evidence_text, question.contains),
-                "answer_has_answer": bool(question.contains) and _contains_all(response.answer, question.contains),
+                "evidence_has_answer": bool(question.contains) and contains_all(evidence_text, question.contains),
+                "answer_has_answer": bool(question.contains) and contains_all(response.answer, question.contains),
             }
             results.append(QuestionResult(id=question.id, category=question.category, surface=surface, checks=checks, top_sources=top_sources[:3]))
     return results
@@ -246,7 +164,7 @@ def summarize(results: list[QuestionResult]) -> dict[str, dict[str, float]]:
     """Per surface, the fraction of scored questions passing each check."""
     summary: dict[str, dict[str, float]] = {}
     for surface in dict.fromkeys(result.surface for result in results):
-        scored = [result for result in results if result.surface == surface and result.category != "out_of_scope"]
+        scored = [result for result in results if result.surface == surface and result.category not in UNSCORED_CATEGORIES]
         summary[surface] = {
             metric: round(sum(result.checks[metric] for result in scored) / len(scored), 3) if scored else 0.0
             for metric in SCORED_METRICS
@@ -266,9 +184,12 @@ def render_markdown(summary: dict[str, dict[str, float]], results: list[Question
         if result.surface != "web":
             continue
         failed = [metric for metric, passed in result.checks.items() if not passed]
-        if result.category == "out_of_scope" or failed:
+        if result.category == "known_gap" and result.checks["section_hit@3"]:
+            lines.append(f"| {result.id} | known gap now cites its section - promote it to category docs | |")
+            continue
+        if result.category in UNSCORED_CATEGORIES or failed:
             top = "<br>".join(f"{cited.source_path} {('> ' + cited.section) if cited.section else ''} ({cited.score})" for cited in result.top_sources) or "none"
-            label = "report only" if result.category == "out_of_scope" else ", ".join(failed)
+            label = {"out_of_scope": "report only", "known_gap": "known gap"}.get(result.category, ", ".join(failed))
             lines.append(f"| {result.id} | {label} | {top} |")
     return "\n".join(lines) + "\n"
 
