@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test';
  *
  * Skipped: flaky in CI (times out waiting for a finding after injecting outliers) - the pattern
  * generator isn't seeded, so an unlucky random draw can land under the finding threshold even at
- * Magnitude/Outliers=15. See https://github.com/ramprasadgk9/operational-intelligence/issues/29.
+ * Magnitude/Outliers=15. See https://github.com/ramprasadgk9/ops-signals/issues/29.
  */
 test.skip('PyOD Outlier Lab creates a finding for strong injected outliers and not for a clean baseline', async ({ page }) => {
   await page.goto('/experiments/pyod-outlier-lab');

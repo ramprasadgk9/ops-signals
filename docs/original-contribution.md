@@ -37,7 +37,7 @@ Each built-in analyzer implements a published statistical or ML method (`docs/26
 
 ## Verifiable evidence
 
-- **Commit history and authorship**: the git history of [this repository](https://github.com/ramprasadgk9/operational-intelligence) attributes the design and implementation to the author.
+- **Commit history and authorship**: the git history of [this repository](https://github.com/ramprasadgk9/ops-signals) attributes the design and implementation to the author. The repository was originally named `operational-intelligence` and was renamed to `ops-signals` on 2026-09-25; the full commit history since 2026-07-12 was preserved across the rename.
 - **License**: [LICENSE](../LICENSE) names the author as copyright holder.
 - **Independent adoption**: self-reported by users in [ADOPTERS.md](../ADOPTERS.md) as it accumulates over time.
 - **Test and CI evidence** that the described mechanisms are implemented and exercised, not just documented: `.github/workflows/ci.yml`, `.github/workflows/integration.yml`, and the test suites under `tests/`.
