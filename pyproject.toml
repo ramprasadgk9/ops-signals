@@ -1,16 +1,29 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ops-signals"
-version = "0.1.0"
-description = "Batch Operational Signal Engine MVP"
+version = "0.3.0"
+description = "Vendor-neutral operational intelligence: explainable findings, cases and operational memory from time-series metrics"
 readme = "README.md"
 authors = [
     { name = "Ramprasad Goturkarnam" },
 ]
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["observability", "anomaly-detection", "time-series", "prometheus", "aiops", "incident-management"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+]
 dependencies = [
     "pandas>=3.0.3",
     "numpy>=2.5.1",
@@ -27,20 +40,31 @@ dependencies = [
     "pydantic>=2.11.7",
     "python-multipart>=0.0.20",
     "sentence-transformers>=5.0.0",
-    "pytest>=9.1.1",
+    "qdrant-client>=1.18.0",
+    "opentelemetry-proto>=1.30.0",
+    "prometheus_client>=0.21.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=9.1.1", "watchfiles>=0.24.0", "pytest-cov>=6.0.0"]
 
+[project.urls]
+Homepage = "https://github.com/ramprasadgk9/ops-signals"
+Documentation = "https://github.com/ramprasadgk9/ops-signals/tree/main/docs"
+Issues = "https://github.com/ramprasadgk9/ops-signals/issues"
+Changelog = "https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md"
+
 [project.scripts]
 ops-signals = "intelligence.cli:main"
 
-[tool.setuptools]
-packages = ["intelligence"]
+[tool.setuptools.packages.find]
+# experiments.analyzer_router is the production router the backend imports; the rest of
+# experiments/ is exploratory and stays out of the package.
+include = ["intelligence*", "backend*", "experiments", "experiments.analyzer_router"]
 
 [tool.setuptools.package-data]
-intelligence = []
+backend = ["migrations/*.sql"]
+"experiments.analyzer_router" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 # Scope discovery to tests/ — scripts/ holds manual CLI scripts (some, e.g.

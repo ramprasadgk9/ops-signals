@@ -22,6 +22,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
+{{/* OPS_SIGNALS_DATABASE_URL from database.urlSecret when a Secret is named, else database.url. */}}
+{{- define "ops-signals.databaseUrlEnv" -}}
+- name: OPS_SIGNALS_DATABASE_URL
+{{- if .Values.database.urlSecret.name }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.database.urlSecret.name }}
+      key: {{ .Values.database.urlSecret.key }}
+{{- else }}
+  value: {{ .Values.database.url | quote }}
+{{- end }}
+{{- end }}
+
 {{/* OPS_SIGNALS_API_TOKEN from security.apiTokenSecret; renders nothing when no Secret is named. */}}
 {{- define "ops-signals.apiTokenEnv" -}}
 {{- with .Values.security.apiTokenSecret.name }}

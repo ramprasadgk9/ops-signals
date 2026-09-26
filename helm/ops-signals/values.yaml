@@ -18,24 +18,34 @@ security:
   # the built-in localhost defaults.
   corsOrigins: ""
 
+# Postgres connection used by the backend and the MCP server. Set urlSecret.name to read the URL
+# from an existing Secret instead (recommended outside local testing): the plain url below then
+# isn't used, so no credentials end up in your values.
+database:
+  url: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
+  urlSecret:
+    name: ""
+    key: database-url
+
 backend:
   image:
-    repository: ghcr.io/your-org/ops-signals-backend
-    tag: "0.1.0"
+    repository: ghcr.io/ramprasadgk9/ops-signals-backend
+    # Empty = the chart's appVersion.
+    tag: ""
     pullPolicy: IfNotPresent
   replicas: 1
   service:
     type: ClusterIP
     port: 8000
   env:
-    OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
     OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
     OPS_SIGNALS_PROMETHEUS_URL: http://prometheus-server:9090
 
 web:
   image:
-    repository: ghcr.io/your-org/ops-signals-web
-    tag: "0.1.0"
+    repository: ghcr.io/ramprasadgk9/ops-signals-web
+    # Empty = the chart's appVersion.
+    tag: ""
     pullPolicy: IfNotPresent
   replicas: 1
   service:
@@ -44,12 +54,12 @@ web:
 
 mcp:
   image:
-    repository: ghcr.io/your-org/ops-signals-mcp
-    tag: "0.1.0"
+    repository: ghcr.io/ramprasadgk9/ops-signals-mcp
+    # Empty = the chart's appVersion.
+    tag: ""
     pullPolicy: IfNotPresent
   replicas: 1
   env:
-    OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
     OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
 
 ingress:

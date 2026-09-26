@@ -74,30 +74,38 @@ Qdrant:      http://localhost:6333
 
 ## Kubernetes Deployment
 
+The chart's defaults pull `ghcr.io/ramprasadgk9/ops-signals-{backend,web,mcp}` at the chart's
+`appVersion`, so a plain install uses the matching release:
+
 ```bash
+kubectl create secret generic ops-signals-db \
+  --from-literal=database-url='postgresql+psycopg://USER:PASSWORD@HOST:5432/ops_signals'
+
 helm upgrade --install ops-signals ./helm/ops-signals \
-  --set backend.image.repository=ghcr.io/ramprasadgk9/ops-signals-backend \
-  --set backend.image.tag=0.1.0 \
-  --set web.image.repository=ghcr.io/ramprasadgk9/ops-signals-web \
-  --set web.image.tag=0.1.0 \
-  --set mcp.image.repository=ghcr.io/ramprasadgk9/ops-signals-mcp \
-  --set mcp.image.tag=0.1.0
+  --set database.urlSecret.name=ops-signals-db
 ```
 
-Configure these values for a real environment:
+Without `database.urlSecret.name`, the chart uses `database.url`, which defaults to local-testing
+credentials. Configure these values for a real environment:
 
 ```yaml
+database:
+  urlSecret:
+    name: ops-signals-db
+    key: database-url
+
 backend:
   env:
-    OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://...
     OPS_SIGNALS_QDRANT_URL: http://...
     OPS_SIGNALS_PROMETHEUS_URL: http://...
 
 mcp:
   env:
-    OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://...
     OPS_SIGNALS_QDRANT_URL: http://...
 ```
+
+To pin a different image version, set `backend.image.tag`, `web.image.tag` and `mcp.image.tag`.
+See [`security-model.md`](security-model.md) for the API token (`security.apiTokenSecret`).
 
 ## Artifact Roles
 

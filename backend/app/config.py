@@ -1,16 +1,37 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import tomllib
+from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
 from intelligence.storage.database_url import database_url_from_env
+
+_PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
+
+
+def package_version() -> str:
+    """The project version, with pyproject.toml as the single source of truth.
+
+    A source checkout (and the Docker images, which copy pyproject.toml) read it directly, so a stale
+    editable install can't report an old version; an installed package falls back to its metadata.
+    """
+    try:
+        return tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        pass
+    try:
+        return version("ops-signals")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
 
 
 @dataclass(slots=True)
 class Settings:
     app_name: str = "Ops Signals API"
-    app_version: str = "1.0.0"
+    app_version: str = field(default_factory=package_version)
     database_url: str = database_url_from_env() or "postgresql+psycopg://ops_signals:ops_signals@localhost:5432/ops_signals"
 
 

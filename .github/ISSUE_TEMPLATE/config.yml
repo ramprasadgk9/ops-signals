@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/ramprasadgk9/ops-signals/discussions
+    about: Ask how to set something up, or share how you use Ops Signals.
+  - name: Security vulnerability
+    url: https://github.com/ramprasadgk9/ops-signals/blob/main/SECURITY.md
+    about: Please don't open a public issue. See SECURITY.md for how to report privately.
