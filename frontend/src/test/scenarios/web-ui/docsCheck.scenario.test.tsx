@@ -97,6 +97,23 @@ describe('Docs check', () => {
     expect(api.saveDocTests).toHaveBeenLastCalledWith(expect.any(Array), false);
   });
 
+  it('your verdict decides: Good saves a normal test even when another section was cited', async () => {
+    vi.mocked(api.draftDocQuestions).mockResolvedValue([
+      { source_path: 'docs/flags.md', section: 'Scope', question: 'limit a flag', contains: [], drafted_by: 'headings' },
+    ]);
+    vi.mocked(api.evaluateDocQuestion).mockResolvedValue({ cited_expected: false, rank: null, cited: [], answer: 'a', ai_synthesis_used: false });
+    renderPage();
+    await screen.findByText('1 of 2');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Draft questions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask' }));
+    await screen.findByText('No documentation cited');
+    fireEvent.click(screen.getByRole('button', { name: 'Good' }));
+
+    expect(screen.getByLabelText('Save as test')).toBeChecked();
+    await waitFor(() => expect(api.saveDocTests).toHaveBeenCalledWith([expect.objectContaining({ known_gap: false })], true));
+  });
+
   it('brings a flagged question over with its feedback ids', async () => {
     vi.mocked(api.flaggedQuestions).mockResolvedValue([
       { question: 'how do i scope a flag', count: 2, reasons: { wrong_section: 2 }, cited: [], feedback_ids: [4, 5], last_flagged_at: '' },

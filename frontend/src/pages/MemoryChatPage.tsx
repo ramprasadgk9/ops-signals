@@ -128,9 +128,10 @@ export function MemoryChatPage() {
   };
 
   return (
-    <Box sx={{ pb: 3, height: 'calc(100vh - 120px)', minHeight: 680 }}>
+    <Box sx={{ pb: 3, height: { xl: 'calc(100vh - 120px)' }, minHeight: { xl: 680 } }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1fr) 360px' }, gap: 2, height: '100%' }}>
-        <WorkspacePanel sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+        {/* Stacked below xl: the chat gets its own height instead of sharing one window-high box with the evidence panel. */}
+        <WorkspacePanel sx={{ display: 'flex', flexDirection: 'column', minHeight: { xs: 640, xl: 0 }, height: { xs: 'calc(100vh - 120px)', xl: 'auto' }, overflow: 'hidden' }}>
           <Box sx={{ px: 3, py: 2.2, borderBottom: `1px solid ${ui.border}` }}>
             <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5}>
               <Box>
@@ -437,10 +438,11 @@ function AnswerFeedback({ question, response, conversationId }: { question: stri
     <Stack spacing={1} sx={{ mt: 1.2, pt: 1.2, borderTop: `1px solid ${ui.border}` }}>
       <Stack direction="row" spacing={1} alignItems="center">
         <Typography sx={{ fontSize: 13, color: ui.muted }}>Did this answer your question?</Typography>
-        <IconButton size="small" aria-label="Yes, it did" aria-pressed={helpful === true} disabled={helpful !== null} onClick={() => choose(true)} sx={{ color: helpful === true ? '#15803d' : undefined }}>
+        {/* Not `disabled` once chosen: that greys out the icon and hides which one was picked. */}
+        <IconButton size="small" aria-label="Yes, it did" aria-pressed={helpful === true} aria-disabled={helpful !== null} onClick={() => choose(true)} sx={{ color: helpful === true ? '#15803d' : helpful === false ? '#cbd5e1' : undefined }}>
           {helpful === true ? <ThumbUpAltRoundedIcon fontSize="small" /> : <ThumbUpOffAltRoundedIcon fontSize="small" />}
         </IconButton>
-        <IconButton size="small" aria-label="No, it didn't" aria-pressed={helpful === false} disabled={helpful !== null} onClick={() => choose(false)} sx={{ color: helpful === false ? '#c2410c' : undefined }}>
+        <IconButton size="small" aria-label="No, it didn't" aria-pressed={helpful === false} aria-disabled={helpful !== null} onClick={() => choose(false)} sx={{ color: helpful === false ? '#c2410c' : helpful === true ? '#cbd5e1' : undefined }}>
           {helpful === false ? <ThumbDownAltRoundedIcon fontSize="small" /> : <ThumbDownOffAltRoundedIcon fontSize="small" />}
         </IconButton>
         {helpful === true && send.isSuccess ? <Typography sx={{ fontSize: 13, color: '#15803d', fontWeight: 700 }}>Thanks</Typography> : null}

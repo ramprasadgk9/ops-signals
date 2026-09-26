@@ -101,7 +101,7 @@ def test_without_ai_questions_are_drafted_from_untested_headings(tmp_path: Path)
         ("Scope", ["service: checkout-api"], "headings"),
         ("History", [], "headings"),
     ]
-    assert drafts[0].question == "Feature flags: what about scope?"
+    assert drafts[0].question == "What should I know about scope in Feature flags?"
 
 
 class _ScriptedClient(LLMClient):
@@ -175,7 +175,7 @@ def test_a_dry_run_returns_the_yaml_without_writing(tmp_path: Path) -> None:
 
     result = _service(repo).save_tests(request, db=None)
 
-    assert result.written is False and result.saved_ids == ["flags-can-limit-flag"]
+    assert result.written is False and result.saved_ids == ["flags-scope"]
     assert '- {source: "docs/flags.md", section: "Scope"}' in result.yaml
     assert (repo / GOLDEN_RELATIVE_PATH).read_text(encoding="utf-8") == GOLDEN
 
@@ -193,8 +193,8 @@ def test_saved_tests_are_appended_and_the_file_still_parses(tmp_path: Path) -> N
     questions = {question.id: question for question in load_golden(repo / GOLDEN_RELATIVE_PATH)}
 
     assert result.written is True
-    assert questions["flags-what-scope"].question == 'what\'s "scope"?'
-    assert questions["flags-when-were-flags-added"].category == "known_gap"
+    assert questions["flags-scope"].question == 'what\'s "scope"?'
+    assert questions["flags-history"].category == "known_gap"
     assert "existing-flag" in questions
 
 
@@ -213,7 +213,7 @@ def test_ids_stay_unique(tmp_path: Path) -> None:
 
     result = _service(repo).save_tests(SaveTestsRequest(tests=[test, test]), db=None)
 
-    assert result.saved_ids == ["flags-how-enable-flag", "flags-how-enable-flag-2"]
+    assert result.saved_ids == ["flags-enabling-flag", "flags-enabling-flag-2"]
     assert len({question.id for question in load_golden(repo / GOLDEN_RELATIVE_PATH)}) == 3
 
 

@@ -36,8 +36,10 @@ const reasonLabels: Record<string, string> = {
 let nextKey = 0;
 const newKey = () => `c${(nextKey += 1)}`;
 
+// Your verdict decides; without one, an answer that didn't cite its section counts as a gap.
 function isKnownGap(candidate: Candidate): boolean {
-  return candidate.verdict === 'wrong' || (candidate.evaluation !== undefined && !candidate.evaluation.cited_expected);
+  if (candidate.verdict) return candidate.verdict === 'wrong';
+  return candidate.evaluation !== undefined && !candidate.evaluation.cited_expected;
 }
 
 function toTest(candidate: Candidate): NewDocTest {

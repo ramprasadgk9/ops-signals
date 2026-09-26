@@ -34,6 +34,8 @@ DRAFT_SECTION_CHARS = 700
 # A must-contain phrase longer than this is a sentence, not a phrase.
 MAX_PHRASE_CHARS = 80
 _CODE_SPAN = re.compile(r"`([^`\n]{2,60})`")
+_STOP_ID_WORDS = frozenset("the and for with how what why does can you".split())
+_QUESTION_WORDS = frozenset("how why what when where which who can does do is are should".split())
 
 
 # --- API models ------------------------------------------------------------------------------------
@@ -217,7 +219,7 @@ class DocsCheckService:
         taken = {question.id for question in existing}
         new_questions: list[GoldenQuestion] = []
         for test in request.tests:
-            question_id = _unique_id(test.source_path, test.question, taken)
+            question_id = _unique_id(test.source_path, test.question, test.section, taken)
             taken.add(question_id)
             new_questions.append(
                 GoldenQuestion(
@@ -336,16 +338,23 @@ def _draft_from_headings(document: ApplicationKnowledgeDocument, sections: list[
     phrase. Stiffer than real users' wording - edit them before saving."""
     drafts: list[DraftQuestion] = []
     for section in sections[:limit]:
-        heading = re.sub(r"^[\d.]+\s+", "", section.heading).strip().rstrip(":")
-        question = heading if heading.endswith("?") else f"{document.title}: what about {heading[0].lower() + heading[1:]}?"
+        heading = re.sub(r"^[\d.]+\s+", "", section.heading).strip().rstrip(":?")
+        topic = heading[0].lower() + heading[1:] if heading[:2] != heading[:2].upper() else heading
+        if heading.split(" ", 1)[0].lower() in _QUESTION_WORDS:
+            question = f"{heading[0].upper()}{topic[1:]}?"
+        else:
+            question = f"What should I know about {topic} in {document.title}?"
         code = _CODE_SPAN.search(_body(section))
         drafts.append(DraftQuestion(source_path=document.source_path, section=_label(section, document.title), question=question, contains=[code.group(1)] if code else [], drafted_by="headings"))
     return drafts
 
 
-def _unique_id(source_path: str, question: str, taken: set[str]) -> str:
-    stem = re.sub(r"[^a-z0-9]+", "-", Path(source_path).stem.lower()).strip("-")
-    words = [word for word in re.findall(r"[a-z0-9]+", question.lower()) if len(word) > 2][:4]
+def _unique_id(source_path: str, question: str, section: str | None, taken: set[str]) -> str:
+    """doc stem + the section's last heading (else the question's first words): short, and stable
+    when the question is reworded."""
+    stem = re.sub(r"[^a-z0-9]+", "-", re.sub(r"^\d+-", "", Path(source_path).stem.lower())).strip("-")
+    source = section.split(">")[-1] if section else question
+    words = [word for word in re.findall(r"[a-z0-9]+", source.lower()) if len(word) > 2 and word not in _STOP_ID_WORDS][:4]
     base = "-".join([stem, *words])[:60].strip("-") or "question"
     candidate, suffix = base, 2
     while candidate in taken:
