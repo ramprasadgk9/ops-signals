@@ -19,11 +19,12 @@ spec:
     spec:
       containers:
         - name: mcp
-          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag }}"
+          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
           stdin: true
           tty: true
           env:
+            {{- include "ops-signals.databaseUrlEnv" . | nindent 12 }}
             {{- range $key, $value := .Values.mcp.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}

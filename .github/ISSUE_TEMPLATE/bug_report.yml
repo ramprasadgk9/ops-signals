@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in Ops Signals doesn't work as documented.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Steps, and sample input (a small CSV or the Prometheus query) when you can share it.
+      placeholder: |
+        1. Upload sample_data/...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release (e.g. 0.3.0) or commit you're running. The API docs page (`/docs` on the backend) shows it next to the title.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Web UI
+        - Grafana plugin
+        - API
+        - MCP server
+        - Demo (docker-compose.demo.yml)
+        - Helm chart
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Data source
+      options:
+        - CSV upload
+        - Prometheus
+        - OTLP
+        - Datadog
+        - Not applicable
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Backend logs, browser console errors or screenshots. Remove tokens and hostnames first.
+      render: text

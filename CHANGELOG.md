@@ -1,7 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - Unreleased
 
+- Added OTLP/HTTP metrics ingestion: `POST /api/otlp/v1/metrics` accepts pushed metrics (Gauge and
+  Sum), with volume and cardinality limits, and the scheduler analyzes them on its normal cycle.
+  `GET /api/otlp/status` reports what was received. See
+  [`docs/design/otlp-metrics-ingestion-plan.md`](docs/design/otlp-metrics-ingestion-plan.md).
+- Added Slack notifications for high-importance findings (`OPS_SIGNALS_SLACK_ENABLED`,
+  `OPS_SIGNALS_SLACK_WEBHOOK_URL`, `OPS_SIGNALS_SLACK_MIN_IMPORTANCE`).
+- Added alert enrichment: Alertmanager sends alerts to `POST /api/integrations/alertmanager` (or
+  any tool to `POST /api/alerts`), and Ops Signals analyzes the alert's series and posts one Slack
+  message with what happened, what changed and similar past cases. Change events such as deploys
+  are recorded through `POST /api/events`. Off unless `OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED=true`.
+  See [`docs/alert-enrichment.md`](docs/alert-enrichment.md).
+- Added a one-command demo, `docker compose -f docker-compose.demo.yml up`, that starts with an
+  incident already in progress. See [`docs/demo.md`](docs/demo.md).
+- The API version now comes from `pyproject.toml`, so the package, the API and the release tag
+  report the same version. It was fixed at `1.0.0`.
+- Helm: images default to `ghcr.io/ramprasadgk9/ops-signals-*` at the chart's `appVersion`, and
+  the database URL can come from a Secret (`database.urlSecret`). **Behavior change:** the URL
+  moved from `backend.env` / `mcp.env` to `database.url`.
 - **Behavior change:** `POST /api/testing/reset-operational-data` is gone unless
   `OPS_SIGNALS_ENABLE_TESTING_API=true`, and the endpoints that write files on the server (saving,
   promoting and deleting analyzers, generating adapter code, saving behavior definitions to a pack)
