@@ -23,7 +23,7 @@ import { makeRunId, seedNormalizedPoints, cleanupRun } from '../../shared/db';
  */
 
 // The router's scoring id and the runtime/pipeline analyzer id it executes as aren't always the
-// same string (see docs/JIRA-456-review.md and benchmark/router_benchmark.py's
+// same string (see docs/16-analyzer-recommendation.md and benchmark/router_benchmark.py's
 // ROUTER_TO_PIPELINE_ANALYZER_ID) - "Copy snippet for X" on this page renders the pipeline id via
 // service.py's _public_analyzer_id(), while expectedOutcomes below is keyed by router id.
 const ROUTER_TO_PIPELINE_ANALYZER_ID: Record<string, string> = { trend_regression: 'trend' };

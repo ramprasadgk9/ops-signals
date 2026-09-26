@@ -31,8 +31,8 @@ export type AnalyzerFixture = {
 };
 
 // analyzer_id values below match experiments/analyzer_router/analyzer_registry.yaml exactly
-// (the router's ids, not the narrower set of runtime-executable ids — see docs/JIRA-456-review.md
-// on router-to-runtime aliasing, e.g. "trend_regression" routes to but is distinct from executable "trend").
+// (the router's ids, not the narrower set of runtime-executable ids — see docs/16-analyzer-recommendation.md
+// "Router-to-pipeline mapping", e.g. "trend_regression" routes to but is distinct from executable "trend").
 export const analyzerFixtures: Record<string, AnalyzerFixture> = {
   ruptures: {
     file: '01_ruptures_abrupt_regime_shift.csv',

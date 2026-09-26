@@ -206,7 +206,7 @@ def evaluate_detection_accuracy(
 
     Returns None (not a failure) when the scenario has no expected_event to check, or when the
     required analyzer has no real runnable implementation yet (e.g. kats/darts/river/alibi_detect
-    are router-only today - see benchmark/ADVANCED_ROUTER_GAPS.md).
+    are router-only today - see docs/16-analyzer-recommendation.md, "Router-only analyzers").
     """
     expected_event = ground_truth.get("expected_event")
     if not expected_event or not required_recommended:
