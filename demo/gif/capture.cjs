@@ -144,7 +144,7 @@ async function main() {
   await page.setContent(
     card([['cmd', '$ docker compose -f docker-compose.demo.yml up']], {
       title: 'Try it yourself',
-      footer: 'github.com/ramprasadgk9/operational-intelligence',
+      footer: 'github.com/ramprasadgk9/ops-signals',
     }),
   );
   await shot(3.5);

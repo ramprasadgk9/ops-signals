@@ -1,8 +1,8 @@
 # Ops Signals
 
-[![CI](https://github.com/ramprasadgk9/operational-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/ramprasadgk9/operational-intelligence/actions/workflows/ci.yml)
+[![CI](https://github.com/ramprasadgk9/ops-signals/actions/workflows/ci.yml/badge.svg)](https://github.com/ramprasadgk9/ops-signals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/ramprasadgk9/operational-intelligence)](https://github.com/ramprasadgk9/operational-intelligence/releases)
+[![Release](https://img.shields.io/github/v/release/ramprasadgk9/ops-signals)](https://github.com/ramprasadgk9/ops-signals/releases)
 
 Ops Signals is a vendor-neutral Operational Intelligence framework that transforms time-series data into explainable findings, investigation cases, and searchable operational memory.
 
@@ -13,8 +13,8 @@ It is designed to help teams move from raw metrics to actionable operational con
 ### Try it in one command
 
 ```bash
-git clone https://github.com/ramprasadgk9/operational-intelligence.git
-cd operational-intelligence
+git clone https://github.com/ramprasadgk9/ops-signals.git
+cd ops-signals
 docker compose -f docker-compose.demo.yml up
 ```
 
@@ -407,8 +407,8 @@ node --version
 ### 6.2 Clone the Repository
 
 ```bash
-git clone https://github.com/ramprasadgk9/operational-intelligence.git
-cd operational-intelligence
+git clone https://github.com/ramprasadgk9/ops-signals.git
+cd ops-signals
 ```
 
 ### 6.3 Run Setup
@@ -755,7 +755,7 @@ Example MCP client configuration:
     "ops-signals": {
       "command": "python",
       "args": ["-m", "intelligence.cli", "mcp"],
-      "cwd": "/path/to/operational-intelligence"
+      "cwd": "/path/to/ops-signals"
     }
   }
 }

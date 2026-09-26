@@ -54,7 +54,7 @@ pwd
 Expected output ends with the repository name:
 
 ```text
-.../operational-intelligence
+.../ops-signals
 ```
 
 ## 1. Start The Backend

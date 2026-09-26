@@ -5,8 +5,8 @@ Prometheus alert, and a similar incident from three weeks ago. You don't need Py
 a Slack workspace, or any data of your own.
 
 ```bash
-git clone https://github.com/ramprasadgk9/operational-intelligence.git
-cd operational-intelligence
+git clone https://github.com/ramprasadgk9/ops-signals.git
+cd ops-signals
 docker compose -f docker-compose.demo.yml up
 ```
 
