@@ -24,6 +24,9 @@
   questions for them (with AI or from headings), ask each and see which section the assistant
   cited, and save the good ones - or the failing ones, as known gaps - to the golden set. Thumbs-down
   questions are listed there too. Saving needs `OPS_SIGNALS_ALLOW_FILE_WRITES=true`.
+- The Ask Ops Signals first screen's "About your systems" examples now name this install's own
+  findings, cases and services, so each one finds evidence when clicked. With nothing analysed yet
+  it offers Load demo data and Connect a source instead of questions that came back empty.
 - The backend and MCP images now include `README.md`, so Ask Ops Signals answers from it in Docker
   too; it was only indexed on local installs.
 - Added OTLP/HTTP metrics ingestion: `POST /api/otlp/v1/metrics` accepts pushed metrics (Gauge and

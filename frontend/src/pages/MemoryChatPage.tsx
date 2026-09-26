@@ -17,6 +17,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { api } from '../api/queries';
 import { ErrorState } from '../components/ErrorState';
 import { DOCS_CHECK_PATH } from './DocsCheckPage';
+import { LoadDemoDataButton } from '../components/IntegrationActions';
 import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
 import type { AssistantChatResponse, AssistantEvidenceGroup, AssistantFeedbackReason, KnowledgeChanges, KnowledgeReindexResult, KnowledgeStatus } from '../types';
@@ -29,17 +30,13 @@ type ChatMessage = {
   question?: string;
 };
 
-const starterGroups = [
-  {
-    title: 'About your systems',
-    hint: 'Findings, cases and behaviors from analysed data',
-    prompts: ['What changed yesterday?', 'Have we seen this before?', 'Any cases related to trend signal?', 'What caused checkout CPU trend?'],
-  },
-  {
-    title: 'About Ops Signals',
-    hint: 'Setup and features, answered from the docs',
-    prompts: ['How do I turn on API authentication?', 'Where do I point my OTel Collector?', 'How does Behavior Intelligence work?', 'Explain STUMPY'],
-  },
+// Docs are always there, so these always have an answer. "About your systems" examples come from
+// this install's own findings and cases (GET /api/assistant/starter-questions).
+const docsPrompts = [
+  'How do I turn on API authentication?',
+  'Where do I point my OTel Collector?',
+  'How does Behavior Intelligence work?',
+  'Which analyzers are there and what does each find?',
 ];
 
 const feedbackReasons: Array<{ value: AssistantFeedbackReason; label: string }> = [
@@ -186,15 +183,14 @@ export function MemoryChatPage() {
                   <Typography sx={{ color: ui.muted }}>Answers show the evidence they come from: a finding, a case, or the doc section they quote.</Typography>
                 </Box>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
-                  {starterGroups.map((group) => (
-                    <Box key={group.title} sx={{ p: 2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#fff' }}>
-                      <Typography sx={{ fontWeight: 850 }}>{group.title}</Typography>
-                      <Typography sx={{ color: ui.muted, fontSize: 13, mb: 1.2 }}>{group.hint}</Typography>
-                      <Stack spacing={1} alignItems="flex-start">
-                        {group.prompts.map((prompt) => <Chip key={prompt} label={prompt} clickable onClick={() => sendMessage(prompt)} sx={{ fontWeight: 700 }} />)}
-                      </Stack>
-                    </Box>
-                  ))}
+                  <SystemsExamples onAsk={sendMessage} />
+                  <Box sx={{ p: 2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#fff' }}>
+                    <Typography sx={{ fontWeight: 850 }}>About Ops Signals</Typography>
+                    <Typography sx={{ color: ui.muted, fontSize: 13, mb: 1.2 }}>Setup and features, answered from the docs</Typography>
+                    <Stack spacing={1} alignItems="flex-start">
+                      {docsPrompts.map((prompt) => <Chip key={prompt} label={prompt} clickable onClick={() => sendMessage(prompt)} sx={{ fontWeight: 700 }} />)}
+                    </Stack>
+                  </Box>
                 </Box>
               </Stack>
             ) : (
@@ -467,6 +463,44 @@ function AnswerFeedback({ question, response, conversationId }: { question: stri
         </Stack>
       ) : null}
     </Stack>
+  );
+}
+
+function SystemsExamples({ onAsk }: { onAsk: (question: string) => void }) {
+  const starters = useQuery({ queryKey: ['assistant-starters'], queryFn: api.starterQuestions, retry: false });
+  const empty = starters.data && !starters.data.has_data;
+  return (
+    <Box sx={{ p: 2, border: empty ? '1px dashed #b8c2d3' : `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: empty ? '#fafbfd' : '#fff' }}>
+      <Typography sx={{ fontWeight: 850 }}>About your systems</Typography>
+      {starters.isPending ? (
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.2, color: ui.muted }}>
+          <CircularProgress size={16} />
+          <Typography sx={{ fontSize: 13 }}>Looking at what's been analysed…</Typography>
+        </Stack>
+      ) : starters.isError ? (
+        <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.5 }}>
+          Couldn't load examples. Ask about a service, metric, finding or case by name.
+        </Typography>
+      ) : empty ? (
+        <Stack spacing={1.2} sx={{ mt: 0.8 }}>
+          <Typography sx={{ fontSize: 14 }}>Nothing has been analysed yet, so there are no findings or cases to ask about.</Typography>
+          <Typography sx={{ color: ui.muted, fontSize: 13 }}>Load the demo data to try it in seconds, or connect Prometheus, OTLP or Alertmanager.</Typography>
+          <LoadDemoDataButton />
+          <Button component={RouterLink} to="/integrations" size="small" sx={{ alignSelf: 'flex-start', p: 0, textTransform: 'none', fontWeight: 750 }}>
+            Connect a source →
+          </Button>
+        </Stack>
+      ) : (
+        <>
+          <Typography sx={{ color: ui.muted, fontSize: 13, mb: 1.2 }}>From what was analysed most recently</Typography>
+          <Stack spacing={1} alignItems="flex-start">
+            {starters.data.questions.map((question) => (
+              <Chip key={question} label={question} clickable onClick={() => onAsk(question)} sx={{ fontWeight: 700, maxWidth: '100%', height: 'auto', py: 0.6, '& .MuiChip-label': { whiteSpace: 'normal' } }} />
+            ))}
+          </Stack>
+        </>
+      )}
+    </Box>
   );
 }
 

@@ -48,6 +48,7 @@ import type {
   ValidationResult,
   KnowledgeReindexResult,
   KnowledgeStatus,
+  StarterQuestions,
   AssistantFeedback,
   AssistantFeedbackCreate,
   AssistantFeedbackUpdate,
@@ -255,6 +256,7 @@ export const api = {
     postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload),
   reindexKnowledge: () => postJson<Record<string, never>, KnowledgeReindexResult>('/api/assistant/knowledge/bootstrap', {}),
   knowledgeStatus: () => getJson<KnowledgeStatus>('/api/assistant/knowledge/status'),
+  starterQuestions: () => getJson<StarterQuestions>('/api/assistant/starter-questions'),
   sendAssistantFeedback: (payload: AssistantFeedbackCreate) => postJson<AssistantFeedbackCreate, AssistantFeedback>('/api/assistant/feedback', payload),
   updateAssistantFeedback: (id: number, payload: AssistantFeedbackUpdate) =>
     patchJson<AssistantFeedbackUpdate, AssistantFeedback>(`/api/assistant/feedback/${id}`, payload),

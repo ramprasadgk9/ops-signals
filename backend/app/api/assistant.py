@@ -14,6 +14,7 @@ from backend.app.assistant.knowledge_bootstrap import (
     ApplicationKnowledgeStatus,
 )
 from backend.app.assistant import feedback
+from backend.app.assistant.starters import StarterQuestions, starter_questions
 from backend.app.assistant.docs_check import (
     DocsCheckService,
     DocsCoverage,
@@ -168,3 +169,9 @@ def save_doc_tests(
         return service.save_tests(payload, db)
     except GoldenSetError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/starter-questions", response_model=StarterQuestions)
+def get_starter_questions(db: Session = Depends(get_db)) -> StarterQuestions:
+    """Example questions for the first screen, built from this install's findings and cases."""
+    return starter_questions(db)

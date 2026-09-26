@@ -15,6 +15,8 @@ vi.mock('../../../api/queries', () => ({
     flaggedQuestions: vi.fn(),
     sendAssistantFeedback: vi.fn(),
     updateAssistantFeedback: vi.fn(),
+    starterQuestions: vi.fn(),
+    runCsvUpload: vi.fn(),
   },
 }));
 
@@ -71,6 +73,7 @@ const reindexButton = () => screen.getByRole('button', { name: /^reindex docs$/i
 
 describe('Ask Ops Signals reindex', () => {
   beforeEach(() => {
+    vi.mocked(api.starterQuestions).mockResolvedValue({ has_data: false, questions: [] });
     vi.mocked(api.knowledgeStatus).mockResolvedValue(status());
     vi.mocked(api.flaggedQuestions).mockResolvedValue([]);
   });
@@ -142,6 +145,7 @@ describe('Ask Ops Signals reindex', () => {
 
 describe('Ask Ops Signals answer feedback', () => {
   beforeEach(() => {
+    vi.mocked(api.starterQuestions).mockResolvedValue({ has_data: false, questions: [] });
     vi.mocked(api.knowledgeStatus).mockResolvedValue(status());
     vi.mocked(api.flaggedQuestions).mockResolvedValue([]);
     vi.mocked(api.assistantChat).mockResolvedValue(answer);
@@ -189,5 +193,38 @@ describe('Ask Ops Signals answer feedback', () => {
     renderPage();
 
     expect(await screen.findByRole('link', { name: /1 question flagged as not answered/i })).toHaveAttribute('href', '/assistant/docs-check');
+  });
+});
+
+describe('Ask Ops Signals example questions', () => {
+  beforeEach(() => {
+    vi.mocked(api.knowledgeStatus).mockResolvedValue(status());
+    vi.mocked(api.flaggedQuestions).mockResolvedValue([]);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('offers a next step instead of system questions when nothing is analysed yet', async () => {
+    vi.mocked(api.starterQuestions).mockResolvedValue({ has_data: false, questions: [] });
+    renderPage();
+
+    expect(await screen.findByText(/Nothing has been analysed yet/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Load demo data' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /connect a source/i })).toHaveAttribute('href', '/integrations');
+    expect(screen.queryByText('What changed yesterday?')).not.toBeInTheDocument();
+    expect(screen.getByText('Which analyzers are there and what does each find?')).toBeInTheDocument();
+  });
+
+  it('asks about the findings and cases this install actually has', async () => {
+    vi.mocked(api.starterQuestions).mockResolvedValue({
+      has_data: true,
+      questions: ['What changed recently on payments-api?', 'Have we seen a case like "Slow checkout after deploy v2.3" before?'],
+    });
+    vi.mocked(api.assistantChat).mockResolvedValue(answer);
+    renderPage();
+
+    fireEvent.click(await screen.findByText('What changed recently on payments-api?'));
+
+    await waitFor(() => expect(api.assistantChat).toHaveBeenCalledWith(expect.objectContaining({ message: 'What changed recently on payments-api?' })));
+    expect(screen.queryByText(/Nothing has been analysed yet/)).not.toBeInTheDocument();
   });
 });

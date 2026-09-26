@@ -808,6 +808,11 @@ export type KnowledgeReindexResult = {
   duration_ms: number;
 };
 
+export type StarterQuestions = {
+  has_data: boolean;
+  questions: string[];
+};
+
 export type KnowledgeChanges = {
   added: string[];
   changed: string[];

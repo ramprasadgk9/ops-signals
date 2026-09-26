@@ -164,6 +164,18 @@ Any Ollama chat-capable model works - there's no dependency on a specific one, a
 safety net above means a smaller/weaker model degrades in quality of prose, not correctness of
 what evidence gets found.
 
+## First-Screen Examples
+
+"What can I ask?" splits its example questions in two. **About Ops Signals** is a fixed list answered
+from the docs, which are always there. **About your systems** comes from
+`GET /api/assistant/starter-questions`, built from what this install has analysed: the service with
+the most recent findings ("What changed recently on payments-api?"), the newest finding and case by
+title, and "Did any metric stop reporting?". A question whose source is missing is left out, and
+the placeholder service `unknown` is never named. With nothing analysed yet, the card offers
+**Load demo data** and **Connect a source** instead of questions that could only come back empty.
+Examples avoid dates ("yesterday"), which the assistant can't filter by yet, and "what caused",
+which it can't claim.
+
 ## Follow-Up Suggestions
 
 Suggested follow-up questions are generated from the top retrieved source's actual title,
