@@ -129,6 +129,9 @@ export type BuildAutonomousDashboardInput = {
   policyRuns?: AutonomousPolicyRun[];
   previewResult?: AutonomousPreviewResponse | null;
   runResult?: AutonomousRunResponse | null;
+  // Analysis run ids of the latest finished scheduled run. Used to scope findings and cases when
+  // there is no manual run in this page (which always takes priority).
+  scheduledRunAnalysisRunIds?: string[];
   findingHref?: (finding: Finding) => string;
   caseHref?: (caseItem: AutonomousDashboardCase) => string;
 };
@@ -241,6 +244,12 @@ function buildExclusionReasons(preview: AutonomousPreviewResponse | null): Auton
   return [...buckets.values()].sort((a, b) => b.count - a.count);
 }
 
+// A run that has finished (successfully or not) - one still in progress has no complete set of
+// jobs to show yet.
+export function latestFinishedPolicyRun(policyRuns: AutonomousPolicyRun[] = []) {
+  return latestPolicyRun(policyRuns.filter((run) => Boolean(run.completed_at)));
+}
+
 function latestPolicyRun(policyRuns: AutonomousPolicyRun[] = []) {
   return [...policyRuns].sort((a, b) => {
     const aTime = new Date(a.completed_at ?? a.started_at ?? a.created_at ?? 0).getTime();
@@ -345,7 +354,9 @@ export function buildAutonomousDashboardData(input: BuildAutonomousDashboardInpu
   const policyRun = latestPolicyRun(input.policyRuns);
   const preview = input.previewResult ?? null;
   const run = input.runResult ?? null;
-  const currentAnalysisRunIds = new Set((run?.results ?? []).map((result) => result.analysis_run_id).filter(Boolean) as string[]);
+  const currentAnalysisRunIds = new Set(
+    (run ? run.results.map((result) => result.analysis_run_id) : input.scheduledRunAnalysisRunIds ?? []).filter(Boolean) as string[],
+  );
   const hasCurrentRunScope = currentAnalysisRunIds.size > 0;
 
   const discovered = numberOrNull(policyRun?.metrics_discovered) ?? numberOrNull(preview?.metrics_discovered);

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { AutonomousConfigurePanel } from '../autonomous/AutonomousConfigurePanel';
 import { AutonomousMonitoringDashboard } from '../autonomous/AutonomousMonitoringDashboard';
-import { buildAutonomousDashboardData, type AutonomousPreviewResponse, type AutonomousRunResponse, type MonitoringCategory } from '../autonomous/dashboardModel';
+import { buildAutonomousDashboardData, latestFinishedPolicyRun, type AutonomousPreviewResponse, type AutonomousRunResponse, type MonitoringCategory } from '../autonomous/dashboardModel';
 import { PageHeader } from '../standalone/components';
 
 export function AutonomousMonitoringPage() {
@@ -18,6 +18,7 @@ export function AutonomousMonitoringPage() {
   const refreshAutonomousData = () => {
     void queryClient.invalidateQueries({ queryKey: ['overview-autonomous-policy-runs'] });
     void queryClient.invalidateQueries({ queryKey: ['autonomous-policy-runs'] });
+    void queryClient.invalidateQueries({ queryKey: ['overview-autonomous-policy-run-jobs'] });
     void queryClient.invalidateQueries({ queryKey: ['findings-overview', '24h'] });
     void queryClient.invalidateQueries({ queryKey: ['cases-overview'] });
     void queryClient.invalidateQueries({ queryKey: ['behavior-findings-overview'] });
@@ -28,35 +29,51 @@ export function AutonomousMonitoringPage() {
     refreshAutonomousData();
   };
 
-  const findingsQuery = useQuery({
-    queryKey: ['findings-overview', '24h'],
-    queryFn: () => api.findings(undefined, undefined, undefined, '24h'),
-    enabled: Boolean(runResult),
-  });
-  const casesQuery = useQuery({
-    queryKey: ['cases-overview'],
-    queryFn: () => api.cases(200),
-    enabled: Boolean(runResult),
-  });
-  const behaviorsQuery = useQuery({
-    queryKey: ['behavior-findings-overview'],
-    queryFn: () => api.behaviorFindings(),
-    enabled: Boolean(runResult),
-  });
+  // The overview shows a manual run from this page when there is one, and otherwise the latest
+  // finished scheduled run. It used to show only manual runs, and once a scheduled policy was
+  // saved the page no longer offers a manual Run button - so the overview stayed empty.
   const policyRunsQuery = useQuery({
     queryKey: ['overview-autonomous-policy-runs'],
     queryFn: () => api.autonomousPolicyRuns(10),
     retry: false,
-    enabled: Boolean(runResult),
+  });
+  const scheduledRun = runResult ? undefined : latestFinishedPolicyRun(policyRunsQuery.data ?? []);
+  const scheduledRunJobsQuery = useQuery({
+    queryKey: ['overview-autonomous-policy-run-jobs', scheduledRun?.id],
+    queryFn: () => api.autonomousPolicyRunJobs(scheduledRun!.id),
+    retry: false,
+    enabled: Boolean(scheduledRun),
+  });
+  const hasRun = Boolean(runResult || scheduledRun);
+
+  const findingsQuery = useQuery({
+    queryKey: ['findings-overview', '24h'],
+    queryFn: () => api.findings(undefined, undefined, undefined, '24h'),
+    enabled: hasRun,
+  });
+  const casesQuery = useQuery({
+    queryKey: ['cases-overview'],
+    queryFn: () => api.cases(200),
+    enabled: hasRun,
+  });
+  const behaviorsQuery = useQuery({
+    queryKey: ['behavior-findings-overview'],
+    queryFn: () => api.behaviorFindings(),
+    enabled: hasRun,
   });
 
-  const dashboardState = !runResult
-    ? 'idle'
-    : findingsQuery.isLoading || casesQuery.isLoading || behaviorsQuery.isLoading || policyRunsQuery.isLoading
+  const dashboardState = !hasRun
+    ? policyRunsQuery.isLoading ? 'loading' : 'idle'
+    : findingsQuery.isLoading || casesQuery.isLoading || behaviorsQuery.isLoading || policyRunsQuery.isLoading || scheduledRunJobsQuery.isLoading
       ? 'loading'
       : findingsQuery.error || casesQuery.error || behaviorsQuery.error
         ? 'error'
         : 'ready';
+
+  const scheduledRunAnalysisRunIds = (scheduledRunJobsQuery.data ?? [])
+    .map((job) => job.analysis_run_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  const scheduledWindow = (scheduledRun?.policy_snapshot?.execution_policy as { analysis_window?: string } | undefined)?.analysis_window;
 
   const dashboardData = buildAutonomousDashboardData({
     findings: findingsQuery.data ?? [],
@@ -66,6 +83,7 @@ export function AutonomousMonitoringPage() {
     policyRuns: policyRunsQuery.data ?? [],
     previewResult,
     runResult,
+    scheduledRunAnalysisRunIds,
     findingHref: () => '/findings?window=24h',
     caseHref: (caseItem) => `/cases/${caseItem.id}`,
   });
@@ -86,7 +104,7 @@ export function AutonomousMonitoringPage() {
         <Box id="autonomous-overview">
           <AutonomousMonitoringDashboard
             data={dashboardData}
-            context={{ timeWindow: runResult?.analysis_window, policy: 'Current monitoring policy' }}
+            context={{ timeWindow: runResult?.analysis_window ?? scheduledWindow, policy: 'Current monitoring policy' }}
             state={dashboardState}
             error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
             onRetry={refreshAutonomousData}

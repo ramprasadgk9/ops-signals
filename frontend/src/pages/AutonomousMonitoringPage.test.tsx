@@ -16,6 +16,7 @@ vi.mock('../api/queries', () => ({
     analysisRuns: vi.fn().mockResolvedValue([]),
     behaviorFindings: vi.fn().mockResolvedValue([]),
     autonomousPolicyRuns: vi.fn().mockResolvedValue([]),
+    autonomousPolicyRunJobs: vi.fn().mockResolvedValue([]),
     autonomousQuestionAnswer: vi.fn(),
     autonomousScopeOptions: vi.fn().mockResolvedValue({ services: ['checkout'], namespaces: [], environments: ['production'] }),
     autonomousPreview: vi.fn(),
@@ -47,14 +48,24 @@ describe('AutonomousMonitoringPage', () => {
     expect(screen.getByRole('button', { name: 'Run once' })).toBeInTheDocument();
   });
 
-  it('shows an idle results dashboard before any run has completed', async () => {
+  it('shows an idle results dashboard when no run has finished yet', async () => {
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
+    renderRoute();
+
+    expect(await screen.findByText('Configure Autonomous Analysis')).toBeInTheDocument();
+    expect(await screen.findByText('No autonomous analysis has been completed yet.')).toBeInTheDocument();
+  });
+
+  it('shows the latest finished scheduled run without a manual run in this page', async () => {
+    // Regression: the overview used to fill only after "Run once" in the same page, and once a
+    // scheduled policy was saved that button is no longer shown - so it stayed empty for good.
     vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([
       {
         policy_run_id: 'run-1',
         id: 'run-1',
         status: 'completed',
-        trigger: 'run_once',
-        policy_id: null,
+        trigger: 'scheduled',
+        policy_id: 'policy-1',
         started_at: '2026-08-23T17:21:56Z',
         completed_at: '2026-08-23T17:22:56Z',
         metrics_discovered: 4,
@@ -66,30 +77,33 @@ describe('AutonomousMonitoringPage', () => {
         findings_created: 1,
       },
     ]);
+    vi.mocked(api.autonomousPolicyRunJobs).mockResolvedValue([
+      { id: 'job-1', status: 'completed', analysis_run_id: 'analysis-1', metric_name: 'cpu_usage' },
+      { id: 'job-2', status: 'screened_out', analysis_run_id: null, metric_name: 'up' },
+    ]);
+    const finding = {
+      title: 'CPU usage moved',
+      service: 'ruptures-lab',
+      category: 'Behavior Change',
+      health_status: 'warning',
+      importance_score: 0.61,
+      investigation_priority: 2,
+      summary: 'CPU changed.',
+      created_at: '2026-08-23T17:20:00Z',
+      signal_ids: [],
+      comparison_json: {},
+    };
     vi.mocked(api.findings).mockResolvedValue([
-      {
-        id: 1,
-        title: 'CPU usage moved',
-        service: 'ruptures-lab',
-        metric_name: 'cpu_usage',
-        category: 'Behavior Change',
-        health_status: 'warning',
-        importance_score: 0.61,
-        investigation_priority: 2,
-        summary: 'CPU changed.',
-        created_at: '2026-08-23T17:20:00Z',
-        analysis_run_id: 'analysis-1',
-        signal_ids: [],
-        comparison_json: {},
-      },
+      { ...finding, id: 1, metric_name: 'cpu_usage', analysis_run_id: 'analysis-1' },
+      { ...finding, id: 2, metric_name: 'memory_usage', analysis_run_id: 'analysis-from-another-run' },
     ]);
     renderRoute();
 
-    expect(await screen.findByText('Configure Autonomous Analysis')).toBeInTheDocument();
-    expect(await screen.findByText('Autonomous Monitoring Overview')).toBeInTheDocument();
-    expect(screen.getByText('No autonomous analysis has been completed yet.')).toBeInTheDocument();
-    // No run has been triggered yet, so results queries stay disabled and this finding stays hidden.
-    expect(screen.queryByRole('link', { name: 'cpu_usage' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'cpu_usage' })).toBeInTheDocument();
+    expect(api.autonomousPolicyRunJobs).toHaveBeenCalledWith('run-1');
+    expect(screen.queryByText('No autonomous analysis has been completed yet.')).not.toBeInTheDocument();
+    // Scoped to the latest scheduled run, like a manual run is scoped to its own analyses.
+    expect(screen.queryByRole('link', { name: 'memory_usage' })).not.toBeInTheDocument();
   });
 
   it('renders the run results in the dashboard right after Run once completes', async () => {
