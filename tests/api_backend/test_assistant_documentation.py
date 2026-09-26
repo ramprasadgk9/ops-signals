@@ -207,3 +207,9 @@ def test_unmatched_supplementary_documentation_is_not_filler() -> None:
     )
 
     assert response.knowledge_used == []
+
+
+def test_a_fence_closes_only_on_the_marker_that_opened_it() -> None:
+    content = "# Doc\n\n~~~text\n```bash\n## not a heading\n```\n~~~\n\n## Real\n\nText.\n"
+
+    assert [section.heading for section in split_sections(content)] == ["Doc", "Real"]

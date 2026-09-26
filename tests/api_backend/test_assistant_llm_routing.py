@@ -80,7 +80,8 @@ def test_llm_routing_adds_document_search_for_an_unrecognized_conceptual_questio
     body = response.json()
     assert body["routes"] == OperationalIntelligenceAssistant.route_intents(message) + ["DOCUMENT_SEARCH"]
     assert body["ai_synthesis_used"] is True
-    assert body["answer"] == "Baseline shift is a sustained change in a metric's normal operating level."
+    # The model quoted nothing, so the answer carries the top document's own supporting passage.
+    assert body["answer"].startswith("Baseline shift is a sustained change in a metric's normal operating level.\n\nFrom ")
     assert any(source["source_type"] == "app_documentation" for source in body["sources"])
 
 

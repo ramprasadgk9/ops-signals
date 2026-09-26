@@ -794,6 +794,7 @@ export type AssistantSource = {
   summary?: string | null;
   source_path?: string | null;
   section?: string | null;
+  quote?: string | null;
 };
 
 export type AssistantEvidenceGroup = {

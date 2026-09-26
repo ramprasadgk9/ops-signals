@@ -31,8 +31,11 @@ reason.
 - **Performance/scale** - report-only timing of normalization and analyzer execution as data
   volume grows (24h/7d/30d), not a pass/fail gate (wall-clock time isn't comparable across
   machines).
+- **Ask Ops Signals documentation answers** - known-answer questions checking that the assistant
+  cites the right file and section and that its answer contains the passage that answers the
+  question. See [Ask Ops Signals: Assistant Architecture](23-ask-ops-signals-assistant.md#quality-benchmarking).
 
 ## What's Not Covered Yet
 
-Assistant answer quality (groundedness, hallucination rate) has no automated benchmark - see
-[Ask Ops Signals: Assistant Architecture](23-ask-ops-signals-assistant.md#quality-benchmarking).
+Assistant answers built from findings, cases and behaviors have no automated benchmark - the
+golden questions cover documentation answers only.

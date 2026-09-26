@@ -54,12 +54,17 @@ def split_sections(content: str) -> list[MarkdownSection]:
     seen_anchors: dict[str, int] = {}
     current = MarkdownSection()
     lines: list[str] = []
-    in_fence = False
+    fence: str | None = None
 
     for line in content.splitlines():
-        if _FENCE.match(line):
-            in_fence = not in_fence
-        match = None if in_fence else _HEADING.match(line)
+        fence_match = _FENCE.match(line)
+        if fence_match:
+            # A block closes only on the marker that opened it: ``` inside ~~~ is content.
+            if fence is None:
+                fence = fence_match.group(1)
+            elif fence_match.group(1) == fence:
+                fence = None
+        match = None if fence else _HEADING.match(line)
         if match:
             current.text = "\n".join(lines).strip()
             if current.text:

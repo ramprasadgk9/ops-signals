@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 # so anything past roughly the first 1,000 characters of a chunk is invisible to search. Chunks
 # stay under that, heading path included.
 CHUNK_CHARS = 900
+# Longest section kept whole alongside its windows for quoting.
+SECTION_TEXT_CHARS = 8000
 
 
 @dataclass(slots=True)
@@ -35,6 +37,9 @@ class KnowledgeChunk:
     section: str
     anchor: str
     text: str
+    # The whole section when `text` is one window of it, for picking the passage to quote: the
+    # window that matched can end on "like this:" with its code block in the next window.
+    section_text: str = ""
 
     def embedding_text(self, title: str) -> str:
         heading = " > ".join(part for part in (title, self.section) if part)
@@ -97,8 +102,10 @@ def _chunk_document(content: str, title: str) -> list[KnowledgeChunk]:
         if not body:
             continue
         budget = max(CHUNK_CHARS - len(title) - len(breadcrumb) - 4, CHUNK_CHARS // 2)
-        for window in _windows(body, budget):
-            chunks.append(KnowledgeChunk(section=breadcrumb, anchor=section.anchor, text=window))
+        windows = _windows(body, budget)
+        section_text = body[:SECTION_TEXT_CHARS] if len(windows) > 1 else ""
+        for window in windows:
+            chunks.append(KnowledgeChunk(section=breadcrumb, anchor=section.anchor, text=window, section_text=section_text))
     return chunks or [KnowledgeChunk(section="", anchor="", text=content.strip())]
 
 
@@ -205,6 +212,7 @@ class ApplicationKnowledgeBootstrapService:
                     "source_path": doc.source_path,
                     "version": doc.version,
                     "summary": chunk.text,
+                    "section_text": chunk.section_text,
                     **doc.metadata,
                 }
                 points.append(PointStruct(id=self._point_id(f"{doc.document_id}:chunk:{index}"), vector=vector, payload=payload))

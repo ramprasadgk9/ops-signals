@@ -2,6 +2,17 @@
 
 ## 0.3.0 - Unreleased
 
+- Ask Ops Signals answers documentation questions from the section that holds the answer, quotes
+  that passage word for word, and cites it (`docs/security-model.md#turning-on-authentication`).
+  Docs are indexed one Markdown section per chunk - chunks used to run to 6,000 characters, but
+  the embedding model reads only about the first 1,000. Documentation sources now carry
+  `source_path`, `section` and `quote`. With AI on, the model must quote its evidence, and a
+  quote not found in the evidence is dropped. Also fixed: the project README was never indexed
+  (its id collided with `docs/README.md`); MCP and API clients found less documentation than
+  the web UI (they sent a stricter `minimum_score`); and questions routed to cases or findings,
+  or mentioning "Ops Signals", never searched documentation. New golden question benchmark:
+  `python -m benchmark.assistant_benchmark`; see
+  [`docs/23-ask-ops-signals-assistant.md`](docs/23-ask-ops-signals-assistant.md#quality-benchmarking).
 - Added OTLP/HTTP metrics ingestion: `POST /api/otlp/v1/metrics` accepts pushed metrics (Gauge and
   Sum), with volume and cardinality limits, and the scheduler analyzes them on its normal cycle.
   `GET /api/otlp/status` reports what was received. See

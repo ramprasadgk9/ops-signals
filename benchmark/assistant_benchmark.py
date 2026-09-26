@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -258,6 +259,8 @@ def render_markdown(summary: dict[str, dict[str, float]], results: list[Question
     lines = ["# Ask Ops Signals golden questions", "", "| Surface | Questions | " + " | ".join(SCORED_METRICS) + " |", "| --- | --- |" + " --- |" * len(SCORED_METRICS)]
     for surface, metrics in summary.items():
         lines.append(f"| {surface} | {int(metrics['questions'])} | " + " | ".join(f"{metrics[metric]:.0%}" for metric in SCORED_METRICS) + " |")
+        if "llm_quotes_dropped" in metrics:
+            lines.extend(["", f"LLM quotes dropped as not found in the evidence: {metrics['llm_quotes_dropped']}"])
     lines.extend(["", "## Misses (web surface)", "", "| Question | Failed checks | Top sources |", "| --- | --- | --- |"])
     for result in results:
         if result.surface != "web":
@@ -268,6 +271,18 @@ def render_markdown(summary: dict[str, dict[str, float]], results: list[Question
             label = "report only" if result.category == "out_of_scope" else ", ".join(failed)
             lines.append(f"| {result.id} | {label} | {top} |")
     return "\n".join(lines) + "\n"
+
+
+class _DroppedQuoteCounter(logging.Handler):
+    """Counts LLM quotes the assistant rejected for not appearing in the evidence."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.getMessage().startswith("Dropped an LLM quote"):
+            self.count += 1
 
 
 def main() -> None:
@@ -291,8 +306,14 @@ def main() -> None:
     if errors:
         raise SystemExit("Golden set does not match the corpus:\n" + "\n".join(errors))
 
-    results = evaluate(assistant, documents, questions)
+    dropped = _DroppedQuoteCounter()
+    logging.getLogger("backend.app.assistant.service").addHandler(dropped)
+    logging.getLogger("backend.app.assistant.service").setLevel(logging.INFO)
+    # Every surface asks the same documentation search now; one is enough when each answer is an LLM call.
+    results = evaluate(assistant, documents, questions, {"web": SURFACES["web"]} if args.ai else SURFACES)
     summary = summarize(results)
+    if args.ai:
+        summary["web"]["llm_quotes_dropped"] = dropped.count
     suffix = "_ai" if args.ai else ""
     args.report_dir.mkdir(parents=True, exist_ok=True)
     (args.report_dir / f"assistant_golden{suffix}.json").write_text(

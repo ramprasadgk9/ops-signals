@@ -22,6 +22,13 @@ deliberate: an under-confident small local model dropping a category (e.g. class
 X work" as behavior-only, missing that it's also a documentation question) must not cause the
 system to silently lose evidence a plain keyword match would have found.
 
+Documentation is searched for every question, not only the ones the router sends there: "What
+outcome categories can a resolved case have?" routes to cases, but its answer is in the docs.
+Documentation found this way is placed after the routed evidence, and only a real match counts -
+the generic "architecture overview" fallback query is used only when the router chose
+documentation. The keyword router ignores the product's own name, so "How do I deploy Ops Signals?"
+is not read as a question about signals.
+
 ## Retrieval
 
 - **Cases**: semantic search against the same Qdrant collection (`operational_cases`) case memory
@@ -30,23 +37,48 @@ system to silently lose evidence a plain keyword match would have found.
   embeds a row into its own Qdrant collection the first time it's searched, not on write - the
   core analysis pipeline is untouched by this. Repeat queries hit the vector store directly.
 - **Documentation**: semantic search over `operational_intelligence_docs` - generated concept
-  docs plus every Markdown file under `docs/` (recursively) and `README.md`. Long documents are
-  chunked rather than truncated, so a 30,000-character doc is fully searchable, not just its first
-  few paragraphs.
+  docs plus every Markdown file under `docs/` (recursively, excluding `docs/archive/`) and
+  `README.md`. Each Markdown section is its own chunk of at most 900 characters, embedded with its
+  heading path ("Security model > Turning on authentication"); a longer section is split on
+  paragraph boundaries into windows that keep the heading. The size matters: the embedding model
+  (`all-MiniLM-L6-v2`) reads 256 tokens, about 1,000 characters, and silently ignores the rest.
+  Documentation search uses one score floor (0.3) for every client, whatever `minimum_score` the
+  client sends - that field is the case-memory threshold.
+
+Every documentation source carries `source_path`, `section`, and a `reference` that links to the
+section (`docs/security-model.md#turning-on-authentication`, GitHub's anchor for the heading).
 
 ## Answer Synthesis
 
-When evidence is found and an LLM is configured, `synthesize_from_evidence()` asks the model to
-answer strictly from the retrieved evidence - explicitly instructed not to invent facts, and to
-say so plainly if the evidence only partially answers the question. If the LLM is disabled, fails,
-or there's no evidence at all, the response falls back to a fixed, deterministic template built
-directly from the evidence fields. Every response carries `ai_synthesis_used` so it's never
-ambiguous which path produced it - the UI shows this as an "AI-generated" vs. "Evidence summary
-(no AI)" label.
+Answers about documentation quote the passage they rest on, with its citation:
 
-This same `synthesize_from_evidence()` method is shared with the separate autonomous-run Q&A
-endpoint (`/api/autonomous/questions/answer`) - one reasoning layer, not two independently
-maintained ones with diverging answer quality.
+~~~text
+From Security model > Turning on authentication (docs/security-model.md#turning-on-authentication):
+> Set one shared token:
+> ```bash
+> export OPS_SIGNALS_API_TOKEN="$(openssl rand -hex 32)"
+> ```
+~~~
+
+- **Without AI**, `select_passage()` (`backend/app/assistant/passages.py`) picks the sentence,
+  list item, table row or code block of the matched section closest to the question - by
+  embedding similarity plus word overlap, weighted towards exact identifiers such as env var
+  names - and widens it where it needs context: a lead-in ending in ":" brings its code block, a
+  list item brings the rest of a short list. The quote is the section's own text, word for word.
+  Each source's `quote` field carries it too, and the web UI shows it on the source card.
+- **With AI**, the model gets the evidence numbered and is told to answer in 1-3 sentences, then
+  quote its supporting passages as `[n] "exact text"`. Each quote is checked against evidence item
+  n (`quote_is_in()`, ignoring case, whitespace and Markdown). A quote that isn't there is dropped
+  and logged; one that is gets its citation from source n's own metadata, never from the model.
+  When no quote survives, the top source's deterministic quote is added instead, so an AI answer
+  about documentation always shows its passage.
+
+If the LLM is disabled, fails, or there's no evidence at all, the response uses the deterministic
+answer. Every response carries `ai_synthesis_used` so it's never ambiguous which path produced it -
+the UI shows this as an "AI-generated" vs. "Evidence summary (no AI)" label.
+
+`synthesize_from_evidence()` is shared with the separate autonomous-run Q&A endpoint
+(`/api/autonomous/questions/answer`); that endpoint does not use the quoting described above.
 
 ## Enabling Local AI
 
@@ -76,7 +108,22 @@ question, it's an instruction with nowhere to go.
 
 ## Quality Benchmarking
 
-See `benchmark/README.md`. As of this writing there is no dedicated benchmark for answer
-groundedness or hallucination rate specifically - routing, retrieval, and detection accuracy are
-covered; assistant answer quality is the one piece of this architecture without automated,
-known-answer validation.
+`benchmark/assistant/golden_questions.yml` holds known-answer questions about the documentation:
+for each, the file and section that answers it and phrases the answer must contain.
+`python -m benchmark.assistant_benchmark` indexes the real corpus with the real embedding model
+into an in-memory Qdrant, asks each question once per client surface (web, Grafana, API/MCP, with
+the `top_k`/`minimum_score` each sends), and reports:
+
+| Metric | Passes when |
+| --- | --- |
+| `doc_hit@1`, `doc_hit@3` | an expected file is the first / in the first three documentation sources |
+| `section_hit@3` | an expected file *and section* is in the first three |
+| `evidence_has_answer` | every expected phrase is in the evidence the LLM is given |
+| `answer_has_answer` | every expected phrase is in the answer returned with AI off |
+
+`--ai` runs the same questions through the configured LLM and also counts quotes the model made up.
+`tests/test_assistant_golden.py` fails the build when the golden set no longer matches the docs (a
+section was renamed or its answer removed) or when a metric drops below its recorded floor.
+
+The golden set covers documentation answers only. Answers built from findings, cases and behaviors
+- which need an analysed dataset - are not benchmarked yet.

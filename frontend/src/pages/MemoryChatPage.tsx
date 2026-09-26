@@ -228,7 +228,11 @@ function EvidenceGroup({ group }: { group: AssistantEvidenceGroup }) {
                   </Box>
                   <Typography sx={{ color: ui.muted, fontSize: 12 }}>{Math.round(source.score * 100)}%</Typography>
                 </Stack>
-                {source.summary ? (
+                {source.quote ? (
+                  <Typography sx={{ fontSize: 12, mt: 0.8, pl: 1, borderLeft: `3px solid ${ui.border}`, whiteSpace: 'pre-wrap', fontFamily: source.quote.startsWith('```') || source.quote.includes('\n```') ? 'monospace' : undefined }}>
+                    {source.quote}
+                  </Typography>
+                ) : source.summary ? (
                   <Typography sx={{ color: ui.muted, fontSize: 12, mt: 0.5, whiteSpace: 'pre-line', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {source.summary}
                   </Typography>

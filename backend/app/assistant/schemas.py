@@ -28,6 +28,10 @@ class AssistantSource(BaseModel):
     # "docs/security-model.md" and "Turning on authentication". `reference` links to the section.
     source_path: str | None = None
     section: str | None = None
+    # The passage of the matched section that answers the question, verbatim.
+    quote: str | None = None
+    # Internal: the whole section a windowed documentation chunk came from, to quote from.
+    section_text: str | None = Field(default=None, exclude=True)
 
 
 class AssistantEvidenceGroup(BaseModel):
