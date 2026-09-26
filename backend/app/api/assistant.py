@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.app.assistant.knowledge_bootstrap import (
@@ -12,7 +12,15 @@ from backend.app.assistant.knowledge_bootstrap import (
     ApplicationKnowledgeBootstrapService,
     ApplicationKnowledgeStatus,
 )
-from backend.app.assistant.schemas import AssistantChatRequest, AssistantChatResponse
+from backend.app.assistant import feedback
+from backend.app.assistant.schemas import (
+    AssistantChatRequest,
+    AssistantChatResponse,
+    AssistantFeedbackCreate,
+    AssistantFeedbackOut,
+    AssistantFeedbackUpdate,
+    FlaggedQuestion,
+)
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import get_security_config
 from backend.app.models.db import get_db
@@ -71,3 +79,21 @@ def bootstrap_knowledge(
     if not bootstrap:
         raise HTTPException(status_code=503, detail="Assistant knowledge bootstrap is not initialized")
     return bootstrap.bootstrap(force=force)
+
+
+@router.post("/feedback", response_model=AssistantFeedbackOut, status_code=201)
+def create_feedback(payload: AssistantFeedbackCreate, db: Session = Depends(get_db)) -> AssistantFeedbackOut:
+    return feedback.record_feedback(db, payload)
+
+
+@router.patch("/feedback/{feedback_id}", response_model=AssistantFeedbackOut)
+def patch_feedback(feedback_id: int, payload: AssistantFeedbackUpdate, db: Session = Depends(get_db)) -> AssistantFeedbackOut:
+    updated = feedback.update_feedback(db, feedback_id, payload)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return updated
+
+
+@router.get("/feedback/flagged", response_model=list[FlaggedQuestion])
+def list_flagged_questions(limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db)) -> list[FlaggedQuestion]:
+    return feedback.flagged_questions(db, limit=limit)

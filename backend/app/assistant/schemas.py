@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -52,3 +54,42 @@ class AssistantChatResponse(BaseModel):
     suggested_questions: list[str]
     sources: list[AssistantSource]
     evidence_groups: list[AssistantEvidenceGroup] = Field(default_factory=list)
+
+
+FeedbackReason = Literal["wrong_section", "missing_step", "outdated", "not_in_docs"]
+FeedbackStatus = Literal["open", "added_as_test", "dismissed"]
+
+
+class AssistantFeedbackCreate(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    helpful: bool
+    reason: FeedbackReason | None = None
+    answer: str | None = Field(default=None, max_length=20000)
+    conversation_id: UUID | None = None
+    ai_synthesis_used: bool = False
+    cited: list[str] = Field(default_factory=list, max_length=10)
+
+
+class AssistantFeedbackUpdate(BaseModel):
+    reason: FeedbackReason | None = None
+    status: FeedbackStatus | None = None
+
+
+class AssistantFeedbackOut(BaseModel):
+    id: int
+    question: str
+    helpful: bool
+    reason: FeedbackReason | None = None
+    status: FeedbackStatus = "open"
+    created_at: datetime
+
+
+class FlaggedQuestion(BaseModel):
+    """Every open thumbs-down on the same question, however it was capitalised or spaced."""
+
+    question: str
+    count: int
+    reasons: dict[str, int] = Field(default_factory=dict)
+    cited: list[str] = Field(default_factory=list)
+    feedback_ids: list[int] = Field(default_factory=list)
+    last_flagged_at: datetime
