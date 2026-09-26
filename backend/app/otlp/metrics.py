@@ -9,6 +9,8 @@ docs/design/otlp-metrics-ingestion-plan.md §7.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, generate_latest
 
 REGISTRY = CollectorRegistry()
@@ -59,6 +61,21 @@ OTLP_BACKLOG_SIZE = Gauge(
     registry=REGISTRY,
 )
 OTLP_BACKLOG_SIZE.set_function(_otlp_backlog_size)
+
+
+# When this process last accepted an OTLP point - the "Receiving · 12s ago" signal for
+# GET /api/ingestion/status. Deliberately not in REGISTRY, so /api/metrics and snapshot() are
+# unchanged; it resets on restart, which is why that endpoint also falls back to the DB.
+_last_received_at: datetime | None = None
+
+
+def mark_points_received() -> None:
+    global _last_received_at
+    _last_received_at = datetime.now(timezone.utc)
+
+
+def last_received_at() -> datetime | None:
+    return _last_received_at
 
 
 def render_metrics() -> tuple[bytes, str]:

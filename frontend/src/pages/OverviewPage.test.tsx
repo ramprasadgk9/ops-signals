@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { OverviewPage } from './OverviewPage';
 import { api } from '../api/queries';
-import type { Finding, OperationalCase } from '../types';
+import type { Finding, IngestionStatus, OperationalCase } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -14,6 +14,10 @@ vi.mock('../api/queries', () => ({
     overviewSummary: vi.fn(),
     memoryStats: vi.fn(),
     autonomousPolicyRuns: vi.fn(),
+    ingestionStatus: vi.fn(),
+    alerts: vi.fn(),
+    runCsvUpload: vi.fn(),
+    sendTestAlert: vi.fn(),
   },
 }));
 
@@ -70,6 +74,13 @@ const autonomousRun = {
 };
 
 describe('OverviewPage integration resilience', () => {
+  beforeEach(() => {
+    // Tests that predate the ingestion status endpoint run against a failing one - which must
+    // leave the Overview exactly as it was.
+    vi.mocked(api.ingestionStatus).mockRejectedValue(new Error('not mocked'));
+    vi.mocked(api.alerts).mockRejectedValue(new Error('not mocked'));
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -243,5 +254,189 @@ describe('OverviewPage integration resilience', () => {
     expect(screen.getByText(/Findings unavailable/)).toBeInTheDocument();
     expect(screen.getByText(/Service impact unavailable/)).toBeInTheDocument();
     expect(screen.getByText('CPU usage sustained high')).toBeInTheDocument();
+  });
+
+  describe('data source onboarding', () => {
+    const ingestion = (overrides: Partial<IngestionStatus> = {}): IngestionStatus => ({
+      generated_at: '2026-07-26T00:00:00Z',
+      has_any_data: false,
+      sources: {
+        otlp: { endpoint_path: '/api/otlp/v1/metrics', last_received_at: null },
+        alertmanager: { endpoint_path: '/api/integrations/alertmanager', enabled: false, token_required: false, last_received_at: null, received_24h: 0 },
+        prometheus: { configured: false },
+      },
+      ...overrides,
+    });
+
+    function mockEmptyOverview() {
+      vi.mocked(api.findings).mockResolvedValue([]);
+      vi.mocked(api.cases).mockResolvedValue([]);
+      vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+      vi.mocked(api.overviewSummary).mockResolvedValue(emptySummary);
+      vi.mocked(api.memoryStats).mockResolvedValue(healthyMemory);
+      vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
+    }
+
+    it('shows the get-data-in panel and dashes instead of zero KPIs on a fresh install', async () => {
+      mockEmptyOverview();
+      vi.mocked(api.ingestionStatus).mockResolvedValue(ingestion());
+
+      renderOverview();
+
+      expect(await screen.findByText('Ops Signals hasn’t received any data yet')).toBeInTheDocument();
+      expect(screen.getByText('Send metrics via OTLP')).toBeInTheDocument();
+      expect(screen.getByText('Connect Alertmanager')).toBeInTheDocument();
+      expect(screen.getByText(`${window.location.origin}/api/otlp/v1/metrics`)).toBeInTheDocument();
+      expect(screen.getByText(`${window.location.origin}/api/integrations/alertmanager`)).toBeInTheDocument();
+      expect(screen.getByText('Waiting for data')).toBeInTheDocument();
+      expect(screen.getByText('Disabled')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Load demo data' })).toBeInTheDocument();
+      // Enrichment is off, so there is nothing to test yet.
+      expect(screen.queryByRole('button', { name: 'Send test alert' })).not.toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'Data sources' })).toBeInTheDocument();
+      expect(screen.getAllByText('—')).toHaveLength(4);
+      expect(screen.queryByText('Healthy')).not.toBeInTheDocument();
+      expect(screen.getByText(/Waiting for the first metrics or alerts/)).toBeInTheDocument();
+      expect(screen.queryByText(/Automation healthy/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the normal overview once any data exists, and shows live sources in the strip', async () => {
+      mockEmptyOverview();
+      vi.mocked(api.ingestionStatus).mockResolvedValue(
+        ingestion({
+          has_any_data: true,
+          sources: {
+            otlp: { endpoint_path: '/api/otlp/v1/metrics', last_received_at: new Date().toISOString() },
+            alertmanager: { endpoint_path: '/api/integrations/alertmanager', enabled: true, token_required: false, last_received_at: null, received_24h: 0 },
+            prometheus: { configured: true },
+          },
+        })
+      );
+
+      renderOverview();
+
+      expect(await screen.findByText(/OTLP · just now/)).toBeInTheDocument();
+      expect(screen.queryByText('Ops Signals hasn’t received any data yet')).not.toBeInTheDocument();
+      expect(screen.queryByText('—')).not.toBeInTheDocument();
+      expect(screen.getByText('Healthy')).toBeInTheDocument();
+    });
+
+    it('keeps the panel and its result on screen after the first data lands, until closed', async () => {
+      mockEmptyOverview();
+      vi.mocked(api.ingestionStatus).mockResolvedValueOnce(ingestion()).mockResolvedValue(ingestion({ has_any_data: true }));
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('timestamp,metric_name,value\n', { status: 200 })));
+      vi.mocked(api.runCsvUpload).mockResolvedValue({
+        analysis_run_id: 'run-demo',
+        file_name: 'demo-checkout-cpu.csv',
+        provider: 'generic',
+        source_type: 'csv',
+        service: 'checkout',
+        metric_name: 'cpu_usage',
+        sample_count: 288,
+        findings_count: 1,
+      });
+
+      renderOverview();
+      fireEvent.click(await screen.findByRole('button', { name: 'Load demo data' }));
+
+      expect(await screen.findByText('Data is arriving')).toBeInTheDocument();
+      expect(screen.getByText(/Demo analysis complete for checkout \/ cpu_usage/)).toBeInTheDocument();
+      expect(screen.queryByText('—')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(screen.queryByText('Data is arriving')).not.toBeInTheDocument();
+      vi.unstubAllGlobals();
+    });
+
+    it('offers no close button while nothing has arrived yet', async () => {
+      mockEmptyOverview();
+      vi.mocked(api.ingestionStatus).mockResolvedValue(ingestion());
+
+      renderOverview();
+
+      expect(await screen.findByText('Ops Signals hasn’t received any data yet')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+    });
+
+    it('renders the overview exactly as before when the status endpoint fails', async () => {
+      mockEmptyOverview();
+      vi.mocked(api.ingestionStatus).mockRejectedValue(new Error('404'));
+
+      renderOverview();
+
+      expect(await screen.findByText('No findings need attention in this window.')).toBeInTheDocument();
+      expect(screen.getByText('Healthy')).toBeInTheDocument();
+      expect(screen.queryByText('Ops Signals hasn’t received any data yet')).not.toBeInTheDocument();
+      expect(screen.queryByRole('status', { name: 'Data sources' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('received alerts', () => {
+    const finding: Finding = {
+      id: 7,
+      service: 'checkout-api',
+      metric_name: 'latency_p95',
+      title: 'Latency shift',
+      summary: 'p95 up',
+      category: 'behavior_change',
+      health_status: 'critical',
+      importance_score: 0.9,
+      investigation_priority: 1,
+      signal_ids: [],
+      comparison_json: {},
+      created_at: '2026-09-26T00:00:00Z',
+    };
+    const linkedAlert = {
+      id: 1,
+      source: 'alertmanager',
+      alert_name: 'HighLatency',
+      status: 'firing',
+      service: 'checkout-api',
+      severity: 'critical',
+      summary: 'p95 above 300ms',
+      starts_at: '2026-09-26T00:00:00Z',
+      ends_at: null,
+      received_at: new Date().toISOString(),
+      labels: {},
+      generator_url: null,
+      analysis_status: null,
+      recommendation: null,
+      notify_status: null,
+      finding_id: 7,
+      case_id: null,
+    };
+
+    function mockOverviewWith(findings: Finding[]) {
+      vi.mocked(api.findings).mockResolvedValue(findings);
+      vi.mocked(api.cases).mockResolvedValue([]);
+      vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+      vi.mocked(api.overviewSummary).mockResolvedValue(emptySummary);
+      vi.mocked(api.memoryStats).mockResolvedValue(healthyMemory);
+      vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
+    }
+
+    it('badges a needs-attention finding with its linked alert and lists incoming alerts', async () => {
+      mockOverviewWith([finding]);
+      vi.mocked(api.alerts).mockResolvedValue([linkedAlert]);
+
+      renderOverview();
+
+      expect(await screen.findByText('Alert: HighLatency')).toBeInTheDocument();
+      expect(screen.getByText('checkout-api / latency_p95')).toBeInTheDocument();
+      expect(await screen.findByRole('region', { name: 'Incoming Alerts' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'All alerts →' })).toHaveAttribute('href', '/integrations');
+    });
+
+    it('adds nothing when no alerts have been received', async () => {
+      mockOverviewWith([finding]);
+      vi.mocked(api.alerts).mockResolvedValue([]);
+
+      renderOverview();
+
+      expect(await screen.findByText('checkout-api / latency_p95')).toBeInTheDocument();
+      await waitFor(() => expect(api.alerts).toHaveBeenCalled());
+      expect(screen.queryByText(/Alert: /)).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Incoming Alerts' })).not.toBeInTheDocument();
+    });
   });
 });

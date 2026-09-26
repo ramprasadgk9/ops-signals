@@ -25,6 +25,7 @@ import { TrendLabPage } from '../pages/analyzer-labs/TrendLabPage';
 import { ZScoreAnomalyLabPage } from '../pages/analyzer-labs/ZScoreAnomalyLabPage';
 import { CasesPage } from '../pages/CasesPage';
 import { InvestigationsPage } from '../pages/InvestigationsPage';
+import { IntegrationsPage } from '../pages/IntegrationsPage';
 import { SystemPage } from '../pages/SystemPage';
 
 export function AppRoutes() {
@@ -55,6 +56,7 @@ export function AppRoutes() {
       <Route path="/operational-memory" element={<OperationalMemoryPage />} />
       <Route path="/memory-chat" element={<MemoryChatPage />} />
       <Route path="/findings" element={<FindingsPage />} />
+      <Route path="/integrations" element={<IntegrationsPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/system" element={<SystemPage />} />
       <Route path="/signals/:signalId" element={<SignalDetailPage />} />

@@ -13,6 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import InputRoundedIcon from '@mui/icons-material/InputRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
@@ -49,6 +50,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: 'Overview', to: '/', icon: <HomeRoundedIcon />, match: (path) => path === '/' },
+  { label: 'Integrations', to: '/integrations', icon: <InputRoundedIcon /> },
   { label: 'Autonomous Analysis Configure', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon /> },
   { label: 'Investigations', to: '/investigations', icon: <TravelExploreRoundedIcon /> },
   { label: 'Findings', to: '/findings', icon: <CrisisAlertRoundedIcon /> },
