@@ -477,8 +477,8 @@ guarantee of current state:
     scenarios and multiple test suites (`tests/test_csv_pipeline.py`,
     `tests/test_router_benchmark.py`, `tests/test_router_analyzer_registry_merge.py`) to verify that
     a recommended-but-non-executable analyzer can never steal an execution slot from a real one -
-    see the execution-slot fix referenced above. `docs/archive/JIRA-456-review.md` already recorded
-    this as `[done]`: *"Router `darts`, `kats`, and `pyod` cannot silently execute substitute
+    see the execution-slot fix referenced above. The analyzer stabilization review already recorded
+    this as done: *"Router `darts`, `kats`, and `pyod` cannot silently execute substitute
     implementations."* Removing either would mean rewriting those fixtures for no real user-facing
     gain (the router's own explanation text already says why they're not executing) - not worth it
     unless something else forces the change.
@@ -488,7 +488,7 @@ guarantee of current state:
     either would directly resolve one of the two `GAP`-status benchmark scenarios
     (`cpu_online_anomaly_stream_v1` needs `river`'s streaming execution mode,
     `cpu_distribution_drift_v1` needs `alibi_detect`'s drift-profile extraction - see
-    `benchmark/ADVANCED_ROUTER_GAPS.md`), not just add another router entry.
+    [Router-only analyzers](#router-only-analyzers-what-each-one-needs) below), not just add another router entry.
 - No structured evidence when multiple analyzers agree or conflict on the same finding (currently
   implicit in the summary text, not a structured field).
 - No benchmark coverage of score *calibration* (is the magnitude proportional to severity), only
@@ -500,6 +500,46 @@ guarantee of current state:
   `pyod_outlier` started actually executing. Whether the same post-shift-persistence pattern
   `anomaly_zscore` had (see "Fixed this cycle" above) is at play here too, just on the residual
   instead of the raw value, hasn't been investigated.
+
+### Router-only analyzers: what each one needs
+
+Phase 1 validates behavior-only routing for:
+
+- `ruptures` on pure baseline shift
+- `stumpy` on pure seasonality/repeating patterns
+- `trend_regression` on pure linear trend
+- `pyod` and `adtk` on isolated spikes/outliers
+
+The remaining requested analyzers need task or execution context before they can
+be uniquely validated without overfitting synthetic values:
+
+- `prophet`: Behavior overlaps with `stumpy`, `darts`, and `trend_regression`.
+  The router needs an explicit forecasting task or forecast horizon to prefer
+  Prophet over other seasonal/trend-compatible analyzers.
+- `darts`: Behavior overlaps with Prophet for trend plus seasonality. The router
+  needs a complex-forecasting task, nonlinear-model preference, or forecast
+  constraint to distinguish it cleanly.
+- `river`: Streaming and online anomaly detection are execution-mode choices,
+  not reliably inferable from a static batch CSV. The router needs an
+  `execution_mode: streaming` or online-update requirement.
+- `kats`: Mixed behavior can make Kats appropriate, but it intentionally overlaps
+  with Ruptures, Prophet, Darts, STUMPY, and Trend Regression. The router needs
+  task intent such as "broad multi-method diagnosis" to require Kats as primary.
+- `alibi_detect`: Distribution drift needs explicit `distribution_drift` or
+  `drift` profile extraction. Mapping slow drift to baseline shift would hide a
+  capability gap.
+
+Suggested follow-up request shape:
+
+```yaml
+RouterRequest:
+  dataframe: ...
+  metric_name: cpu.usage_user
+  analysis_task: forecast | motif_discovery | trend_summary | change_point | anomaly_detection | drift_detection
+  execution_mode: batch | streaming
+  forecast_horizon: 12h
+  latency_requirement: interactive
+```
 
 ## FAQ
 

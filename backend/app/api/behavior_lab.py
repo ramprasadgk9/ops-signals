@@ -39,7 +39,7 @@ def _known_analyzer_ids() -> set[str]:
     # inputs[].analyzers references *runtime* analyzer ids (config/analyzers.yaml's
     # analysis.analyzers keys — anomaly_zscore, trend, baseline_shift, ...), which is a
     # different id space from the router's analyzer_registry.yaml (trend_regression, etc. — see
-    # docs/JIRA-456-review.md on router-to-runtime aliasing). Read the runtime config directly.
+    # docs/16-analyzer-recommendation.md "Router-to-pipeline mapping"). Read the runtime config directly.
     path = Path("config/analyzers.yaml")
     if not path.exists():
         return set()

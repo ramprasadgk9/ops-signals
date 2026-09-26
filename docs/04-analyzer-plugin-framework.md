@@ -28,7 +28,7 @@ Analyzers are registered in two places, kept deliberately separate:
   (`supported_profiles`, `eligibility_rules`, `scoring_rules`). This is a superset of the pipeline
   registry - it also lists analyzers that are router-recommendable today but don't have a real,
   runnable implementation yet (`kats`, `darts`, `river`, `alibi_detect`, `adtk` - see
-  `benchmark/ADVANCED_ROUTER_GAPS.md`).
+  [Router-only analyzers](16-analyzer-recommendation.md#router-only-analyzers-what-each-one-needs)).
 
 These two registries are on a path to merge (`RouterSpec` in `intelligence/analyzer_registry.py`
 already mirrors the router registry's field shape) but are independent today - adding a pipeline
@@ -116,6 +116,6 @@ everything on this page in one place:
   would call out to an external service isn't implemented (see `AnalyzerRegistrationError` in
   `intelligence/analyzer_registry.py`).
 - The pipeline and router registries haven't merged yet, so a handful of router-recommendable
-  analyzer ids have no real implementation behind them - `benchmark/ADVANCED_ROUTER_GAPS.md`
-  tracks exactly which ones and why.
+  analyzer ids have no real implementation behind them - [Router-only analyzers](16-analyzer-recommendation.md#router-only-analyzers-what-each-one-needs)
+  lists exactly which ones and why.
 - Not every question has historical similarity support yet.
