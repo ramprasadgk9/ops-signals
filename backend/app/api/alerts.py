@@ -63,7 +63,7 @@ def receive_alertmanager(
     _: None = Depends(require_receiver_token),
 ) -> AlertReceiptOut:
     """Alertmanager webhook receiver. Add it as an extra receiver with `continue: true` so existing
-    routes are untouched - see docs/alert-enrichment-plan.md."""
+    routes are untouched - see docs/design/alert-enrichment-plan.md."""
     return _accept(from_alertmanager(payload, config.service_labels), config, service, background_tasks)
 
 

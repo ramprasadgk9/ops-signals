@@ -23,7 +23,7 @@ Base config
   `config/providers/otel.yaml` is a deliberate exception: it exists for the OTLP receiver
   (`backend/app/api/otlp.py`) to look up via `provider="otel"`, not for CSV upload - OTLP data
   never goes through `CSVAdapter`, so it isn't (and shouldn't be) selectable in the upload form.
-  See [`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md).
+  See [`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md).
 
 ## Backward Compatibility
 

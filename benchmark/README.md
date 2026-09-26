@@ -9,15 +9,15 @@ Want to add a new scenario? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a step-
 
 ## Source datasets
 
-- 24-hour source: `benchmark/one-host-one-cpu-24h-5m.txt`
-- 7-day source: `benchmark/one-host-one-cpu-7d-5m.txt`
-- 30-day source: `benchmark/one-host-one-cpu-30d-5m.txt`
+Raw TSBS exports (one host, one CPU series, 5-minute resolution):
 
-`benchmark/one-host-one-cpu-24h.txt` remains untouched as an older extra file and is not used by the benchmark flow.
+- 24-hour source: `benchmark/source-data/tsbs/healthy_cpu_24h_raw.txt`
+- 7-day source: `benchmark/source-data/tsbs/healthy_cpu_7d_raw.txt`
+- 30-day source: `benchmark/source-data/tsbs/healthy_cpu_30d_raw.txt`
 
 ## Directory roles
 
-- `source-data/tsbs/` documents the immutable TSBS source location.
+- `source-data/tsbs/` holds the immutable raw TSBS source files.
 - `normalized/` stores generated normalized CSV outputs.
 - `scenarios/<scenario_id>/` stores generated scenario datasets, generators, and ground truth.
 - `reports/` stores JSON and Markdown benchmark reports written by the runner.

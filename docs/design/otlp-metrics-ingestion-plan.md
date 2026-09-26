@@ -1,14 +1,14 @@
 # OTLP Metrics Ingestion Plan (Implemented)
 
-**Status:** Implemented on branch `feature/otlp-metrics-ingestion`. Verified with unit tests
+**Status:** Implemented. Verified with unit tests
 (`tests/test_otlp_adapter.py`), integration tests (`tests/api_backend/test_otlp_ingestion.py`),
 and a manual end-to-end run against a live Postgres instance (real OTLP protobuf payload → stored
 → scheduler cycle → completed `analysis_run`). Two implementation-time refinements to what's
 written below, both discovered while wiring the scheduler step against the actual codebase — see
 "Implementation notes" immediately below §5.
 
-**Extends:** [`docs/02-architecture.md`](02-architecture.md) (roadmap item: "OpenTelemetry
-Collector ingestion", currently listed under Not Yet Implemented), [`README.md`](../README.md)
+**Extends:** [`docs/02-architecture.md`](../02-architecture.md) (roadmap item: "OpenTelemetry
+Collector ingestion", currently listed under Not Yet Implemented), [`README.md`](../../README.md)
 §12 (Current Limitations).
 
 ---
@@ -89,7 +89,7 @@ support).
   off by default to match the project's local-first, no-auth-required-out-of-the-box posture.
 
 **`intelligence/normalize/normalizer.py`** — add an `otel` branch to `_apply_provider_mappings()`
-(same shape as the existing `datadog` branch, [normalizer.py:124](../intelligence/normalize/normalizer.py#L124)):
+(same shape as the existing `datadog` branch, [normalizer.py:124](../../intelligence/normalize/normalizer.py#L124)):
 - `service.name` resource attribute → `service`
 - `deployment.environment` / `deployment.environment.name` → `env`
 - `host.name` → `host`
@@ -105,7 +105,7 @@ support).
 above renames directly, same as the `prometheus` branch does today.
 
 **Storage** — no new table. Reuses `PostgresStore.save_normalized_points()`
-([postgres_store.py:177](../intelligence/storage/postgres_store.py#L177)) and the existing
+([postgres_store.py:177](../../intelligence/storage/postgres_store.py#L177)) and the existing
 `analysis_run_id IS NULL` convention as the "pending analysis" marker.
 
 **`backend/app/autonomous/scheduler.py`** — add a second poll function alongside

@@ -43,7 +43,7 @@ def build_finding_blocks(finding: OperationalFinding) -> dict:
     }
 
 
-# --- Alert enrichment (docs/alert-enrichment-plan.md §H) -------------------------------------
+# --- Alert enrichment (docs/design/alert-enrichment-plan.md §H) -------------------------------------
 # Built from the stored enrichment dict (ops_alert_enrichments.enrichment_json), so what's posted
 # and what's stored can never disagree, and a stored enrichment can be re-rendered later.
 

@@ -1,7 +1,7 @@
 # Local Alertmanager for trying alert enrichment. Everything goes to the Ops Signals receiver on
 # the host on run_all.sh's default port 8001 (run_all.sh generates a copy for other BACKEND_PORTs).
 # In a real setup, keep your existing receivers and add Ops Signals as an extra route
-# with `continue: true` - see docs/alert-enrichment-plan.md.
+# with `continue: true` - see docs/design/alert-enrichment-plan.md.
 route:
   receiver: ops-signals
   group_by: [alertname, service]

@@ -37,7 +37,7 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-# Alert enrichment (docs/alert-enrichment-plan.md): when enabled, also run a local Alertmanager and
+# Alert enrichment (docs/design/alert-enrichment-plan.md): when enabled, also run a local Alertmanager and
 # demo alert rules (docker-compose.alerting.yml), wired to this script's backend port. When disabled,
 # the plain compose file brings Prometheus back to its normal config.
 alerting_enabled=false

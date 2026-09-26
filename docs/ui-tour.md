@@ -48,7 +48,7 @@ the change events it correlates are available at `GET /api/events`. See
 not part of the core analysis workflow, so not covered further here, with one exception: Settings'
 OTLP Ingestion card shows the push endpoint URL and live received/backlog counts — the closest
 equivalent to Prometheus's "Test Connection" for a push-based integration. See
-[`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md).
+[`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md).
 
 ## Grafana Plugin
 

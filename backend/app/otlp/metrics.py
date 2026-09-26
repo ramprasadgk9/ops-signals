@@ -4,7 +4,7 @@ A tool whose pitch is "explain what's happening, don't just show a number" shoul
 standard to its own ingestion path. Prometheus exposition format, not a bespoke JSON endpoint,
 because this project's actual audience already runs Prometheus (it's one of the two existing data
 sources) - a standard scrape target means zero new tooling on their end. See
-docs/otlp-metrics-ingestion-plan.md §7.
+docs/design/otlp-metrics-ingestion-plan.md §7.
 """
 
 from __future__ import annotations

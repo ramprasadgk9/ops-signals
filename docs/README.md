@@ -8,8 +8,6 @@ just orders them.
 
 What the project is, and how to get it running.
 
-- [`00-homepage-story.md`](00-homepage-story.md) - the shortest possible pitch: raw metrics →
-  analyzers → signals → findings.
 - [`01-vision.md`](01-vision.md) - the fuller product vision, including the MTTR framing referenced
   throughout these docs.
 - [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with an incident already
@@ -37,16 +35,13 @@ How the pieces fit together, what talks to what, and why the two storage layers 
 - [`09-design-decisions.md`](09-design-decisions.md) and [`adr/`](adr/) - the "why," in short
   ADR-style writeups: why Postgres is the system of record, why Qdrant is a retrieval index and not
   the source of truth, why answer composition is deterministic by default, and more.
-- [`otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md) - the OTLP/HTTP metrics
+- [`design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md) - the OTLP/HTTP metrics
   ingestion path: the receiver, volume/cardinality guardrails, how received points reach the
   scheduler's existing analysis cycle, and the self-observability endpoints.
 - [`alert-enrichment.md`](alert-enrichment.md) - Slack finding notifications and alert enrichment:
   Alertmanager alerts analyzed on arrival and posted to Slack with what happened, what changed, and
   similar past cases. Why it matters, how it fits the pipeline, and setup. Design details:
-  [`alert-enrichment-plan.md`](alert-enrichment-plan.md).
-- [`original-contribution.md`](original-contribution.md) - a factual summary of what's original in
-  the design (the dual-registry analyzer framework, deterministic routing with a bounded AI role,
-  the non-LLM behavior-correlation engine, and more), with citations back to the docs above.
+  [`design/alert-enrichment-plan.md`](design/alert-enrichment-plan.md).
 
 **External integration**: if you're plugging Ops Signals into your own alerting or automation, the
 consumer surface is `POST /api/integrations/alertmanager` (enrich alerts as they fire - see
@@ -86,6 +81,18 @@ What analyzers are, why a given one gets picked for a given metric, and how much
 - [`04-analyzer-plugin-framework.md#analyzer-workbench-ui`](04-analyzer-plugin-framework.md#analyzer-workbench-ui) -
   the Labs (run any analyzer directly against sample data), Add Analyzer wizard, and Recommendations
   preview, all grouped under Experiments in the web UI.
+
+## 7. Design Documents
+
+Technical plans behind larger features: the decisions, trade-offs and non-goals. Read these when
+you're changing the feature, not to learn how to use it.
+
+- [`design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md) - OTLP/HTTP
+  metrics ingestion (implemented).
+- [`design/alert-enrichment-plan.md`](design/alert-enrichment-plan.md) - Alertmanager receiver and
+  change-event correlation (implemented, except the read API and retention cleanup).
+- [`design/proposals/`](design/proposals/) - proposals that are not built yet, such as
+  [`jira-integration-plan.md`](design/proposals/jira-integration-plan.md).
 
 ---
 

@@ -65,7 +65,7 @@ posted by CI/CD to `POST /api/events` and stored as-is, and **alerts** from Aler
 an on-demand analysis — see [Alert Enrichment](#alert-enrichment-alertmanager--slack).
 
 - `intelligence/adapters/csv_adapter.py`, `backend/app/api/ingestion.py`
-- `backend/app/api/otlp.py`, `backend/app/otlp/` — see [`otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md)
+- `backend/app/api/otlp.py`, `backend/app/otlp/` — see [`design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md)
 - `backend/app/api/events.py`, `ChangeEventEntity`
 - `intelligence/normalize/normalizer.py`
 
@@ -174,7 +174,7 @@ the message.
 - `AlertEnrichmentEntity`, `ChangeEventEntity`
 
 User guide: [`alert-enrichment.md`](alert-enrichment.md). Design and trade-offs:
-[`alert-enrichment-plan.md`](alert-enrichment-plan.md). To see it run end to end with no setup:
+[`design/alert-enrichment-plan.md`](design/alert-enrichment-plan.md). To see it run end to end with no setup:
 [`demo.md`](demo.md).
 
 ## Why This Reduces MTTR
@@ -199,7 +199,7 @@ Shown as dashed, muted boxes in Figure 1 — explicitly **not** current capabili
   (see [Consume](#6-consume)); a general-purpose outbound webhook is not.
 
 OTLP metrics ingestion (`POST /api/otlp/v1/metrics`) is implemented — see
-[`docs/otlp-metrics-ingestion-plan.md`](otlp-metrics-ingestion-plan.md). OTLP logs and traces are
+[`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md). OTLP logs and traces are
 not yet implemented and remain a future extension of that same design.
 
 ## Layer Responsibilities

@@ -1,4 +1,4 @@
-"""AlertEnrichmentService: alert in -> one enriched Slack message out (docs/alert-enrichment-plan.md §E).
+"""AlertEnrichmentService: alert in -> one enriched Slack message out (docs/design/alert-enrichment-plan.md §E).
 
 Never blocks, drops, or fails an alert: every step degrades to "unavailable" and the message is
 still built and (if notification is on) posted with whatever sections succeeded.

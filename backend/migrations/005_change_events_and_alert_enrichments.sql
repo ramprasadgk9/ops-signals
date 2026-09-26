@@ -1,4 +1,4 @@
--- New tables for alert enrichment (docs/alert-enrichment-plan.md). Created automatically at backend
+-- New tables for alert enrichment (docs/design/alert-enrichment-plan.md). Created automatically at backend
 -- startup via Base.metadata.create_all (backend/app/main.py) since they're new tables, not alters to
 -- existing ones - this file documents the same change for anyone reading migration history by hand,
 -- same convention as 003/004.

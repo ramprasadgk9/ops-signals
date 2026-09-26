@@ -1,6 +1,6 @@
 # Alertmanager for docker-compose.demo.yml: every alert goes to the Ops Signals receiver.
 # In a real setup, keep your existing receivers and add Ops Signals as an extra route with
-# `continue: true` - see docs/alert-enrichment-plan.md.
+# `continue: true` - see docs/design/alert-enrichment-plan.md.
 route:
   receiver: ops-signals
   group_by: [alertname, service]

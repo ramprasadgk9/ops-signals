@@ -1,5 +1,5 @@
 # Opt-in overlay: adds Alertmanager and demo alert rules so alert enrichment can be tried locally
-# (docs/alert-enrichment-plan.md). Prometheus switches to a config that loads the rules and sends
+# (docs/design/alert-enrichment-plan.md). Prometheus switches to a config that loads the rules and sends
 # alerts to Alertmanager; Alertmanager sends them to the Ops Signals backend on the host (:8001,
 # run_all.sh's default port).
 #
