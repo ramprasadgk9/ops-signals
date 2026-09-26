@@ -15,6 +15,7 @@ from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, P
 from backend.app.behavior_intelligence.loader import load_definitions
 from backend.app.capabilities.builtins import BUILTIN_CAPABILITIES
 from backend.app.models.entities import Base
+from backend.app.assistant.markdown_sections import split_sections
 from backend.app.memory.embedder import Embedder
 from backend.app.questions.catalog import QUESTION_CATALOG
 from intelligence.analyzer_registry import AnalyzerRegistration, AnalyzerRegistrationError, instantiate, load_registrations
@@ -22,45 +23,83 @@ from intelligence.analyzers.base import Analyzer
 
 logger = logging.getLogger(__name__)
 
-# Kept well under the embedder's practical input limit so a chunk's meaning isn't diluted by
-# being crammed against the model's context ceiling.
-CHUNK_SIZE = 6000
-CHUNK_OVERLAP = 200
-# Generous headroom - large enough that no real document in this repo needs more chunks than
-# this (the largest doc as of this writing is ~31K chars, i.e. 6 chunks), used only to bound how
-# many stale chunk-slot ids get cleared before each document's current chunks are written.
-MAX_CHUNKS_PER_DOCUMENT = 25
+# The embedding model (all-MiniLM-L6-v2) reads at most 256 tokens and silently ignores the rest,
+# so anything past roughly the first 1,000 characters of a chunk is invisible to search. Chunks
+# stay under that, heading path included.
+CHUNK_CHARS = 900
 
 
-def _split_into_chunks(content: str) -> list[str]:
-    """Splits long content into embeddable chunks instead of silently truncating past
-    CHUNK_SIZE characters - the previous behavior made everything past the first ~1,600 words of
-    a long document permanently unsearchable. Prefers splitting on markdown "## " section
-    headers so each chunk stays a coherent unit; falls back to fixed-size windows (with overlap,
-    so a fact split across the boundary isn't lost entirely) for a section that's itself too long
-    or for content with no headers at all."""
-    if len(content) <= CHUNK_SIZE:
-        return [content]
+@dataclass(slots=True)
+class KnowledgeChunk:
+    # "Security model > Turning on authentication", without the document's own title.
+    section: str
+    anchor: str
+    text: str
 
-    sections = re.split(r"\n(?=## )", content)
-    chunks: list[str] = []
+    def embedding_text(self, title: str) -> str:
+        heading = " > ".join(part for part in (title, self.section) if part)
+        return f"{heading}\n{self.text}" if heading else self.text
+
+
+def _markdown_title(content: str) -> str | None:
+    """The document's first "# " heading - its real title ("Security model"), which reads better
+    in a citation than one derived from the file name ("Security Model")."""
+    for section in split_sections(content)[:2]:
+        if section.level == 1:
+            return section.heading
+    return None
+
+
+def _windows(text: str, size: int) -> list[str]:
+    """`text` in pieces of at most `size` characters, split on blank lines where possible so a
+    paragraph, list or code block stays whole."""
+    pieces: list[str] = []
     current = ""
-    for section in sections:
-        if len(current) + len(section) <= CHUNK_SIZE:
-            current += section
+    for paragraph in re.split(r"\n\s*\n", text):
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) <= size:
+            current = candidate
             continue
         if current:
-            chunks.append(current)
-            current = ""
-        if len(section) <= CHUNK_SIZE:
-            current = section
-        else:
-            step = CHUNK_SIZE - CHUNK_OVERLAP
-            for start in range(0, len(section), step):
-                chunks.append(section[start : start + CHUNK_SIZE])
+            pieces.append(current)
+        while len(paragraph) > size:
+            cut = paragraph.rfind("\n", 0, size)
+            cut = cut if cut > size // 2 else size
+            pieces.append(paragraph[:cut].rstrip())
+            paragraph = paragraph[cut:].lstrip()
+        current = paragraph
     if current:
-        chunks.append(current)
-    return chunks[:MAX_CHUNKS_PER_DOCUMENT]
+        pieces.append(current)
+    return pieces
+
+
+def _chunk_document(content: str, title: str) -> list[KnowledgeChunk]:
+    """One chunk per Markdown section, so a search hit can be cited to the section that holds the
+    answer. A section too long to embed is windowed, every window keeping its section's heading. A
+    document short enough to embed whole (an ADR, a generated concept doc) stays one chunk."""
+    if len(content) + len(title) < CHUNK_CHARS:
+        return [KnowledgeChunk(section="", anchor="", text=content.strip())]
+    chunks: list[KnowledgeChunk] = []
+    for section in split_sections(content):
+        path = section.heading_path
+        # The document's own "# Title" is already the chunk's title, not a section of it.
+        if path and section.level == 1:
+            path = path[1:]
+        elif len(path) > 1 and path[0] == title:
+            path = path[1:]
+        breadcrumb = " > ".join(path)
+        body = section.text
+        if section.level:
+            body = body.split("\n", 1)[1].strip() if "\n" in body else ""
+        if not body:
+            continue
+        budget = max(CHUNK_CHARS - len(title) - len(breadcrumb) - 4, CHUNK_CHARS // 2)
+        for window in _windows(body, budget):
+            chunks.append(KnowledgeChunk(section=breadcrumb, anchor=section.anchor, text=window))
+    return chunks or [KnowledgeChunk(section="", anchor="", text=content.strip())]
 
 
 @dataclass(slots=True)
@@ -139,31 +178,18 @@ class ApplicationKnowledgeBootstrapService:
         # removed.
         current_ids = {doc.document_id for doc in documents}
         for removed_id in set(existing) - current_ids:
-            self.client.delete(
-                collection_name=self.COLLECTION_NAME,
-                points_selector=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=removed_id))]),
-            )
+            self._delete_document(removed_id)
 
         for doc in documents:
-            chunks = _split_into_chunks(doc.content)
-
-            # Only pay for a clear when this document is actually chunked this run (bootstrap()
-            # runs on every app startup, including in the test suite, so a clear call for every
-            # one of ~70 mostly-short documents adds real, measurable overhead for no benefit in
-            # the common case). This leaves one accepted edge case: if a document's chunk COUNT
-            # shrinks between runs (e.g. it's trimmed from 3 chunks to 2), the now-unused slot's
-            # old point is left behind as a low-relevance stale candidate rather than deleted -
-            # a real but minor tradeoff against re-clearing 25 slots for every document, every
-            # startup, for content that in practice changes rarely.
-            if len(chunks) > 1:
-                stale_ids = [self._point_id(doc.document_id)] + [
-                    self._point_id(f"{doc.document_id}:chunk:{slot}") for slot in range(MAX_CHUNKS_PER_DOCUMENT)
-                ]
-                self.client.delete(collection_name=self.COLLECTION_NAME, points_selector=stale_ids)
-
-            for index, chunk_text in enumerate(chunks):
-                chunk_document_id = doc.document_id if len(chunks) == 1 else f"{doc.document_id}:chunk:{index}"
-                point_id = self._point_id(chunk_document_id)
+            chunks = _chunk_document(doc.content, doc.title)
+            # Replace the document's points wholesale: its chunk count changes whenever a section
+            # is added or removed, and a leftover chunk would keep answering with deleted text.
+            if doc.document_id in existing:
+                self._delete_document(doc.document_id)
+            vectors = self._encode_all([chunk.embedding_text(doc.title) for chunk in chunks])
+            points = []
+            for index, (chunk, vector) in enumerate(zip(chunks, vectors)):
+                reference = f"{doc.source_path}#{chunk.anchor}" if chunk.anchor else doc.source_path
                 payload = {
                     "document_id": doc.document_id,
                     "chunk_index": index,
@@ -171,18 +197,18 @@ class ApplicationKnowledgeBootstrapService:
                     "document_type": doc.document_type,
                     "topic": doc.topic,
                     "title": doc.title,
+                    "section": chunk.section,
+                    "anchor": chunk.anchor,
+                    "reference": reference,
                     "related_components": doc.related_components,
                     "source_type": doc.source_type,
                     "source_path": doc.source_path,
                     "version": doc.version,
-                    "summary": chunk_text[:1200],
+                    "summary": chunk.text,
                     **doc.metadata,
                 }
-                vector = self.embedder.encode(chunk_text)
-                self.client.upsert(
-                    collection_name=self.COLLECTION_NAME,
-                    points=[PointStruct(id=point_id, vector=vector, payload=payload)],
-                )
+                points.append(PointStruct(id=self._point_id(f"{doc.document_id}:chunk:{index}"), vector=vector, payload=payload))
+            self.client.upsert(collection_name=self.COLLECTION_NAME, points=points)
             if doc.document_id in existing:
                 updated += 1
             else:
@@ -244,16 +270,36 @@ class ApplicationKnowledgeBootstrapService:
             return 0
 
     def _existing_document_ids(self) -> list[str]:
+        # Paged: with one point per section the collection holds well over one scroll page, and an
+        # id missed here is never purged when its document goes away.
+        ids: set[str] = set()
+        offset = None
         try:
-            records, _ = self.client.scroll(
-                collection_name=self.COLLECTION_NAME,
-                with_payload=True,
-                with_vectors=False,
-                limit=1000,
-            )
-            return [str(point.payload.get("document_id")) for point in records if point.payload and point.payload.get("document_id")]
+            while True:
+                records, offset = self.client.scroll(
+                    collection_name=self.COLLECTION_NAME,
+                    with_payload=["document_id"],
+                    with_vectors=False,
+                    limit=1000,
+                    offset=offset,
+                )
+                ids.update(str(point.payload["document_id"]) for point in records if point.payload and point.payload.get("document_id"))
+                if offset is None:
+                    return sorted(ids)
         except Exception:
-            return []
+            return sorted(ids)
+
+    def _delete_document(self, document_id: str) -> None:
+        self.client.delete(
+            collection_name=self.COLLECTION_NAME,
+            points_selector=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]),
+        )
+
+    def _encode_all(self, texts: list[str]) -> list[list[float]]:
+        encode_batch = getattr(self.embedder, "encode_batch", None)
+        if encode_batch is not None:
+            return encode_batch(texts)
+        return [self.embedder.encode(text) for text in texts]
 
     def _point_id(self, document_id: str) -> str:
         namespace = UUID("6ba7b811-9dad-11d1-80b4-00c04fd430c8")
@@ -301,7 +347,7 @@ class ApplicationKnowledgeBootstrapService:
                     document_id=doc_id,
                     document_type="documentation",
                     topic=path.stem.replace("-", "_"),
-                    title=path.stem.replace("-", " ").title(),
+                    title=_markdown_title(text) or path.stem.replace("-", " ").title(),
                     content=text,
                     related_components=["documentation"],
                     source_type="repo",

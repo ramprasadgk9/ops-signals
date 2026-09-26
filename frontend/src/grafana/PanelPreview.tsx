@@ -374,7 +374,7 @@ function assistantChatToQuestionAnswer(response: AssistantChatResponse): Grafana
     priority: response.sources.length ? 'medium' : 'low',
     confidence: response.sources.length ? Math.min(0.95, Math.max(0.55, response.sources[0].score)) : 0.5,
     key_points: response.sources.length
-      ? response.sources.slice(0, 4).map((source) => `${source.source_type}: ${source.title} (${source.score.toFixed(2)})`)
+      ? response.sources.slice(0, 4).map((source) => `${source.source_type}: ${source.title}${source.section ? ` > ${source.section}` : ''} (${source.score.toFixed(2)})`)
       : response.limitations.slice(0, 3),
     evidence_signal_ids: [],
   };

@@ -222,10 +222,17 @@ function EvidenceGroup({ group }: { group: AssistantEvidenceGroup }) {
             {group.sources.map((source) => (
               <Box key={`${source.reference}-${source.title}`} sx={{ p: 1.2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#fbfdff' }}>
                 <Stack direction="row" justifyContent="space-between" spacing={1}>
-                  <Typography sx={{ fontWeight: 850, fontSize: 14 }}>{source.title}</Typography>
+                  <Box>
+                    <Typography sx={{ fontWeight: 850, fontSize: 14 }}>{source.title}</Typography>
+                    {source.section ? <Typography sx={{ color: ui.muted, fontSize: 12, fontWeight: 700 }}>{source.section}</Typography> : null}
+                  </Box>
                   <Typography sx={{ color: ui.muted, fontSize: 12 }}>{Math.round(source.score * 100)}%</Typography>
                 </Stack>
-                {source.summary ? <Typography sx={{ color: ui.muted, fontSize: 12, mt: 0.5 }}>{source.summary}</Typography> : null}
+                {source.summary ? (
+                  <Typography sx={{ color: ui.muted, fontSize: 12, mt: 0.5, whiteSpace: 'pre-line', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {source.summary}
+                  </Typography>
+                ) : null}
                 <Divider sx={{ my: 1 }} />
                 {source.reference.startsWith('/') ? (
                   <Button component={RouterLink} to={source.reference} size="small" endIcon={<OpenInNewRoundedIcon />} sx={{ p: 0, textTransform: 'none', fontWeight: 800 }}>Open</Button>

@@ -24,6 +24,10 @@ class AssistantSource(BaseModel):
     service: str | None = None
     metric_name: str | None = None
     summary: str | None = None
+    # Documentation sources only: the file and the section within it that matched, e.g.
+    # "docs/security-model.md" and "Turning on authentication". `reference` links to the section.
+    source_path: str | None = None
+    section: str | None = None
 
 
 class AssistantEvidenceGroup(BaseModel):

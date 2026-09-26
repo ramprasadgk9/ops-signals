@@ -792,6 +792,8 @@ export type AssistantSource = {
   service?: string | null;
   metric_name?: string | null;
   summary?: string | null;
+  source_path?: string | null;
+  section?: string | null;
 };
 
 export type AssistantEvidenceGroup = {

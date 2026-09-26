@@ -84,6 +84,13 @@ class CaseEmbedder(Embedder):
         except Exception as e:
             raise RuntimeError(f"Failed to encode text: {e}")
 
+    def encode_batch(self, texts: list[str]) -> list[list[float]]:
+        """Encode many texts in one model call - much faster than encode() per text."""
+        try:
+            return self._model.encode(texts, normalize_embeddings=True).tolist()
+        except Exception as e:
+            raise RuntimeError(f"Failed to encode texts: {e}")
+
     @property
     def model_name(self) -> str:
         """Get model name."""

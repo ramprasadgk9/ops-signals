@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 # Minimum similarity for a documentation chunk to count as matching the question, for every client.
 DOCUMENT_SCORE_FLOOR = 0.3
+# Longest documentation passage put in the LLM prompt; section chunks are sized well under this.
+PROMPT_PASSAGE_CHARS = 1200
 
 
 @dataclass
@@ -49,7 +51,9 @@ class OperationalIntelligenceAssistant:
 
     @staticmethod
     def route_intents(message: str) -> list[str]:
-        text = message.lower()
+        # The product's own name is not a question about signals: "How do I deploy Ops Signals?"
+        # used to route to findings only and never searched documentation.
+        text = re.sub(r"ops[\s-]?signals", " ", message.lower())
         routes: list[str] = []
 
         if any(keyword in text for keyword in ["case", "incident", "resolved", "resolution", "rca", "root cause", "similar", "seen this before"]):
@@ -169,6 +173,21 @@ class OperationalIntelligenceAssistant:
                 continue
 
             if group.count:
+                groups.append(group)
+                sources.extend(group.sources)
+        if not {"DOCUMENT_SEARCH", "ANALYZER_SEARCH"} & set(routes):
+            # Documentation is searched for every question, not only ones whose wording the keyword
+            # router recognises as a docs question ("What outcome categories can a resolved case
+            # have?" routes to cases only, and the answer is in the docs). It goes after the routed
+            # evidence, and only a real match counts - the generic fallback query is for questions
+            # routed to documentation, not filler for every other question.
+            try:
+                app_sources, used_fallback = self._application_sources(payload)
+            except Exception as exc:
+                logger.warning("Supplementary documentation search failed: %s", exc)
+                app_sources, used_fallback = [], True
+            if app_sources and not used_fallback:
+                group = AssistantEvidenceGroup(source_type="app_documentation", label="Documentation", count=len(app_sources), sources=app_sources)
                 groups.append(group)
                 sources.extend(group.sources)
         for group in fallback_groups:
@@ -413,9 +432,14 @@ class OperationalIntelligenceAssistant:
             lines.append(f"{group.label}:")
             for source in group.sources[:5]:
                 summary = (source.summary or "").strip()
-                if len(summary) > 500:
-                    summary = summary[:500] + "..."
-                lines.append(f'- "{source.title}" (relevance {source.score:.2f}): {summary}')
+                # A documentation chunk is one section, already sized for the embedder, and is
+                # passed whole: cutting it to its first few lines dropped the answer whenever it
+                # wasn't in the section's opening paragraph.
+                limit = PROMPT_PASSAGE_CHARS if source.source_type == "app_documentation" else 500
+                if len(summary) > limit:
+                    summary = summary[:limit] + "..."
+                label = f"{source.title} > {source.section}" if source.section else source.title
+                lines.append(f'- "{label}" (relevance {source.score:.2f}): {summary}')
         return "\n".join(lines)
 
     @staticmethod
@@ -545,17 +569,7 @@ class OperationalIntelligenceAssistant:
         # where it was asked. A good match for a casual question ("Application Overview" against
         # "whats use of this application") scores ~0.38 with this embedding model.
         results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=DOCUMENT_SCORE_FLOOR)
-        sources = [
-            AssistantSource(
-                source_type="app_documentation",
-                title=row["payload"].get("title", "Documentation"),
-                score=float(row["score"]),
-                reference=row["payload"].get("reference", ""),
-                summary=row["payload"].get("summary"),
-            )
-            for row in results
-            if row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
-        ]
+        sources = [_documentation_source(row) for row in results if _is_documentation(row)]
         used_fallback = False
         if not sources:
             used_fallback = True
@@ -564,18 +578,25 @@ class OperationalIntelligenceAssistant:
                 limit=payload.top_k * 2,
                 score_threshold=0.35,
             )
-            sources = [
-                AssistantSource(
-                    source_type="app_documentation",
-                    title=row["payload"].get("title", "Documentation"),
-                    score=float(row["score"]),
-                    reference=row["payload"].get("reference", ""),
-                    summary=row["payload"].get("summary"),
-                )
-                for row in fallback_results
-                if row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
-            ]
+            sources = [_documentation_source(row) for row in fallback_results if _is_documentation(row)]
         return sources, used_fallback
+
+
+def _is_documentation(row: dict) -> bool:
+    return row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
+
+
+def _documentation_source(row: dict) -> AssistantSource:
+    payload = row["payload"]
+    return AssistantSource(
+        source_type="app_documentation",
+        title=payload.get("title", "Documentation"),
+        score=float(row["score"]),
+        reference=payload.get("reference") or payload.get("source_path", ""),
+        summary=payload.get("summary"),
+        source_path=payload.get("source_path") or None,
+        section=payload.get("section") or None,
+    )
 
 
 # Phrasings of data-quality and time-of-day questions ("did anything get stuck", "unusual for this
