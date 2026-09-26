@@ -797,6 +797,17 @@ export type AssistantSource = {
   quote?: string | null;
 };
 
+export type KnowledgeReindexResult = {
+  added: string[];
+  changed: string[];
+  removed: string[];
+  unchanged_documents: number;
+  chunks_embedded: number;
+  forced: boolean;
+  started_at: string;
+  duration_ms: number;
+};
+
 export type AssistantEvidenceGroup = {
   source_type: string;
   label: string;

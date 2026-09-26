@@ -74,7 +74,7 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple[VectorStore
         embedder=embedder,
         repo_root=Path.cwd(),
     )
-    knowledge_bootstrap.bootstrap(force=True)
+    knowledge_bootstrap.bootstrap()
 
     ai_services = build_optional_ai_services(load_ai_config())
     docs_store = QdrantVectorStore(

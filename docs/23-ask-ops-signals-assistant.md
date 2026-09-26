@@ -48,6 +48,31 @@ is not read as a question about signals.
 Every documentation source carries `source_path`, `section`, and a `reference` that links to the
 section (`docs/security-model.md#turning-on-authentication`, GitHub's anchor for the heading).
 
+## Adding Documentation
+
+Put the file under `docs/` (anywhere except `docs/archive/`) or edit `README.md`, then either
+restart the backend or click **Reindex docs** on the Ask Ops Signals page. The button calls:
+
+```bash
+curl -X POST http://localhost:8001/api/assistant/knowledge/bootstrap
+```
+
+(add `-H "Authorization: Bearer $OPS_SIGNALS_API_TOKEN"` when a token is set). Only documents that
+were added, edited or removed are re-embedded; the rest are skipped by content hash, so a reindex
+with nothing changed takes milliseconds. The response lists what happened:
+
+```json
+{"added": ["docs/new-feature.md"], "changed": ["docs/security-model.md"], "removed": [],
+ "unchanged_documents": 63, "chunks_embedded": 21, "duration_ms": 410}
+```
+
+`GET /api/assistant/knowledge/status` returns the same record for the most recent run as
+`last_bootstrap`. `?force=true` re-embeds everything. A change to chunking (`INDEX_VERSION` in
+`knowledge_bootstrap.py`) or to the embedding model does that automatically on the next run.
+
+A new doc is searchable at once, but nothing checks that it is answered well until it has golden
+questions - see [Quality Benchmarking](#quality-benchmarking).
+
 ## Answer Synthesis
 
 Answers about documentation quote the passage they rest on, with its citation:

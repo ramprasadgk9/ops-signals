@@ -46,6 +46,7 @@ import type {
   IngestionStatus,
   OtlpStatus,
   ValidationResult,
+  KnowledgeReindexResult,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -242,6 +243,7 @@ export const api = {
     postJson<AnalyzerRecommendationChatRequest, AnalyzerRecommendationChatResponse>('/api/metric-analyzer-recommendations/chat', payload),
   assistantChat: (payload: AssistantChatRequest) =>
     postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload),
+  reindexKnowledge: () => postJson<Record<string, never>, KnowledgeReindexResult>('/api/assistant/knowledge/bootstrap', {}),
   memoryChat: (payload: MemoryChatRequest) =>
     postJson<MemoryChatRequest, MemoryChatResponse>('/api/memory/chat', payload),
   experiments: () => getJson<ExperimentResult[]>('/api/experiments'),

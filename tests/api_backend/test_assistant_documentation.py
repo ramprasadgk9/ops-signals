@@ -120,7 +120,7 @@ class _FullSizeEmbedder:
 
 
 def _bootstrap(repo_root: Path, client: QdrantClient) -> None:
-    ApplicationKnowledgeBootstrapService(client=client, embedder=_FullSizeEmbedder(), repo_root=repo_root).bootstrap(force=True)
+    ApplicationKnowledgeBootstrapService(client=client, embedder=_FullSizeEmbedder(), repo_root=repo_root).bootstrap()
 
 
 def _indexed_sections(client: QdrantClient, source_path: str) -> set[str]:
@@ -213,3 +213,99 @@ def test_a_fence_closes_only_on_the_marker_that_opened_it() -> None:
     content = "# Doc\n\n~~~text\n```bash\n## not a heading\n```\n~~~\n\n## Real\n\nText.\n"
 
     assert [section.heading for section in split_sections(content)] == ["Doc", "Real"]
+
+
+# --- Incremental reindexing -----------------------------------------------------------------------
+
+
+class _CountingEmbedder:
+    def __init__(self, model_name: str = "model-a") -> None:
+        self.model_name = model_name
+        self.texts: list[str] = []
+
+    def encode(self, text: str) -> list[float]:
+        self.texts.append(text)
+        return [0.1] * ApplicationKnowledgeBootstrapService.VECTOR_SIZE
+
+
+def _repo_with_guide(tmp_path: Path) -> Path:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guide.md").write_text(_GUIDE, encoding="utf-8")
+    return tmp_path
+
+
+def _service(repo_root: Path, client: QdrantClient, embedder: _CountingEmbedder) -> ApplicationKnowledgeBootstrapService:
+    return ApplicationKnowledgeBootstrapService(client=client, embedder=embedder, repo_root=repo_root)
+
+
+def test_a_second_bootstrap_with_no_doc_changes_embeds_nothing(tmp_path: Path) -> None:
+    repo, client = _repo_with_guide(tmp_path), QdrantClient(":memory:")
+    first = _service(repo, client, _CountingEmbedder()).bootstrap()
+    embedder = _CountingEmbedder()
+
+    second = _service(repo, client, embedder).bootstrap()
+
+    assert "docs/guide.md" in first.added
+    assert (second.added, second.changed, second.removed) == ([], [], [])
+    assert second.unchanged_documents == len(first.added)
+    assert second.chunks_embedded == 0 and embedder.texts == []
+
+
+def test_only_added_edited_and_removed_docs_are_reindexed(tmp_path: Path) -> None:
+    repo, client = _repo_with_guide(tmp_path), QdrantClient(":memory:")
+    (repo / "docs" / "old.md").write_text("# Old\n\nGoing away.\n", encoding="utf-8")
+    _service(repo, client, _CountingEmbedder()).bootstrap()
+
+    (repo / "docs" / "guide.md").write_text(_GUIDE + "\n## Upgrading\n\nPull and rerun setup.\n", encoding="utf-8")
+    (repo / "docs" / "new.md").write_text("# New feature\n\nHow the new feature works.\n", encoding="utf-8")
+    (repo / "docs" / "old.md").unlink()
+    embedder = _CountingEmbedder()
+    result = _service(repo, client, embedder).bootstrap()
+
+    assert (result.added, result.changed, result.removed) == (["docs/new.md"], ["docs/guide.md"], ["docs/old.md"])
+    assert all(text.startswith(("Setup guide", "New feature")) for text in embedder.texts)
+    assert "Upgrading" in _indexed_sections(client, "docs/guide.md")
+    assert _indexed_sections(client, "docs/old.md") == set()
+
+
+def test_force_or_a_different_embedding_model_reembeds_everything(tmp_path: Path) -> None:
+    repo, client = _repo_with_guide(tmp_path), QdrantClient(":memory:")
+    first = _service(repo, client, _CountingEmbedder()).bootstrap()
+
+    forced = _service(repo, client, _CountingEmbedder()).bootstrap(force=True)
+    new_model = _service(repo, client, _CountingEmbedder(model_name="model-b")).bootstrap()
+
+    assert forced.forced and sorted(forced.changed) == sorted(first.added)
+    assert sorted(new_model.changed) == sorted(first.added)
+
+
+def test_status_reports_the_last_bootstrap(tmp_path: Path) -> None:
+    service = _service(_repo_with_guide(tmp_path), QdrantClient(":memory:"), _CountingEmbedder())
+    assert service.get_status().last_bootstrap is None
+
+    result = service.bootstrap()
+
+    assert service.get_status().last_bootstrap is result
+    assert result.started_at and result.duration_ms >= 0
+
+
+def test_the_reindex_endpoint_reports_what_changed_and_status_remembers_it(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from backend.app.api import assistant as assistant_module
+    from backend.app.main import create_app
+
+    repo = _repo_with_guide(tmp_path)
+    service = _service(repo, QdrantClient(":memory:"), _CountingEmbedder())
+    service.bootstrap()
+    (repo / "docs" / "new.md").write_text("# New feature\n\nHow it works.\n", encoding="utf-8")
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[assistant_module.get_knowledge_bootstrap] = lambda: service
+
+    with TestClient(app) as client:
+        reindex = client.post("/api/assistant/knowledge/bootstrap").json()
+        status = client.get("/api/assistant/knowledge/status").json()
+
+    assert reindex["added"] == ["docs/new.md"]
+    assert reindex["changed"] == [] and reindex["removed"] == []
+    assert status["last_bootstrap"]["added"] == ["docs/new.md"]

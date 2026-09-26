@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import logging
 import re
+import threading
+import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, NAMESPACE_URL, uuid5
 
@@ -27,6 +31,9 @@ logger = logging.getLogger(__name__)
 # so anything past roughly the first 1,000 characters of a chunk is invisible to search. Chunks
 # stay under that, heading path included.
 CHUNK_CHARS = 900
+# Part of every document's content hash. Bump it when chunking or the stored payload changes, so
+# the next bootstrap re-embeds every document instead of skipping the ones whose text is unchanged.
+INDEX_VERSION = 2
 # Longest section kept whole alongside its windows for quoting.
 SECTION_TEXT_CHARS = 8000
 
@@ -124,16 +131,13 @@ class ApplicationKnowledgeDocument:
 
 
 @dataclass(slots=True)
-class KnowledgeVerificationResult:
-    collection_exists: bool
-    vector_count: int
-    required_documents_present: bool
-    missing_document_ids: list[str] = field(default_factory=list)
+class _IndexedDocument:
+    source_path: str
+    content_hash: str
 
 
 @dataclass(slots=True)
-class ApplicationKnowledgeStatus:
-    collection_name: str
+class KnowledgeVerificationResult:
     collection_exists: bool
     vector_count: int
     required_documents_present: bool
@@ -146,6 +150,26 @@ class ApplicationKnowledgeBootstrapResult:
     created_documents: int
     updated_documents: int
     verification: KnowledgeVerificationResult
+    # Source paths ("docs/security-model.md", "generated://analyzers/trend") by what happened.
+    added: list[str] = field(default_factory=list)
+    changed: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
+    unchanged_documents: int = 0
+    chunks_embedded: int = 0
+    forced: bool = False
+    started_at: str = ""
+    duration_ms: int = 0
+
+
+@dataclass(slots=True)
+class ApplicationKnowledgeStatus:
+    collection_name: str
+    collection_exists: bool
+    vector_count: int
+    required_documents_present: bool
+    missing_document_ids: list[str] = field(default_factory=list)
+    # The most recent bootstrap in this process (startup or a reindex request); None before one.
+    last_bootstrap: ApplicationKnowledgeBootstrapResult | None = None
 
 
 class ApplicationKnowledgeBootstrapService:
@@ -169,13 +193,39 @@ class ApplicationKnowledgeBootstrapService:
         self.client = client
         self.embedder = embedder
         self.repo_root = repo_root or Path.cwd()
+        # Startup and a reindex request can overlap; two runs interleaving deletes and upserts of
+        # the same document would leave it half-indexed.
+        self._lock = threading.Lock()
+        self.last_result: ApplicationKnowledgeBootstrapResult | None = None
 
     def bootstrap(self, force: bool = False) -> ApplicationKnowledgeBootstrapResult:
+        """Brings the index in line with the current docs: embeds added and changed documents,
+        deletes removed ones, and skips documents whose content hash is unchanged. `force`
+        re-embeds every document."""
+        with self._lock:
+            started = time.monotonic()
+            started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            result = self._bootstrap(force)
+            result.forced = force
+            result.started_at = started_at
+            result.duration_ms = int((time.monotonic() - started) * 1000)
+            self.last_result = result
+            logger.info(
+                "Knowledge index: %d added, %d changed, %d removed, %d unchanged, %d chunks embedded in %d ms%s",
+                len(result.added), len(result.changed), len(result.removed), result.unchanged_documents,
+                result.chunks_embedded, result.duration_ms, " (forced)" if force else "",
+            )
+            return result
+
+    def _bootstrap(self, force: bool) -> ApplicationKnowledgeBootstrapResult:
         self._ensure_collection()
-        existing = self._existing_document_ids()
+        existing = self._existing_documents()
         documents = self._build_documents()
-        created = 0
-        updated = 0
+        added: list[str] = []
+        changed: list[str] = []
+        removed: list[str] = []
+        unchanged = 0
+        chunks_embedded = 0
 
         # A document that's no longer produced at all - moved to docs/archive/, renamed, deleted -
         # would otherwise stay indexed forever: this loop only ever upserts what _build_documents()
@@ -184,14 +234,20 @@ class ApplicationKnowledgeBootstrapService:
         # moved into the excluded archive/ directory, because its old points were simply never
         # removed.
         current_ids = {doc.document_id for doc in documents}
-        for removed_id in set(existing) - current_ids:
+        for removed_id in sorted(set(existing) - current_ids):
             self._delete_document(removed_id)
+            removed.append(existing[removed_id].source_path or removed_id)
 
         for doc in documents:
+            content_hash = self._content_hash(doc)
+            previous = existing.get(doc.document_id)
+            if previous and previous.content_hash == content_hash and not force:
+                unchanged += 1
+                continue
             chunks = _chunk_document(doc.content, doc.title)
             # Replace the document's points wholesale: its chunk count changes whenever a section
             # is added or removed, and a leftover chunk would keep answering with deleted text.
-            if doc.document_id in existing:
+            if previous:
                 self._delete_document(doc.document_id)
             vectors = self._encode_all([chunk.embedding_text(doc.title) for chunk in chunks])
             points = []
@@ -213,22 +269,32 @@ class ApplicationKnowledgeBootstrapService:
                     "version": doc.version,
                     "summary": chunk.text,
                     "section_text": chunk.section_text,
+                    "content_hash": content_hash,
                     **doc.metadata,
                 }
                 points.append(PointStruct(id=self._point_id(f"{doc.document_id}:chunk:{index}"), vector=vector, payload=payload))
             self.client.upsert(collection_name=self.COLLECTION_NAME, points=points)
-            if doc.document_id in existing:
-                updated += 1
-            else:
-                created += 1
+            chunks_embedded += len(points)
+            (changed if previous else added).append(doc.source_path or doc.document_id)
 
-        verification = self.verify_required_documents()
         return ApplicationKnowledgeBootstrapResult(
             collection_name=self.COLLECTION_NAME,
-            created_documents=created,
-            updated_documents=updated,
-            verification=verification,
+            created_documents=len(added),
+            updated_documents=len(changed),
+            verification=self.verify_required_documents(),
+            added=added,
+            changed=changed,
+            removed=removed,
+            unchanged_documents=unchanged,
+            chunks_embedded=chunks_embedded,
         )
+
+    def _content_hash(self, doc: ApplicationKnowledgeDocument) -> str:
+        """Changes whenever anything that goes into a document's points would: its text and
+        metadata, how documents are chunked (INDEX_VERSION), or the embedding model."""
+        model = getattr(self.embedder, "model_name", "")
+        parts = [str(INDEX_VERSION), model, doc.title, doc.source_path, doc.document_type, doc.topic, doc.version, repr(sorted(doc.metadata.items())), repr(doc.related_components), doc.content]
+        return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
     def get_status(self) -> ApplicationKnowledgeStatus:
         exists = self._collection_exists()
@@ -240,6 +306,7 @@ class ApplicationKnowledgeBootstrapService:
             vector_count=vector_count,
             required_documents_present=verification.required_documents_present,
             missing_document_ids=verification.missing_document_ids,
+            last_bootstrap=self.last_result,
         )
 
     def verify_required_documents(self) -> KnowledgeVerificationResult:
@@ -278,24 +345,38 @@ class ApplicationKnowledgeBootstrapService:
             return 0
 
     def _existing_document_ids(self) -> list[str]:
-        # Paged: with one point per section the collection holds well over one scroll page, and an
-        # id missed here is never purged when its document goes away.
-        ids: set[str] = set()
+        return sorted(self._existing_documents())
+
+    def _existing_documents(self) -> dict[str, "_IndexedDocument"]:
+        """Every indexed document id with its source path and content hash. Paged: with one point
+        per section the collection holds well over one scroll page, and an id missed here is never
+        purged when its document goes away."""
+        documents: dict[str, _IndexedDocument] = {}
         offset = None
         try:
             while True:
                 records, offset = self.client.scroll(
                     collection_name=self.COLLECTION_NAME,
-                    with_payload=["document_id"],
+                    with_payload=["document_id", "source_path", "content_hash"],
                     with_vectors=False,
                     limit=1000,
                     offset=offset,
                 )
-                ids.update(str(point.payload["document_id"]) for point in records if point.payload and point.payload.get("document_id"))
+                for point in records:
+                    payload = point.payload or {}
+                    document_id = payload.get("document_id")
+                    if not document_id:
+                        continue
+                    known = documents.get(str(document_id))
+                    content_hash = payload.get("content_hash") or ""
+                    # A document whose chunks disagree (a run interrupted halfway) counts as changed.
+                    if known and known.content_hash != content_hash:
+                        content_hash = ""
+                    documents[str(document_id)] = _IndexedDocument(source_path=payload.get("source_path") or "", content_hash=content_hash)
                 if offset is None:
-                    return sorted(ids)
+                    return documents
         except Exception:
-            return sorted(ids)
+            return documents
 
     def _delete_document(self, document_id: str) -> None:
         self.client.delete(

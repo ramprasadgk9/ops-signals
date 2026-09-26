@@ -4,6 +4,7 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
+import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import { useMutation } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
@@ -11,7 +12,7 @@ import { api } from '../api/queries';
 import { ErrorState } from '../components/ErrorState';
 import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
-import type { AssistantChatResponse, AssistantEvidenceGroup } from '../types';
+import type { AssistantChatResponse, AssistantEvidenceGroup, KnowledgeReindexResult } from '../types';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -84,6 +85,8 @@ export function MemoryChatPage() {
     },
   });
 
+  const reindex = useMutation({ mutationFn: () => api.reindexKnowledge() });
+
   const regenerate = () => {
     const lastUser = [...messages].reverse().find((item) => item.role === 'user');
     if (lastUser) sendMessage(lastUser.content);
@@ -102,8 +105,23 @@ export function MemoryChatPage() {
               <Stack direction="row" spacing={1}>
                 <Button startIcon={<RefreshRoundedIcon />} variant="outlined" onClick={regenerate} disabled={!messages.some((item) => item.role === 'user') || mutation.isPending}>Regenerate</Button>
                 <Button startIcon={<DeleteOutlineRoundedIcon />} variant="outlined" onClick={() => { setMessages([]); setConversationId(null); }}>Clear</Button>
+                <Button
+                  startIcon={reindex.isPending ? <CircularProgress size={16} /> : <SyncRoundedIcon />}
+                  variant="outlined"
+                  onClick={() => reindex.mutate()}
+                  disabled={reindex.isPending}
+                  title="Re-read README.md and docs/ so new or edited docs can be answered from"
+                >
+                  Reindex docs
+                </Button>
               </Stack>
             </Stack>
+            {reindex.isSuccess ? (
+              <Alert severity="success" onClose={() => reindex.reset()} sx={{ mt: 1.5 }}>{reindexSummary(reindex.data)}</Alert>
+            ) : null}
+            {reindex.isError ? (
+              <Alert severity="error" onClose={() => reindex.reset()} sx={{ mt: 1.5 }}>Reindex failed: {reindex.error instanceof Error ? reindex.error.message : 'unknown error'}</Alert>
+            ) : null}
           </Box>
 
           <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, md: 5 }, py: 3, bgcolor: '#fbfdff' }}>
@@ -250,4 +268,16 @@ function EvidenceGroup({ group }: { group: AssistantEvidenceGroup }) {
       </CardContent>
     </Card>
   );
+}
+
+function reindexSummary(result: KnowledgeReindexResult): string {
+  const changes = [
+    ...result.added.map((path) => `added ${path}`),
+    ...result.changed.map((path) => `updated ${path}`),
+    ...result.removed.map((path) => `removed ${path}`),
+  ];
+  const seconds = (result.duration_ms / 1000).toFixed(1);
+  if (!changes.length) return `Docs are up to date - ${result.unchanged_documents} documents unchanged (${seconds}s).`;
+  const shown = changes.length > 6 ? [...changes.slice(0, 6), `and ${changes.length - 6} more`] : changes;
+  return `${shown.join(', ')}. ${result.chunks_embedded} sections indexed, ${result.unchanged_documents} documents unchanged (${seconds}s).`;
 }
