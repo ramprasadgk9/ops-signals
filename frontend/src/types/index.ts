@@ -814,6 +814,58 @@ export type AssistantChatResponse = {
   evidence_groups?: AssistantEvidenceGroup[];
 };
 
+export type AlertItem = {
+  id: number;
+  source: string;
+  alert_name: string;
+  status: 'firing' | 'resolved' | string;
+  service: string | null;
+  severity: string | null;
+  summary: string;
+  starts_at: string;
+  ends_at: string | null;
+  received_at: string;
+  labels: Record<string, string>;
+  generator_url: string | null;
+  analysis_status: string | null;
+  recommendation: string | null;
+  notify_status: string | null;
+  finding_id: number | null;
+  case_id: number | null;
+};
+
+export type AlertReceipt = {
+  accepted: number;
+  duplicates: number;
+  resolved: number;
+  disabled: boolean;
+  enrichment_ids: number[];
+};
+
+export type AlertListParams = {
+  status?: 'firing' | 'resolved';
+  service?: string;
+  finding_id?: number;
+  since?: string;
+  limit?: number;
+};
+
+export type IngestionStatus = {
+  generated_at: string;
+  has_any_data: boolean;
+  sources: {
+    otlp: { endpoint_path: string; last_received_at: string | null };
+    alertmanager: {
+      endpoint_path: string;
+      enabled: boolean;
+      token_required: boolean;
+      last_received_at: string | null;
+      received_24h: number;
+    };
+    prometheus: { configured: boolean };
+  };
+};
+
 export type OtlpStatus = {
   endpoint_path: string;
   points_received_total: number;

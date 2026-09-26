@@ -26,7 +26,7 @@ from backend.app.models.db import get_session_local
 from backend.app.models.entities import OtlpPendingPointEntity
 from backend.app.otlp.converter import OtlpPoint, convert_export_request
 from backend.app.otlp.limits import MAX_OTLP_BYTES, cardinality_tracker, rate_limiter
-from backend.app.otlp.metrics import OTLP_POINTS_RECEIVED_TOTAL, OTLP_POINTS_REJECTED_TOTAL
+from backend.app.otlp.metrics import OTLP_POINTS_RECEIVED_TOTAL, OTLP_POINTS_REJECTED_TOTAL, mark_points_received
 from backend.app.otlp.metrics import snapshot as otlp_metrics_snapshot
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,7 @@ async def export_metrics(request: Request) -> Response:
     if accepted:
         _persist_pending_points(accepted)
         OTLP_POINTS_RECEIVED_TOTAL.inc(len(accepted))
+        mark_points_received()
     if conversion.rejected_unsupported_type:
         OTLP_POINTS_REJECTED_TOTAL.labels(reason="unsupported_type").inc(conversion.rejected_unsupported_type)
     if conversion.rejected_missing_value:

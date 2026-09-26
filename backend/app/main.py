@@ -30,6 +30,7 @@ from backend.app.api.capabilities import router as capabilities_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.findings import router as findings_router
 from backend.app.api.ingestion import router as ingestion_router
+from backend.app.api.ingestion_status import router as ingestion_status_router
 from backend.app.api.direct_prometheus import analysis_router as direct_prometheus_analysis_router
 from backend.app.api.direct_prometheus import router as direct_prometheus_router
 from backend.app.api.learning_outcomes import router as learning_outcomes_router
@@ -328,6 +329,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(autonomous_router)
     app.include_router(experiments_router)
     app.include_router(ingestion_router)
+    app.include_router(ingestion_status_router)
     app.include_router(otlp_router)
     app.include_router(self_metrics_router)
     app.include_router(direct_prometheus_router)

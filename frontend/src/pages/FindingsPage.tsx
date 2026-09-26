@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, Chip, Grid2 as Grid, Stack, Typography } from '@mui/material';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import CategoryRoundedIcon from '@mui/icons-material/CategoryRounded';
@@ -52,6 +52,32 @@ export function FindingsPage() {
     queryFn: () => api.getFinding(selectedFinding!.id!),
     enabled: drawerOpen && Boolean(selectedFinding?.id),
   });
+
+  // Deep link from elsewhere (e.g. an alert linked to this finding): /findings?finding=<id> opens
+  // its drawer, whether or not it falls inside the selected time window.
+  const linkedFindingParam = searchParams.get('finding');
+  const linkedFindingId = linkedFindingParam && /^\d+$/.test(linkedFindingParam) ? Number(linkedFindingParam) : null;
+  const linkedFindingQuery = useQuery({
+    queryKey: ['finding-detail', linkedFindingId],
+    queryFn: () => api.getFinding(linkedFindingId!),
+    enabled: linkedFindingId !== null,
+    retry: false,
+  });
+  useEffect(() => {
+    if (linkedFindingQuery.data) {
+      setSelectedFinding(linkedFindingQuery.data);
+      setDrawerOpen(true);
+    }
+  }, [linkedFindingQuery.data]);
+
+  const handleCloseDrawer = () => {
+    setDrawerOpen(false);
+    if (searchParams.has('finding')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('finding');
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   const handleViewDetails = (finding: Finding) => {
     setSelectedFinding(finding);
@@ -179,6 +205,11 @@ export function FindingsPage() {
           <Typography sx={{ fontSize: 18, fontWeight: 900 }}>Finding Records</Typography>
           <Chip label={windows.find((item) => item.id === window)?.label ?? window} />
         </Stack>
+        {linkedFindingQuery.isError ? (
+          <Typography role="status" color="text.secondary" sx={{ mb: 1.5 }}>
+            Finding #{linkedFindingId} could not be found.
+          </Typography>
+        ) : null}
         {findingsQuery.error ? (
           <Typography color="error">Findings unavailable.</Typography>
         ) : findings.length ? (
@@ -192,7 +223,7 @@ export function FindingsPage() {
         open={drawerOpen}
         finding={findingDetailQuery.data ?? selectedFinding}
         signals={signalsQuery.data ?? []}
-        onClose={() => setDrawerOpen(false)}
+        onClose={handleCloseDrawer}
       />
     </Stack>
   );

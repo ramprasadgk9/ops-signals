@@ -8,15 +8,18 @@ import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownR
 import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { Link as RouterLink } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { GetDataInPanel, SourceStatusStrip } from '../components/GetDataInPanel';
+import { AlertBadge, alertsByFinding } from '../components/AlertComponents';
+import { AlertsOverviewPanel } from '../components/AlertTimeline';
 import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
 import { relativeTime, severityTone, titleCase, ui } from '../standalone/theme';
 import { toCaseRows } from '../standalone/casesService';
 import { buildAutonomousDashboardData, type AutonomousDashboardData, type AutonomousPolicyRun } from '../autonomous/dashboardModel';
-import type { Finding, OperationalCase } from '../types';
+import type { AlertItem, Finding, OperationalCase } from '../types';
 
 function KpiCard({ icon, value, label, delta, to, bg, color }: { icon: React.ReactNode; value: number | string; label: string; delta: string; to: string; bg: string; color: string }) {
   return (
@@ -40,6 +43,20 @@ export function OverviewPage() {
   const behaviorsQuery = useQuery({ queryKey: ['behavior-findings-overview'], queryFn: () => api.behaviorFindings() });
   const summaryQuery = useQuery({ queryKey: ['overview-summary', '24h'], queryFn: () => api.overviewSummary('24h') });
   const autonomousPolicyRunsQuery = useQuery({ queryKey: ['overview-autonomous-policy-runs'], queryFn: () => api.autonomousPolicyRuns(10), retry: false });
+  // Deliberately outside the loading gate below: if this read is slow or fails, the Overview
+  // renders exactly as it would without it.
+  const ingestionStatusQuery = useQuery({ queryKey: ['ingestion-status'], queryFn: () => api.ingestionStatus(), retry: false, refetchInterval: 15_000 });
+  // Same rule: alerts only add badges; without them (or if this fails) rows render as before.
+  const linkedAlertsQuery = useQuery({ queryKey: ['alerts', 'recent', 100], queryFn: () => api.alerts({ limit: 100 }), retry: false, refetchInterval: 30_000 });
+
+  const ingestionStatus = ingestionStatusQuery.data;
+  const awaitingFirstData = ingestionStatus?.has_any_data === false;
+  // Once shown, the panel stays for this visit (until dismissed) even after the first data lands,
+  // so the result of an action taken in it - a demo run, a test alert - stays on screen.
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  useEffect(() => {
+    if (awaitingFirstData) setOnboardingOpen(true);
+  }, [awaitingFirstData]);
 
   if (findingsQuery.isLoading || casesQuery.isLoading || behaviorsQuery.isLoading || summaryQuery.isLoading || autonomousPolicyRunsQuery.isLoading) return <LoadingSkeleton />;
 
@@ -64,26 +81,32 @@ export function OverviewPage() {
   const failedJobs = latestAutonomousRun?.jobs_failed ?? autonomousData.summary.failed ?? 0;
   const topFinding = prioritizedFindings[0];
   const topIssue = topFinding ? `${topFinding.service} / ${topFinding.metric_name}` : 'No active top issue';
+  const kpiValue = (value: number | undefined) => (summaryQuery.error ? 'Unavailable' : awaitingFirstData ? '—' : value ?? 0);
 
   return (
     <Stack spacing={3}>
-      <PageHeader title="Overview" subtitle="Operational intelligence at a glance" />
+      <PageHeader title="Overview" subtitle="Operational intelligence at a glance" action={ingestionStatus ? <SourceStatusStrip status={ingestionStatus} /> : undefined} />
+
+      {(awaitingFirstData || onboardingOpen) && ingestionStatus ? (
+        <GetDataInPanel status={ingestionStatus} onDismiss={awaitingFirstData ? undefined : () => setOnboardingOpen(false)} />
+      ) : null}
 
       <OperationalSummary
         activeFindings={summaryQuery.error ? null : summary?.active_findings ?? findings.length}
         impactedServices={summaryQuery.error ? null : summary?.impacted_services ?? 0}
         failedJobs={failedJobs}
         topIssue={topIssue}
+        awaitingFirstData={awaitingFirstData}
       />
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WarningAmberRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.active_findings ?? 0} label="Active Findings" delta="Needs review" to="/findings?window=24h" bg="#fff1f2" color={ui.red} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WorkOutlineRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.open_cases ?? 0} label="Open Cases" delta="Investigation backlog" to="/cases" bg="#fff7ed" color={ui.orange} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<DnsRoundedIcon />} value={summaryQuery.error ? 'Unavailable' : summary?.impacted_services ?? 0} label="Impacted Services" delta={topFinding?.service ?? 'No service impacted'} to="/findings?window=24h" bg="#eff6ff" color="#3b82f6" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<CheckCircleRoundedIcon />} value={failedJobs > 0 ? 'Needs attention' : 'Healthy'} label="Automation" delta={`${failedJobs} failed jobs`} to="/autonomous-monitoring" bg="#ecfdf5" color={failedJobs > 0 ? ui.red : ui.green} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WarningAmberRoundedIcon />} value={kpiValue(summary?.active_findings)} label="Active Findings" delta="Needs review" to="/findings?window=24h" bg="#fff1f2" color={ui.red} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WorkOutlineRoundedIcon />} value={kpiValue(summary?.open_cases)} label="Open Cases" delta="Investigation backlog" to="/cases" bg="#fff7ed" color={ui.orange} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<DnsRoundedIcon />} value={kpiValue(summary?.impacted_services)} label="Impacted Services" delta={topFinding?.service ?? 'No service impacted'} to="/findings?window=24h" bg="#eff6ff" color="#3b82f6" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<CheckCircleRoundedIcon />} value={awaitingFirstData ? '—' : failedJobs > 0 ? 'Needs attention' : 'Healthy'} label="Automation" delta={awaitingFirstData ? 'Waiting for first data' : `${failedJobs} failed jobs`} to="/autonomous-monitoring" bg="#ecfdf5" color={failedJobs > 0 ? ui.red : ui.green} /></Grid>
       </Grid>
 
-      <NeedsAttentionPanel findings={prioritizedFindings} cases={cases} />
+      <NeedsAttentionPanel findings={prioritizedFindings} cases={cases} alertByFinding={alertsByFinding(linkedAlertsQuery.data ?? [])} />
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 7 }}>
@@ -93,6 +116,8 @@ export function OverviewPage() {
           <OpenInvestigationsPanel openCases={openCases} />
         </Grid>
       </Grid>
+
+      <AlertsOverviewPanel title="Incoming Alerts" variant="compact" hideWhenEmpty viewAllTo="/integrations" />
     </Stack>
   );
 }
@@ -105,7 +130,7 @@ function latestPolicyRun(policyRuns: AutonomousPolicyRun[]) {
   })[0] ?? null;
 }
 
-function OperationalSummary({ activeFindings, impactedServices, failedJobs, topIssue }: { activeFindings: number | null; impactedServices: number | null; failedJobs: number; topIssue: string }) {
+function OperationalSummary({ activeFindings, impactedServices, failedJobs, topIssue, awaitingFirstData = false }: { activeFindings: number | null; impactedServices: number | null; failedJobs: number; topIssue: string; awaitingFirstData?: boolean }) {
   const findingText = activeFindings === null ? 'Findings unavailable.' : `${activeFindings} active ${activeFindings === 1 ? 'finding' : 'findings'}.`;
   const serviceText = impactedServices === null ? 'Service impact unavailable.' : `${impactedServices} ${impactedServices === 1 ? 'service' : 'services'} impacted.`;
   const automationText = failedJobs > 0 ? `Automation needs attention with ${failedJobs} failed ${failedJobs === 1 ? 'job' : 'jobs'}.` : 'Automation healthy.';
@@ -116,7 +141,7 @@ function OperationalSummary({ activeFindings, impactedServices, failedJobs, topI
         <Box>
           <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Operational Summary</Typography>
           <Typography sx={{ color: ui.text, mt: 0.8, fontSize: 16 }}>
-            {findingText} {serviceText} {automationText} Top issue: {topIssue}.
+            {awaitingFirstData ? 'Waiting for the first metrics or alerts. Connect a source above to start analysis.' : `${findingText} ${serviceText} ${automationText} Top issue: ${topIssue}.`}
           </Typography>
         </Box>
       </Stack>
@@ -124,7 +149,7 @@ function OperationalSummary({ activeFindings, impactedServices, failedJobs, topI
   );
 }
 
-function NeedsAttentionPanel({ findings, cases }: { findings: Finding[]; cases: OperationalCase[] }) {
+function NeedsAttentionPanel({ findings, cases, alertByFinding }: { findings: Finding[]; cases: OperationalCase[]; alertByFinding: Map<number, AlertItem> }) {
   const rows = findings.slice(0, 5);
   return (
     <WorkspacePanel sx={{ p: 2.5 }}>
@@ -166,6 +191,7 @@ function NeedsAttentionPanel({ findings, cases }: { findings: Finding[]; cases: 
                 status={status}
                 action={matchingCase ? 'Review' : 'Watch'}
                 to={matchingCase ? `/cases/${matchingCase.id}` : '/findings?window=24h'}
+                alert={finding.id !== undefined && finding.id !== null ? alertByFinding.get(finding.id) : undefined}
               />
             );
           })}
@@ -176,7 +202,7 @@ function NeedsAttentionPanel({ findings, cases }: { findings: Finding[]; cases: 
   );
 }
 
-function NeedsAttentionRow({ priority, priorityColor, priorityBg, serviceMetric, issue, impact, status, action, to }: { priority: string; priorityColor: string; priorityBg: string; serviceMetric: string; issue: string; impact: string; status: string; action: string; to: string }) {
+function NeedsAttentionRow({ priority, priorityColor, priorityBg, serviceMetric, issue, impact, status, action, to, alert }: { priority: string; priorityColor: string; priorityBg: string; serviceMetric: string; issue: string; impact: string; status: string; action: string; to: string; alert?: AlertItem }) {
   const cellSx = { px: 1.5, py: 1.25, borderBottom: `1px solid ${ui.border}`, minWidth: 0 };
   return (
     <>
@@ -185,7 +211,10 @@ function NeedsAttentionRow({ priority, priorityColor, priorityBg, serviceMetric,
           {priority}
         </Box>
       </Box>
-      <Typography sx={{ ...cellSx, fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serviceMetric}</Typography>
+      <Box sx={cellSx}>
+        <Typography sx={{ fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serviceMetric}</Typography>
+        {alert ? <Box sx={{ mt: 0.5 }}><AlertBadge alert={alert} /></Box> : null}
+      </Box>
       <Typography sx={cellSx}>{issue}</Typography>
       <Typography sx={{ ...cellSx, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{impact}</Typography>
       <Typography sx={{ ...cellSx, color: status.startsWith('Case') ? ui.blue : ui.muted, fontWeight: 800 }}>{status}</Typography>

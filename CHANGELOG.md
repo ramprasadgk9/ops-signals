@@ -13,6 +13,24 @@
   message with what happened, what changed and similar past cases. Change events such as deploys
   are recorded through `POST /api/events`. Off unless `OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED=true`.
   See [`docs/alert-enrichment.md`](docs/alert-enrichment.md).
+- The Overview page now shows a "Get data in" panel until the first data arrives, with the OTLP
+  endpoint, the Alertmanager webhook and a config snippet for each, plus a status strip showing
+  which sources are receiving. Backed by the new `GET /api/ingestion/status`. Installs that
+  already have analysis history see no change apart from the status strip.
+- Added an Integrations page (`/integrations`) listing every data source (OTLP, Alertmanager,
+  Prometheus, CSV) with its endpoint, a config snippet, whether data is arriving, and the most
+  recent received alerts. Received alerts can now be read back with `GET /api/alerts` (filters:
+  `status`, `service`, `finding_id`, `since`, `limit`; API token required like every read).
+  Findings and cases linked to an alert show an "Alert: <name>" badge. Alerts from the last 24h are
+  shown as a timeline - one lane per alert rule, a bar per firing (solid while firing, faded once
+  resolved), severity colors with labels, and a marker where an alert was linked to a finding -
+  under a firing / linked / resolved summary and above a list grouped by rule ("5× in 24h", expand
+  for each occurrence). The Overview shows the summary and timeline once any alert has arrived.
+- The Integrations page and the first-run panel can **Send test alert** (a synthetic alert through
+  the real receive, enrich and Slack path, via `POST /api/integrations/alertmanager/test`, which
+  needs the API token) and **Load demo data** (a bundled checkout series analyzed through the
+  normal CSV endpoint). `/findings?finding=<id>` opens that finding directly, and alerts linked to a
+  finding without a case link there. The Settings page's OTLP card moved to Integrations.
 - Added a one-command demo, `docker compose -f docker-compose.demo.yml up`, that starts with an
   incident already in progress. See [`docs/demo.md`](docs/demo.md).
 - The API version now comes from `pyproject.toml`, so the package, the API and the release tag

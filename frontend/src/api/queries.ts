@@ -40,6 +40,10 @@ import type {
   TimeseriesPoint,
   OverviewSummaryResponse,
   MemoryStatsResponse,
+  AlertItem,
+  AlertListParams,
+  AlertReceipt,
+  IngestionStatus,
   OtlpStatus,
   ValidationResult,
 } from '../types';
@@ -61,6 +65,16 @@ export type AutonomousQuestionAnswer = {
 export const api = {
   health: () => getJson<{ status: string }>('/api/health'),
   otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
+  ingestionStatus: () => getJson<IngestionStatus>('/api/ingestion/status'),
+  sendTestAlert: () => postJson<Record<string, never>, AlertReceipt>('/api/integrations/alertmanager/test', {}),
+  alerts: (params: AlertListParams = {}) => {
+    const search = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+    });
+    const query = search.toString();
+    return getJson<AlertItem[]>(`/api/alerts${query ? `?${query}` : ''}`);
+  },
   overviewSummary: (window: '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
   services: () => getJson<string[]>('/api/services'),
   metrics: (service: string) => getJson<string[]>(`/api/services/${service}/metrics`),

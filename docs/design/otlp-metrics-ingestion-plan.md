@@ -275,8 +275,10 @@ they already have. A custom JSON shape would need its own glue on their end for 
 6. Tests (§9), manual verification against live Postgres, docs updates (§8).
 7. `scripts/send_test_otlp_metrics.py` - a demo/smoke-test script, added after manual UI
    verification surfaced the interval bug in Implementation note 3.
-8. `GET /api/otlp/status` (`backend/app/otlp/metrics.py::snapshot()`) + a Settings page card
-   (`frontend/src/pages/SettingsPage.tsx`) - Prometheus's connection flow has a URL field and a
+8. `GET /api/otlp/status` (`backend/app/otlp/metrics.py::snapshot()`) + an ingestion card
+   (`frontend/src/components/OtlpIngestionCard.tsx`, first on the Settings page, since moved to the
+   Integrations page next to `GET /api/ingestion/status`, which adds a restart-proof "last point
+   received" time) - Prometheus's connection flow has a URL field and a
    "Test Connection" button because Ops Signals *pulls* from it; OTLP is the reverse (Ops Signals
    never connects out, so there's nothing to "test"), which left the endpoint address and whether
    data is actually arriving completely invisible in the app itself - discoverable only by reading

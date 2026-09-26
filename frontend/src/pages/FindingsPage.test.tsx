@@ -1,0 +1,103 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { FindingsPage } from './FindingsPage';
+import { api } from '../api/queries';
+import type { Finding } from '../types';
+
+vi.mock('../api/queries', () => ({
+  api: {
+    findings: vi.fn(),
+    overviewSummary: vi.fn(),
+    signalsByRunIds: vi.fn(),
+    getFinding: vi.fn(),
+    analysisRun: vi.fn(),
+    timeseries: vi.fn(),
+    alerts: vi.fn(),
+  },
+}));
+
+const finding: Finding = {
+  id: 7,
+  service: 'checkout-api',
+  metric_name: 'latency_p95',
+  title: 'Latency shift on checkout-api',
+  summary: 'p95 up',
+  category: 'behavior_change',
+  health_status: 'critical',
+  importance_score: 0.9,
+  investigation_priority: 1,
+  signal_ids: [],
+  comparison_json: {},
+  created_at: '2026-09-20T00:00:00Z',
+};
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.search}</div>;
+}
+
+function renderAt(url: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[url]}>
+        <Routes>
+          <Route path="/findings" element={<><FindingsPage /><LocationProbe /></>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+describe('FindingsPage deep link', () => {
+  beforeEach(() => {
+    // An older finding: outside the 24h list, which is exactly why the deep link fetches it itself.
+    vi.mocked(api.findings).mockResolvedValue([]);
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z',
+      window: '24h',
+      active_findings: 0,
+      open_cases: 0,
+      behavior_changes: 0,
+      impacted_services: 0,
+      memory_items: 0,
+      severity_trend: [],
+      category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('opens the linked finding and drops the parameter when the drawer closes', async () => {
+    vi.mocked(api.getFinding).mockResolvedValue(finding);
+
+    renderAt('/findings?finding=7');
+
+    expect(await screen.findByRole('heading', { name: 'Latency shift on checkout-api' })).toBeInTheDocument();
+    expect(api.getFinding).toHaveBeenCalledWith(7);
+
+    fireEvent.keyDown(screen.getByRole('presentation'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^$/));
+  });
+
+  it('says so when the linked finding does not exist, and still shows the list', async () => {
+    vi.mocked(api.getFinding).mockRejectedValue(new Error('404'));
+
+    renderAt('/findings?finding=999');
+
+    expect(await screen.findByText('Finding #999 could not be found.')).toBeInTheDocument();
+    expect(screen.getByText('No findings returned for this window.')).toBeInTheDocument();
+  });
+
+  it('ignores a malformed finding parameter', async () => {
+    renderAt('/findings?finding=abc');
+
+    expect(await screen.findByText('No findings returned for this window.')).toBeInTheDocument();
+    expect(api.getFinding).not.toHaveBeenCalled();
+  });
+});

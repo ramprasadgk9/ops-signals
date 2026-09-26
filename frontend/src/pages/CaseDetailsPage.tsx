@@ -35,6 +35,7 @@ import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
+import { LinkedAlerts } from '../components/AlertComponents';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import type { Signal } from '../types';
@@ -295,6 +296,7 @@ export function CaseDetailsPage() {
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                 {finding.summary}
               </Typography>
+              <LinkedAlerts findingId={caseData.finding_id} />
             </Box>
 
             <Stack direction="row" spacing={1} alignItems="center">

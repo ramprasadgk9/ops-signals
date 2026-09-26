@@ -214,6 +214,19 @@ All settings, with their defaults, are listed in `.env.example`.
 
 ### Troubleshooting
 
+The **Integrations** page (`/integrations`) lists recent alerts with the finding or case each was
+linked to, and its **Send test alert** button pushes one synthetic alert through the whole path
+(receive, enrich, Slack). The same list is available from the API:
+
+```bash
+curl -s "http://localhost:8001/api/alerts?limit=10"
+```
+
+Filters: `status` (`firing`/`resolved`), `service`, `finding_id`, `since`, `limit` (1-500). Like
+every read it needs the API token when `OPS_SIGNALS_API_TOKEN` is set - the receiver token only
+allows posting alerts. `POST /api/integrations/alertmanager/test` (the button) is not a public
+receiver either: it needs the API token.
+
 Every alert Ops Signals receives is stored with its outcome:
 
 ```bash
@@ -238,5 +251,7 @@ docker exec ops-signals-postgres psql -U ops_signals -d ops_signals -c \
 - Slack messages are posted as new messages. Resolve follow-ups aren't threaded under the original
   (that needs a Slack app with a bot token rather than an incoming webhook).
 - A backend restart while an alert is being processed loses that one enrichment.
-- No read API or UI page for stored enrichments yet (query `ops_alert_enrichments` directly), and
-  no automatic retention cleanup yet.
+- `GET /api/alerts` and the Integrations page list alerts, but not the full stored enrichment or
+  Slack message (query `ops_alert_enrichments` for those). No automatic retention cleanup yet.
+- Test alerts from **Send test alert** stay `firing` (there is nothing to resolve them); they are
+  labelled "Test alert" in the UI and carry the label `ops_signals_test=true`.

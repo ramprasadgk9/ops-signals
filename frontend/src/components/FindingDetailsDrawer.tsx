@@ -2,6 +2,7 @@ import { Box, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stac
 import { useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
+import { LinkedAlerts } from './AlertComponents';
 import type { Finding, Signal } from '../types';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
 
@@ -102,6 +103,8 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
           <Chip label={`Importance: ${finding.importance_score.toFixed(2)}`} />
           <Chip label={`Priority: P${finding.investigation_priority}`} variant="outlined" />
         </Stack>
+
+        <LinkedAlerts findingId={finding.id} />
 
         <Box sx={{ mb: 3, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
           <Stack direction="row" spacing={0.75} alignItems="flex-start">
