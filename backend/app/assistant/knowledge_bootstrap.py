@@ -291,7 +291,11 @@ class ApplicationKnowledgeBootstrapService:
             if not path.exists():
                 continue
             text = path.read_text(encoding="utf-8")
-            doc_id = f"repo-{path.stem}"
+            relative = path.relative_to(self.repo_root)
+            # From the relative path, not the file stem: README.md and docs/README.md both have the
+            # stem "README", so a stem id made the second overwrite the first and the project
+            # README was never searchable at all.
+            doc_id = f"repo-{relative.with_suffix('').as_posix()}"
             docs.append(
                 ApplicationKnowledgeDocument(
                     document_id=doc_id,
@@ -301,7 +305,7 @@ class ApplicationKnowledgeBootstrapService:
                     content=text,
                     related_components=["documentation"],
                     source_type="repo",
-                    source_path=str(path.relative_to(self.repo_root)),
+                    source_path=relative.as_posix(),
                 )
             )
         return docs

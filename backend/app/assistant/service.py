@@ -26,6 +26,9 @@ from intelligence.analyzer_registry import load_registrations
 
 logger = logging.getLogger(__name__)
 
+# Minimum similarity for a documentation chunk to count as matching the question, for every client.
+DOCUMENT_SCORE_FLOOR = 0.3
+
 
 @dataclass
 class AssistantServices:
@@ -536,14 +539,12 @@ class OperationalIntelligenceAssistant:
             # gaps?" came back as the architecture overview. Those now search on the question itself.
             query_text = "Operational Intelligence architecture PostgreSQL Qdrant analyzer registry signals findings cases"
         vector = self.services.embedder.encode(query_text)
-        # 0.3, not 0.55 (the request schema's default minimum_score) or the 0.4 this used to floor
-        # at - live-verified against this corpus: a short conceptual doc that's a genuinely good
-        # match for a casual, informal question (e.g. "Application Overview" against "whats use of
-        # this application") scores ~0.38 with this embedding model, not 0.5+. A 0.4+ floor was
-        # silently discarding the single most on-topic document in the index. Consistent with the
-        # same empirically-grounded floors already used for finding/behavior/case semantic search
-        # elsewhere in this file.
-        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=max(0.3, payload.minimum_score))
+        # A fixed floor, deliberately not payload.minimum_score: that field is the case-memory
+        # similarity threshold, and each client sends its own (web 0.35, Grafana 0.4, MCP and the
+        # API default 0.55), so the same question used to find different documentation depending on
+        # where it was asked. A good match for a casual question ("Application Overview" against
+        # "whats use of this application") scores ~0.38 with this embedding model.
+        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=DOCUMENT_SCORE_FLOOR)
         sources = [
             AssistantSource(
                 source_type="app_documentation",
