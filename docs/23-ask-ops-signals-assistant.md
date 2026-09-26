@@ -51,7 +51,11 @@ section (`docs/security-model.md#turning-on-authentication`, GitHub's anchor for
 ## Adding Documentation
 
 Put the file under `docs/` (anywhere except `docs/archive/`) or edit `README.md`, then either
-restart the backend or click **Reindex docs** on the Ask Ops Signals page. The button calls:
+restart the backend or click **Reindex docs** on the Ask Ops Signals page. The page shows when that
+is needed: `GET /api/assistant/knowledge/status` compares the docs on disk with the index by content
+hash (about 20 ms, nothing embedded) and returns `pending_changes`; when there are any, the button
+carries their count and a banner names the docs. The **?** next to the button explains it to people
+who haven't met the word "reindex". The button calls:
 
 ```bash
 curl -X POST http://localhost:8001/api/assistant/knowledge/bootstrap
@@ -71,7 +75,44 @@ with nothing changed takes milliseconds. The response lists what happened:
 `knowledge_bootstrap.py`) or to the embedding model does that automatically on the next run.
 
 A new doc is searchable at once, but nothing checks that it is answered well until it has golden
-questions - see [Quality Benchmarking](#quality-benchmarking).
+questions. **Docs check** is for that.
+
+## Docs Check
+
+`/assistant/docs-check` in the web UI, linked from the reindex result as **Test the new docs →**:
+
+1. **Docs** lists every doc under `README.md` and `docs/` with how many golden questions cite it and
+   which sections none do; docs the last reindex added or changed come first.
+2. **Draft questions** writes questions for a doc's untested sections. With AI, the model writes one
+   informal question per section plus a phrase copied from it; a phrase that isn't really in the
+   section is dropped. Without AI, a plain question per heading. Everything stays editable.
+3. **Ask** runs the question through the assistant and shows whether it cited the section you
+   expect, or which one it cited instead, with the quote.
+4. Mark it **Good** or **Wrong** and **Save**. The page previews the YAML it will append to
+   `benchmark/assistant/golden_questions.yml` - checked by the server the same way
+   `tests/test_assistant_golden.py` will check it - and appends it. A question the assistant gets
+   wrong today is saved as `category: known_gap`: recorded and reported, not scored, so a known
+   failure never breaks the build; the benchmark report says when one starts passing.
+
+Saving writes a file, so it needs `OPS_SIGNALS_ALLOW_FILE_WRITES=true` (the dev scripts set it) and a
+checkout that has `benchmark/` - packaged images don't. Without it the page still drafts and asks.
+Commit the updated golden file with your doc.
+
+API: `GET /api/assistant/docs-check/coverage`, `POST .../draft`, `POST .../evaluate`, and
+`POST .../tests` (`dry_run: true` returns the YAML without writing and needs no file writes).
+
+## Answer Feedback
+
+Every answer asks "Did this answer your question?". A thumbs-down asks why (wrong section, missing a
+step, outdated, not in the docs). Both are stored in `ops_assistant_feedback` with the question and
+what was cited (`POST /api/assistant/feedback`, `PATCH /api/assistant/feedback/{id}`). The person who
+answered is never sent anywhere else.
+
+Open thumbs-down questions, grouped by question, are listed on the Docs check page under **Flagged
+by users** (`GET /api/assistant/feedback/flagged`) - the most direct evidence of a question the
+assistant gets wrong. **Add as test** turns one into a golden question for the doc and section that
+should answer it and marks its feedback `added_as_test`; **Dismiss** marks it `dismissed`. Where file
+writes are on, the Ask Ops Signals page links to them ("3 questions flagged as not answered").
 
 ## Answer Synthesis
 
@@ -147,6 +188,8 @@ the `top_k`/`minimum_score` each sends), and reports:
 | `answer_has_answer` | every expected phrase is in the answer returned with AI off |
 
 `--ai` runs the same questions through the configured LLM and also counts quotes the model made up.
+Questions with `category: out_of_scope` (nothing in the docs answers them) or `known_gap` (saved
+from Docs check while the assistant still gets them wrong) are reported but not scored.
 `tests/test_assistant_golden.py` fails the build when the golden set no longer matches the docs (a
 section was renamed or its answer removed) or when a metric drops below its recorded floor.
 

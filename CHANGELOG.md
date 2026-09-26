@@ -17,6 +17,15 @@
   page (or `POST /api/assistant/knowledge/bootstrap`) re-embeds only documents that were added,
   changed or removed, and reports which. Startup does the same, so a restart with no doc changes
   no longer re-embeds the whole corpus (about 3 s to 50 ms). `force=true` re-embeds everything.
+- Ask Ops Signals shows when docs changed since it last read them (a count on Reindex docs and a
+  banner naming them), explains what reindexing is for, and asks "Did this answer your question?"
+  under every answer - a thumbs-down records why.
+- New **Docs check** page (`/assistant/docs-check`): see which docs have no golden questions, draft
+  questions for them (with AI or from headings), ask each and see which section the assistant
+  cited, and save the good ones - or the failing ones, as known gaps - to the golden set. Thumbs-down
+  questions are listed there too. Saving needs `OPS_SIGNALS_ALLOW_FILE_WRITES=true`.
+- The backend and MCP images now include `README.md`, so Ask Ops Signals answers from it in Docker
+  too; it was only indexed on local installs.
 - Added OTLP/HTTP metrics ingestion: `POST /api/otlp/v1/metrics` accepts pushed metrics (Gauge and
   Sum), with volume and cardinality limits, and the scheduler analyzes them on its normal cycle.
   `GET /api/otlp/status` reports what was received. See

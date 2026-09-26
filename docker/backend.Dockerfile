@@ -28,6 +28,8 @@ COPY config.yaml config.yaml
 COPY config ./config
 COPY sql ./sql
 COPY docs ./docs
+# Ask Ops Signals answers from README.md as well as docs/ (knowledge_bootstrap.py).
+COPY README.md README.md
 
 EXPOSE 8000
 
