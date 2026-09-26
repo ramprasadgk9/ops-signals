@@ -808,6 +808,104 @@ export type KnowledgeReindexResult = {
   duration_ms: number;
 };
 
+export type KnowledgeChanges = {
+  added: string[];
+  changed: string[];
+  removed: string[];
+};
+
+export type KnowledgeStatus = {
+  collection_exists: boolean;
+  vector_count: number;
+  document_count: number;
+  pending_changes: KnowledgeChanges | null;
+  docs_authoring_enabled: boolean;
+  last_bootstrap: KnowledgeReindexResult | null;
+};
+
+export type AssistantFeedbackReason = 'wrong_section' | 'missing_step' | 'outdated' | 'not_in_docs';
+
+export type AssistantFeedbackCreate = {
+  question: string;
+  helpful: boolean;
+  reason?: AssistantFeedbackReason | null;
+  answer?: string | null;
+  conversation_id?: string | null;
+  ai_synthesis_used?: boolean;
+  cited?: string[];
+};
+
+export type AssistantFeedbackUpdate = {
+  reason?: AssistantFeedbackReason | null;
+  status?: 'open' | 'added_as_test' | 'dismissed' | null;
+};
+
+export type AssistantFeedback = {
+  id: number;
+  question: string;
+  helpful: boolean;
+  reason: AssistantFeedbackReason | null;
+  status: 'open' | 'added_as_test' | 'dismissed';
+  created_at: string;
+};
+
+export type FlaggedQuestion = {
+  question: string;
+  count: number;
+  reasons: Record<string, number>;
+  cited: string[];
+  feedback_ids: number[];
+  last_flagged_at: string;
+};
+
+export type DocCoverage = {
+  source_path: string;
+  title: string;
+  section_count: number;
+  test_count: number;
+  untested_sections: string[];
+  recently: 'added' | 'changed' | null;
+};
+
+export type DocsCoverage = {
+  golden_available: boolean;
+  total_docs: number;
+  covered_docs: number;
+  docs: DocCoverage[];
+};
+
+export type DraftQuestion = {
+  source_path: string;
+  section: string;
+  question: string;
+  contains: string[];
+  drafted_by: string;
+};
+
+export type DocQuestionEvaluation = {
+  cited_expected: boolean;
+  rank: number | null;
+  cited: Array<{ source_path: string | null; section: string | null; reference: string; quote: string | null }>;
+  answer: string;
+  ai_synthesis_used: boolean;
+};
+
+export type NewDocTest = {
+  question: string;
+  source_path: string;
+  section?: string | null;
+  contains: string[];
+  known_gap: boolean;
+  feedback_ids?: number[];
+};
+
+export type SaveDocTestsResult = {
+  saved_ids: string[];
+  yaml: string;
+  path: string;
+  written: boolean;
+};
+
 export type AssistantEvidenceGroup = {
   source_type: string;
   label: string;

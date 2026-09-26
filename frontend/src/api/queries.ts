@@ -47,6 +47,16 @@ import type {
   OtlpStatus,
   ValidationResult,
   KnowledgeReindexResult,
+  KnowledgeStatus,
+  AssistantFeedback,
+  AssistantFeedbackCreate,
+  AssistantFeedbackUpdate,
+  FlaggedQuestion,
+  DocsCoverage,
+  DraftQuestion,
+  DocQuestionEvaluation,
+  NewDocTest,
+  SaveDocTestsResult,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -244,6 +254,18 @@ export const api = {
   assistantChat: (payload: AssistantChatRequest) =>
     postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload),
   reindexKnowledge: () => postJson<Record<string, never>, KnowledgeReindexResult>('/api/assistant/knowledge/bootstrap', {}),
+  knowledgeStatus: () => getJson<KnowledgeStatus>('/api/assistant/knowledge/status'),
+  sendAssistantFeedback: (payload: AssistantFeedbackCreate) => postJson<AssistantFeedbackCreate, AssistantFeedback>('/api/assistant/feedback', payload),
+  updateAssistantFeedback: (id: number, payload: AssistantFeedbackUpdate) =>
+    patchJson<AssistantFeedbackUpdate, AssistantFeedback>(`/api/assistant/feedback/${id}`, payload),
+  flaggedQuestions: () => getJson<FlaggedQuestion[]>('/api/assistant/feedback/flagged'),
+  docsCoverage: () => getJson<DocsCoverage>('/api/assistant/docs-check/coverage'),
+  draftDocQuestions: (sourcePath: string) =>
+    postJson<{ source_path: string }, DraftQuestion[]>('/api/assistant/docs-check/draft', { source_path: sourcePath }),
+  evaluateDocQuestion: (payload: { question: string; source_path: string; section?: string | null }) =>
+    postJson<typeof payload, DocQuestionEvaluation>('/api/assistant/docs-check/evaluate', payload),
+  saveDocTests: (tests: NewDocTest[], dryRun: boolean) =>
+    postJson<{ tests: NewDocTest[]; dry_run: boolean }, SaveDocTestsResult>('/api/assistant/docs-check/tests', { tests, dry_run: dryRun }),
   memoryChat: (payload: MemoryChatRequest) =>
     postJson<MemoryChatRequest, MemoryChatResponse>('/api/memory/chat', payload),
   experiments: () => getJson<ExperimentResult[]>('/api/experiments'),
