@@ -136,7 +136,8 @@ def evaluate(
     for surface, params in surfaces.items():
         for question in questions:
             response = assistant.chat(AssistantChatRequest(message=question.question, **params), db=_EmptyDb())
-            doc_sources = [source for source in response.sources if source.source_type == "app_documentation"]
+            # In the order the answer uses them (the documentation group's, which may be reranked).
+            doc_sources = next((group.sources for group in response.evidence_groups if group.source_type == "app_documentation"), [])
             ranked: list[list[CitedSource]] = [_cited(source, title_to_paths) for source in doc_sources]
             top_sources = [cited for group in ranked for cited in group]
 

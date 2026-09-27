@@ -27,6 +27,12 @@
 - The Ask Ops Signals first screen's "About your systems" examples now name this install's own
   findings, cases and services, so each one finds evidence when clicked. With nothing analysed yet
   it offers Load demo data and Connect a source instead of questions that came back empty.
+- Ask Ops Signals answers lead with the right evidence and repeat nothing: quoted titles no
+  longer steer routing, "did any metric stop reporting?" leads with findings, "Which analyzers are
+  there?" lists every analyzer with what it finds (from the registry), a named service limits the
+  findings searched, docs are no longer listed twice, past cases no longer repeat as Operational
+  Memory, and design plans rank below user docs. Next steps and follow-up questions now match what
+  leads the answer (no "Show the RCA for <a doc>").
 - The backend and MCP images now include `README.md`, so Ask Ops Signals answers from it in Docker
   too; it was only indexed on local installs.
 - Added OTLP/HTTP metrics ingestion: `POST /api/otlp/v1/metrics` accepts pushed metrics (Gauge and

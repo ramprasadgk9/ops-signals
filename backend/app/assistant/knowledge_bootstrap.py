@@ -21,7 +21,6 @@ from backend.app.capabilities.builtins import BUILTIN_CAPABILITIES
 from backend.app.models.entities import Base
 from backend.app.assistant.markdown_sections import split_sections
 from backend.app.memory.embedder import Embedder
-from backend.app.questions.catalog import QUESTION_CATALOG
 from intelligence.analyzer_registry import AnalyzerRegistration, AnalyzerRegistrationError, instantiate, load_registrations
 from intelligence.analyzers.base import Analyzer
 
@@ -33,7 +32,7 @@ logger = logging.getLogger(__name__)
 CHUNK_CHARS = 900
 # Part of every document's content hash. Bump it when chunking or the stored payload changes, so
 # the next bootstrap re-embeds every document instead of skipping the ones whose text is unchanged.
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 # Longest section kept whole alongside its windows for quoting.
 SECTION_TEXT_CHARS = 8000
 
@@ -505,12 +504,21 @@ class ApplicationKnowledgeBootstrapService:
             source_path="generated://application-overview",
         )
 
+    def analyzer_catalog(self) -> list[tuple[str, str, str]]:
+        """(analyzer id, display name, what it finds) for every registered analyzer, in registry
+        order - the answer to "which analyzers are there?", and the "What Are Analyzers?" list."""
+        return [
+            (str(doc.metadata["analyzer_id"]), str(doc.metadata["display_name"]), str(doc.metadata["purpose"]))
+            for doc in self._analyzer_documents()
+        ]
+
     def _analyzers_overview(self) -> ApplicationKnowledgeDocument:
-        analyzer_names = ", ".join(analyzer.analyzer_id for analyzer in self._registered_analyzers())
+        catalog = self.analyzer_catalog()
+        lines = "\n".join(f"- {analyzer_id} ({name}): {purpose}" for analyzer_id, name, purpose in catalog)
         content = (
             "Analyzers inspect normalized metric time-series data and produce lower-level operational signals. "
             "Their outputs feed findings and behavior definitions. "
-            f"Registered analyzers currently include: {analyzer_names}.\n\n"
+            f"There are {len(catalog)} registered analyzers, and what each one finds:\n{lines}\n\n"
             "Example: the ruptures analyzer scans a metric's time series for a persistent change point - "
             "e.g. checkout-api cpu_usage sitting near 42% for hours, then jumping to a new baseline near 79% "
             "and staying there. It emits a baseline_shift signal with the change point, the percent change, "
@@ -760,33 +768,31 @@ class ApplicationKnowledgeBootstrapService:
                 # analyzer's hand-written text.
                 purpose = capability.description
                 detects = _own_docstring(analyzer) or capability.description
-                questions = _question_labels(capability.supported_question_ids)
+                # Capability question ids are catalog-wide ("What changed yesterday?", "Is the service
+                # healthy?"), not this analyzer's own questions; listing them made every such page
+                # match generic questions. Only hand-written analyzers above carry their own.
+                questions = []
                 limitations = ["See the analyzer's own documentation and registry settings for its thresholds."]
                 preprocessing = ["Use normalized metric data; empty time buckets stay as gaps rather than being filled."]
                 min_samples = registration.router.eligibility_rules.get("min_samples")
                 required_sample = f"At least {min_samples} valid samples." if min_samples else "Enough samples for the analyzer's own checks."
                 required_history = required_sample
+            # Only what is specific to this analyzer. Lines that read the same on every analyzer page
+            # ("Supported metric types: ...", "Current implementation status: ...") made the pages look
+            # alike to search and were quoted as if they answered a question.
             content = "\n".join(
                 [
                     f"Analyzer name: {title}",
                     f"Analyzer ID: {analyzer.analyzer_id}",
                     f"Purpose: {purpose}",
-                    f"What it detects: {detects}",
-                    "Operational questions:",
-                    *[f"- {question}" for question in questions],
-                    f"Supported metric types: gauge, counter, latency, percentage, and provider-normalized numeric series.",
+                    *([f"What it detects: {detects}"] if detects != purpose else []),
+                    *(["Operational questions:", *[f"- {question}" for question in questions]] if questions else []),
                     f"Required sample size: {required_sample}",
-                    f"Required history: {required_history}",
-                    "Parameters:",
-                    f"- {capability.description}",
-                    "Inputs: normalized metric time-series data with service and metric metadata.",
-                    "Outputs: lower-level operational signals with severity, confidence, summary, and evidence.",
-                    "Strengths: explainable, deterministic, and aligned with metric behavior.",
+                    *([f"Required history: {required_history}"] if required_history != required_sample else []),
                     "Limitations:",
                     *[f"- {item}" for item in limitations],
                     "Preprocessing requirements:",
                     *[f"- {item}" for item in preprocessing],
-                    "Current implementation status: implemented and enabled in the current analyzer registry when configured.",
                 ]
             )
             docs.append(
@@ -801,6 +807,7 @@ class ApplicationKnowledgeBootstrapService:
                     metadata={
                         "analyzer_id": analyzer.analyzer_id,
                         "display_name": capability.title,
+                        "purpose": purpose,
                         "supported_question_ids": capability.supported_question_ids,
                     },
                 )
@@ -829,8 +836,3 @@ def _own_docstring(analyzer: Analyzer) -> str:
     """The analyzer class's own docstring, not one inherited from a base class."""
     doc = type(analyzer).__dict__.get("__doc__")
     return " ".join(inspect.cleandoc(doc).split()) if doc else ""
-
-
-def _question_labels(question_ids: list[str]) -> list[str]:
-    labels = {str(item["id"]): str(item["label"]) for item in QUESTION_CATALOG}
-    return [labels.get(question_id, question_id.replace("_", " ").capitalize() + "?") for question_id in question_ids]

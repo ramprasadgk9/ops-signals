@@ -262,6 +262,29 @@ questions:
     expect:
       - {source: "generated://concepts/analyzers-overview"}
 
+  # --- First-screen examples, word for word (frontend/src/pages/MemoryChatPage.tsx) ---------------
+  - id: starter-otel-collector
+    category: docs
+    question: Where do I point my OTel Collector?
+    contains: ["/api/otlp"]
+    expect:
+      - {source: README.md, section: "9.3 OTLP Metrics Ingestion"}
+      - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
+
+  - id: starter-behavior-intelligence
+    category: docs
+    question: How does Behavior Intelligence work?
+    contains: ["behavior definitions"]
+    expect:
+      - {source: docs/14-behavior-intelligence.md}
+
+  - id: starter-analyzer-catalog
+    category: analyzers
+    question: Which analyzers are there and what does each find?
+    contains: ["data_health", "time of day", "stopped reporting"]
+    expect:
+      - {source: "generated://concepts/analyzers-overview"}
+
   # --- Informal phrasing ------------------------------------------------------------------------
   - id: informal-purpose
     category: informal
