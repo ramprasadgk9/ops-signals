@@ -69,6 +69,8 @@ def render(results: dict[str, Any]) -> str:
         body.append(_router_section(suites["router"]))
     if "behavior" in suites:
         body.append(_behavior_section(suites["behavior"]))
+    if "nab" in suites:
+        body.append(_nab_section(suites["nab"]))
     if "performance" in suites:
         body.append(_performance_section(suites["performance"]))
     body.append(_pending_section(suites))
@@ -149,6 +151,18 @@ def _summary(results: dict[str, Any]) -> str:
     if behavior:
         counts = behavior["counts"]
         tiles.append(_tile("Cross-metric behaviors", f"{counts.get('PASS', 0)}<span class='of'>/{sum(counts.values())}</span>", "correlated multi-metric scenarios matched", "good" if counts.get("PASS", 0) == sum(counts.values()) else "critical"))
+    nab = suites.get("nab")
+    if nab:
+        headline = str(nab["settings"]["headline_threshold"])
+        replay = nab["overall"]["replay"][headline]
+        tiles.append(
+            _tile(
+                "NAB windows caught (causal)",
+                f"{replay['detected_windows']}<span class='of'>/{replay['windows']}</span>",
+                f"real labeled anomaly windows, {len(nab['series'])} series · {_pct(replay['alarm_precision'])} of alarms inside a window",
+                None,
+            )
+        )
     performance = suites.get("performance")
     if performance and performance["datasets"]:
         largest = max(performance["datasets"], key=lambda item: item["sample_count"])
@@ -157,7 +171,18 @@ def _summary(results: dict[str, Any]) -> str:
 
 
 def _scope(suites: dict[str, Any]) -> str:
-    return """
+    if "nab" in suites:
+        real_world = (
+            "<li><b>An official NAB score or a baseline comparison.</b> The NAB section reports this harness's window "
+            "metrics on NAB's labeled data. NAB's own score, and how simple baselines do on the same data, are separate "
+            "steps.</li>"
+        )
+    else:
+        real_world = (
+            "<li><b>Real-world accuracy at scale.</b> Public labeled datasets (NAB, UCR) and comparison against baselines "
+            "are listed under \"Not included in this run\" until they are part of the snapshot.</li>"
+        )
+    return f"""
 <section>
   <h2>What this report shows, and what it doesn't</h2>
   <div class="two-col">
@@ -179,8 +204,7 @@ def _scope(suites: dict[str, Any]) -> str:
       <ul>
         <li><b>Independence.</b> The synthetic scenarios and their answer keys were written by this project. They
         are a regression suite with known answers, not an external benchmark.</li>
-        <li><b>Real-world accuracy at scale.</b> Public labeled datasets (NAB, UCR) and comparison against baselines
-        are listed under "Not included in this run" until they are part of the snapshot.</li>
+        {real_world}
         <li><b>Score calibration.</b> The router's suitability weights are hand-set heuristics. This suite checks that
         the right analyzer is picked, not that a score's size tracks severity.</li>
       </ul>
@@ -314,6 +338,212 @@ def _behavior_section(behavior: dict[str, Any]) -> str:
   whose required metric isn't even present.</p>
   <div class="cards">{"".join(cards)}</div>
 </section>"""
+
+
+def _nab_section(nab: dict[str, Any]) -> str:
+    settings = nab["settings"]
+    headline = str(settings["headline_threshold"])
+    overall = nab["overall"]
+    replay, batch = overall["replay"][headline], overall["batch"][headline]
+    commit = nab["nab"]["commit"]
+
+    stats = "".join(
+        _tile(label, value, caption, None)
+        for label, value, caption in [
+            ("Windows detected", f"{replay['detected_windows']}<span class='of'>/{replay['windows']}</span>", f"window recall {_pct(replay['window_recall'])}"),
+            ("Alarm precision", _pct(replay["alarm_precision"]), f"{replay['alarms_in_windows']:,} of {replay['alarms']:,} alarms inside a labeled window"),
+            ("False alarms", f"{replay['false_alarms']:,}", f"across {len(nab['series'])} series, after the probationary period"),
+            ("Median detection point", _pct(replay["median_detection_position"]), "how far into a window its first alarm lands (0% = at the window's start)"),
+        ]
+    )
+
+    sweep_rows = []
+    for mode in ("replay", "batch"):
+        for threshold, row in overall[mode].items():
+            emphasis = " class='emph'" if threshold == headline else ""
+            sweep_rows.append(
+                f"<tr{emphasis}><td>{'Replay (causal)' if mode == 'replay' else 'Batch (sees whole series)'}</td><td class='num'>≥ {escape(threshold)}</td>"
+                f"<td class='num'>{row['detected_windows']}/{row['windows']}</td><td class='num'>{_pct(row['window_recall'])}</td>"
+                f"<td class='num'>{_pct(row['alarm_precision'])}</td><td class='num'>{_num(row['f1'])}</td>"
+                f"<td class='num'>{row['alarms']:,}</td><td class='num'>{row['false_alarms']:,}</td></tr>"
+            )
+
+    category_rows = []
+    for category, by_mode in nab["categories"].items():
+        r, b = by_mode["replay"], by_mode["batch"]
+        category_rows.append(
+            f"<tr><td class='mono'>{escape(category)}</td><td class='num'>{r['windows']}</td>"
+            f"<td class='num'>{r['detected_windows']}</td><td class='num'>{_pct(r['alarm_precision'])}</td><td class='num'>{r['false_alarms']:,}</td>"
+            f"<td class='num'>{b['detected_windows']}</td><td class='num'>{_pct(b['alarm_precision'])}</td><td class='num'>{b['false_alarms']:,}</td></tr>"
+        )
+
+    series_rows = []
+    series_cards = []
+    for item in nab["series"]:
+        r = item["modes"]["replay"]["headline"]
+        b = item["modes"]["batch"]["headline"]
+        flags = []
+        if item.get("validation_warnings"):
+            flags.append("<span class='pill pill-warning' title='Large timestamp gap kept under gap_policy=warn'>gap</span>")
+        if item.get("batch_error") or item.get("replay_errors"):
+            flags.append("<span class='pill pill-critical'>error</span>")
+        anchor = "nab-" + item["series"].replace("/", "-").replace(".csv", "")
+        windows_cell = lambda counts: f"{counts['detected_windows']}/{counts['windows']}" if counts["windows"] else "<span class='muted'>none labeled</span>"
+        series_rows.append(
+            f"<tr><td><a href='#{escape(anchor)}' class='mono small'>{escape(item['series'])}</a> {' '.join(flags)}</td>"
+            f"<td class='num'>{item['rows']:,}</td><td class='num'>{item['interval_minutes']}m</td>"
+            f"<td class='num'>{windows_cell(r)}</td><td class='num'>{r['false_alarms']}</td>"
+            f"<td class='num'>{windows_cell(b)}</td><td class='num'>{b['false_alarms']}</td></tr>"
+        )
+        alarms = [a for a in item["modes"]["replay"]["alarm_times"] if a[1] >= float(headline)]
+        batch_alarms = [a for a in item["modes"]["batch"]["alarm_times"] if a[1] >= float(headline)]
+        chart = _line_chart(
+            item["plot"],
+            [],
+            title=f"{item['series']} · replay alarms at confidence ≥ {headline}",
+            bands=[(w[0].replace(" ", "T"), w[1].replace(" ", "T")) for w in item["windows"]],
+            shade=(item["plot"][0][0], item["probation_end"]),
+            ticks=alarms,
+        )
+        batch_chart = _line_chart(
+            item["plot"],
+            [],
+            title=f"Batch alarms at confidence ≥ {headline}, for comparison",
+            bands=[(w[0].replace(" ", "T"), w[1].replace(" ", "T")) for w in item["windows"]],
+            shade=(item["plot"][0][0], item["probation_end"]),
+            ticks=batch_alarms,
+        )
+        routing = "".join(
+            f"<tr><td class='mono'>{escape(str(d['analyzer']))}</td><td>{escape(str(d['recommendation']).replace('_', ' ').lower())}</td><td class='num'>{_num(d['score'])}</td></tr>"
+            for d in sorted(item["routing"], key=lambda d: -(d["score"] or 0))
+        )
+        notes = []
+        for warning in item.get("validation_warnings") or []:
+            notes.append(f"<li>Ingestion warning, series kept: <span class='mono'>{escape(warning)}</span></li>")
+        if item.get("batch_error"):
+            notes.append(f"<li>Batch run failed: <span class='mono'>{escape(item['batch_error'])}</span></li>")
+        if item.get("replay_errors"):
+            notes.append(f"<li>{item['replay_errors']} of {item['replay_runs']} replay runs failed; first: <span class='mono'>{escape(str(item['first_replay_error']))}</span></li>")
+        series_cards.append(f"""
+<details class="card scenario" id="{escape(anchor)}">
+  <summary><span class="summary-title mono small">{escape(item['series'])}</span>
+  <span class="small muted">replay {windows_cell(r)} windows · {r['false_alarms']} false alarms</span></summary>
+  <div class="card-body">
+    {chart}
+    {batch_chart}
+    <div class="two-col">
+      <div><h4>This series</h4><div class="table-wrap"><table class="kv"><tbody>
+        <tr><th scope="row">Rows</th><td class="num">{item['rows']:,}</td></tr>
+        <tr><th scope="row">Sampling interval used</th><td class="num">{item['interval_minutes']} min</td></tr>
+        <tr><th scope="row">Probationary rows (not scored)</th><td class="num">{item['probation_rows']:,}</td></tr>
+        <tr><th scope="row">Labeled windows</th><td class="num">{len(item['windows'])}</td></tr>
+        <tr><th scope="row">Analyzers run (whole-series routing)</th><td class="mono small">{escape(', '.join(item['executed_analyzers']) or 'none')}</td></tr>
+        <tr><th scope="row">Replay runs</th><td class="num">{item['replay_runs']:,}</td></tr>
+        <tr><th scope="row">Replay: alarms / false alarms</th><td class="num">{r['alarms']} / {r['false_alarms']}</td></tr>
+        <tr><th scope="row">Batch: alarms / false alarms</th><td class="num">{b['alarms']} / {b['false_alarms']}</td></tr>
+      </tbody></table></div>
+      {"<ul class='notes'>" + "".join(notes) + "</ul>" if notes else ""}</div>
+      <div><h4>Router decisions on the whole series</h4><div class="table-wrap scroll-y"><table><thead><tr><th>Analyzer</th><th>Decision</th><th class="num">Score</th></tr></thead><tbody>{routing}</tbody></table></div></div>
+    </div>
+  </div>
+</details>""")
+
+    official = f"""<div class="callout callout-warning"><b>Official NAB score: not computed in this snapshot.</b> The numbers in
+this section are this harness's window metrics, not NAB's score, which also weights how early in a window a detection lands and
+applies three cost profiles. NAB-format result files for both detectors
+(<span class="mono">{escape(nab['detector_names']['replay'])}</span>, <span class="mono">{escape(nab['detector_names']['batch'])}</span>)
+are written to <span class="mono">raw/nab_results/</span> in this snapshot, in the layout NAB's scorer reads. Running NAB's own scorer on
+them produces the score comparable with NAB's published scoreboard.</div>"""
+
+    return f"""
+<section id="nab">
+  <h2>Numenta Anomaly Benchmark (NAB)</h2>
+  <p class="section-lede">NAB is a public corpus of {len(nab['series'])} real and artificial time series (AWS CloudWatch metrics, ad
+  exchange, sensors, traffic, taxi demand, Twitter volume) with {replay['windows'] if replay['windows'] else ''} labeled anomaly windows,
+  published by Numenta in 2015. The labels were set by NAB's authors, not by this project. Pinned to commit
+  <span class="mono">{escape(commit[:12])}</span> of <span class="mono">{escape(nab['nab']['repository'])}</span>. Every series goes through
+  the same analysis path as a CSV upload with the <span class="mono">{escape(settings['provider'])}</span> provider: validation, routing,
+  the analyzers the router selects, and scoring.</p>
+  {official}
+  <h3 class="sub">Headline: replay mode, alarms at confidence ≥ {escape(headline)}</h3>
+  <div class="tiles">{stats}</div>
+  <p class="small muted">The {escape(headline)} threshold was fixed before scoring and is not tuned per series or per dataset. The sweep
+  below shows every threshold, so nothing depends on that choice being favorable.</p>
+
+  <div class="two-col explain">
+    <div class="card"><h3>Replay mode (causal, counts toward the headline)</h3><p>A trailing window of up to
+    {settings['replay_window_rows']:,} rows is analyzed every {settings['replay_step_rows']} new rows, the way a scheduled production run
+    would. An alarm lands on the row where that run happens, which is the first moment the event could have been known. Each event alarms
+    once. This follows NAB's rule that a detector may only use data up to the point it's scoring.</p></div>
+    <div class="card"><h3>Batch mode (shown for comparison only)</h3><p>The whole series is analyzed at once, and an alarm lands where
+    the detected event starts. Detectors see data after the alarm, which NAB's rules don't allow, so batch results show the
+    analyzers' offline ceiling and aren't comparable with NAB's published scores.</p></div>
+  </div>
+
+  <h3 class="sub">Every threshold</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Mode</th><th class="num">Confidence</th><th class="num">Windows</th><th class="num">Window recall</th>
+    <th class="num">Alarm precision</th><th class="num">F1</th><th class="num">Alarms</th><th class="num">False alarms</th></tr></thead>
+    <tbody>{"".join(sweep_rows)}</tbody>
+  </table></div>
+
+  <h3 class="sub">By NAB category, at confidence ≥ {escape(headline)}</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th rowspan="2">Category</th><th rowspan="2" class="num">Windows</th><th colspan="3" class="num">Replay (causal)</th><th colspan="3" class="num">Batch</th></tr>
+    <tr><th class="num">Detected</th><th class="num">Precision</th><th class="num">False alarms</th><th class="num">Detected</th><th class="num">Precision</th><th class="num">False alarms</th></tr></thead>
+    <tbody>{"".join(category_rows)}</tbody>
+  </table></div>
+
+  {_nab_undetected(nab)}
+  <h3 class="sub">Every series</h3>
+  <p class="small muted">"gap" marks a series with a timestamp gap over the provider's limit; it is analyzed anyway under
+  <span class="mono">gap_policy: warn</span>. Series in <span class="mono">artificialNoAnomaly</span> have no labeled windows, so any alarm there is false.</p>
+  <div class="table-wrap scroll-y tall-scroll"><table>
+    <thead><tr><th>Series</th><th class="num">Rows</th><th class="num">Interval</th><th class="num">Replay windows</th>
+    <th class="num">Replay false alarms</th><th class="num">Batch windows</th><th class="num">Batch false alarms</th></tr></thead>
+    <tbody>{"".join(series_rows)}</tbody>
+  </table></div>
+
+  <h3 class="sub">Series details</h3>
+  <div class="cards">{"".join(series_cards)}</div>
+
+  <h3 class="sub">Method notes</h3>
+  <ul class="notes">
+    <li>A signal becomes an alarm scored with the signal's own confidence. Signals that span a whole analysis window, such as a trend or
+    forecast fit, never alarm in replay mode and fall in the unscored probationary period in batch mode.</li>
+    <li>The first min(15% of rows, 750) rows of each series are NAB's probationary period, and alarms there are ignored, as in NAB.</li>
+    <li>A window counts as detected when any alarm falls inside it. Later alarms in the same window are neither rewarded nor
+    penalized. Every alarm outside all windows counts as a false alarm.</li>
+    <li>Per-series inputs a user would set on upload: the resampling interval is the series' median sampling interval, and negative
+    values are allowed (one artificial series has them). Everything else is the provider's default configuration.</li>
+    <li>Harness code: <span class="mono">benchmark/nab/</span>. Only NAB's data and labels are used; none of NAB's code is run.</li>
+  </ul>
+</section>"""
+
+
+def _nab_undetected(nab: dict[str, Any]) -> str:
+    """Series where the router ran no detector at all - only data_health, or nothing. Their zero
+    alarms mean nothing was looked at, not that nothing was wrong, so they're named explicitly."""
+    unanalyzed = [item for item in nab["series"] if not set(item["executed_analyzers"]) - {"data_health"}]
+    if not unanalyzed:
+        return ""
+    rows = []
+    for item in unanalyzed:
+        reasons = sorted({str(d.get("reason")) for d in item["routing"] if d.get("recommendation") == "REJECTED" and d.get("reason")})
+        windows = len(item["windows"])
+        rows.append(
+            f"<tr><td class='mono small'>{escape(item['series'])}</td><td class='num'>{windows}</td>"
+            f"<td class='small'>{escape('; '.join(reasons) or 'No detector scored high enough to run.')}</td></tr>"
+        )
+    missed = sum(len(item["windows"]) for item in unanalyzed)
+    return f"""<div class="callout callout-critical"><b>{len(unanalyzed)} series got no anomaly detector at all</b>, so their
+{missed} labeled windows count as missed. Their silence is a coverage gap, not a clean bill of health.</div>
+<div class="table-wrap"><table><thead><tr><th>Series</th><th class="num">Windows</th><th>Router's reason for rejecting the detectors</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table></div>"""
+
+
+def _pct(value: Any) -> str:
+    return "-" if value is None else f"{float(value) * 100:.1f}%"
 
 
 def _performance_section(performance: dict[str, Any]) -> str:
@@ -534,10 +764,23 @@ def _rule_text(rule: dict[str, Any]) -> str:
     return f"{metric} → +{rule.get('add')}"
 
 
-def _line_chart(points: list[list[Any]], markers: list[dict[str, str]], *, title: str) -> str:
+def _line_chart(
+    points: list[list[Any]],
+    markers: list[dict[str, str]],
+    *,
+    title: str,
+    bands: list[tuple[str, str]] | None = None,
+    shade: tuple[str, str] | None = None,
+    ticks: list[list[Any]] | None = None,
+) -> str:
+    """Line chart with optional vertical markers, shaded bands (labeled windows), one muted shaded
+    span (the unscored probationary period) and a strip of alarm ticks under the plot."""
     if len(points) < 2:
         return ""
-    width, height, pad_l, pad_r, pad_t, pad_b = 720, 180, 44, 12, 12, 26
+    width, pad_l, pad_r, pad_t = 720, 44, 12, 12
+    pad_b = 40 if ticks is not None else 26
+    height = 180 + (pad_b - 26)
+
     def ts(value: str) -> float:
         return _dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
@@ -566,8 +809,28 @@ def _line_chart(points: list[list[Any]], markers: list[dict[str, str]], *, title
     start = _dt.datetime.fromtimestamp(x0, tz=_dt.timezone.utc)
     end = _dt.datetime.fromtimestamp(x1, tz=_dt.timezone.utc)
     grid.append(f"<text class='axis' x='{pad_l}' y='{height - 6}'>{start:%b %d %H:%M}</text><text class='axis' x='{width - pad_r}' y='{height - 6}' text-anchor='end'>{end:%b %d %H:%M} UTC</text>")
+    plot_bottom = height - pad_b
     marks = []
     legend = []
+    underlay = []
+    if shade:
+        a, b = max(sx(ts(shade[0])), pad_l), min(sx(ts(shade[1])), width - pad_r)
+        if b > a:
+            underlay.append(f"<rect class='shade' x='{a:.1f}' y='{pad_t}' width='{b - a:.1f}' height='{plot_bottom - pad_t}'/>")
+            legend.append("<span class='legend-item'><span class='swatch-box swatch-shade'></span>Probationary period (not scored)</span>")
+    for band_start, band_end in bands or []:
+        a, b = max(sx(ts(band_start)), pad_l), min(sx(ts(band_end)), width - pad_r)
+        if b > a:
+            underlay.append(f"<rect class='band' x='{a:.1f}' y='{pad_t}' width='{max(b - a, 1.5):.1f}' height='{plot_bottom - pad_t}'/>")
+    if bands:
+        legend.append("<span class='legend-item'><span class='swatch-box swatch-band'></span>Labeled anomaly window</span>")
+    if ticks is not None:
+        tick_y = plot_bottom + 4
+        for moment, _ in ticks:
+            x = sx(ts(moment))
+            if pad_l <= x <= width - pad_r:
+                marks.append(f"<line class='tick' x1='{x:.1f}' x2='{x:.1f}' y1='{tick_y}' y2='{tick_y + 8}'/>")
+        legend.append(f"<span class='legend-item'><span class='swatch swatch-detected'></span>Alarm ({len(ticks)})</span>")
     for marker in markers:
         try:
             x = sx(ts(marker["t"]))
@@ -575,18 +838,19 @@ def _line_chart(points: list[list[Any]], markers: list[dict[str, str]], *, title
             continue
         if not pad_l <= x <= width - pad_r:
             continue
-        marks.append(f"<line class='marker marker-{marker['kind']}' x1='{x:.1f}' x2='{x:.1f}' y1='{pad_t}' y2='{height - pad_b}'/>")
+        marks.append(f"<line class='marker marker-{marker['kind']}' x1='{x:.1f}' x2='{x:.1f}' y1='{pad_t}' y2='{plot_bottom}'/>")
         legend.append(f"<span class='legend-item'><span class='swatch swatch-{marker['kind']}'></span>{escape(marker['label'])} · {escape(_fmt_time(marker['t']))}</span>")
     data = json.dumps([[p[0], p[1]] for p in points])
     return f"""
 <figure class="chart">
   <figcaption>{escape(title)}</figcaption>
   <div class="chart-frame" data-points='{escape(data)}' data-x0="{x0}" data-x1="{x1}" data-padl="{pad_l}" data-padr="{pad_r}" data-w="{width}">
-    <svg viewBox="0 0 {width} {height}" role="img" aria-label="{escape(title)}" preserveAspectRatio="none">
+    <svg viewBox="0 0 {width} {height}"{" class='tall'" if ticks is not None else ""} role="img" aria-label="{escape(title)}" preserveAspectRatio="none">
+      {''.join(underlay)}
       {''.join(grid)}
       <path class="series" d="{path}"/>
       {''.join(marks)}
-      <line class="crosshair" x1="0" x2="0" y1="{pad_t}" y2="{height - pad_b}"/>
+      <line class="crosshair" x1="0" x2="0" y1="{pad_t}" y2="{plot_bottom}"/>
     </svg>
     <div class="tooltip" role="status"></div>
   </div>
@@ -650,12 +914,15 @@ def _document(title: str, body: str) -> str:
 _CSS = """
 :root{color-scheme:light;--paper:#f4f4f2;--surface:#fcfcfb;--surface-2:#ecebe7;--ink:#0b0b0b;--ink-2:#52514e;--ink-3:#7d7c77;
 --line:#dedcd6;--accent:#2a78d6;--series:#2a78d6;--grid:#e6e4df;--good:#0ca30c;--good-ink:#006300;--warning:#fab219;--warning-ink:#8a5a00;
---critical:#d03b3b;--critical-ink:#a32222;--detected:#eb6834}
+--critical:#d03b3b;--critical-ink:#a32222;--detected:#eb6834;
+--band:rgba(208,59,59,.13);--band-solid:rgba(208,59,59,.35);--shade:rgba(125,124,119,.12);--shade-solid:rgba(125,124,119,.35)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--paper:#121211;--surface:#1a1a19;--surface-2:#262624;
 --ink:#ffffff;--ink-2:#c3c2b7;--ink-3:#8f8e86;--line:#34332f;--accent:#3987e5;--series:#3987e5;--grid:#2c2b28;--good:#0ca30c;--good-ink:#5fd35f;
---warning:#fab219;--warning-ink:#fab219;--critical:#d03b3b;--critical-ink:#f08585;--detected:#d95926}}
+--warning:#fab219;--warning-ink:#fab219;--critical:#d03b3b;--critical-ink:#f08585;--detected:#d95926;
+--band:rgba(230,103,103,.17);--band-solid:rgba(230,103,103,.45);--shade:rgba(143,142,134,.12);--shade-solid:rgba(143,142,134,.4)}}
 :root[data-theme="dark"]{color-scheme:dark;--paper:#121211;--surface:#1a1a19;--surface-2:#262624;--ink:#ffffff;--ink-2:#c3c2b7;--ink-3:#8f8e86;
---line:#34332f;--accent:#3987e5;--series:#3987e5;--grid:#2c2b28;--good-ink:#5fd35f;--warning-ink:#fab219;--critical-ink:#f08585;--detected:#d95926}
+--line:#34332f;--accent:#3987e5;--series:#3987e5;--grid:#2c2b28;--good-ink:#5fd35f;--warning-ink:#fab219;--critical-ink:#f08585;--detected:#d95926;
+--band:rgba(230,103,103,.17);--band-solid:rgba(230,103,103,.45);--shade:rgba(143,142,134,.12);--shade-solid:rgba(143,142,134,.4)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
 .page{max-width:1080px;margin:0 auto;padding:48px 24px 80px;display:flex;flex-direction:column;gap:44px}
@@ -694,7 +961,9 @@ details.scenario[open]>summary::before{transform:rotate(90deg)}
 .summary-title{font-weight:600;flex:1}
 .card-body{padding:4px 20px 20px;border-top:1px solid var(--line)}
 .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
-.table-wrap.narrow{max-width:560px}.scroll-y{max-height:320px;overflow-y:auto}
+.table-wrap.narrow{max-width:560px}.scroll-y{max-height:320px;overflow-y:auto}.tall-scroll{max-height:560px}
+tr.emph td{font-weight:650;background:var(--surface-2)}
+.explain{margin-top:20px}.explain h3{margin-bottom:6px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
 thead th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);background:var(--surface-2);font-weight:600}
@@ -713,7 +982,12 @@ td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}t
 .callout-warning{border-color:var(--warning)}.callout-critical{border-color:var(--critical)}
 .chart{margin:14px 0 6px}.chart figcaption{font-size:12.5px;color:var(--ink-2);margin-bottom:6px}
 .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.chart-frame{position:relative}.chart svg{width:100%;height:180px;display:block;overflow:visible}
+.chart-frame{position:relative}.chart svg{width:100%;height:auto;aspect-ratio:720/180;display:block;overflow:visible}
+.chart svg.tall{aspect-ratio:720/194}
+.chart .band{fill:var(--band)}.chart .shade{fill:var(--shade)}
+.chart .tick{stroke:var(--detected);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.swatch-box{display:inline-block;width:14px;height:10px;border-radius:2px}.swatch-band{background:var(--band-solid)}
+.swatch-shade{background:var(--shade-solid)}
 .chart .grid{stroke:var(--grid);stroke-width:1}.chart .axis{fill:var(--ink-3);font-size:11px}
 .chart .series{fill:none;stroke:var(--series);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .chart .marker{stroke-width:2;vector-effect:non-scaling-stroke}

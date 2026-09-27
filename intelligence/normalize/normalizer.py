@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype, is_object_dtype
 
 from intelligence.config import InputConfig
 
+
+logger = logging.getLogger(__name__)
+
+# How an oversized timestamp gap is handled. "warn" keeps the series: resampling turns the gap into
+# empty buckets, data_health reports it as a finding, and the message is kept on the normalized
+# frame. "reject" refuses the whole series, which throws away every other point in it - real sensor
+# and traffic feeds have multi-hour outages, and rejecting them hid those series from analysis.
+GAP_POLICIES = {"warn", "reject"}
+VALIDATION_WARNINGS_ATTR = "validation_warnings"
 
 CORE_COLUMNS = ["metric_name", "timestamp", "value", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"]
 
@@ -19,7 +30,7 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
 
     working["timestamp"] = _parse_timestamps(working["timestamp"], config.provider)
     working["value"] = _parse_values(working["value"])
-    _validate_rules(working, config)
+    validation_warnings = _validate_rules(working, config)
 
     for column in config.optional_columns:
         if column not in working.columns:
@@ -90,6 +101,7 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
 
     normalized["tags_json"] = normalized.apply(build_tags, axis=1)
     normalized = normalized.sort_values(["metric_name", "timestamp"]).reset_index(drop=True)
+    normalized.attrs[VALIDATION_WARNINGS_ATTR] = validation_warnings
     return normalized
 
 
@@ -245,8 +257,9 @@ def _apply_datadog_tags(dataframe: pd.DataFrame, config: InputConfig) -> None:
         dataframe[target_column] = dataframe[target_column].where(dataframe[target_column].notna(), inferred)
 
 
-def _validate_rules(dataframe: pd.DataFrame, config: InputConfig) -> None:
+def _validate_rules(dataframe: pd.DataFrame, config: InputConfig) -> list[str]:
     rules = config.validation or {}
+    warnings: list[str] = []
 
     if not bool(rules.get("allow_negative_values", True)):
         negatives = dataframe["value"] < 0
@@ -273,10 +286,19 @@ def _validate_rules(dataframe: pd.DataFrame, config: InputConfig) -> None:
     max_gap_minutes = rules.get("max_gap_minutes")
     if max_gap_minutes is not None:
         limit = float(max_gap_minutes)
+        gap_policy = str(rules.get("gap_policy") or "warn").lower()
+        if gap_policy not in GAP_POLICIES:
+            raise ValueError(f"Unknown gap_policy '{gap_policy}'; expected one of {sorted(GAP_POLICIES)}")
         for keys, group in dataframe.groupby(group_columns, dropna=False):
             timestamps = group.sort_values("timestamp")["timestamp"]
             if len(timestamps) < 2:
                 continue
             max_gap = timestamps.diff().dt.total_seconds().dropna().max() / 60.0
             if max_gap > limit:
-                raise ValueError(f"Max timestamp gap {max_gap:.1f}m exceeds {limit:.1f}m for series group {keys}")
+                message = f"Max timestamp gap {max_gap:.1f}m exceeds {limit:.1f}m for series group {keys}"
+                if gap_policy == "reject":
+                    raise ValueError(message)
+                logger.warning("%s; keeping the series (gap_policy=warn)", message)
+                warnings.append(message)
+
+    return warnings

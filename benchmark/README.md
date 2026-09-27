@@ -32,7 +32,9 @@ and SHA-256 hashes of every config and dataset used. The **accuracy fingerprint*
 results except wall-clock timings, so a rerun on the same commit and data prints the same value -
 that's the quick check that a result is reproducible.
 
-Run only some suites with `--suites router,behavior`. Rebuild a report from an existing snapshot,
+Suites: `router`, `behavior`, `performance` and `nab`. `nab` runs the whole Numenta Anomaly Benchmark
+corpus through the production analysis path. It fetches NAB on first use and takes several
+minutes; see [`nab/README.md`](nab/README.md). Run only some suites with `--suites router,behavior`. Rebuild a report from an existing snapshot,
 without rerunning anything, with:
 
 ```bash

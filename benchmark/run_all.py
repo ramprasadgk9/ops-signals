@@ -67,8 +67,18 @@ CONFIG_FILES = [
 ]
 CONFIG_GLOBS = ["config/analyzer_registry.d/*.yml", "config/behavior_definitions.d/*.yml"]
 
-# Keys holding wall-clock measurements - excluded from the accuracy fingerprint.
-TIMING_KEYS = {"elapsed_seconds", "normalization_seconds", "total_seconds", "duration_seconds_wall"}
+# Keys holding wall-clock measurements or per-run paths - excluded from the accuracy fingerprint.
+TIMING_KEYS = {
+    "elapsed_seconds",
+    "normalization_seconds",
+    "total_seconds",
+    "duration_seconds_wall",
+    "batch_seconds",
+    "replay_seconds",
+    "wall_seconds_total",
+    "workers",
+    "nab_format_dir",
+}
 
 
 def run_router_suite(raw_dir: Path) -> dict[str, Any]:
@@ -118,10 +128,17 @@ def run_performance_suite(raw_dir: Path) -> dict[str, Any]:
     }
 
 
+def run_nab_suite(raw_dir: Path) -> dict[str, Any]:
+    from benchmark.nab.run import run_nab_suite as run_nab
+
+    return run_nab(raw_dir)
+
+
 SUITES: dict[str, Callable[[Path], dict[str, Any]]] = {
     "router": run_router_suite,
     "behavior": run_behavior_suite,
     "performance": run_performance_suite,
+    "nab": run_nab_suite,
 }
 
 

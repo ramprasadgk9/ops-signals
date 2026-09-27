@@ -18,6 +18,8 @@ input:
     enforce_monotonic_timestamp: true
     allow_negative_values: false
     max_gap_minutes: 60
+    # warn: keep a series with an oversized gap and record a warning; reject: refuse it
+    gap_policy: warn
     max_null_ratio: 0.1
   required_columns:
     - timestamp

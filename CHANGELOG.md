@@ -2,6 +2,19 @@
 
 ## 0.3.0 - Unreleased
 
+- **Behavior change:** a series with a timestamp gap over the provider's `max_gap_minutes` is no
+  longer refused. It is analyzed, the gap becomes empty resampled buckets that `data_health`
+  reports, and the message is logged and kept on the normalized frame. Real sensor and traffic
+  feeds have multi-hour outages: under the old behavior, 18 of the 58 series in the Numenta
+  Anomaly Benchmark were rejected before analysis. Set `gap_policy: reject` under a provider's
+  `validation:` to keep the old behavior.
+- `python -m benchmark.run_all` runs every benchmark suite and writes a local, gitignored snapshot
+  to `benchmark/results/`, with a detailed HTML evidence report, the raw results, and a manifest
+  of the commit, library versions and input hashes. An accuracy fingerprint that excludes timings
+  shows whether a rerun reproduced the same results. The new `nab` suite runs all 58 NAB series
+  through the production path in a causal replay mode and a batch mode, scores them against NAB's
+  labeled windows, and writes NAB-format files for NAB's own scorer. See
+  [`benchmark/README.md`](benchmark/README.md).
 - Ask Ops Signals answers documentation questions from the section that holds the answer, quotes
   that passage word for word, and cites it (`docs/security-model.md#turning-on-authentication`).
   Docs are indexed one Markdown section per chunk - chunks used to run to 6,000 characters, but
