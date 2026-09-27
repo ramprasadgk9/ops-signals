@@ -74,8 +74,8 @@ Current scenarios:
 | `cpu_online_anomaly_stream_v1` | `GAP`: router has no streaming execution-mode input yet |
 | `cpu_healthy_stable_v1` | Negative control: nothing recommended, no actionable finding |
 
-Three scenarios (`cpu_pure_baseline_shift_v1`, `cpu_pure_baseline_shift_shifted_dates_v1`,
-`cpu_baseline_shift_v1`) also declare an `expected_event` in their `ground_truth.yaml` - when
+Two scenarios (`cpu_pure_baseline_shift_v1` and `cpu_pure_baseline_shift_shifted_dates_v1`) also
+declare an `expected_event` in their `ground_truth.yaml` - when
 present, the benchmark actually runs the required analyzer and checks the produced signal's
 direction, magnitude, and timing against it, not just whether the router recommended it.
 `cpu_healthy_stable_v1` instead declares `expects_no_actionable_findings: true`, which runs every
@@ -138,46 +138,35 @@ done
 Normalize a TSBS source file:
 
 ```bash
-python -m benchmark.scripts.tsbs_benchmark normalize --dataset 7d
-```
-
-Generate the first scenario:
-
-```bash
-python -m benchmark.scripts.tsbs_benchmark generate-scenario
-```
-
-Run the first benchmark end to end:
-
-```bash
-python -m benchmark.scripts.tsbs_benchmark run
-```
-
-Run the 24-hour smoke path:
-
-```bash
-python -m benchmark.scripts.tsbs_benchmark smoke
+.venv/bin/python benchmark/scripts/normalize_tsbs.py \
+  --input benchmark/source-data/tsbs/healthy_cpu_7d_raw.txt \
+  --output benchmark/normalized/healthy_cpu_7d.csv
 ```
 
 Run the router benchmark for the baseline-shift scenario:
 
 ```bash
-python -m benchmark.router_benchmark \
-  --scenario benchmark/scenarios/cpu_baseline_shift_v1
+.venv/bin/python -m benchmark.router_benchmark \
+  --scenario benchmark/scenarios/cpu_pure_baseline_shift_v1
 ```
 
 Expected router benchmark result:
 
 - `ruptures` is `RECOMMENDED`.
-- `prophet` and `river` may be `OPTIONAL` without failing the benchmark.
-- `stumpy` is not `RECOMMENDED`.
-- Reports are written to `benchmark/reports/cpu_baseline_shift_v1_router.json` and `benchmark/reports/cpu_baseline_shift_v1_router.md`.
+- The detected shift is an increase, at least the declared minimum magnitude, and within the
+  declared timing tolerance.
+- Reports are written to `benchmark/reports/cpu_pure_baseline_shift_v1_router.json` and `.md`.
 
 Run benchmark tests:
 
 ```bash
 .venv/bin/python -m pytest -q tests/test_analyzer_router_profile_matching.py tests/test_router_benchmark.py
 ```
+
+## Retired scenarios
+
+`benchmark/scenarios/_retired/` keeps scenarios that were removed from the suite, each with the
+reason. The runners skip it. See [`scenarios/_retired/README.md`](scenarios/_retired/README.md).
 
 ## Assumptions
 

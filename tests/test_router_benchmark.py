@@ -14,13 +14,13 @@ from intelligence.pipeline import SignalPipeline
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCENARIO_DIR = PROJECT_ROOT / "benchmark" / "scenarios" / "cpu_baseline_shift_v1"
+SCENARIO_DIR = PROJECT_ROOT / "benchmark" / "scenarios" / "cpu_pure_baseline_shift_v1"
 
 
 def test_router_benchmark_passes_cpu_baseline_shift_scenario() -> None:
     result = run_benchmark(SCENARIO_DIR)
 
-    assert result.status in {"PASS", "FAIL"}
+    assert result.status == "PASS"
     assert set(result.actual) == {"recommended", "optional", "not_recommended"}
     assert result.execution_error is None
 
