@@ -75,6 +75,10 @@ class AnalyzerRegistration:
     # min_score contest - for cheap guard-style analyzers (e.g. a data-health check) that must
     # never lose a slot to a higher-scoring shape analyzer.
     always_run: bool = False
+    # An optional library the analyzer's method needs (e.g. "prophet"). Without it the analyzer
+    # runs a simpler fallback, not the method the router scored, so it may not take one of the
+    # router's max_analyzers slots (it still runs when every analyzer is asked for).
+    requires_library: str | None = None
 
 
 def _validate_entry(analyzer_id: str, data: dict[str, Any]) -> list[str]:
@@ -140,6 +144,7 @@ def _parse_entry(analyzer_id: str, data: dict[str, Any], source_file: str) -> An
         ),
         runtime_params=dict(data.get("runtime_params") or {}),
         always_run=bool(data.get("always_run", False)),
+        requires_library=data.get("requires_library"),
     )
 
 

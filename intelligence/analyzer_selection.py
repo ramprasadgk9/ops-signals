@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,23 @@ from intelligence.config import AnalyzerConfig, AppConfig
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+# The router's behavioral profiles, grouped the way the feature extractor detects them (one group
+# per independent question it answers about a series). "mixed" only says several groups are active.
+PROFILE_GROUPS = {
+    "spike": {"anomaly", "outlier", "spike"},
+    "baseline": {"baseline_shift", "regime_change"},
+    "seasonal": {"seasonal", "repeating_pattern"},
+    "trend": {"trend"},
+}
+
+
+def _library_installed(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
 
 
 class RegistryAnalyzerSelection:
@@ -169,8 +187,11 @@ class RegistryAnalyzerSelection:
         # would otherwise silently crowd out a lower-scoring one that could actually run and produce
         # a real finding. Eligibility for a slot is filtered here, before ranking - such a candidate
         # can still be RECOMMENDED/OPTIONAL and visible for explanation, it just can't spend a slot.
+        #
+        # Likewise an analyzer whose optional library isn't installed (requires_library) runs a
+        # fallback, not the method the router scored, so it doesn't get a slot either.
         router_to_pipeline = self._router_to_pipeline_analyzers()
-        available_pipeline_ids = self._available_pipeline_analyzer_ids()
+        available_pipeline_ids = self._slot_eligible_pipeline_analyzer_ids()
         candidates = [
             (self._decision_score(decision), str(decision["analyzer_id"]))
             for decision in analyzer_routing
@@ -180,10 +201,56 @@ class RegistryAnalyzerSelection:
         ]
         candidates.sort(key=lambda item: item[0], reverse=True)
         max_analyzers = max(1, execution_config.max_analyzers)
-        return {analyzer_id for _, analyzer_id in candidates[:max_analyzers]}
+        selected: list[str] = []
+        if execution_config.cover_detected_profiles:
+            selected = self._profile_coverage(analyzer_routing, router_to_pipeline, available_pipeline_ids)
+        for _, analyzer_id in candidates:
+            if len(selected) >= max_analyzers:
+                break
+            if analyzer_id not in selected:
+                selected.append(analyzer_id)
+        return set(selected)
+
+    @staticmethod
+    def _profile_coverage(
+        analyzer_routing: list[dict[str, object]],
+        router_to_pipeline: dict[str, set[str]],
+        available_pipeline_ids: set[str],
+    ) -> list[str]:
+        """For each problem shape the router detected, the best runnable analyzer built for it.
+
+        Picking purely by score let broad, high-scoring analyzers (a forecaster, a trend fit) take
+        every slot, so a series the profiler had flagged as spiky could run no outlier detector at
+        all. Each detected profile group gets its highest-scoring runnable analyzer that claims it
+        and that the router rated at least OPTIONAL; the remaining slots are then filled by score.
+        Coverage picks are kept even past max_analyzers - at most one per group."""
+        best: dict[str, tuple[float, str]] = {}
+        for decision in analyzer_routing:
+            analyzer_id = str(decision["analyzer_id"])
+            if str(decision.get("recommendation")) not in {"RECOMMENDED", "OPTIONAL"}:
+                continue
+            if not router_to_pipeline.get(analyzer_id, {analyzer_id}) & available_pipeline_ids:
+                continue
+            score = RegistryAnalyzerSelection._decision_score(decision)
+            matched = {str(profile) for profile in decision.get("matched_profiles") or []}
+            for group, profiles in PROFILE_GROUPS.items():
+                if matched & profiles and score > best.get(group, (-1.0, ""))[0]:
+                    best[group] = (score, analyzer_id)
+        picks: list[str] = []
+        for _, analyzer_id in sorted(best.values(), reverse=True):
+            if analyzer_id not in picks:
+                picks.append(analyzer_id)
+        return picks
 
     def _available_pipeline_analyzer_ids(self) -> set[str]:
         return {registration.analyzer_id for registration in self._enabled_registrations()}
+
+    def _slot_eligible_pipeline_analyzer_ids(self) -> set[str]:
+        return {
+            registration.analyzer_id
+            for registration in self._enabled_registrations()
+            if not registration.requires_library or _library_installed(registration.requires_library)
+        }
 
     def _enabled_registrations(self) -> list[AnalyzerRegistration]:
         registrations = load_registrations(_REPO_ROOT / "config" / "analyzer_registry.d")

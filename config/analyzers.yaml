@@ -6,6 +6,7 @@ analysis:
     min_score: 0.80
     max_analyzers: 3
     include_optional: false
+    cover_detected_profiles: true
   selected_analyzers: []
   analyzers:
     ruptures:

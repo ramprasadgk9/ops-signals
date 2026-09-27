@@ -66,6 +66,7 @@ class TimeSeriesRoutingService:
             "explanation": decision.explanation,
             "routing_reason": decision.routing_reason,
             "parameters_tested": decision.parameters_tested,
+            "matched_profiles": list(getattr(decision, "matched_profiles", []) or []),
         }
 
 

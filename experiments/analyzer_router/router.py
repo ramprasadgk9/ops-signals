@@ -320,6 +320,7 @@ class UniversalTimeSeriesRouter:
             warnings=warnings,
             explanation=self._explain(capability, profile, eligibility.eligible, final_score, eligibility.reasons),
             routing_reason=routing_reason,
+            matched_profiles=sorted(matched_profiles),
             parameters_tested={
                 "supported_profiles": capability.supported_profiles,
                 "eligibility_rules": capability.eligibility_rules,

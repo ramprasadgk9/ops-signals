@@ -84,6 +84,8 @@ class AnalyzerDecision:
     explanation: str = ""
     routing_reason: str = ""
     parameters_tested: dict[str, Any] = field(default_factory=dict)
+    # The series' detected behavioral profiles this analyzer supports (e.g. ["anomaly", "spike"]).
+    matched_profiles: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

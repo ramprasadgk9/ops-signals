@@ -100,11 +100,6 @@ def test_default_mode_runs_only_the_router_selected_analyzers_on_each_metric(tmp
     assert (tmp_path / "behavior_server_slow_v1_behavior_default.json").exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known gap: in default mode the router never selects an analyzer that emits anomaly "
-    "signals on these series, so anomaly-based behavior rules can't match. Remove this marker once fixed.",
-)
 @pytest.mark.parametrize("scenario", ["behavior_server_slow_v1", "behavior_latency_error_cascade_v1"])
 def test_default_mode_matches_the_expected_behavior(scenario: str, tmp_path: Path) -> None:
     evaluation = run_benchmark(SCENARIOS_ROOT / scenario, mode="default", reports_dir=tmp_path)

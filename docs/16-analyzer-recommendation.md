@@ -345,7 +345,28 @@ recommendation_execution:
   min_score: 0.80
   max_analyzers: 3
   include_optional: false
+  cover_detected_profiles: true
 ```
+
+How `recommended_threshold` fills its slots:
+
+1. **Every detected problem shape gets an analyzer built for it** (`cover_detected_profiles`). For
+   each profile group the feature extractor detected (spikes: anomaly/outlier/spike; level shifts:
+   baseline_shift/regime_change; seasonality: seasonal/repeating_pattern; trend), the
+   highest-scoring runnable analyzer that claims it and is rated at least `OPTIONAL` gets a slot,
+   at most one per group. Before this, slots went purely by score, so broad high scorers
+   (`prophet`, `trend_regression`) took all three and a series the profiler had flagged as spiky
+   often ran no outlier detector at all. On the UCR archive, `pyod_outlier` alone locates 43
+   anomalies but ran on only 14 of those series; with coverage it runs on 38.
+2. **The rest go by score**, up to `max_analyzers`, from `RECOMMENDED` candidates at or above
+   `min_score`.
+3. **Only analyzers that can really run take a slot.** A router candidate with no pipeline
+   analyzer (darts, adtk, ...) is skipped, and so is one whose optional library isn't installed
+   (`requires_library` in `config/analyzer_registry.d/`): without the `prophet` package,
+   `ProphetAnalyzer` fits a straight line, not the model the router scored. Such analyzers still
+   run in `all` mode.
+
+`always_run` analyzers (`data_health`) run outside this contest.
 
 An unknown `selection_mode` does not fail validation - it falls back to unrestricted execution
 (closer to `all`). Worth tightening later.
@@ -547,8 +568,9 @@ confidence.
 **Can I force an analyzer?** Yes, via `manual_override` with `selected_analyzers` in
 `config/analyzers.yaml`.
 
-**Does `OPTIONAL` execute?** Not in `recommended_only`/`recommended_threshold` - visible for
-explanation, not executed.
+**Does `OPTIONAL` execute?** Not in `recommended_only`. In `recommended_threshold`, only as the
+coverage pick for a detected problem shape that no higher-rated runnable analyzer covers (see
+"Selection modes"); otherwise it's visible for explanation, not executed.
 
 **Does the router use an LLM?** No - it's explainable and rule-based. An LLM can optionally sit
 alongside it as a second opinion (see above), never replacing it.
