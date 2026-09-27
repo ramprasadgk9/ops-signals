@@ -20,15 +20,15 @@ def test_golden_set_matches_the_corpus() -> None:
     assert validate_golden(load_golden(), documents) == []
 
 
-# One question below the scores recorded when each fix landed (27, 35, 34, 35 and 22 of 37
-# scored questions): a floor is (count - 1) / 37, rounded down. Raise a floor when a change
+# One question below the scores recorded when each fix landed (33, 39, 38, 38 and 27 of 40
+# scored questions): a floor is (count - 1) / 40, rounded down. Raise a floor when a change
 # genuinely improves its metric; lowering one needs a reason in the commit message.
 FLOORS = {
-    "doc_hit@1": 0.70,
-    "doc_hit@3": 0.91,
-    "section_hit@3": 0.89,
-    "evidence_has_answer": 0.91,
-    "answer_has_answer": 0.56,
+    "doc_hit@1": 0.80,
+    "doc_hit@3": 0.95,
+    "section_hit@3": 0.92,
+    "evidence_has_answer": 0.92,
+    "answer_has_answer": 0.65,
 }
 
 

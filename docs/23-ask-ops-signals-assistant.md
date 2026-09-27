@@ -22,6 +22,14 @@ deliberate: an under-confident small local model dropping a category (e.g. class
 X work" as behavior-only, missing that it's also a documentation question) must not cause the
 system to silently lose evidence a plain keyword match would have found.
 
+What leads the answer follows the first route. Quoted text is ignored when routing - in
+`Tell me about the finding "... baseline shift ..."` the title names a finding, it doesn't ask for
+analyzer docs - and data-health phrasing ("did any metric stop reporting?") or "the finding" puts
+the findings search first. Each source appears once: documentation is searched once even when both
+the analyzer and docs routes fire, Operational Memory never repeats a case the case search already
+returned, and duplicate findings collapse. When a question names a service the recent findings
+have ("What changed recently on trend-lab?"), the findings search is limited to that service.
+
 Documentation is searched for every question, not only the ones the router sends there: "What
 outcome categories can a resolved case have?" routes to cases, but its answer is in the docs.
 Documentation found this way is placed after the routed evidence, and only a real match counts -
@@ -47,6 +55,19 @@ is not read as a question about signals.
 
 Every documentation source carries `source_path`, `section`, and a `reference` that links to the
 section (`docs/security-model.md#turning-on-authentication`, GitHub's anchor for the heading).
+
+Documentation results are reranked before the answer uses them: a section whose heading shares the
+question's words gets a small bonus (0.05 at most), and design and proposal docs under
+`docs/design/` count 0.9 of their score, so a plan's "non-goals" section no longer outranks the
+README's setup section for "Where do I point my OTel Collector?". Both values were chosen by
+sweeping the golden set; larger heading bonuses put more right docs first but made quoted answers
+worse. A heading-only search entry per section was also tried and made both worse, so it isn't
+used.
+
+"Which analyzers are there?" asks for a list no single quoted sentence holds, so it is answered
+from the analyzer registry: the "What Are Analyzers?" document leads and quotes its catalog - every
+registered analyzer with what it finds - word for word. Analyzer pages carry only what is specific
+to each analyzer; lines that read the same on every page are left out.
 
 ## Adding Documentation
 

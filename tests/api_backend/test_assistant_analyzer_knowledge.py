@@ -98,8 +98,9 @@ def test_data_quality_and_time_of_day_phrasing_adds_a_findings_search() -> None:
 
 
 def test_new_terms_never_stop_a_question_reaching_the_broad_fallback() -> None:
-    # "unusual" is a new term; this question used to match nothing and get the broad fallback.
-    assert ROUTE("Did anything unusual happen?") == ["DOCUMENT_SEARCH", "CASE_SEARCH", "FINDING_SEARCH", "MEMORY_SEARCH"]
+    # "unusual" is a new term; this question used to match nothing and get the broad fallback. It
+    # still gets every search the fallback makes, with findings - where the answer is - first.
+    assert ROUTE("Did anything unusual happen?") == ["FINDING_SEARCH", "DOCUMENT_SEARCH", "CASE_SEARCH", "MEMORY_SEARCH"]
 
 
 # --- Documentation search -----------------------------------------------------------------------

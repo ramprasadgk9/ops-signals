@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from backend.app.capabilities.builtins import BUILTIN_CAPABILITIES
@@ -10,11 +10,20 @@ from backend.app.models.entities import CapabilityEntity, CapabilityQuestionEnti
 from backend.app.questions.catalog import QUESTION_CATALOG
 
 
+# Any fixed 64-bit number, unique to this lock among the app's advisory locks.
+SEED_LOCK_KEY = 7_140_020_261
+
+
 class CapabilityRegistry:
     def __init__(self, db: Session) -> None:
         self.db = db
 
     def ensure_seeded(self) -> None:
+        """Syncs the built-in capabilities and their question links, in one transaction. Two
+        backends on one database (run_all.sh and run_grafana_stack.sh both reload on every change)
+        used to interleave the delete and re-insert of capability_questions and fail startup with a
+        duplicate key; on Postgres the second now waits for the first."""
+        self._lock_for_seeding()
         existing = {
             row for row in self.db.execute(select(CapabilityEntity.id)).scalars().all()
         }
@@ -32,10 +41,10 @@ class CapabilityRegistry:
                         updated_at=datetime.utcnow(),
                     )
                 )
-        self.db.commit()
+        self.db.flush()
 
         self.db.query(CapabilityQuestionEntity).delete()
-        self.db.commit()
+        self.db.flush()
 
         supported = {entry["id"] for entry in QUESTION_CATALOG}
         caps = self.db.execute(select(CapabilityEntity)).scalars().all()
@@ -44,6 +53,11 @@ class CapabilityRegistry:
                 if qid in supported:
                     self.db.add(CapabilityQuestionEntity(capability_id=cap.id, question_id=qid))
         self.db.commit()
+
+    def _lock_for_seeding(self) -> None:
+        # Held until this transaction commits; SQLite serializes writers on its own.
+        if self.db.get_bind().dialect.name == "postgresql":
+            self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": SEED_LOCK_KEY})
 
     def enabled_capabilities(self) -> list[CapabilityEntity]:
         return (

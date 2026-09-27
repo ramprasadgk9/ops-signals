@@ -58,6 +58,9 @@ class OperationalIntelligenceAssistant:
         # The product's own name is not a question about signals: "How do I deploy Ops Signals?"
         # used to route to findings only and never searched documentation.
         text = re.sub(r"ops[\s-]?signals", " ", message.lower())
+        # A quoted title names a finding or case, it doesn't say what kind of evidence is wanted:
+        # 'Tell me about the finding "... baseline shift ..."' was routed to analyzer docs first.
+        text = _QUOTED.sub(" ", text)
         routes: list[str] = []
 
         if any(keyword in text for keyword in ["case", "incident", "resolved", "resolution", "rca", "root cause", "similar", "seen this before"]):
@@ -82,11 +85,13 @@ class OperationalIntelligenceAssistant:
             # including DOCUMENT_SEARCH here does, because it's driven by embeddings, not strings.
             routes = ["DOCUMENT_SEARCH", "CASE_SEARCH", "FINDING_SEARCH", "MEMORY_SEARCH"]
 
-        # Applied after the fallback on purpose: these phrasings only ever add a findings search.
-        # Matched earlier, "Did anything unusual happen?" would stop reaching the broad fallback
-        # above and lose its documentation, case and memory search.
-        if any(term in text for term in _DATA_AND_SEASONAL_TERMS):
-            routes.append("FINDING_SEARCH")
+        # Applied after the fallback on purpose: these phrasings keep the broad fallback's searches
+        # (matched earlier, "Did anything unusual happen?" would lose its documentation, case and
+        # memory search) but lead with findings, which is where the answer is - "Did any metric stop
+        # reporting?" used to lead with a doc about starved metrics while the stuck-metric findings
+        # came third.
+        if any(term in text for term in _DATA_AND_SEASONAL_TERMS) or re.search(r"\b(the|this|that) finding\b", text):
+            routes = ["FINDING_SEARCH", *[route for route in routes if route != "FINDING_SEARCH"]]
 
         deduped: list[str] = []
         for route in routes:
@@ -103,15 +108,8 @@ class OperationalIntelligenceAssistant:
 
     @staticmethod
     def _intent_from_routes(routes: list[str]) -> str:
-        if "DOCUMENT_SEARCH" in routes and routes[0] == "DOCUMENT_SEARCH":
-            return "documentation"
-        if "CASE_SEARCH" in routes:
-            return "case_search"
-        if "FINDING_SEARCH" in routes:
-            return "finding_search"
-        if "BEHAVIOR_SEARCH" in routes:
-            return "behavior_intelligence"
-        return "general"
+        """Named for the search that leads the answer."""
+        return _ROUTE_INTENTS.get(routes[0], "general") if routes else "general"
 
     @staticmethod
     def detect_intent(message: str) -> str:
@@ -136,10 +134,13 @@ class OperationalIntelligenceAssistant:
 
     @staticmethod
     def _dedupe_sources(sources: list[AssistantSource]) -> list[AssistantSource]:
+        """First occurrence of each source, in the given order - searches return best first, and a
+        group's order may be reranked, which re-sorting by raw score would undo."""
         deduped: list[AssistantSource] = []
-        seen: set[tuple[str, str, str]] = set()
-        for source in sorted(sources, key=lambda item: item.score, reverse=True):
-            key = (source.source_type, source.reference or source.title, source.title)
+        seen: set[tuple[str, str, str, str]] = set()
+        for source in sources:
+            # Findings share one list link, so title and service tell two of them apart.
+            key = (source.source_type, source.reference or source.title, source.title, source.service or "")
             if key in seen:
                 continue
             seen.add(key)
@@ -156,6 +157,7 @@ class OperationalIntelligenceAssistant:
         # architecture overview when a matching finding or case exists.
         fallback_groups: list[AssistantEvidenceGroup] = []
 
+        docs_searched = False
         for route in routes:
             if route == "CASE_SEARCH":
                 group = self._search_cases(payload, db)
@@ -167,6 +169,11 @@ class OperationalIntelligenceAssistant:
                 historical_sources, _ = self._answer_historical(payload, db)
                 group = AssistantEvidenceGroup(source_type="historical_case", label="Operational Memory", count=len(historical_sources), sources=historical_sources)
             elif route in {"DOCUMENT_SEARCH", "ANALYZER_SEARCH"}:
+                # Both routes search the same documentation; the second would repeat every result
+                # ("24 items across Documentation, Documentation").
+                if docs_searched:
+                    continue
+                docs_searched = True
                 app_sources, used_fallback = self._application_sources(payload)
                 group = AssistantEvidenceGroup(source_type="app_documentation", label="Documentation", count=len(app_sources), sources=app_sources)
                 if used_fallback:
@@ -176,6 +183,8 @@ class OperationalIntelligenceAssistant:
             else:
                 continue
 
+            group.sources = self._dedupe_sources(group.sources)
+            group.count = len(group.sources)
             if group.count:
                 groups.append(group)
                 sources.extend(group.sources)
@@ -198,13 +207,16 @@ class OperationalIntelligenceAssistant:
             groups.append(group)
             sources.extend(group.sources)
 
-        sources = self._dedupe_sources(sources)
+        groups = _drop_repeated_sources(groups)
+        if _is_analyzer_list_question(payload.message):
+            _lead_with_analyzer_catalog(groups)
+        sources = self._dedupe_sources(sorted((source for group in groups for source in group.sources), key=lambda item: item.score, reverse=True))
         knowledge_used = [group.label for group in groups]
         self._attach_quotes(payload.message, groups)
 
         answer, ai_synthesis_used = self._compose_answer(payload.message, groups)
 
-        suggested_questions = self._suggest_followups(routes, sources)
+        suggested_questions = self._suggest_followups(groups)
 
         return AssistantChatResponse(
             conversation_id=payload.conversation_id or uuid4(),
@@ -286,9 +298,16 @@ class OperationalIntelligenceAssistant:
 
     def _search_findings(self, payload: AssistantChatRequest, db: Session) -> AssistantEvidenceGroup:
         rows = db.execute(select(FindingEntity).order_by(FindingEntity.created_at.desc()).limit(200)).scalars().all()
+        # "What changed recently on trend-lab?" is about trend-lab: when the question names a
+        # service these findings have, search only that service's. The name alone only nudged the
+        # similarity, and other services' findings came back too.
+        named = _services_named_in(payload.message, rows)
+        if named:
+            rows = [row for row in rows if row.service in named]
         semantic_sources = self._search_evidence_semantic(
             payload,
             rows,
+            limit=payload.top_k * 5 if named else payload.top_k,
             indexer=self.services.findings_indexer,
             id_fn=lambda finding: finding.id,
             text_fn=lambda finding: " ".join([finding.title, finding.summary, finding.category, finding.health_status, finding.metric_name, finding.service or ""]),
@@ -376,13 +395,15 @@ class OperationalIntelligenceAssistant:
         text_fn,
         payload_fn,
         to_source,
+        limit: int | None = None,
     ) -> list[AssistantSource] | None:
+        """`limit` over-fetches when `rows` is a filtered subset: hits outside it are dropped below."""
         if not indexer or not rows:
             return None
         try:
             indexer.ensure_indexed(rows, id_fn=id_fn, text_fn=text_fn, payload_fn=payload_fn)
             vector = self.services.embedder.encode(payload.message)
-            results = indexer.vector_store.search(vector=vector, limit=payload.top_k, score_threshold=0.2)
+            results = indexer.vector_store.search(vector=vector, limit=limit or payload.top_k, score_threshold=0.2)
         except Exception as exc:
             logger.warning("Semantic evidence search against %s failed, falling back to keyword search: %s", indexer.collection_name, exc)
             return None
@@ -393,7 +414,7 @@ class OperationalIntelligenceAssistant:
             if not row:
                 continue
             sources.append(to_source(row, float(result["score"])))
-        return sources
+        return sources[: payload.top_k]
 
     def _compose_answer(self, message: str, groups: list[AssistantEvidenceGroup]) -> tuple[str, bool]:
         if not groups:
@@ -411,8 +432,10 @@ class OperationalIntelligenceAssistant:
             if group.source_type != "app_documentation":
                 continue
             for source in group.sources[:QUOTED_SOURCES_PER_GROUP]:
+                if source.quote is not None:
+                    continue
                 text = source.section_text or source.summary
-                if text and source.quote is None:
+                if text:
                     source.quote = select_passage(message, text, self._encode_all)
 
     def _encode_all(self, texts) -> list[list[float]]:
@@ -521,13 +544,9 @@ class OperationalIntelligenceAssistant:
     def _template_answer(message: str, groups: list[AssistantEvidenceGroup]) -> str:
         if not groups:
             return "Summary\nI could not find strong operational evidence for that question.\n\nRecommended Next Step\nTry narrowing the question to a service, metric, analyzer, finding, or case."
-        total = sum(group.count for group in groups)
         primary = groups[0]
         top = primary.sources[0] if primary.sources else None
-        lines = [
-            "Summary",
-            f"I found {total} relevant evidence item{'s' if total != 1 else ''} across {', '.join(group.label for group in groups)}.",
-        ]
+        lines = ["Summary", f"Found {_evidence_counts(groups)}."]
         if top and top.quote:
             # Documentation: lead with the passage that answers the question and where it's from,
             # not the section's opening lines.
@@ -540,7 +559,6 @@ class OperationalIntelligenceAssistant:
                 "",
                 f"Most Relevant {primary.label[:-1] if primary.label.endswith('s') else primary.label}",
                 top.title,
-                f"Relevance: {top.score:.2f}",
             ])
             if top.summary:
                 lines.extend(["", "Operational Insight", top.summary])
@@ -552,38 +570,28 @@ class OperationalIntelligenceAssistant:
         return "\n".join(lines)
 
     @staticmethod
-    def _suggest_followups(routes: list[str], sources: list[AssistantSource]) -> list[str]:
-        """Generate topical follow-up questions grounded in the top retrieved source, instead of
-        generic instruction phrases. Generic phrases like "Show related cases" carry no real
-        search terms - a real question with a service/metric/title in it gives the next search
-        (keyword or semantic) something concrete to match against."""
-        if not sources:
-            return ["Show recent findings", "Explain analyzers", "How does Behavior Intelligence work?"]
-
-        top = sources[0]
+    def _suggest_followups(groups: list[AssistantEvidenceGroup]) -> list[str]:
+        """Follow-up questions about what leads the answer, naming its service, metric or title so
+        the next search has real terms to match. Nothing for documentation: "Also see" already
+        names the next sections, and "Give an example of Security model" or "Show the RCA for
+        <a doc>" were not questions anyone would ask."""
+        if not groups:
+            return ["What changed recently?", "Which analyzers are there and what does each find?", "How does Behavior Intelligence work?"]
+        top = groups[0].sources[0]
+        service = top.service if _real_service(top.service) else None
         suggestions: list[str] = []
-
-        if "CASE_SEARCH" in routes or "MEMORY_SEARCH" in routes:
+        if top.source_type in {"case", "historical_case"}:
             suggestions.append(f"Show the RCA for {top.title}")
-            if top.service:
-                suggestions.append(f"Have we seen similar {top.service} issues before?")
-        if "FINDING_SEARCH" in routes:
+            if service:
+                suggestions.append(f"Have we seen similar {service} issues before?")
+        elif top.source_type == "finding":
             if top.metric_name:
                 suggestions.append(f"What analyzer detected the {top.metric_name} change?")
-            if top.service:
-                suggestions.append(f"Any related cases for {top.service}?")
-        if "BEHAVIOR_SEARCH" in routes and top.service:
-            suggestions.append(f"What signals contributed to this on {top.service}?")
-        if "DOCUMENT_SEARCH" in routes or "ANALYZER_SEARCH" in routes:
-            suggestions.append(f"Give an example of {top.title}")
-
-        deduped: list[str] = []
-        for suggestion in suggestions:
-            if suggestion not in deduped:
-                deduped.append(suggestion)
-        if not deduped:
-            deduped.append(f"Tell me more about {top.title}")
-        return deduped[:4]
+            if service:
+                suggestions.append(f"Any related cases for {service}?")
+        elif top.source_type == "behavior" and service:
+            suggestions.append(f"What signals contributed to this on {service}?")
+        return list(dict.fromkeys(suggestions))[:4]
 
     def _answer_historical(self, payload: AssistantChatRequest, db: Session) -> tuple[list[AssistantSource], str]:
         if not self.services.case_similarity:
@@ -635,7 +643,7 @@ class OperationalIntelligenceAssistant:
         fallback query because nothing matched the question itself."""
         query_text = payload.message
         lowered = payload.message.lower()
-        if "analyzer" in lowered and any(phrase in lowered for phrase in ("what are", "which", "available", "list")):
+        if _is_analyzer_list_question(payload.message):
             query_text = "What are analyzers? analyzer concept analyzer registry signals findings behaviors architecture"
         elif "behavior intelligence" in lowered:
             query_text = "Behavior intelligence behavior definitions signals findings correlation architecture"
@@ -651,7 +659,7 @@ class OperationalIntelligenceAssistant:
         # where it was asked. A good match for a casual question ("Application Overview" against
         # "whats use of this application") scores ~0.38 with this embedding model.
         results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=DOCUMENT_SCORE_FLOOR)
-        sources = [_documentation_source(row) for row in results if _is_documentation(row)]
+        sources = _rerank_documentation([_documentation_source(row) for row in results if _is_documentation(row)], payload.message)
         used_fallback = False
         if not sources:
             used_fallback = True
@@ -681,6 +689,155 @@ def _quote_block(quote: str, source: AssistantSource) -> str:
     return f"From {citation}:\n{quoted}"
 
 
+_ROUTE_INTENTS = {
+    "DOCUMENT_SEARCH": "documentation",
+    "ANALYZER_SEARCH": "documentation",
+    "CASE_SEARCH": "case_search",
+    "MEMORY_SEARCH": "case_search",
+    "FINDING_SEARCH": "finding_search",
+    "BEHAVIOR_SEARCH": "behavior_intelligence",
+}
+_QUOTED = re.compile(r'"[^"]*"|“[^”]*”')
+_PLACEHOLDER_SERVICES = frozenset({"unknown", "none", "null", "n/a", "-"})
+_SINGULAR = {"Findings": "finding", "Cases": "case", "Operational Memory": "past case", "Documentation": "documentation section", "Behavior Intelligence": "behavior"}
+
+
+def _services_named_in(message: str, rows: list) -> set[str]:
+    """Services of `rows` that `message` names as a whole word ("trend-lab", not "trend")."""
+    lowered = message.lower()
+    return {
+        row.service
+        for row in rows
+        if _real_service(row.service) and re.search(rf"(?<![\w-]){re.escape(row.service.lower())}(?![\w-])", lowered)
+    }
+
+
+def _real_service(service: str | None) -> bool:
+    return bool(service) and service.strip().lower() not in _PLACEHOLDER_SERVICES
+
+
+def _evidence_counts(groups: list[AssistantEvidenceGroup]) -> str:
+    """ "6 findings, 3 cases and 4 documentation sections" """
+    parts = []
+    for group in groups:
+        noun = _SINGULAR.get(group.label, group.label.lower())
+        parts.append(f"{group.count} {noun}{'' if group.count == 1 else 's'}")
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _drop_repeated_sources(groups: list[AssistantEvidenceGroup]) -> list[AssistantEvidenceGroup]:
+    """Each source once, in the first group that has it. Operational Memory searches the same case
+    index as Cases, so it used to repeat the same cases as a second group."""
+    seen: set[str] = set()
+    kept: list[AssistantEvidenceGroup] = []
+    for group in groups:
+        fresh = []
+        for source in group.sources:
+            key = source.reference if source.reference.startswith("/cases/") else f"{source.source_type}|{source.reference}|{source.title}|{source.service or ''}"
+            if key not in seen:
+                seen.add(key)
+                fresh.append(source)
+        if fresh:
+            group.sources, group.count = fresh, len(fresh)
+            kept.append(group)
+    return kept
+
+
+def _is_analyzer_list_question(message: str) -> bool:
+    """ "Which analyzers are there?", "List the available analyzers" - not "Which analyzer detected
+    the cpu change?", which asks about a finding."""
+    lowered = message.lower()
+    if not re.search(r"\banalyzers\b", lowered) or re.search(r"\b(detect|detected|found|flagged|fired|triggered)\b", lowered):
+        return False
+    return any(phrase in lowered for phrase in ("what are", "which", "available", "list", "all the", "what analyzers", "how many"))
+
+
+@lru_cache(maxsize=1)
+def _analyzer_catalog_text() -> str:
+    """The registered analyzers and what each finds, word for word as the "What Are Analyzers?"
+    knowledge document states it."""
+    from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
+
+    catalog = ApplicationKnowledgeBootstrapService(client=None, embedder=None, repo_root=Path(__file__).resolve().parents[3]).analyzer_catalog()
+    lines = "\n".join(f"- {analyzer_id} ({name}): {purpose}" for analyzer_id, name, purpose in catalog)
+    return f"There are {len(catalog)} registered analyzers, and what each one finds:\n{lines}"
+
+
+ANALYZERS_OVERVIEW_PATH = "generated://concepts/analyzers-overview"
+
+
+def _lead_with_analyzer_catalog(groups: list[AssistantEvidenceGroup]) -> None:
+    """ "Which analyzers are there?" asks for the whole list, which no single quoted sentence holds -
+    it used to quote one line of whichever analyzer page ranked first. The documentation group now
+    leads with "What Are Analyzers?" quoting its full catalog from the analyzer registry."""
+    docs = next((group for group in groups if group.source_type == "app_documentation"), None)
+    try:
+        catalog = _analyzer_catalog_text()
+    except Exception as exc:
+        logger.warning("Could not build the analyzer catalog: %s", exc)
+        return
+    if docs is None:
+        docs = AssistantEvidenceGroup(source_type="app_documentation", label="Documentation", count=0, sources=[])
+        groups.insert(0, docs)
+    overview = next((source for source in docs.sources if source.source_path == ANALYZERS_OVERVIEW_PATH), None)
+    if overview is None:
+        overview = AssistantSource(
+            source_type="app_documentation",
+            title="What Are Analyzers?",
+            score=docs.sources[0].score if docs.sources else 1.0,
+            reference=ANALYZERS_OVERVIEW_PATH,
+            source_path=ANALYZERS_OVERVIEW_PATH,
+        )
+    else:
+        docs.sources.remove(overview)
+    overview.summary = catalog
+    overview.quote = catalog
+    docs.sources.insert(0, overview)
+    docs.count = len(docs.sources)
+    if groups[0] is not docs:
+        groups.remove(docs)
+        groups.insert(0, docs)
+
+
+# Documentation reranking, both chosen by sweeping the golden set (0-0.2 and 0.8-1.0):
+# - a section whose heading shares the question's words gets up to this much added to its score, so
+#   "Where do I point my OTel Collector?" leads with the README's OTLP setup section;
+# - design and proposal docs (docs/design/) count this fraction of their score, so a plan's
+#   "non-goals" section doesn't outrank the user doc describing what was built.
+# Larger heading weights moved more right docs to first place but made quoted answers worse.
+HEADING_MATCH_WEIGHT = 0.05
+DESIGN_DOC_WEIGHT = 0.9
+
+
+def _stem(word: str) -> str:
+    for suffix in ("ing", "ed", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)]
+    return word
+
+
+def _content_terms(text: str) -> set[str]:
+    return {_stem(word) for word in re.findall(r"[a-z0-9_]+", text.lower()) if len(word) > 2 and word not in _RERANK_STOPWORDS}
+
+
+_RERANK_STOPWORDS = frozenset("the and for with how what why does can you are there this that into from about which when where who should".split())
+
+
+def _rerank_documentation(sources: list[AssistantSource], message: str) -> list[AssistantSource]:
+    """Documentation sources reordered by search score adjusted as above. The shown score is left
+    as the search returned it."""
+    question = _content_terms(message)
+    if not question or (HEADING_MATCH_WEIGHT == 0 and DESIGN_DOC_WEIGHT == 1.0):
+        return sources
+    def adjusted(source: AssistantSource) -> float:
+        score = source.score
+        if source.source_path and source.source_path.startswith("docs/design/"):
+            score *= DESIGN_DOC_WEIGHT
+        heading = _content_terms(f"{source.title} {source.section or ''}")
+        return score + HEADING_MATCH_WEIGHT * len(question & heading) / len(question)
+    return sorted(sources, key=adjusted, reverse=True)
+
+
 def _is_documentation(row: dict) -> bool:
     return row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
 
@@ -703,6 +860,7 @@ def _documentation_source(row: dict) -> AssistantSource:
 # time of day") that name no finding/analyzer keyword but are answered by findings.
 _DATA_AND_SEASONAL_TERMS = (
     "stuck", "flatline", "flat line", "stopped reporting", "stopped sending", "not reporting",
+    "stop reporting", "stops reporting", "stop sending", "stopped changing", "stop changing",
     "missing data", "data gap", "data quality", "time of day", "seasonal", "unusual",
 )
 
@@ -734,11 +892,16 @@ def _term_score(terms: list[str], haystack: str) -> float:
 
 
 def _next_step_for_groups(groups: list[AssistantEvidenceGroup]) -> str:
-    labels = {group.label for group in groups}
-    if "Cases" in labels or "Operational Memory" in labels:
+    """What to do next, for the kind of evidence that leads the answer - not for any group that
+    happens to be present ("Open the highest relevance case" under an answer quoting a doc)."""
+    lead = groups[0].source_type
+    top = groups[0].sources[0] if groups[0].sources else None
+    if lead in {"case", "historical_case"}:
         return "Open the highest relevance case and compare its RCA, timeline, and resolution with the current investigation."
-    if "Findings" in labels:
+    if lead == "finding":
         return "Open the relevant findings and compare the analyzer signals, severity, and affected services."
-    if "Behavior Intelligence" in labels:
+    if lead == "behavior":
         return "Review the behavior details and contributing signals before creating or updating a case."
-    return "Open the supporting evidence and continue with a narrower operational question."
+    if top and top.reference and not top.reference.startswith("generated://"):
+        return f"Read the full section in {top.reference}."
+    return "Ask a narrower question about a service, metric, analyzer, finding, or case."
