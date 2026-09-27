@@ -7,6 +7,46 @@ by CSV upload validation.
 
 Want to add a new scenario? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a step-by-step walkthrough.
 
+## Run everything: the evidence report
+
+One command runs every suite and writes a local snapshot with a detailed HTML report:
+
+```bash
+.venv/bin/python -m benchmark.run_all
+```
+
+Each run gets its own folder, and `benchmark/results/latest` points at the newest one:
+
+```text
+benchmark/results/<UTC timestamp>-<short sha>/
+  index.html               start here: one card per report, in plain words, with its result and verdict
+  report.html              every suite in one page: summary, detail, charts, method basis, how to reproduce
+  report-<suite>.html      the same report for one suite (report-router.html, report-nab.html, report-tcpd.html, ...)
+  results.json             every suite's raw results plus the run manifest
+  raw/                     the per-scenario JSON/Markdown each individual runner writes
+```
+
+`benchmark/results/` is gitignored: snapshots stay on the machine that produced them. Keep the
+ones you want as evidence; delete the rest.
+
+The manifest records the commit (and any uncommitted changes), Python and library versions, CPU,
+and SHA-256 hashes of every config and dataset used. The **accuracy fingerprint** hashes all
+results except wall-clock timings, so a rerun on the same commit and data prints the same value -
+that's the quick check that a result is reproducible.
+
+Suites: `router`, `behavior`, `performance`, `nab`, `tcpd` and `ucr`. `nab` runs the whole Numenta Anomaly
+Benchmark corpus through the production analysis path; it fetches NAB on first use and takes several
+minutes; see [`nab/README.md`](nab/README.md). `tcpd` scores change-point detection on the Turing
+Change Point Dataset against the 14 methods published with it; see [`tcpd/README.md`](tcpd/README.md). `ucr` asks
+every method for one location on each of the UCR Anomaly Archive's 250 series; see [`ucr/README.md`](ucr/README.md). Run only some suites with `--suites router,behavior`. Rebuild a report from an existing snapshot,
+without rerunning anything, with:
+
+```bash
+.venv/bin/python -m benchmark.report_html benchmark/results/latest/results.json
+```
+
+The command exits non-zero if any suite has a `FAIL` or `ERROR`. `GAP` doesn't fail it.
+
 ## Source datasets
 
 Raw TSBS exports (one host, one CPU series, 5-minute resolution):
@@ -74,8 +114,8 @@ Current scenarios:
 | `cpu_online_anomaly_stream_v1` | `GAP`: router has no streaming execution-mode input yet |
 | `cpu_healthy_stable_v1` | Negative control: nothing recommended, no actionable finding |
 
-Three scenarios (`cpu_pure_baseline_shift_v1`, `cpu_pure_baseline_shift_shifted_dates_v1`,
-`cpu_baseline_shift_v1`) also declare an `expected_event` in their `ground_truth.yaml` - when
+Two scenarios (`cpu_pure_baseline_shift_v1` and `cpu_pure_baseline_shift_shifted_dates_v1`) also
+declare an `expected_event` in their `ground_truth.yaml` - when
 present, the benchmark actually runs the required analyzer and checks the produced signal's
 direction, magnitude, and timing against it, not just whether the router recommended it.
 `cpu_healthy_stable_v1` instead declares `expects_no_actionable_findings: true`, which runs every
@@ -138,46 +178,35 @@ done
 Normalize a TSBS source file:
 
 ```bash
-python -m benchmark.scripts.tsbs_benchmark normalize --dataset 7d
-```
-
-Generate the first scenario:
-
-```bash
-python -m benchmark.scripts.tsbs_benchmark generate-scenario
-```
-
-Run the first benchmark end to end:
-
-```bash
-python -m benchmark.scripts.tsbs_benchmark run
-```
-
-Run the 24-hour smoke path:
-
-```bash
-python -m benchmark.scripts.tsbs_benchmark smoke
+.venv/bin/python benchmark/scripts/normalize_tsbs.py \
+  --input benchmark/source-data/tsbs/healthy_cpu_7d_raw.txt \
+  --output benchmark/normalized/healthy_cpu_7d.csv
 ```
 
 Run the router benchmark for the baseline-shift scenario:
 
 ```bash
-python -m benchmark.router_benchmark \
-  --scenario benchmark/scenarios/cpu_baseline_shift_v1
+.venv/bin/python -m benchmark.router_benchmark \
+  --scenario benchmark/scenarios/cpu_pure_baseline_shift_v1
 ```
 
 Expected router benchmark result:
 
 - `ruptures` is `RECOMMENDED`.
-- `prophet` and `river` may be `OPTIONAL` without failing the benchmark.
-- `stumpy` is not `RECOMMENDED`.
-- Reports are written to `benchmark/reports/cpu_baseline_shift_v1_router.json` and `benchmark/reports/cpu_baseline_shift_v1_router.md`.
+- The detected shift is an increase, at least the declared minimum magnitude, and within the
+  declared timing tolerance.
+- Reports are written to `benchmark/reports/cpu_pure_baseline_shift_v1_router.json` and `.md`.
 
 Run benchmark tests:
 
 ```bash
 .venv/bin/python -m pytest -q tests/test_analyzer_router_profile_matching.py tests/test_router_benchmark.py
 ```
+
+## Retired scenarios
+
+`benchmark/scenarios/_retired/` keeps scenarios that were removed from the suite, each with the
+reason. The runners skip it. See [`scenarios/_retired/README.md`](scenarios/_retired/README.md).
 
 ## Assumptions
 
