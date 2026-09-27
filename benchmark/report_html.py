@@ -65,6 +65,7 @@ SUITE_TITLES = {
     "behavior": "Cross-metric behavior suite",
     "nab": "Numenta Anomaly Benchmark (NAB)",
     "tcpd": "Turing Change Point Dataset (TCPD)",
+    "ucr": "UCR Time Series Anomaly Archive",
     "performance": "Performance and scale",
 }
 
@@ -88,6 +89,8 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
         body.append(_nab_section(suites["nab"], official_nab))
     if "tcpd" in suites:
         body.append(_tcpd_section(suites["tcpd"]))
+    if "ucr" in suites:
+        body.append(_ucr_section(suites["ucr"]))
     if "performance" in suites:
         body.append(_performance_section(suites["performance"]))
     if suite is None:
@@ -239,6 +242,18 @@ def _summary(results: dict[str, Any]) -> str:
                     None,
                 )
             )
+    ucr = suites.get("ucr")
+    if ucr:
+        overall = ucr["summary"]["overall"]
+        total = overall["series"]
+        tiles.append(
+            _tile(
+                "UCR anomalies located",
+                f"{overall['product']['correct']}<span class='of'>/{total}</span>",
+                f"product, one answer per series · matrix-profile discord {overall['discord']['correct']} · random guess {overall['default_rate'] * total:.1f}",
+                None,
+            )
+        )
     performance = suites.get("performance")
     if performance and performance["datasets"]:
         largest = max(performance["datasets"], key=lambda item: item["sample_count"])
@@ -851,6 +866,298 @@ def _tcpd_section(tcpd: dict[str, Any]) -> str:
 </section>"""
 
 
+UCR_METHOD_LABELS = {
+    "product": ("Ops Signals (product)", "What a user gets: the router picks the analyzers, the top-ranked finding is the answer."),
+    "anomaly_zscore": ("anomaly_zscore, direct", "One production analyzer on every series, most confident signal."),
+    "pyod_outlier": ("pyod_outlier, direct", "One production analyzer on every series, most confident signal."),
+    "seasonal_anomaly": ("seasonal_anomaly, direct", "One production analyzer on every series, most confident signal."),
+    "discord": ("Matrix-profile discord (reference)", "Textbook subsequence method, not an Ops Signals analyzer."),
+    "max_jump": ("Largest single jump (trivial baseline)", "A one-liner: the biggest point-to-point change in the test part."),
+}
+
+
+def _ucr_section(ucr: dict[str, Any]) -> str:
+    summary = ucr["summary"]
+    overall = summary["overall"]
+    series = ucr["series"]
+    total = overall["series"]
+    methods = ucr["settings"]["methods"]
+    ranked = sorted(methods, key=lambda m: -overall[m]["correct"])
+
+    board_rows = []
+    for method in ranked:
+        stats = overall[method]
+        label, note = UCR_METHOD_LABELS.get(method, (method, ""))
+        found = f"{stats['found_anywhere']}" if method not in ("discord", "max_jump") else "-"
+        board_rows.append(
+            f"<tr{EMPHASIS_CLASS if method == 'product' else ''}><td>{escape(label)}<div class='small muted'>{escape(note)}</div></td>"
+            f"<td class='num'>{stats['correct']}<span class='muted'>/{total}</span></td><td class='num'>{_pct(stats['correct'] / total if total else None)}</td>"
+            f"<td class='num'>{stats['answered']}</td><td class='num'>{found}</td>"
+            f"<td class='num'>{stats['timeouts'] or '-'}</td><td class='num'>{stats['errors'] or '-'}</td></tr>"
+        )
+    expected_dart = overall["default_rate"] * total
+    board_rows.append(
+        f"<tr><td>Random guess in the test part (expected)<div class='small muted'>The archive's \"random dart\" default rate, computed from each series' labels.</div></td>"
+        f"<td class='num'>{expected_dart:.1f}<span class='muted'>/{total}</span></td><td class='num'>{_pct(overall['default_rate'])}</td>"
+        "<td class='num'>-</td><td class='num'>-</td><td class='num'>-</td><td class='num'>-</td></tr>"
+    )
+    bars = _bar_chart(
+        [(UCR_METHOD_LABELS.get(m, (m,))[0], overall[m]["correct"] / total * 100 if total else 0.0) for m in methods]
+        + [("Random guess (expected)", overall["default_rate"] * 100)],
+        unit="%",
+        title=f"Share of the {total} series where the answer was in the correct region",
+    )
+
+    product = overall["product"]
+    product_rows = [s["methods"]["product"] for s in series]
+    ranked_lower = product["found_anywhere"] - product["correct"]
+    silent = sum(1 for m in product_rows if m["status"] == "no_answer")
+    point_analyzers = {"anomaly_zscore", "pyod_outlier", "seasonal_anomaly"}
+    ran_point = sum(1 for m in product_rows if point_analyzers & set(m.get("executed_analyzers") or []))
+    executed_counts: dict[str, int] = {}
+    for m in product_rows:
+        for analyzer in m.get("executed_analyzers") or []:
+            executed_counts[analyzer] = executed_counts.get(analyzer, 0) + 1
+    executed_text = ", ".join(f"<span class='mono'>{escape(a)}</span> {n}" for a, n in sorted(executed_counts.items(), key=lambda kv: -kv[1]))
+    discord = overall["discord"]
+    both = sum(1 for s in series if s["methods"]["product"]["correct"] and s["methods"]["discord"]["correct"])
+    discord_only = sum(1 for s in series if s["methods"]["discord"]["correct"] and not s["methods"]["product"]["correct"])
+    product_only = sum(1 for s in series if s["methods"]["product"]["correct"] and not s["methods"]["discord"]["correct"])
+    findings = [
+        f"<li><b>The product answered {product['correct']} of {total} correctly ({_pct(product['correct'] / total if total else None)})</b>; the matrix-profile "
+        f"discord reference answered {discord['correct']}. Both were right on {both}; the discord only on {discord_only}; the product only on {product_only}.</li>",
+        f"<li><b>Right place, wrong rank on {ranked_lower} series.</b> The product listed a finding inside the correct region but ranked another one first. "
+        "UCR scores only the top answer.</li>",
+        f"<li><b>No localized finding after the training part on {silent} series.</b> The router ran a point-anomaly analyzer "
+        f"(<span class='mono'>anomaly_zscore</span>, <span class='mono'>pyod_outlier</span> or <span class='mono'>seasonal_anomaly</span>) on {ran_point} of {total}. "
+        f"Analyzers run, by number of series: {executed_text or 'none'}.</li>",
+        "<li><b>Most UCR anomalies are shapes, not values.</b> A reversed heartbeat, a slowed gait cycle or a smoothed stretch stays inside the normal "
+        "value range, so point detectors can't see it. Finding it needs a subsequence method such as a discord. The product's "
+        "<span class='mono'>stumpy</span> analyzer computes a matrix profile but reports repeated patterns (motifs), not unusual ones, so it gives no location here.</li>",
+        f"<li><b>{overall['max_jump']['correct']} of {total} series are solved by the largest single jump.</b> Wu &amp; Keogh designed the archive to avoid "
+        "one-liner solutions, and this shows how much of it still yields to one.</li>",
+    ]
+    timeouts = [(s, m) for s in series for m, o in s["methods"].items() if o["status"] == "timeout"]
+    if timeouts:
+        by_method: dict[str, list[int]] = {}
+        for s, m in timeouts:
+            by_method.setdefault(m, []).append(s["n_points"])
+        detail = "; ".join(f"<span class='mono'>{escape(m)}</span> on {len(sizes)} (from {min(sizes):,} points)" for m, sizes in sorted(by_method.items()))
+        findings.append(
+            f"<li><b>Some runs didn't finish within {ucr['settings']['task_timeout_seconds']:.0f} seconds</b> and score as no answer: {detail}. "
+            "Most UCR series are far longer than a typical metric window.</li>"
+        )
+
+    def group_table(title: str, groups: dict[str, Any]) -> str:
+        head = "".join(f"<th class='num'>{escape(UCR_METHOD_LABELS.get(m, (m,))[0].split(' (')[0].split(',')[0])}</th>" for m in methods)
+        body = "".join(
+            f"<tr><td>{escape(name)}</td><td class='num'>{g['series']}</td>"
+            + "".join(f"<td class='num'>{g[m]['correct']}</td>" for m in methods)
+            + f"<td class='num muted'>{g['default_rate'] * g['series']:.1f}</td></tr>"
+            for name, g in sorted(groups.items(), key=lambda kv: -kv[1]["series"])
+        )
+        return (
+            f"<h3 class='sub'>{escape(title)}</h3><div class='table-wrap'><table><thead><tr><th></th><th class='num'>Series</th>{head}"
+            f"<th class='num'>Random (expected)</th></tr></thead><tbody>{body}</tbody></table></div>"
+        )
+
+    def mark(o: dict[str, Any]) -> str:
+        if o["status"] == "timeout":
+            return "<span class='muted' title='did not finish in time'>timeout</span>"
+        if o["status"] == "error":
+            return f"<span class='muted' title='{escape(o.get('error') or '')}'>error</span>"
+        if o["position"] is None:
+            return "<span class='muted'>-</span>"
+        icon = "<span class='ok-mark'>✓</span>" if o["correct"] else "<span class='bad-mark'>✕</span>"
+        return f"{icon} <span class='mono small'>{o['position']:,}</span>"
+
+    detail_rows = []
+    cards = []
+    for s in series:
+        anchor = f"ucr-{s['number']}"
+        detail_rows.append(
+            f"<tr><td class='num'><a href='#{anchor}'>{s['number']}</a></td><td class='mono small'>{escape(s['name'])}</td><td class='small'>{escape(s['domain'])}</td>"
+            f"<td class='num'>{s['n_points']:,}</td><td class='num mono small'>{s['begin']:,}-{s['end']:,}</td>"
+            + "".join(f"<td class='num nowrap'>{mark(s['methods'][m])}</td>" for m in methods)
+            + "</tr>"
+        )
+        cards.append(_ucr_card(s, methods))
+
+    archive = ucr["archive"]
+    return f"""
+<section id="ucr">
+  <h2>UCR Time Series Anomaly Archive</h2>
+  <p class="section-lede">{archive['series']} real and semi-synthetic series (ECG, blood pressure, gait, respiration, insect feeding, power demand,
+  NASA telemetry and more), each with exactly one anomaly, built by Wu &amp; Keogh (2021) to fix the flaws they found in earlier benchmarks,
+  including NAB: trivial anomalies, wrong labels, and anomalies clustered at the end. The first part of each series is guaranteed normal; every
+  method is told there is one anomaly after it and gives one location. Scored with the archive's own rule: with L the anomaly's length, an answer
+  is correct if it falls between min(begin&minus;L, begin&minus;{ucr['settings']['min_slack']}) and max(end+L, end+{ucr['settings']['min_slack']}).
+  The labels are the archive's, not this project's. Archive pinned by SHA-256 <span class="mono">{escape(archive['sha256'][:16])}…</span>.</p>
+
+  <h3 class="sub">All methods on the same {total} series</h3>
+  {bars}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Method</th><th class="num">Correct</th><th class="num">Accuracy</th><th class="num">Answered</th>
+    <th class="num">In its list</th><th class="num">Timeouts</th><th class="num">Errors</th></tr></thead>
+    <tbody>{''.join(board_rows)}</tbody>
+  </table></div>
+  <p class="small muted">"In its list" counts series where any of the method's findings after the training part was in the correct region, not
+  only the top one. It shows what ranking costs; it is not the UCR score.</p>
+
+  <h3 class="sub">What the results show</h3>
+  <ul class="notes findings">{''.join(findings)}</ul>
+
+  {group_table("By domain (correct answers)", summary['by_domain'])}
+  {group_table("By variant (correct answers)", summary['by_variant'])}
+  <p class="small muted">"distorted" and "noise" series are copies of other series in the archive with smoothed noise or extra noise added, so they
+  aren't independent of the originals.</p>
+
+  <h3 class="sub">Every series</h3>
+  <div class="table-wrap scroll-y tall-scroll"><table>
+    <thead><tr><th class="num">#</th><th>Series</th><th>Domain</th><th class="num">Points</th><th class="num">Anomaly</th>
+    {''.join(f"<th class='num'>{escape(UCR_METHOD_LABELS.get(m, (m,))[0].split(' (')[0].split(',')[0])}</th>" for m in methods)}</tr></thead>
+    <tbody>{''.join(detail_rows)}</tbody>
+  </table></div>
+
+  <h3 class="sub">Series details</h3>
+  <div class="cards">{''.join(cards)}</div>
+
+  <h3 class="sub">Method notes</h3>
+  <ul class="notes">
+    <li>Product answer: the highest-importance localized finding after the training part, the order a user sees findings in. A finding's location
+    is its change point when it reports one, otherwise its first row. Findings covering {ucr['settings']['whole_series_fraction']:.0%} or more of the
+    series (trends, forecast fits, motif summaries) don't point at a location and are skipped.</li>
+    <li>Direct answers: the analyzer's most confident localized signal after the training part, with its production configuration.</li>
+    <li>Discord reference: every test subsequence compared with every training subsequence (z-normalized distance, <span class="mono">stumpy</span>),
+    window one period estimated from the training part's autocorrelation; the answer is the centre of the most distant test subsequence.</li>
+    <li>Each series gets a synthetic one-minute timestamp, one row per resampled bucket; UCR scores by position, so the times don't matter. It does mean
+    <span class="mono">seasonal_anomaly</span> checks for a daily cycle every 1,440 points, which has no meaning for these recordings.</li>
+    <li>Each run has {ucr['settings']['task_timeout_seconds']:.0f} seconds; a run that times out or fails scores as no answer. Timeouts depend on the
+    machine, so a slower machine can score lower. Harness code: <span class="mono">benchmark/ucr/</span>. The archive's data files are read; none
+    of its code is run.</li>
+  </ul>
+</section>"""
+
+
+def _ucr_card(s: dict[str, Any], methods: list[str]) -> str:
+    begin0, end0 = s["begin"] - 1, s["end"] - 1
+    low, high = s["correct_region"]
+    region = (low, high - 2)
+    markers = []
+    for method, kind in (("product", "detected"), ("discord", "expected")):
+        o = s["methods"][method]
+        if o["position"] is not None:
+            markers.append((o["position"] - 1, kind, f"{UCR_METHOD_LABELS[method][0]}: {o['position']:,}"))
+    overview = _ucr_chart(s["plot"], 0, s["n_points"] - 1, s["train_end"], (begin0, end0), region, markers, f"Whole series ({s['n_points']:,} points)")
+    zoom = s["zoom"]
+    zoomed = _ucr_chart(zoom["points"], zoom["first_row"], zoom["last_row"], s["train_end"], (begin0, end0), region, markers, "Around the labeled anomaly")
+    rows = []
+    for method in methods:
+        o = s["methods"][method]
+        extra = []
+        if o.get("hit_rank"):
+            extra.append(f"correct finding at rank {o['hit_rank']}")
+        if o.get("window"):
+            extra.append(f"window {o['window']}")
+        if o.get("error"):
+            extra.append(escape(o["error"]))
+        top = o.get("top_candidates") or []
+        top_text = ", ".join(f"{escape(c['analyzer'])} @ {c['row'] + 1:,}" for c in top[:3])
+        position = "-" if o["position"] is None else f"{o['position']:,}"
+        rows.append(
+            f"<tr><td>{escape(UCR_METHOD_LABELS.get(method, (method,))[0])}</td><td class='num'>{position}</td>"
+            f"<td>{'✓' if o['correct'] else ('✕' if o['position'] is not None else '-')}</td><td class='num'>{_num(o.get('seconds'))}</td>"
+            f"<td class='small'>{'; '.join(extra)}{'<br>' if extra and top_text else ''}{f'<span class=muted>top: {top_text}</span>' if top_text else ''}</td></tr>"
+        )
+    routing = "".join(
+        f"<tr><td class='mono'>{escape(str(d['analyzer']))}</td><td>{escape(str(d['recommendation']).replace('_', ' ').lower())}</td><td class='num'>{_num(d['score'])}</td>"
+        f"<td class='small'>{escape(str(d.get('reason') or ''))}</td></tr>"
+        for d in sorted(s["methods"]["product"].get("routing") or [], key=lambda d: -(d["score"] or 0))
+    )
+    product = s["methods"]["product"]
+    return f"""
+<details class="card scenario" id="ucr-{s['number']}">
+  <summary><span class="summary-title mono small">{s['number']:03d} {escape(s['name'])}</span>
+  <span class="small muted">{escape(s['domain'])} · product {'✓' if product['correct'] else '✕'} · discord {'✓' if s['methods']['discord']['correct'] else '✕'}</span></summary>
+  <div class="card-body">
+    <p class="small muted">Training part 1-{s['train_end']:,} · labeled anomaly {s['begin']:,}-{s['end']:,} · counted correct strictly between {low:,} and {high:,} ·
+    random-guess chance {_pct(s['default_rate'])}</p>
+    <div class="chart-grid">{overview}{zoomed}</div>
+    <div class="two-col">
+      <div><h4>Answers (1-based position)</h4><div class="table-wrap"><table><thead><tr><th>Method</th><th class="num">Position</th><th></th><th class="num">Seconds</th><th>Notes</th></tr></thead>
+      <tbody>{''.join(rows)}</tbody></table></div></div>
+      <div><h4>Router decisions</h4><div class="table-wrap scroll-y"><table><thead><tr><th>Analyzer</th><th>Decision</th><th class="num">Score</th><th>Reason</th></tr></thead><tbody>{routing}</tbody></table></div></div>
+    </div>
+  </div>
+</details>"""
+
+
+def _ucr_chart(points, first_row: int, last_row: int, train_end: int, label: tuple[int, int], region: tuple[int, int],
+               markers: list[tuple[int, str, str]], title: str) -> str:
+    """Row-indexed chart of bucketed [row, mean, min, max] points: min-max envelope, mean line, the
+    training part shaded, the correct region banded and method answers as vertical markers."""
+    if len(points) < 2:
+        return ""
+    width, height, pad_l, pad_r, pad_t, pad_b = 720, 180, 44, 12, 12, 26
+    lows = [p[2] for p in points]
+    highs = [p[3] for p in points]
+    y0, y1 = min(lows), max(highs)
+    if y1 == y0:
+        y0, y1 = y0 - 1, y1 + 1
+    span = y1 - y0
+    y0, y1 = y0 - span * 0.08, y1 + span * 0.08
+
+    def sx(row: float) -> float:
+        return pad_l + (row - first_row) / ((last_row - first_row) or 1) * (width - pad_l - pad_r)
+
+    def sy(value: float) -> float:
+        return pad_t + (1 - (value - y0) / (y1 - y0)) * (height - pad_t - pad_b)
+
+    def clip(x: float) -> float:
+        return min(max(x, pad_l), width - pad_r)
+
+    bottom = height - pad_b
+    envelope = "M" + " L".join(f"{sx(p[0]):.1f},{sy(p[3]):.1f}" for p in points) + " L" + " L".join(f"{sx(p[0]):.1f},{sy(p[2]):.1f}" for p in reversed(points)) + " Z"
+    line = "M" + " L".join(f"{sx(p[0]):.1f},{sy(p[1]):.1f}" for p in points)
+    parts = []
+    if train_end > first_row:
+        a, b = clip(sx(first_row)), clip(sx(train_end))
+        if b > a:
+            parts.append(f"<rect class='shade' x='{a:.1f}' y='{pad_t}' width='{b - a:.1f}' height='{bottom - pad_t}'/>")
+    a, b = clip(sx(region[0])), clip(sx(region[1]))
+    if b >= a:
+        parts.append(f"<rect class='band' x='{a:.1f}' y='{pad_t}' width='{max(b - a, 1.5):.1f}' height='{bottom - pad_t}'/>")
+    a, b = clip(sx(label[0])), clip(sx(label[1]))
+    parts.append(f"<rect class='band-core' x='{a:.1f}' y='{pad_t}' width='{max(b - a, 1.5):.1f}' height='{bottom - pad_t}'/>")
+    decimals = min(6, max(0, 1 - math.floor(math.log10(y1 - y0))))
+    grid = "".join(
+        f"<line class='grid' x1='{pad_l}' x2='{width - pad_r}' y1='{sy(y0 + (y1 - y0) * i / 3):.1f}' y2='{sy(y0 + (y1 - y0) * i / 3):.1f}'/>"
+        f"<text class='axis' x='{pad_l - 6}' y='{sy(y0 + (y1 - y0) * i / 3) + 3:.1f}' text-anchor='end'>{y0 + (y1 - y0) * i / 3:.{decimals}f}</text>"
+        for i in range(4)
+    )
+    grid += (f"<text class='axis' x='{pad_l}' y='{height - 6}'>{first_row + 1:,}</text>"
+             f"<text class='axis' x='{width - pad_r}' y='{height - 6}' text-anchor='end'>{last_row + 1:,}</text>")
+    marks = []
+    legend = [
+        "<span class='legend-item'><span class='swatch-box swatch-shade'></span>Training part (normal)</span>",
+        "<span class='legend-item'><span class='swatch-box swatch-band'></span>Counted correct (darker: labeled anomaly)</span>",
+    ]
+    for row, kind, text in markers:
+        x = sx(row)
+        if pad_l <= x <= width - pad_r:
+            marks.append(f"<line class='marker marker-{kind}' x1='{x:.1f}' x2='{x:.1f}' y1='{pad_t}' y2='{bottom}'/>")
+            legend.append(f"<span class='legend-item'><span class='swatch swatch-{kind}'></span>{escape(text)}</span>")
+    return f"""
+<figure class="chart">
+  <figcaption>{escape(title)}</figcaption>
+  <svg viewBox="0 0 {width} {height}" role="img" aria-label="{escape(title)}" preserveAspectRatio="none">
+    {''.join(parts)}{grid}
+    <path class="envelope" d="{envelope}"/><path class="series" d="{line}"/>
+    {''.join(marks)}
+  </svg>
+  <div class='legend'>{''.join(legend)}</div>
+</figure>"""
+
 def _performance_section(performance: dict[str, Any]) -> str:
     datasets = sorted(performance["datasets"], key=lambda item: item["sample_count"])
     if not datasets:
@@ -1299,6 +1606,8 @@ td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}t
 .chart-frame{position:relative}.chart svg{width:100%;height:auto;aspect-ratio:720/180;display:block;overflow:visible}
 .chart svg.tall{aspect-ratio:720/194}
 .chart .band{fill:var(--band)}.chart .shade{fill:var(--shade)}
+.chart .band-core{fill:var(--band-solid)}.chart .envelope{fill:var(--series);opacity:.2;stroke:none}
+.nowrap{white-space:nowrap}.ok-mark{color:var(--good-ink);font-weight:700}.bad-mark{color:var(--critical-ink);font-weight:700}
 .chart .tick{stroke:var(--detected);stroke-width:1.5;vector-effect:non-scaling-stroke}
 .swatch-box{display:inline-block;width:14px;height:10px;border-radius:2px}.swatch-band{background:var(--band-solid)}
 .swatch-shade{background:var(--shade-solid)}

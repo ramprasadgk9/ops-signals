@@ -1,13 +1,16 @@
-"""Check out a public benchmark repository at a pinned commit into the gitignored cache.
+"""Fetch a public benchmark dataset at a pinned version into the gitignored cache.
 
-Harnesses read data and labels from these checkouts. Pinning the commit means a result names
-exactly which version of a dataset it was measured on, and fetching rather than vendoring keeps
-third-party data out of this repository.
+Repositories are checked out at a pinned commit; plain downloads are pinned by SHA-256. Harnesses
+read data and labels from these copies. Pinning means a result names exactly which version of a
+dataset it was measured on, and fetching rather than vendoring keeps third-party data out of this
+repository.
 """
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
+import urllib.request
 from pathlib import Path
 
 from benchmark.router_benchmark import PROJECT_ROOT
@@ -49,3 +52,32 @@ def git(cwd: Path, *args: str) -> str:
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = getattr(exc, "stderr", "") or str(exc)
         raise CheckoutError(f"git {' '.join(args)} failed: {detail.strip()}") from exc
+
+
+def ensure_download(url: str, sha256: str, path: Path) -> Path:
+    """Return `path` holding the file at `url` with exactly `sha256`, downloading it if needed."""
+    if path.exists() and file_sha256(path) == sha256:
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(path.name + ".part")
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response, partial.open("wb") as handle:
+            while chunk := response.read(1 << 20):
+                handle.write(chunk)
+    except OSError as exc:
+        partial.unlink(missing_ok=True)
+        raise CheckoutError(f"download of {url} failed: {exc}") from exc
+    actual = file_sha256(partial)
+    if actual != sha256:
+        partial.unlink(missing_ok=True)
+        raise CheckoutError(f"{url} has SHA-256 {actual}, expected pinned {sha256}")
+    partial.replace(path)
+    return path
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()

@@ -33,10 +33,11 @@ and SHA-256 hashes of every config and dataset used. The **accuracy fingerprint*
 results except wall-clock timings, so a rerun on the same commit and data prints the same value -
 that's the quick check that a result is reproducible.
 
-Suites: `router`, `behavior`, `performance`, `nab` and `tcpd`. `nab` runs the whole Numenta Anomaly
+Suites: `router`, `behavior`, `performance`, `nab`, `tcpd` and `ucr`. `nab` runs the whole Numenta Anomaly
 Benchmark corpus through the production analysis path; it fetches NAB on first use and takes several
 minutes; see [`nab/README.md`](nab/README.md). `tcpd` scores change-point detection on the Turing
-Change Point Dataset against the 14 methods published with it; see [`tcpd/README.md`](tcpd/README.md). Run only some suites with `--suites router,behavior`. Rebuild a report from an existing snapshot,
+Change Point Dataset against the 14 methods published with it; see [`tcpd/README.md`](tcpd/README.md). `ucr` asks
+every method for one location on each of the UCR Anomaly Archive's 250 series; see [`ucr/README.md`](ucr/README.md). Run only some suites with `--suites router,behavior`. Rebuild a report from an existing snapshot,
 without rerunning anything, with:
 
 ```bash

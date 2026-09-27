@@ -78,6 +78,7 @@ TIMING_KEYS = {
     "wall_seconds_total",
     "workers",
     "nab_format_dir",
+    "seconds",
 }
 
 
@@ -140,12 +141,19 @@ def run_tcpd_suite(raw_dir: Path) -> dict[str, Any]:
     return run_tcpd()
 
 
+def run_ucr_suite(raw_dir: Path) -> dict[str, Any]:
+    from benchmark.ucr.run import run_ucr_suite as run_ucr
+
+    return run_ucr(raw_dir)
+
+
 SUITES: dict[str, Callable[[Path], dict[str, Any]]] = {
     "router": run_router_suite,
     "behavior": run_behavior_suite,
     "performance": run_performance_suite,
     "nab": run_nab_suite,
     "tcpd": run_tcpd_suite,
+    "ucr": run_ucr_suite,
 }
 
 
