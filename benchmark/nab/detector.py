@@ -23,6 +23,14 @@ A signal becomes an alarm, scored with the signal's confidence, at one row:
 Signals spanning the whole analysis window (a trend or a forecast fit) start at the window's first
 row, so in batch mode they land in NAB's probationary period, which is never scored, and in replay
 mode they are older than the new-event horizon and never alarm.
+
+Baselines (benchmark/methods.py) run in replay mode only, the mode behind the headline:
+
+- Ops Signals, all analyzers, and Z-score only: the same replay with a different analyzer set.
+- Static threshold: the alert line is the lowest and highest value seen in NAB's probationary
+  period, which NAB treats as the detector's learning time. An alarm (score 1.0) is raised when the
+  value first crosses outside that range, and again only after it has come back inside - the way a
+  threshold alert fires and resolves. It is causal by construction.
 """
 
 from __future__ import annotations
@@ -37,6 +45,8 @@ import numpy as np
 import pandas as pd
 
 from benchmark import harness
+from benchmark.methods import ALL_ANALYZERS, ROUTER_PICKS, STATIC_THRESHOLD, ZSCORE_ANALYZERS, ZSCORE_ONLY
+from benchmark.nab.metrics import probation_rows
 from intelligence.normalize.normalizer import VALIDATION_WARNINGS_ATTR
 from intelligence.pipeline import SignalPipeline
 
@@ -49,6 +59,22 @@ REPLAY_WINDOW = 2016
 # The oldest a signal's start may be, in rows before the current run, to still count as a new event.
 REPLAY_NEW_EVENT_HORIZON = 4 * REPLAY_STEP
 REPLAY_MIN_HISTORY = 288
+
+# Replay-mode baselines compared with the product (ROUTER_PICKS, whose replay is the headline).
+PIPELINE_BASELINES = {ALL_ANALYZERS: ALL_ANALYZERS, ZSCORE_ONLY: ZSCORE_ANALYZERS}
+BASELINES = (*PIPELINE_BASELINES, STATIC_THRESHOLD)
+
+
+@dataclass(slots=True)
+class MethodRun:
+    """One method's replay on one series, with what it cost."""
+
+    scores: list[float]
+    seconds: float
+    runs: int
+    analyzer_runs: int
+    errors: int = 0
+    first_error: str | None = None
 
 
 @dataclass(slots=True)
@@ -68,10 +94,12 @@ class SeriesRun:
     batch_error: str | None = None
     replay_errors: int = 0
     first_replay_error: str | None = None
+    replay_analyzer_runs: int = 0
+    baselines: dict[str, MethodRun] = field(default_factory=dict)
 
 
-def build_pipeline(interval_minutes: int) -> SignalPipeline:
-    return harness.build_pipeline(interval_minutes, METRIC_NAME)
+def build_pipeline(interval_minutes: int, analyzers: str | tuple[str, ...] = ROUTER_PICKS) -> SignalPipeline:
+    return harness.build_pipeline(interval_minutes, METRIC_NAME, analyzers)
 
 
 def load_series(path: Path) -> pd.DataFrame:
@@ -88,6 +116,7 @@ def median_interval_minutes(frame: pd.DataFrame) -> int:
 
 def run_series(path: Path, series_name: str) -> SeriesRun:
     logging.disable(logging.WARNING)
+    harness.warm_up()
     frame = load_series(path)
     interval = median_interval_minutes(frame)
     pipeline = build_pipeline(interval)
@@ -115,8 +144,29 @@ def run_series(path: Path, series_name: str) -> SeriesRun:
     batch_seconds = time.perf_counter() - started
 
     started = time.perf_counter()
-    replay_scores, runs, errors, first_error = _replay(pipeline, frame, times)
+    replay_scores, runs, errors, first_error, analyzer_runs = _replay(pipeline, frame, times)
     replay_seconds = time.perf_counter() - started
+
+    baselines: dict[str, MethodRun] = {}
+    for method, analyzers in PIPELINE_BASELINES.items():
+        started = time.perf_counter()
+        scores, method_runs, method_errors, method_error, method_analyzer_runs = _replay(build_pipeline(interval, analyzers), frame, times)
+        baselines[method] = MethodRun(
+            scores=[round(float(score), 6) for score in scores],
+            seconds=round(time.perf_counter() - started, 3),
+            runs=method_runs,
+            analyzer_runs=method_analyzer_runs,
+            errors=method_errors,
+            first_error=method_error,
+        )
+    started = time.perf_counter()
+    static_scores = static_threshold_scores(frame["value"].to_numpy(dtype=float))
+    baselines[STATIC_THRESHOLD] = MethodRun(
+        scores=[float(score) for score in static_scores],
+        seconds=round(time.perf_counter() - started, 3),
+        runs=1,
+        analyzer_runs=0,
+    )
 
     return SeriesRun(
         series=series_name,
@@ -134,13 +184,32 @@ def run_series(path: Path, series_name: str) -> SeriesRun:
         batch_error=batch_error,
         replay_errors=errors,
         first_replay_error=first_error,
+        replay_analyzer_runs=analyzer_runs,
+        baselines=baselines,
     )
 
 
-def _replay(pipeline: SignalPipeline, frame: pd.DataFrame, times: np.ndarray) -> tuple[np.ndarray, int, int, str | None]:
+def static_threshold_scores(values: np.ndarray) -> np.ndarray:
+    """1.0 on each row where the value leaves the probationary period's [min, max] range, counting
+    only the first row of each excursion; 0 elsewhere."""
+    scores = np.zeros(len(values))
+    learn = probation_rows(len(values))
+    normal = values[:learn][np.isfinite(values[:learn])]
+    if not len(normal):
+        return scores
+    low, high = float(normal.min()), float(normal.max())
+    outside = (values < low) | (values > high)
+    for row in range(learn, len(values)):
+        if outside[row] and not outside[row - 1]:
+            scores[row] = 1.0
+    return scores
+
+
+def _replay(pipeline: SignalPipeline, frame: pd.DataFrame, times: np.ndarray) -> tuple[np.ndarray, int, int, str | None, int]:
+    """Scores per row, runs, failed runs, the first failure, and analyzer executions summed over runs."""
     scores = np.zeros(len(frame))
     raised: dict[tuple[str, str], list[tuple[int, float]]] = {}
-    runs = errors = 0
+    runs = errors = analyzer_runs = 0
     first_error = None
     columns = frame[["timestamp", "value", "metric_name"]]
     for end in range(min(REPLAY_MIN_HISTORY, len(frame) - 1), len(frame), REPLAY_STEP):
@@ -152,6 +221,7 @@ def _replay(pipeline: SignalPipeline, frame: pd.DataFrame, times: np.ndarray) ->
             errors += 1
             first_error = first_error or f"{type(exc).__name__}: {exc}"
             continue
+        analyzer_runs += len(result.executed_analyzers)
         for signal in result.signals:
             start_row = _row_at_or_after(times, signal.start_time)
             if start_row is None or start_row < end - REPLAY_NEW_EVENT_HORIZON:
@@ -165,7 +235,7 @@ def _replay(pipeline: SignalPipeline, frame: pd.DataFrame, times: np.ndarray) ->
                 continue
             raised.setdefault(key, []).append((start_row, confidence))
             scores[end] = max(scores[end], confidence)
-    return scores, runs, errors, first_error
+    return scores, runs, errors, first_error, analyzer_runs
 
 
 def _row_at_or_after(times: np.ndarray, moment) -> int | None:

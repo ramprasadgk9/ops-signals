@@ -22,6 +22,7 @@ benchmark/results/<UTC timestamp>-<short sha>/
   index.html               start here: one card per report, in plain words, with its result and verdict
   report.html              every suite in one page: summary, detail, charts, method basis, how to reproduce
   report-<suite>.html      the same report for one suite (report-router.html, report-nab.html, report-tcpd.html, ...)
+  report-routing.html      does routing help? router picks vs running everything vs simple baselines, per dataset
   results.json             every suite's raw results plus the run manifest
   raw/                     the per-scenario JSON/Markdown each individual runner writes
 ```
@@ -46,6 +47,29 @@ without rerunning anything, with:
 ```
 
 The command exits non-zero if any suite has a `FAIL` or `ERROR`. `GAP` doesn't fail it.
+
+## Baselines: does routing help?
+
+Ops Signals runs only the analyzers its router picks for each series. That is only worth it if it
+keeps the accuracy of running everything, and beats a simple rule. So the NAB, UCR and TCPD suites,
+and the behavior suite, run the same data several ways, named the same in every report
+(`benchmark/methods.py`):
+
+| Method | What runs |
+| --- | --- |
+| Ops Signals, router picks | The product as users get it: the router's picks for each series. |
+| Ops Signals, all analyzers | Every enabled analyzer on every series, same finding rules and ranking. |
+| Z-score only | Just the `anomaly_zscore` analyzer on every series. |
+| Static threshold | A fixed alert line from data known to be normal (NAB's probationary period, UCR's training part); no analyzer. |
+
+Z-score only and static threshold don't report change points or behaviors, so TCPD and the behavior
+suite compare router picks with all analyzers only. Each method's analyzer runs and time are recorded
+too. Every analyzer is run once per process before anything is timed, so one-time compile costs
+(stumpy's numba kernels) don't land on whichever method runs first. `report-routing.html` puts all of
+it side by side, one row per dataset, with a verdict: router picks "match" running everything when
+within 2% of its score. NAB-format files for each baseline (`opsSignalsAllAnalyzers`, `zscoreOnly`,
+`staticThreshold`) are written next to the product's, so `benchmark.nab.official_score` grades them
+with NAB's own scorer as well.
 
 ## Source datasets
 

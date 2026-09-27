@@ -30,7 +30,7 @@ ZOOM_POINTS = 240
 
 def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, only: list[int] | None = None,
                   timeout: float = TASK_TIMEOUT_SECONDS) -> dict[str, Any]:
-    from benchmark.ucr.detector import DIRECT_ANALYZERS, DISCORD, MAX_JUMP, METHODS, PRODUCT, WHOLE_SERIES_FRACTION
+    from benchmark.ucr.detector import DIRECT_ANALYZERS, DISCORD, MAX_JUMP, METHODS, PIPELINE_METHODS, PRODUCT, WHOLE_SERIES_FRACTION
 
     series_dir = data.ensure_ucr()
     paths = [path for path in data.series_files(series_dir) if not only or int(path.name.split("_", 1)[0]) in only]
@@ -74,6 +74,7 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
         "settings": {
             "methods": list(METHODS),
             "product": PRODUCT,
+            "pipeline_methods": list(PIPELINE_METHODS),
             "direct_analyzers": list(DIRECT_ANALYZERS),
             "reference": DISCORD,
             "baseline": MAX_JUMP,

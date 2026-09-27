@@ -105,19 +105,31 @@ def run_router_suite(raw_dir: Path) -> dict[str, Any]:
 
 
 def run_behavior_suite(raw_dir: Path) -> dict[str, Any]:
+    """Every behavior scenario twice: with every analyzer (behavior_benchmark's "all" mode, the
+    regression check behind `counts`) and with the router's picks ("default" mode, what users get).
+    Default-mode results are reported under `default_mode` and don't gate the run's exit code: a
+    default-mode failure is the known routing gap the report calls out, not a regression."""
     scenarios = []
+    default_mode = []
     for scenario_dir in discover_behavior_scenarios(SCENARIOS_ROOT):
         evaluation = behavior_benchmark.run_benchmark(scenario_dir, reports_dir=raw_dir)
+        default_evaluation = behavior_benchmark.run_benchmark(scenario_dir, mode="default", reports_dir=raw_dir)
         ground_truth = _load_yaml(scenario_dir / "ground_truth.yaml")
         scenarios.append(
             {
                 "scenario": _scenario_metadata(scenario_dir, ground_truth),
                 "expected_behavior_findings": ground_truth.get("expected_behavior_findings") or {},
                 "evaluation": asdict(evaluation),
+                "default_mode_evaluation": asdict(default_evaluation),
                 "series": _series_for_plot(scenario_dir / "dataset.csv"),
             }
         )
-    return {"scenarios": scenarios, "counts": _status_counts(item["evaluation"]["status"] for item in scenarios)}
+        default_mode.append(default_evaluation.status)
+    return {
+        "scenarios": scenarios,
+        "counts": _status_counts(item["evaluation"]["status"] for item in scenarios),
+        "default_mode_counts": _status_counts(default_mode),
+    }
 
 
 def run_performance_suite(raw_dir: Path) -> dict[str, Any]:

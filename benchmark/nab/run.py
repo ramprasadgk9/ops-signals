@@ -22,10 +22,17 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from benchmark.methods import ALL_ANALYZERS, DESCRIPTIONS, LABELS, ROUTER_PICKS, STATIC_THRESHOLD, ZSCORE_ONLY
 from benchmark.nab import detector, metrics
 from benchmark.nab.fetch import NAB_COMMIT, NAB_REPOSITORY, ensure_nab
 
 DETECTOR_NAMES = {"replay": "opsSignalsReplay", "batch": "opsSignalsBatch"}
+# NAB-format detector names for the replay-mode baselines, so NAB's scorer can grade them too.
+BASELINE_DETECTOR_NAMES = {
+    ALL_ANALYZERS: "opsSignalsAllAnalyzers",
+    ZSCORE_ONLY: "zscoreOnly",
+    STATIC_THRESHOLD: "staticThreshold",
+}
 MODES = ("replay", "batch")
 SERIES_POINTS = 360
 
@@ -47,6 +54,7 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
 
     results_dir = raw_dir / "nab_results"
     overall = {mode: {threshold: metrics.WindowCounts() for threshold in metrics.THRESHOLDS} for mode in MODES}
+    baseline_overall = {method: {threshold: metrics.WindowCounts() for threshold in metrics.THRESHOLDS} for method in detector.BASELINES}
     categories: dict[str, dict[str, metrics.WindowCounts]] = {}
     series_payload = []
     for run in runs:
@@ -75,9 +83,24 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
                 "alarm_times": _alarm_times(frame, scores),
             }
 
+        per_baseline: dict[str, Any] = {}
+        for method, method_run in run.baselines.items():
+            _write_nab_file(results_dir, BASELINE_DETECTOR_NAMES[method], run.series, frame, method_run.scores, labels)
+            for threshold in metrics.THRESHOLDS:
+                baseline_overall[method][threshold].add(metrics.score_series(method_run.scores, rows, threshold))
+            per_baseline[method] = {
+                "headline": metrics.score_series(method_run.scores, rows, metrics.HEADLINE_THRESHOLD).summary(),
+                "seconds": method_run.seconds,
+                "runs": method_run.runs,
+                "analyzer_runs": method_run.analyzer_runs,
+                "errors": method_run.errors,
+                "first_error": method_run.first_error,
+            }
+
         record = asdict(run)
         record.pop("batch_scores")
         record.pop("replay_scores")
+        record.pop("baselines")
         series_payload.append(
             {
                 **record,
@@ -86,6 +109,7 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
                 "probation_rows": metrics.probation_rows(len(frame)),
                 "probation_end": _iso(frame["timestamp"].iloc[min(metrics.probation_rows(len(frame)), len(frame) - 1)]),
                 "modes": per_mode,
+                "baselines": per_baseline,
                 "plot": _plot_points(frame),
             }
         )
@@ -104,6 +128,8 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
             "workers": workers,
         },
         "detector_names": DETECTOR_NAMES,
+        "baseline_detector_names": BASELINE_DETECTOR_NAMES,
+        "comparison": _comparison(runs, overall["replay"], baseline_overall),
         "nab_format_dir": str(results_dir),
         "wall_seconds_total": round(wall_seconds, 1),
         "overall": {
@@ -118,6 +144,36 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
         "series_with_errors": [
             item["series"] for item in series_payload if item["batch_error"] or item["replay_errors"]
         ],
+    }
+
+
+def _comparison(runs, router_overall, baseline_overall) -> dict[str, Any]:
+    """Every method in replay mode, side by side: accuracy at every threshold, and what it cost -
+    replay seconds and analyzer executions summed over every series and scheduled run."""
+    router_cost = {
+        "seconds": round(sum(run.replay_seconds for run in runs), 3),
+        "runs": sum(run.replay_runs for run in runs),
+        "analyzer_runs": sum(run.replay_analyzer_runs for run in runs),
+        "errors": sum(run.replay_errors for run in runs),
+    }
+    methods = {ROUTER_PICKS: (router_overall, router_cost, DETECTOR_NAMES["replay"])}
+    for method, by_threshold in baseline_overall.items():
+        cost = {
+            "seconds": round(sum(run.baselines[method].seconds for run in runs), 3),
+            "runs": sum(run.baselines[method].runs for run in runs),
+            "analyzer_runs": sum(run.baselines[method].analyzer_runs for run in runs),
+            "errors": sum(run.baselines[method].errors for run in runs),
+        }
+        methods[method] = (by_threshold, cost, BASELINE_DETECTOR_NAMES[method])
+    return {
+        method: {
+            "label": LABELS[method],
+            "description": DESCRIPTIONS[method],
+            "detector_name": detector_name,
+            "overall": {str(threshold): (counts.summary() if isinstance(counts, metrics.WindowCounts) else counts) for threshold, counts in by_threshold.items()},
+            "cost": cost,
+        }
+        for method, (by_threshold, cost, detector_name) in methods.items()
     }
 
 
