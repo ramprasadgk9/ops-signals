@@ -13,6 +13,7 @@ import argparse
 import csv
 import datetime as _dt
 import json
+import math
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ ANALYZER_METHODS = [
 PENDING_SECTIONS = [
     ("nab", "Numenta Anomaly Benchmark (all 58 series)", "Real labeled data scored with NAB's official scorer, comparable with the published leaderboard."),
     ("baselines", "Baselines and router ablation", "The same data run with a static threshold, z-score only, all analyzers and router-selected analyzers."),
+    ("tcpd", "Turing Change Point Dataset (TCPD)", "Real series with change points marked by five annotators, compared with the 14 methods published alongside it."),
     ("ucr", "UCR Anomaly Archive", "A second, independent public dataset (250 series, one anomaly each)."),
 ]
 
@@ -72,6 +74,8 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None) 
         body.append(_behavior_section(suites["behavior"]))
     if "nab" in suites:
         body.append(_nab_section(suites["nab"], official_nab))
+    if "tcpd" in suites:
+        body.append(_tcpd_section(suites["tcpd"]))
     if "performance" in suites:
         body.append(_performance_section(suites["performance"]))
     body.append(_pending_section(suites))
@@ -644,6 +648,165 @@ def _pct(value: Any) -> str:
     return "-" if value is None else f"{float(value) * 100:.1f}%"
 
 
+def _tcpd_section(tcpd: dict[str, Any]) -> str:
+    validation = tcpd["validation"]
+    series = tcpd["series"]
+    evaluated = len(tcpd["evaluated"])
+    full_published = tcpd.get("leaderboard_full_published") or {}
+
+    board_rows = []
+    for row in tcpd["leaderboard"]:
+        full = full_published.get(row["method"]) if not row["ours"] else None
+        reference = f"{full['f1']:.3f} / {full['cover']:.3f}" if full else "-"
+        board_rows.append(
+            f"<tr{EMPHASIS_CLASS if row['ours'] else ''}><td>{escape(row['method'])}</td>"
+            f"<td class='num'>{row['f1']:.3f}</td><td class='num'>{row['cover']:.3f}</td><td class='num muted'>{reference}</td></tr>"
+        )
+
+    ran_change = [s for s in series if set(s["executed_analyzers"]) & set(tcpd["settings"]["change_signal_types"])]
+    reported = [s for s in series if s["product_cps"]]
+    multi = [s for s in series if sorted(s["annotated_cp_counts"])[len(s["annotated_cp_counts"]) // 2] > 1]
+    direct_silent_agreed = [
+        s["series"] for s in series
+        if not s["direct_cps"] and sum(1 for count in s["annotated_cp_counts"] if count > 0) >= 3
+    ]
+    findings = [
+        f"<li><b>The router ran a change-point analyzer on {len(ran_change)} of {evaluated} series</b>, and the product reported a change point on "
+        f"{len(reported)}. On the rest it reported none, which TCPD scores the same as the \"zero\" method.</li>",
+        f"<li><b>At most one change point per series.</b> <span class='mono'>ruptures</span> and <span class='mono'>baseline_shift</span> report the primary shift only. "
+        f"On {len(multi)} of {evaluated} series the median annotator marked more than one, so recall there is capped by design.</li>",
+    ]
+    if direct_silent_agreed:
+        findings.append(
+            "<li><b>Clear shifts can fall under the detection threshold.</b> A change point is kept only when the shift in means, divided by the whole "
+            "series' standard deviation, reaches 1.5. That standard deviation includes the shift itself, so even a noise-free step can't score above 2.0, "
+            "and only when it sits mid-series. Series where the detector reported nothing although at least three of five annotators marked a change: "
+            f"<span class='mono'>{escape(', '.join(direct_silent_agreed))}</span>.</li>"
+        )
+    if tcpd["unavailable"]:
+        findings.append(
+            f"<li><b>{len(tcpd['unavailable'])} of the paper's {tcpd['evaluation_set_size']} series aren't included</b>: "
+            f"<span class='mono'>{escape(', '.join(tcpd['unavailable']))}</span>. TCPD builds them with download scripts, which this harness "
+            "doesn't run. Every method in the table is averaged over the same "
+            f"{evaluated} series, so the comparison is like for like; the last column gives the paper's own averages over all "
+            f"{tcpd['evaluation_set_size']} for reference.</li>"
+        )
+
+    detail_rows = []
+    cards = []
+    for item in series:
+        product, direct = item["scores"]["product"], item["scores"]["direct"]
+        published_f1 = {k: v for k, v in (item["published"].get("f1") or {}).items() if v is not None}
+        best_method = max(published_f1, key=published_f1.get) if published_f1 else None
+        counts = item["annotated_cp_counts"]
+        anchor = f"tcpd-{item['series']}"
+        detail_rows.append(
+            f"<tr><td><a href='#{escape(anchor)}' class='mono small'>{escape(item['series'])}</a></td><td class='num'>{item['n_obs']}</td>"
+            f"<td class='num'>{min(counts)}-{max(counts)}</td>"
+            f"<td class='num mono small'>{escape(', '.join(map(str, item['product_cps'])) or '-')}</td><td class='num'>{product['f1']:.2f}</td>"
+            f"<td class='num mono small'>{escape(', '.join(map(str, item['direct_cps'])) or '-')}</td><td class='num'>{direct['f1']:.2f}</td>"
+            f"<td class='num'>{_num(published_f1.get('zero'))}</td>"
+            f"<td class='num'>{f'{published_f1[best_method]:.2f} <span class=muted>{escape(best_method)}</span>' if best_method else '-'}</td></tr>"
+        )
+        plot = item["plot"]
+        by_row = {int(point[2].split()[1]): point[0] for point in plot}
+        rows_sorted = sorted(by_row)
+
+        def at(row: int) -> str:
+            nearest = min(rows_sorted, key=lambda r: abs(r - row))
+            return by_row[nearest]
+
+        markers = [
+            {"t": at(cp), "kind": "expected", "label": "", "text": "Annotator change point"}
+            for cp in sorted({cp for cps in item["annotations"].values() for cp in cps})
+        ]
+        markers += [{"t": at(cp), "kind": "detected", "label": "", "text": f"Ops Signals (product): row {cp}"} for cp in item["product_cps"]]
+        markers += [
+            {"t": at(cp), "kind": "direct", "label": "", "text": f"ruptures direct: row {cp}"}
+            for cp in item["direct_cps"] if cp not in item["product_cps"]
+        ]
+        chart = _line_chart(plot, markers, title=f"{item['long_name']} ({item['n_obs']} observations)", x_labels=("row 0", f"row {item['n_obs'] - 1}"))
+        annotator_rows = "".join(
+            f"<tr><td class='mono small'>annotator {escape(str(uid))}</td><td class='mono small'>{escape(', '.join(map(str, cps)) or 'no change')}</td></tr>"
+            for uid, cps in item["annotations"].items()
+        )
+        routing = "".join(
+            f"<tr><td class='mono'>{escape(str(d['analyzer']))}</td><td>{escape(str(d['recommendation']).replace('_', ' ').lower())}</td><td class='num'>{_num(d['score'])}</td>"
+            f"<td class='small'>{escape(str(d.get('reason') or ''))}</td></tr>"
+            for d in sorted(item["routing"], key=lambda d: -(d["score"] or 0))
+        )
+        errors = "".join(
+            f"<li>{label} failed: <span class='mono'>{escape(error)}</span></li>"
+            for label, error in (("Product run", item.get("product_error")), ("Direct run", item.get("direct_error"))) if error
+        )
+        cards.append(f"""
+<details class="card scenario" id="{escape(anchor)}">
+  <summary><span class="summary-title mono small">{escape(item['series'])}</span>
+  <span class="small muted">product F1 {product['f1']:.2f} · direct {direct['f1']:.2f} · zero {_num(published_f1.get('zero'))}</span></summary>
+  <div class="card-body">
+    {chart}
+    {f"<ul class='notes'>{errors}</ul>" if errors else ""}
+    <div class="two-col">
+      <div><h4>Scores</h4><div class="table-wrap"><table><thead><tr><th></th><th class="num">F1</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">Cover</th></tr></thead><tbody>
+        <tr><td>Product</td><td class="num">{product['f1']:.3f}</td><td class="num">{_num(product['precision'])}</td><td class="num">{_num(product['recall'])}</td><td class="num">{product['cover']:.3f}</td></tr>
+        <tr><td>ruptures direct</td><td class="num">{direct['f1']:.3f}</td><td class="num">{_num(direct['precision'])}</td><td class="num">{_num(direct['recall'])}</td><td class="num">{direct['cover']:.3f}</td></tr>
+      </tbody></table></div>
+      <h4>Annotators' change points (row)</h4><div class="table-wrap"><table><tbody>{annotator_rows}</tbody></table></div></div>
+      <div><h4>Router decisions</h4><div class="table-wrap scroll-y"><table><thead><tr><th>Analyzer</th><th>Decision</th><th class="num">Score</th><th>Reason</th></tr></thead><tbody>{routing}</tbody></table></div></div>
+    </div>
+  </div>
+</details>""")
+
+    averages = validation["published_averages_recomputed"]
+    return f"""
+<section id="tcpd">
+  <h2>Turing Change Point Dataset (TCPD)</h2>
+  <p class="section-lede">TCPD is a set of real-world series (economics, energy, transport, population, sensor data) where five annotators
+  independently marked the change points, published with an evaluation of 14 change-point methods (van den Burg &amp; Williams, 2020). The
+  labels and the other methods' results are theirs, not this project's. Scored with the paper's F1 (a predicted change point counts when it is
+  within {tcpd['settings']['margin']} rows of an annotated one) and covering (how well the predicted segments line up with each annotator's).
+  Both reward a method for staying silent on series with no change, which is why "zero", which never predicts a change, scores well. Pinned to
+  TCPD <span class="mono">{escape(tcpd['tcpd']['commit'][:12])}</span> and TCPDBench <span class="mono">{escape(tcpd['tcpdbench']['commit'][:12])}</span>.</p>
+
+  <div class="callout callout-good"><b>Scoring verified before use.</b> TCPD's metrics were ported from TCPDBench, and every published score in its
+  summaries was recomputed from the published change points: {validation['scores_checked']:,} scores, {validation['mismatches']} mismatches (largest
+  difference {validation['worst_difference']:.1e}). The paper's published averages were reproduced from its per-series scores (binseg F1
+  {averages['binseg']['f1']:.3f}, cover {averages['binseg']['cover']:.3f}; zero F1 {averages['zero']['f1']:.3f}, cover {averages['zero']['cover']:.3f}).</div>
+
+  <h3 class="sub">All methods on the same {evaluated} series</h3>
+  <p class="small muted">Published methods use their default parameters (the paper's "default" experiment, no per-series tuning), the fair
+  comparison for Ops Signals' default configuration. "Product" is what a user gets: the router decides whether a change-point analyzer runs.
+  "Direct" runs <span class="mono">{escape(tcpd['settings']['direct_analyzer'])}</span> on every series. Differences of a few hundredths
+  across {evaluated} series are within noise.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Method</th><th class="num">F1</th><th class="num">Cover</th><th class="num">Paper's average over all {tcpd['evaluation_set_size']} (F1 / cover)</th></tr></thead>
+    <tbody>{''.join(board_rows)}</tbody>
+  </table></div>
+
+  <h3 class="sub">What the results show</h3>
+  <ul class="notes findings">{''.join(findings)}</ul>
+
+  <h3 class="sub">Every series</h3>
+  <div class="table-wrap scroll-y tall-scroll"><table>
+    <thead><tr><th>Series</th><th class="num">Rows</th><th class="num">Annotated CPs</th><th class="num">Product CPs</th><th class="num">Product F1</th>
+    <th class="num">Direct CPs</th><th class="num">Direct F1</th><th class="num">Zero F1</th><th class="num">Best published F1</th></tr></thead>
+    <tbody>{''.join(detail_rows)}</tbody>
+  </table></div>
+
+  <h3 class="sub">Series details</h3>
+  <div class="cards">{''.join(cards)}</div>
+
+  <h3 class="sub">Method notes</h3>
+  <ul class="notes">
+    <li>Change points are read from <span class="mono">{escape(', '.join(tcpd['settings']['change_signal_types']))}</span> signals. Other analyzers'
+    signals (trends, forecasts, anomalies) aren't change points and aren't scored here.</li>
+    <li>Each series gets a synthetic daily timestamp so every row maps to one resampled bucket; TCPD scores by row, so the dates don't matter.</li>
+    <li>A run that fails scores 0 on that series, as in the paper. Harness code: <span class="mono">benchmark/tcpd/</span>. Only data files are read
+    from TCPD and TCPDBench; none of their code is run.</li>
+  </ul>
+</section>"""
+
+
 def _performance_section(performance: dict[str, Any]) -> str:
     datasets = sorted(performance["datasets"], key=lambda item: item["sample_count"])
     if not datasets:
@@ -870,6 +1033,7 @@ def _line_chart(
     bands: list[tuple[str, str]] | None = None,
     shade: tuple[str, str] | None = None,
     ticks: list[list[Any]] | None = None,
+    x_labels: tuple[str, str] | None = None,
 ) -> str:
     """Line chart with optional vertical markers, shaded bands (labeled windows), one muted shaded
     span (the unscored probationary period) and a strip of alarm ticks under the plot."""
@@ -882,6 +1046,9 @@ def _line_chart(
     def ts(value: str) -> float:
         return _dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
+    points = [p for p in points if p[1] is not None]
+    if len(points) < 2:
+        return ""
     xs = [ts(p[0]) for p in points]
     ys = [float(p[1]) for p in points]
     x0, x1 = min(xs), max(xs)
@@ -898,7 +1065,7 @@ def _line_chart(
         return pad_t + (1 - (y - y0) / (y1 - y0)) * (height - pad_t - pad_b)
 
     path = "M" + " L".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in zip(xs, ys))
-    decimals = 0 if (y1 - y0) >= 6 else 1 if (y1 - y0) >= 0.6 else 2
+    decimals = min(6, max(0, 1 - math.floor(math.log10(y1 - y0))))
     grid = []
     for i in range(4):
         value = y0 + (y1 - y0) * i / 3
@@ -906,7 +1073,8 @@ def _line_chart(
         grid.append(f"<line class='grid' x1='{pad_l}' x2='{width - pad_r}' y1='{y:.1f}' y2='{y:.1f}'/><text class='axis' x='{pad_l - 6}' y='{y + 3:.1f}' text-anchor='end'>{value:.{decimals}f}</text>")
     start = _dt.datetime.fromtimestamp(x0, tz=_dt.timezone.utc)
     end = _dt.datetime.fromtimestamp(x1, tz=_dt.timezone.utc)
-    grid.append(f"<text class='axis' x='{pad_l}' y='{height - 6}'>{start:%b %d %H:%M}</text><text class='axis' x='{width - pad_r}' y='{height - 6}' text-anchor='end'>{end:%b %d %H:%M} UTC</text>")
+    left_label, right_label = x_labels or (f"{start:%b %d %H:%M}", f"{end:%b %d %H:%M} UTC")
+    grid.append(f"<text class='axis' x='{pad_l}' y='{height - 6}'>{escape(left_label)}</text><text class='axis' x='{width - pad_r}' y='{height - 6}' text-anchor='end'>{escape(right_label)}</text>")
     plot_bottom = height - pad_b
     marks = []
     legend = []
@@ -929,6 +1097,7 @@ def _line_chart(
             if pad_l <= x <= width - pad_r:
                 marks.append(f"<line class='tick' x1='{x:.1f}' x2='{x:.1f}' y1='{tick_y}' y2='{tick_y + 8}'/>")
         legend.append(f"<span class='legend-item'><span class='swatch swatch-detected'></span>Alarm ({len(ticks)})</span>")
+    legend_labels: set[str] = set()
     for marker in markers:
         try:
             x = sx(ts(marker["t"]))
@@ -937,8 +1106,11 @@ def _line_chart(
         if not pad_l <= x <= width - pad_r:
             continue
         marks.append(f"<line class='marker marker-{marker['kind']}' x1='{x:.1f}' x2='{x:.1f}' y1='{pad_t}' y2='{plot_bottom}'/>")
-        legend.append(f"<span class='legend-item'><span class='swatch swatch-{marker['kind']}'></span>{escape(marker['label'])} · {escape(_fmt_time(marker['t']))}</span>")
-    data = json.dumps([[p[0], p[1]] for p in points])
+        text = marker.get("text") or f"{marker['label']} · {_fmt_time(marker['t'])}"
+        if text not in legend_labels:
+            legend_labels.add(text)
+            legend.append(f"<span class='legend-item'><span class='swatch swatch-{marker['kind']}'></span>{escape(text)}</span>")
+    data = json.dumps([list(p[:3]) for p in points])
     return f"""
 <figure class="chart">
   <figcaption>{escape(title)}</figcaption>
@@ -1077,7 +1249,7 @@ td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}t
 .checks .bad{color:var(--critical-ink)}
 .notes{font-size:13.5px;color:var(--ink-2);display:flex;flex-direction:column;gap:4px;margin-top:8px}
 .callout{border-left:3px solid;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;background:var(--surface-2);font-size:14px}
-.callout-warning{border-color:var(--warning)}.callout-critical{border-color:var(--critical)}
+.callout-warning{border-color:var(--warning)}.callout-good{border-color:var(--good)}.callout-critical{border-color:var(--critical)}
 .chart{margin:14px 0 6px}.chart figcaption{font-size:12.5px;color:var(--ink-2);margin-bottom:6px}
 .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .chart-frame{position:relative}.chart svg{width:100%;height:auto;aspect-ratio:720/180;display:block;overflow:visible}
@@ -1090,6 +1262,7 @@ td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}t
 .chart .series{fill:none;stroke:var(--series);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .chart .marker{stroke-width:2;vector-effect:non-scaling-stroke}
 .chart .marker-expected{stroke:var(--ink-2);stroke-dasharray:4 4}.chart .marker-detected{stroke:var(--detected)}
+.chart .marker-direct{stroke:var(--detected);stroke-dasharray:2 3}.swatch-direct{border-color:var(--detected);border-top-style:dotted}
 .chart .crosshair{stroke:var(--ink-3);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0}
 .chart-frame:hover .crosshair{opacity:1}
 .tooltip{position:absolute;top:4px;pointer-events:none;background:var(--ink);color:var(--paper);font-size:12px;padding:4px 8px;
@@ -1122,7 +1295,8 @@ document.querySelectorAll('.chart-frame').forEach(function(frame){
     var sx=pl+(times[best]-x0)/((x1-x0)||1)*(w-pl-pr);
     cross.setAttribute('x1',sx);cross.setAttribute('x2',sx);
     tip.style.left=Math.min(Math.max(sx/w*100,8),92)+'%';
-    tip.textContent=pts[best][0].replace('T',' ').slice(0,16)+' UTC  ·  '+(+pts[best][1]).toFixed(2);
+    var label=pts[best].length>2?pts[best][2]:pts[best][0].replace('T',' ').slice(0,16)+' UTC';
+    tip.textContent=label+'  ·  '+(+pts[best][1]).toFixed(2);
   });
 });
 window.addEventListener('beforeprint',function(){document.querySelectorAll('details').forEach(function(d){d.open=true})});

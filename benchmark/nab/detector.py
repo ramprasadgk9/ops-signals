@@ -27,7 +27,6 @@ mode they are older than the new-event horizon and never alarm.
 
 from __future__ import annotations
 
-import copy
 import logging
 import time
 from dataclasses import dataclass, field
@@ -37,11 +36,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from backend.app.services.timeseries_routing_service import load_routing_app_config
+from benchmark import harness
 from intelligence.normalize.normalizer import VALIDATION_WARNINGS_ATTR
 from intelligence.pipeline import SignalPipeline
 
-PROVIDER = "generic"
+PROVIDER = harness.PROVIDER
 METRIC_NAME = "nab_series"
 
 # Replay cadence and memory, in rows. 12 rows is an hour of 5-minute data; 2016 rows is a week.
@@ -71,39 +70,8 @@ class SeriesRun:
     first_replay_error: str | None = None
 
 
-class _NullStore:
-    """Accepts and discards every store call - the harness needs results, not persistence."""
-
-    def __getattr__(self, name: str):
-        return lambda *args, **kwargs: None
-
-
-class _StubEmbedder:
-    def embed(self, text: str) -> list[float]:
-        return [0.0]
-
-
-_BASE_CONFIG = None
-
-
-def _base_config():
-    global _BASE_CONFIG
-    if _BASE_CONFIG is None:
-        config = load_routing_app_config(PROVIDER)
-        for attribute in ("save_normalized_data", "save_signals", "save_question_answers", "save_embeddings"):
-            setattr(config.output, attribute, False)
-        config.capabilities.auto_register = False
-        config.questions.auto_generate_from_capabilities = False
-        _BASE_CONFIG = config
-    return _BASE_CONFIG
-
-
 def build_pipeline(interval_minutes: int) -> SignalPipeline:
-    config = copy.deepcopy(_base_config())
-    config.input.interval = f"{interval_minutes}m"
-    config.input.metric_name = METRIC_NAME
-    config.input.validation = {**(config.input.validation or {}), "allow_negative_values": True}
-    return SignalPipeline(config, store=_NullStore(), embedder=_StubEmbedder())
+    return harness.build_pipeline(interval_minutes, METRIC_NAME)
 
 
 def load_series(path: Path) -> pd.DataFrame:

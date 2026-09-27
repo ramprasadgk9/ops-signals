@@ -15,6 +15,9 @@
   through the production path in a causal replay mode and a batch mode, scores them against NAB's
   labeled windows, and writes NAB-format files for NAB's own scorer. See
   [`benchmark/README.md`](benchmark/README.md).
+- New `tcpd` benchmark suite: change-point detection on the Turing Change Point Dataset, scored
+  with the paper's F1 and covering against the 14 methods published with it, on the same series.
+  The ported metrics are checked against all 1,014,504 published scores on every run.
 - Ask Ops Signals answers documentation questions from the section that holds the answer, quotes
   that passage word for word, and cites it (`docs/security-model.md#turning-on-authentication`).
   Docs are indexed one Markdown section per chunk - chunks used to run to 6,000 characters, but

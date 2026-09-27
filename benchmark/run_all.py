@@ -134,11 +134,18 @@ def run_nab_suite(raw_dir: Path) -> dict[str, Any]:
     return run_nab(raw_dir)
 
 
+def run_tcpd_suite(raw_dir: Path) -> dict[str, Any]:
+    from benchmark.tcpd.run import run_tcpd_suite as run_tcpd
+
+    return run_tcpd()
+
+
 SUITES: dict[str, Callable[[Path], dict[str, Any]]] = {
     "router": run_router_suite,
     "behavior": run_behavior_suite,
     "performance": run_performance_suite,
     "nab": run_nab_suite,
+    "tcpd": run_tcpd_suite,
 }
 
 
