@@ -4,6 +4,8 @@ name: Demo smoke test
 # the enriched alert tells the whole story: shift found, deploy correlated, past case matched.
 # Guards the README promise against analyzer, enrichment, image, or compose changes.
 
+# Push to main uses the same path filter as PRs (keep the two lists identical): a docs-only merge
+# can't change what the demo does.
 on:
   pull_request:
     paths:
@@ -21,6 +23,19 @@ on:
       - ".github/workflows/demo-smoke.yml"
   push:
     branches: [main]
+    paths:
+      - "backend/**"
+      - "intelligence/**"
+      - "config/**"
+      - "config.yaml"
+      - "demo/**"
+      - "docker/**"
+      - "frontend/**"
+      - "sql/**"
+      - "requirements.txt"
+      - "docker-compose.demo.yml"
+      - "scripts/demo_smoke_test.py"
+      - ".github/workflows/demo-smoke.yml"
   workflow_dispatch:
 
 concurrency:
@@ -31,7 +46,7 @@ jobs:
   demo:
     name: docker compose demo
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

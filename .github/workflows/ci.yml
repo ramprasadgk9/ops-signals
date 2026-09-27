@@ -5,10 +5,19 @@ on:
   push:
     branches: [main]
 
+# A newer push to the same branch or PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Docs-only changes still run: tests/test_assistant_golden.py checks the docs themselves (a doc
+# edit that moves or removes an answer the golden questions expect fails it).
+
 jobs:
   backend:
     name: Backend (pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +38,7 @@ jobs:
   frontend:
     name: Frontend (vitest + build)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend

@@ -2,12 +2,16 @@ name: Images
 
 # Publishes the backend and web images the demo (docker-compose.demo.yml) pulls, for amd64 and
 # arm64 (Apple Silicon), so `docker compose up` downloads them instead of building from source.
-#   main      -> :latest and :sha-<short sha>
-#   v1.2.3    -> :1.2.3, :1.2, and :latest
+#   v1.2.3                  -> :1.2.3, :1.2, and :latest
+#   manual run on main      -> :latest and :sha-<short sha>
+#
+# Only on release tags and manual runs, not every push to main: the arm64 build runs under QEMU
+# emulation and was the largest use of Actions minutes (about 700 a month on this private repo,
+# including one hung job that ran 6 hours). To refresh :latest between releases, run it by hand:
+#   gh workflow run images.yml --ref main
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -23,6 +27,8 @@ jobs:
   publish:
     name: Publish ${{ matrix.image }}
     runs-on: ubuntu-latest
+    # A cached multi-arch build takes 10-25 minutes; this stops a hung one from running for hours.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
