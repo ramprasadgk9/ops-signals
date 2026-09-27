@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from benchmark.behavior_benchmark import BehaviorBenchmarkExecutionError, evaluate_behavior_output, run_benchmark
 from benchmark.run_behavior_scenarios import discover_scenarios, exit_code, run_suite
 
@@ -86,3 +88,25 @@ def test_suite_runner_passes_for_all_behavior_scenarios() -> None:
 
     assert exit_code(evaluations) == 0
     assert all(evaluation.status == "PASS" for evaluation in evaluations)
+
+
+def test_default_mode_runs_only_the_router_selected_analyzers_on_each_metric(tmp_path: Path) -> None:
+    evaluation = run_benchmark(SCENARIOS_ROOT / "behavior_server_slow_v1", mode="default", reports_dir=tmp_path)
+
+    assert evaluation.mode == "default"
+    assert set(evaluation.analyzers_by_metric) == {"cpu_usage", "memory_usage"}
+    # anomaly_zscore has no router entry, so default mode must never run it.
+    assert all("anomaly_zscore" not in analyzers for analyzers in evaluation.analyzers_by_metric.values())
+    assert (tmp_path / "behavior_server_slow_v1_behavior_default.json").exists()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Known gap: in default mode the router never selects an analyzer that emits anomaly "
+    "signals on these series, so anomaly-based behavior rules can't match. Remove this marker once fixed.",
+)
+@pytest.mark.parametrize("scenario", ["behavior_server_slow_v1", "behavior_latency_error_cascade_v1"])
+def test_default_mode_matches_the_expected_behavior(scenario: str, tmp_path: Path) -> None:
+    evaluation = run_benchmark(SCENARIOS_ROOT / scenario, mode="default", reports_dir=tmp_path)
+
+    assert evaluation.status == "PASS"

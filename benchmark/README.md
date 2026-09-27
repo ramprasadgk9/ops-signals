@@ -148,6 +148,17 @@ Run one scenario:
 | `behavior_server_slow_v1` | `server_slow` | `cpu_usage`, `memory_usage` |
 | `behavior_latency_error_cascade_v1` | `latency_error_cascade` | `request_latency_p95`, `error_rate` |
 
+Both commands take `--mode all` (the default: every registered analyzer runs on every metric) or
+`--mode default` (only what the router selects for each metric, routed one metric at a time the
+way a scheduled run is - what users actually get). The two can disagree: a rule that passes in
+`all` mode can still never match in `default` mode if the router never selects an analyzer that
+produces the signals the rule needs. On failure, the runner lists which analyzers ran on each
+metric. Default-mode reports are written as `<scenario>_behavior_default.{json,md}`.
+
+```bash
+.venv/bin/python -m benchmark.run_behavior_scenarios --mode default
+```
+
 ## Performance Benchmark
 
 Measures how long normalization and each real analyzer take as data volume grows, using the
