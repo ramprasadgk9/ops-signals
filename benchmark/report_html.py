@@ -60,14 +60,26 @@ PROFILE_FEATURES = [
 ]
 
 
-def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None) -> str:
+SUITE_TITLES = {
+    "router": "Router scenario suite",
+    "behavior": "Cross-metric behavior suite",
+    "nab": "Numenta Anomaly Benchmark (NAB)",
+    "tcpd": "Turing Change Point Dataset (TCPD)",
+    "performance": "Performance and scale",
+}
+
+
+def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, *, suite: str | None = None) -> str:
+    """The full report, or with `suite` set, a report for that one suite (same header, summary,
+    method basis and reproduction details; no cross-suite scope or pending list)."""
     suites = results.get("suites", {})
+    if suite is not None:
+        suites = {suite: suites[suite]}
+        results = {**results, "suites": suites}
     manifest = results.get("manifest", {})
-    body = [
-        _header(results),
-        _summary(results),
-        _scope(suites, official_nab is not None),
-    ]
+    body = [_header(results, suite=suite), _summary(results)]
+    if suite is None:
+        body.append(_scope(suites, official_nab is not None))
     if "router" in suites:
         body.append(_router_section(suites["router"]))
     if "behavior" in suites:
@@ -78,17 +90,23 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None) 
         body.append(_tcpd_section(suites["tcpd"]))
     if "performance" in suites:
         body.append(_performance_section(suites["performance"]))
-    body.append(_pending_section(suites))
+    if suite is None:
+        body.append(_pending_section(suites))
     body.append(_method_section())
     body.append(_reproduce_section(results, manifest))
-    return _document(f"Ops Signals Benchmark · {results.get('run_id', '')}", "\n".join(body))
+    title = f"{SUITE_TITLES.get(suite, suite)} · " if suite else ""
+    return _document(f"Ops Signals Benchmark · {title}{results.get('run_id', '')}", "\n".join(body))
 
 
 def write_report(results_path: Path, output_path: Path | None = None) -> Path:
+    """Write report.html (every suite) plus report-<suite>.html for each suite in the snapshot."""
     results = json.loads(results_path.read_text(encoding="utf-8"))
     output_path = output_path or results_path.with_name("report.html")
     official = load_official_nab(results_path.parent / "raw" / "nab_official")
     output_path.write_text(render(results, official), encoding="utf-8")
+    for suite in results.get("suites", {}):
+        suite_path = output_path.with_name(f"{output_path.stem}-{suite}.html")
+        suite_path.write_text(render(results, official, suite=suite), encoding="utf-8")
     return output_path
 
 
@@ -121,7 +139,7 @@ def load_official_nab(official_dir: Path) -> dict[str, Any] | None:
 # --- sections -------------------------------------------------------------------------------
 
 
-def _header(results: dict[str, Any]) -> str:
+def _header(results: dict[str, Any], *, suite: str | None = None) -> str:
     manifest = results.get("manifest", {})
     git = manifest.get("git", {})
     commit = git.get("commit") or "unknown"
@@ -132,8 +150,9 @@ def _header(results: dict[str, Any]) -> str:
     )
     return f"""
 <header class="hero">
-  <p class="eyebrow">Ops Signals · Benchmark evidence report</p>
-  <h1>Analyzer and router benchmark results</h1>
+  <p class="eyebrow">Ops Signals · Benchmark evidence report{f" · {escape(SUITE_TITLES.get(suite, suite))}" if suite else ""}</p>
+  <h1>{escape(SUITE_TITLES.get(suite, suite)) if suite else "Analyzer and router benchmark results"}</h1>
+  {_suite_links(results, suite)}
   <p class="lede">Every number on this page was produced by one command against a known commit, with the
   environment and input hashes recorded below, so it can be checked by rerunning rather than taken on trust.</p>
   <dl class="provenance">
@@ -144,6 +163,17 @@ def _header(results: dict[str, Any]) -> str:
     <div><dt>Tree</dt><dd>{dirty}</dd></div>
   </dl>
 </header>"""
+
+
+def _suite_links(results: dict[str, Any], suite: str | None) -> str:
+    """Links between the full report and the per-suite reports written next to it."""
+    names = list(results.get("suites", {})) if suite is None else [suite]
+    if suite is None and len(names) < 2:
+        return ""
+    if suite is None:
+        links = " · ".join(f"<a href='report-{escape(name)}.html'>{escape(SUITE_TITLES.get(name, name))}</a>" for name in names)
+        return f"<p class='suite-links small'>Per-suite reports: {links}</p>"
+    return "<p class='suite-links small'><a href='report.html'>← Full report (every suite in this run)</a></p>"
 
 
 def _summary(results: dict[str, Any]) -> str:
@@ -195,6 +225,20 @@ def _summary(results: dict[str, Any]) -> str:
                 None,
             )
         )
+    tcpd = suites.get("tcpd")
+    if tcpd and tcpd.get("leaderboard"):
+        board = tcpd["leaderboard"]
+        product = next((row for row in board if row["ours"] and "product" in row["method"]), None)
+        best = next((row for row in board if not row["ours"]), None)
+        if product and best:
+            tiles.append(
+                _tile(
+                    "TCPD change points (F1)",
+                    f"{product['f1']:.3f}",
+                    f"product, {len(tcpd['evaluated'])} real series · best published method {best['method']} {best['f1']:.3f} · no prediction {next(r['f1'] for r in board if r['method'] == 'zero'):.3f}",
+                    None,
+                )
+            )
     performance = suites.get("performance")
     if performance and performance["datasets"]:
         largest = max(performance["datasets"], key=lambda item: item["sample_count"])
@@ -1204,7 +1248,7 @@ p{margin:0 0 10px}ul{margin:0;padding-left:20px}
 .small{font-size:12.5px}.muted{color:var(--ink-3)}.num{text-align:right;font-variant-numeric:tabular-nums}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:8px}
-.hero .lede{color:var(--ink-2);max-width:70ch;font-size:16px;margin-top:10px}
+.suite-links{margin-top:10px}.suite-links a{color:var(--accent);text-decoration:none}.suite-links a:hover{text-decoration:underline}\n.hero .lede{color:var(--ink-2);max-width:70ch;font-size:16px;margin-top:10px}
 .provenance{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:22px 0 0;padding:16px;
 background:var(--surface);border:1px solid var(--line);border-radius:10px}
 .provenance dt{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3)}.provenance dd{margin:2px 0 0}

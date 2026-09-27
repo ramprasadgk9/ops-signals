@@ -19,9 +19,10 @@ Each run gets its own folder, and `benchmark/results/latest` points at the newes
 
 ```text
 benchmark/results/<UTC timestamp>-<short sha>/
-  report.html    open this - summary, per-scenario detail, charts, method basis, how to reproduce
-  results.json   every suite's raw results plus the run manifest
-  raw/           the per-scenario JSON/Markdown each individual runner writes
+  report.html              every suite in one page: summary, detail, charts, method basis, how to reproduce
+  report-<suite>.html      the same report for one suite (report-router.html, report-nab.html, report-tcpd.html, ...)
+  results.json             every suite's raw results plus the run manifest
+  raw/                     the per-scenario JSON/Markdown each individual runner writes
 ```
 
 `benchmark/results/` is gitignored: snapshots stay on the machine that produced them. Keep the

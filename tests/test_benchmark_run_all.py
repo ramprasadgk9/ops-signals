@@ -75,3 +75,22 @@ def test_report_marks_router_only_analyzers_and_counts_passes_that_depend_on_the
 
     assert "pyod†" in html
     assert "1 of the passes need a router-only analyzer" in html
+
+
+def test_write_report_adds_one_report_per_suite_linked_from_the_full_report(tmp_path: Path) -> None:
+    from benchmark.report_html import write_report
+
+    out_dir = run_all.run(["behavior"], tmp_path / "snapshot")
+    results_path = out_dir / "results.json"
+    results = json.loads(results_path.read_text(encoding="utf-8"))
+    results["suites"]["performance"] = {"datasets": [], "max_seconds_per_analyzer": 30}
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+
+    write_report(results_path)
+
+    assert (out_dir / "report-behavior.html").exists()
+    assert (out_dir / "report-performance.html").exists()
+    assert "report-behavior.html" in (out_dir / "report.html").read_text(encoding="utf-8")
+    behavior = (out_dir / "report-behavior.html").read_text(encoding="utf-8")
+    assert "Cross-metric behavior suite" in behavior
+    assert "Router scenario suite" not in behavior
