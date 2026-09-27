@@ -12,6 +12,7 @@ import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
 import { BehaviorLabPage } from '../pages/BehaviorLabPage';
 import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
 import { MemoryChatPage } from '../pages/MemoryChatPage';
+import { DOCS_CHECK_PATH, DocsCheckPage } from '../pages/DocsCheckPage';
 import { OperationalMemoryPage } from '../pages/OperationalMemoryPage';
 import { ValidateDataPage } from '../pages/ValidateDataPage';
 import { ExperimentDashboardPage } from '../pages/ExperimentDashboardPage';
@@ -53,6 +54,7 @@ export function AppRoutes() {
       <Route path="/experiments/zscore-anomaly-lab" element={<ZScoreAnomalyLabPage />} />
       <Route path="/analyzer-router" element={<AnalyzerRouterExperimentPage />} />
       <Route path="/assistant" element={<MemoryChatPage />} />
+      <Route path={DOCS_CHECK_PATH} element={<DocsCheckPage />} />
       <Route path="/operational-memory" element={<OperationalMemoryPage />} />
       <Route path="/memory-chat" element={<MemoryChatPage />} />
       <Route path="/findings" element={<FindingsPage />} />

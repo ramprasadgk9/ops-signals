@@ -2,6 +2,33 @@
 
 ## 0.3.0 - Unreleased
 
+- Ask Ops Signals answers documentation questions from the section that holds the answer, quotes
+  that passage word for word, and cites it (`docs/security-model.md#turning-on-authentication`).
+  Docs are indexed one Markdown section per chunk - chunks used to run to 6,000 characters, but
+  the embedding model reads only about the first 1,000. Documentation sources now carry
+  `source_path`, `section` and `quote`. With AI on, the model must quote its evidence, and a
+  quote not found in the evidence is dropped. Also fixed: the project README was never indexed
+  (its id collided with `docs/README.md`); MCP and API clients found less documentation than
+  the web UI (they sent a stricter `minimum_score`); and questions routed to cases or findings,
+  or mentioning "Ops Signals", never searched documentation. New golden question benchmark:
+  `python -m benchmark.assistant_benchmark`; see
+  [`docs/23-ask-ops-signals-assistant.md`](docs/23-ask-ops-signals-assistant.md#quality-benchmarking).
+- New or edited docs can be picked up without a restart: **Reindex docs** on the Ask Ops Signals
+  page (or `POST /api/assistant/knowledge/bootstrap`) re-embeds only documents that were added,
+  changed or removed, and reports which. Startup does the same, so a restart with no doc changes
+  no longer re-embeds the whole corpus (about 3 s to 50 ms). `force=true` re-embeds everything.
+- Ask Ops Signals shows when docs changed since it last read them (a count on Reindex docs and a
+  banner naming them), explains what reindexing is for, and asks "Did this answer your question?"
+  under every answer - a thumbs-down records why.
+- New **Docs check** page (`/assistant/docs-check`): see which docs have no golden questions, draft
+  questions for them (with AI or from headings), ask each and see which section the assistant
+  cited, and save the good ones - or the failing ones, as known gaps - to the golden set. Thumbs-down
+  questions are listed there too. Saving needs `OPS_SIGNALS_ALLOW_FILE_WRITES=true`.
+- The Ask Ops Signals first screen's "About your systems" examples now name this install's own
+  findings, cases and services, so each one finds evidence when clicked. With nothing analysed yet
+  it offers Load demo data and Connect a source instead of questions that came back empty.
+- The backend and MCP images now include `README.md`, so Ask Ops Signals answers from it in Docker
+  too; it was only indexed on local installs.
 - Added OTLP/HTTP metrics ingestion: `POST /api/otlp/v1/metrics` accepts pushed metrics (Gauge and
   Sum), with volume and cardinality limits, and the scheduler analyzes them on its normal cycle.
   `GET /api/otlp/status` reports what was received. See

@@ -15,7 +15,7 @@ Two kinds of endpoint are riskier than the rest, so they're **off by default**:
 | Switch | Default | What it enables |
 | --- | --- | --- |
 | `OPS_SIGNALS_ENABLE_TESTING_API` | `false` | `POST /api/testing/reset-operational-data`, which deletes all runs, findings, cases and vector memory. When it's off, the route doesn't exist (404). |
-| `OPS_SIGNALS_ALLOW_FILE_WRITES` | `false` | Endpoints that write or delete files on the backend's filesystem: saving and deleting analyzers (`/api/admin/analyzers`), promoting a draft, generating adapter code and deleting analyzers in the Analyzer Lab, and saving behavior definitions to a pack file. When it's off they return 403, and the rest of the labs still work (drafts, validation, dry runs, routing tests). |
+| `OPS_SIGNALS_ALLOW_FILE_WRITES` | `false` | Endpoints that write or delete files on the backend's filesystem: saving and deleting analyzers (`/api/admin/analyzers`), promoting a draft, generating adapter code and deleting analyzers in the Analyzer Lab, saving behavior definitions to a pack file, and saving golden questions from Ask Ops Signals' Docs check page (`POST /api/assistant/docs-check/tests`). When it's off they return 403, and the rest of the labs still work (drafts, validation, dry runs, routing tests). |
 
 The local dev scripts (`scripts/run_all.sh`, `scripts/run_grafana_stack.sh`) turn both on. The
 one-command demo turns on file writes only, and those land inside a throwaway container.

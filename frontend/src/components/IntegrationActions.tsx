@@ -12,7 +12,7 @@ export const DEMO_METRIC = 'cpu_usage';
 
 function refreshDataViews(queryClient: ReturnType<typeof useQueryClient>) {
   // Prefix matches: every alert list, status read and findings view picks up the new data.
-  for (const key of ['alerts', 'ingestion-status', 'findings', 'findings-overview', 'overview-summary']) {
+  for (const key of ['alerts', 'ingestion-status', 'findings', 'findings-overview', 'overview-summary', 'assistant-starters']) {
     void queryClient.invalidateQueries({ queryKey: [key] });
   }
 }

@@ -155,7 +155,8 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
             embedder=embedder,
             repo_root=Path.cwd(),
         )
-        knowledge_init = knowledge_bootstrap.bootstrap(force=True)
+        # Unchanged documents are skipped; only added, edited or removed docs cost anything.
+        knowledge_init = knowledge_bootstrap.bootstrap()
         logger.info(f"Qdrant collection initialization: {init_result}")
         logger.info(
             "Knowledge collection bootstrap: created=%s updated=%s missing=%s",

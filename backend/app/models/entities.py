@@ -546,3 +546,25 @@ class AlertEnrichmentEntity(Base):
     resolved_posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AssistantFeedbackEntity(Base):
+    """A thumbs up or down on one Ask Ops Signals answer. Thumbs-down answers are listed on the
+    Docs check page, grouped by question, as candidates for golden questions or doc fixes."""
+
+    __tablename__ = "ops_assistant_feedback"
+    __table_args__ = (Index("idx_assistant_feedback_helpful_status", "helpful", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    helpful: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # wrong_section | missing_step | outdated | not_in_docs, set after the thumbs-down.
+    reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    ai_synthesis_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The leading sources' references ("docs/security-model.md#clients"), best first.
+    cited_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # open | added_as_test | dismissed
+    status: Mapped[str] = mapped_column(String(16), default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

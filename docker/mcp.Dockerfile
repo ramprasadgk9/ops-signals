@@ -22,5 +22,7 @@ COPY experiments ./experiments
 COPY config.yaml config.yaml
 COPY config ./config
 COPY docs ./docs
+# Ask Ops Signals answers from README.md as well as docs/ (knowledge_bootstrap.py).
+COPY README.md README.md
 
 CMD ["python", "-m", "backend.app.mcp_server"]

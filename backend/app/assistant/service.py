@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from backend.app.ai.factory import OptionalAIServices
 from backend.app.ai.services.intent_service import IntentService
 from backend.app.ai.services.narrative_service import synthesize_narrative
+from backend.app.assistant.passages import quote_is_in, select_passage
 from backend.app.assistant.schemas import AssistantChatRequest, AssistantChatResponse, AssistantEvidenceGroup, AssistantSource
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.embedder import Embedder
@@ -25,6 +26,14 @@ from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, Op
 from intelligence.analyzer_registry import load_registrations
 
 logger = logging.getLogger(__name__)
+
+# Minimum similarity for a documentation chunk to count as matching the question, for every client.
+DOCUMENT_SCORE_FLOOR = 0.3
+# Longest documentation passage put in the LLM prompt; section chunks are sized well under this.
+PROMPT_PASSAGE_CHARS = 1200
+# Documentation sources per evidence group that get a quoted passage (each costs one small
+# embedding batch).
+QUOTED_SOURCES_PER_GROUP = 3
 
 
 @dataclass
@@ -46,7 +55,9 @@ class OperationalIntelligenceAssistant:
 
     @staticmethod
     def route_intents(message: str) -> list[str]:
-        text = message.lower()
+        # The product's own name is not a question about signals: "How do I deploy Ops Signals?"
+        # used to route to findings only and never searched documentation.
+        text = re.sub(r"ops[\s-]?signals", " ", message.lower())
         routes: list[str] = []
 
         if any(keyword in text for keyword in ["case", "incident", "resolved", "resolution", "rca", "root cause", "similar", "seen this before"]):
@@ -168,12 +179,28 @@ class OperationalIntelligenceAssistant:
             if group.count:
                 groups.append(group)
                 sources.extend(group.sources)
+        if not {"DOCUMENT_SEARCH", "ANALYZER_SEARCH"} & set(routes):
+            # Documentation is searched for every question, not only ones whose wording the keyword
+            # router recognises as a docs question ("What outcome categories can a resolved case
+            # have?" routes to cases only, and the answer is in the docs). It goes after the routed
+            # evidence, and only a real match counts - the generic fallback query is for questions
+            # routed to documentation, not filler for every other question.
+            try:
+                app_sources, used_fallback = self._application_sources(payload)
+            except Exception as exc:
+                logger.warning("Supplementary documentation search failed: %s", exc)
+                app_sources, used_fallback = [], True
+            if app_sources and not used_fallback:
+                group = AssistantEvidenceGroup(source_type="app_documentation", label="Documentation", count=len(app_sources), sources=app_sources)
+                groups.append(group)
+                sources.extend(group.sources)
         for group in fallback_groups:
             groups.append(group)
             sources.extend(group.sources)
 
         sources = self._dedupe_sources(sources)
         knowledge_used = [group.label for group in groups]
+        self._attach_quotes(payload.message, groups)
 
         answer, ai_synthesis_used = self._compose_answer(payload.message, groups)
 
@@ -377,8 +404,72 @@ class OperationalIntelligenceAssistant:
                 return synthesized, True
         return self._template_answer(message, groups), False
 
+    def _attach_quotes(self, message: str, groups: list[AssistantEvidenceGroup]) -> None:
+        """Sets `quote` on the leading documentation sources: the passage of the matched section
+        that answers the question, word for word."""
+        for group in groups:
+            if group.source_type != "app_documentation":
+                continue
+            for source in group.sources[:QUOTED_SOURCES_PER_GROUP]:
+                text = source.section_text or source.summary
+                if text and source.quote is None:
+                    source.quote = select_passage(message, text, self._encode_all)
+
+    def _encode_all(self, texts) -> list[list[float]]:
+        encode_batch = getattr(self.services.embedder, "encode_batch", None)
+        if encode_batch is not None:
+            return encode_batch(list(texts))
+        return [self.services.embedder.encode(text) for text in texts]
+
     def _synthesize_with_llm(self, message: str, groups: list[AssistantEvidenceGroup]) -> str | None:
-        return self.synthesize_from_evidence(message, self._format_evidence_for_prompt(groups))
+        numbered = self._prompt_sources(groups)
+        synthesized = synthesize_narrative(
+            self.services.ai_services,
+            instruction=(
+                "You are the Ops Signals operational assistant. Answer the user's question using ONLY "
+                "the numbered evidence below - never invent services, metrics, numbers, commands, or "
+                "facts that are not in the evidence. If the evidence only partially answers the "
+                "question, say so plainly instead of filling the gap yourself. Write 1-3 concise "
+                "sentences in a plain operational tone. Then, on separate lines, quote word for word "
+                "the one or two passages from the evidence that support your answer, each as "
+                '[number] "exact text copied from that evidence item". Do not paraphrase inside a '
+                "quote. Do not suggest remediation actions or claim to have made any changes."
+            ),
+            evidence_text=f"Question: {message}\n\nEvidence:\n{self._format_evidence_for_prompt(groups)}",
+            max_tokens=500,
+            timeout_seconds=30,
+        )
+        if not synthesized:
+            return None
+        return self._verify_llm_quotes(synthesized, numbered)
+
+    @staticmethod
+    def _verify_llm_quotes(answer: str, numbered: list[AssistantSource]) -> str:
+        """Replaces each `[n] "..."` line with the quote and a citation built from source n's own
+        metadata - or drops it when the text is not actually in source n. When no quote survives,
+        the deterministic quote of the top documentation source is added instead, so an AI answer
+        about documentation always shows the passage it rests on."""
+        prose: list[str] = []
+        quotes: list[str] = []
+        for line in answer.splitlines():
+            match = _LLM_QUOTE.match(line)
+            if not match:
+                prose.append(line)
+                continue
+            index = int(match.group(1)) - 1
+            # Small models often echo the evidence line's label ('Title" (relevance 0.52): "...')
+            # in front of the text they quote; the label is ours, not part of the quote.
+            text = _ECHOED_LABEL.sub("", match.group(2)).strip().strip('"“”')
+            if 0 <= index < len(numbered) and quote_is_in(text, "\n".join(filter(None, [numbered[index].summary, numbered[index].section_text]))):
+                quotes.append(_quote_block(text, numbered[index]))
+            else:
+                logger.info("Dropped an LLM quote not found in evidence [%s]: %r", match.group(1), text[:120])
+        if not quotes:
+            top_doc = next((source for source in numbered if source.source_type == "app_documentation" and source.quote), None)
+            if top_doc:
+                quotes.append(_quote_block(top_doc.quote, top_doc))
+        text = "\n".join(prose).strip()
+        return "\n\n".join([text, *quotes]) if quotes else text
 
     def synthesize_from_evidence(self, question: str, evidence_text: str) -> str | None:
         """Shared LLM answer-synthesis entry point - any endpoint with its own retrieved
@@ -404,15 +495,26 @@ class OperationalIntelligenceAssistant:
         )
 
     @staticmethod
+    def _prompt_sources(groups: list[AssistantEvidenceGroup]) -> list[AssistantSource]:
+        """The sources put in the prompt, in the order _format_evidence_for_prompt numbers them."""
+        return [source for group in groups for source in group.sources[:5]]
+
+    @staticmethod
     def _format_evidence_for_prompt(groups: list[AssistantEvidenceGroup]) -> str:
         lines: list[str] = []
+        number = 0
         for group in groups:
             lines.append(f"{group.label}:")
             for source in group.sources[:5]:
+                number += 1
                 summary = (source.summary or "").strip()
-                if len(summary) > 500:
-                    summary = summary[:500] + "..."
-                lines.append(f'- "{source.title}" (relevance {source.score:.2f}): {summary}')
+                # A documentation chunk is one section, already sized for the embedder, and is
+                # passed whole: cutting it to its first few lines dropped the answer whenever it
+                # wasn't in the section's opening paragraph.
+                limit = PROMPT_PASSAGE_CHARS if source.source_type == "app_documentation" else 500
+                if len(summary) > limit:
+                    summary = summary[:limit] + "..."
+                lines.append(f'[{number}] "{_source_label(source)}" (relevance {source.score:.2f}): {summary}')
         return "\n".join(lines)
 
     @staticmethod
@@ -426,7 +528,14 @@ class OperationalIntelligenceAssistant:
             "Summary",
             f"I found {total} relevant evidence item{'s' if total != 1 else ''} across {', '.join(group.label for group in groups)}.",
         ]
-        if top:
+        if top and top.quote:
+            # Documentation: lead with the passage that answers the question and where it's from,
+            # not the section's opening lines.
+            lines.extend(["", _quote_block(top.quote, top)])
+            also = [_source_label(source) for source in primary.sources[1:3]]
+            if also:
+                lines.extend(["", "Also see: " + "; ".join(also)])
+        elif top:
             lines.extend([
                 "",
                 f"Most Relevant {primary.label[:-1] if primary.label.endswith('s') else primary.label}",
@@ -536,25 +645,13 @@ class OperationalIntelligenceAssistant:
             # gaps?" came back as the architecture overview. Those now search on the question itself.
             query_text = "Operational Intelligence architecture PostgreSQL Qdrant analyzer registry signals findings cases"
         vector = self.services.embedder.encode(query_text)
-        # 0.3, not 0.55 (the request schema's default minimum_score) or the 0.4 this used to floor
-        # at - live-verified against this corpus: a short conceptual doc that's a genuinely good
-        # match for a casual, informal question (e.g. "Application Overview" against "whats use of
-        # this application") scores ~0.38 with this embedding model, not 0.5+. A 0.4+ floor was
-        # silently discarding the single most on-topic document in the index. Consistent with the
-        # same empirically-grounded floors already used for finding/behavior/case semantic search
-        # elsewhere in this file.
-        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=max(0.3, payload.minimum_score))
-        sources = [
-            AssistantSource(
-                source_type="app_documentation",
-                title=row["payload"].get("title", "Documentation"),
-                score=float(row["score"]),
-                reference=row["payload"].get("reference", ""),
-                summary=row["payload"].get("summary"),
-            )
-            for row in results
-            if row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
-        ]
+        # A fixed floor, deliberately not payload.minimum_score: that field is the case-memory
+        # similarity threshold, and each client sends its own (web 0.35, Grafana 0.4, MCP and the
+        # API default 0.55), so the same question used to find different documentation depending on
+        # where it was asked. A good match for a casual question ("Application Overview" against
+        # "whats use of this application") scores ~0.38 with this embedding model.
+        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=DOCUMENT_SCORE_FLOOR)
+        sources = [_documentation_source(row) for row in results if _is_documentation(row)]
         used_fallback = False
         if not sources:
             used_fallback = True
@@ -563,18 +660,43 @@ class OperationalIntelligenceAssistant:
                 limit=payload.top_k * 2,
                 score_threshold=0.35,
             )
-            sources = [
-                AssistantSource(
-                    source_type="app_documentation",
-                    title=row["payload"].get("title", "Documentation"),
-                    score=float(row["score"]),
-                    reference=row["payload"].get("reference", ""),
-                    summary=row["payload"].get("summary"),
-                )
-                for row in fallback_results
-                if row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
-            ]
+            sources = [_documentation_source(row) for row in fallback_results if _is_documentation(row)]
         return sources, used_fallback
+
+
+# An LLM answer's quote line: [2] "exact text", optionally prefixed "Quote" or a list marker.
+_LLM_QUOTE = re.compile(r'^\s*(?:[-*>]\s*)?(?:quote\s*)?\[(\d+)\]\s*:?\s*["“](.+)["”]\s*$', re.IGNORECASE)
+
+
+_ECHOED_LABEL = re.compile(r'^.*?\(relevance [0-9.]+\):\s*')
+
+
+def _source_label(source: AssistantSource) -> str:
+    return f"{source.title} > {source.section}" if source.section else source.title
+
+
+def _quote_block(quote: str, source: AssistantSource) -> str:
+    quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in quote.splitlines())
+    citation = f"{_source_label(source)} ({source.reference})" if source.reference else _source_label(source)
+    return f"From {citation}:\n{quoted}"
+
+
+def _is_documentation(row: dict) -> bool:
+    return row.get("payload", {}).get("source_type") in {"generated", "repo", "app_documentation"}
+
+
+def _documentation_source(row: dict) -> AssistantSource:
+    payload = row["payload"]
+    return AssistantSource(
+        source_type="app_documentation",
+        title=payload.get("title", "Documentation"),
+        score=float(row["score"]),
+        reference=payload.get("reference") or payload.get("source_path", ""),
+        summary=payload.get("summary"),
+        source_path=payload.get("source_path") or None,
+        section=payload.get("section") or None,
+        section_text=payload.get("section_text") or None,
+    )
 
 
 # Phrasings of data-quality and time-of-day questions ("did anything get stuck", "unusual for this
