@@ -135,7 +135,7 @@ detector, mislabeled by a naming gap, and stays gated on shape as before. Only `
 `pyod` currently qualify for the exemption.
 
 **What the fix does on its own**, confirmed against `benchmark/run_router_scenarios` and a real NAB
-series (`nab_nyc_taxi`, see `docs/27-nab-real-world-benchmark.html`): it removes a false floor - an
+series (`nab_nyc_taxi`): it removes a false floor - an
 irregularity analyzer can no longer be pinned at `0.54`/`NOT_RECOMMENDED` purely for sharing no
 label with the series' shape. It does **not**, by itself, manufacture evidence: on `nab_nyc_taxi`
 before the feature-extraction fix below, `pyod_outlier`'s own `spikiness`/`shift_index` rules
@@ -193,11 +193,9 @@ were standing between "correctly recommended" and "actually executes":
   (`test_every_builtin_analyzer_constructs_under_the_real_generic_provider_config`), so a
   reintroduced mismatch fails a test instead of silently vanishing from a live run.
 
-**Combined, verified outcome** (`docs/27-nab-real-world-benchmark.html`): all four fixes together
-took `nab_nyc_taxi` from 0/5 to 5/5 labeled anomaly windows recalled, re-run against the actual
-production API path (`POST /api/ingestion/csv-run`, `provider=generic`) at each step, not
-estimated. Precision on that series is now the open question (33%, 34 of 104 flagged points land in
-a real window) - see "Known gaps".
+**Combined, verified:** all four fixes together were checked on `nab_nyc_taxi`, re-run against the
+actual production API path (`POST /api/ingestion/csv-run`, `provider=generic`) at each step, not
+estimated. Precision on that series is the open question - see "Known gaps".
 
 **Where the weights come from:** they're expert-defined heuristics, hand-chosen when the registry
 was written - not fit against outcome data, not benchmarked against a calibration methodology. See
@@ -275,8 +273,8 @@ recommendation for one of these executes a mapped fallback instead (see the mapp
 **Use this table as the source of truth for whether a router recommendation can execute today.**
 `baseline_shift` is the product/domain analyzer name; `ruptures` the library underneath it.
 
-**Correction (verified against `intelligence/pipeline.py` while investigating the NAB benchmark
-report, `docs/27-nab-real-world-benchmark.html`):** this table and the mapping below previously
+**Correction (verified against `intelligence/pipeline.py` while investigating the NAB
+benchmark):** this table and the mapping below previously
 claimed `darts` falls back to `prophet` and `adtk`/`pyod` fall back to `anomaly_zscore`. Those
 fallbacks do not exist in code - `_router_to_pipeline_analyzers()` (below) defines exactly one
 alias, `trend_regression` -> `trend`. `darts`, `adtk`, and `pyod` have **no** executable path today,
@@ -416,7 +414,7 @@ Verified current, as of this doc:
   [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md).
 - **Fixed this cycle:** `spikiness`/`shift_index` were computed against the series' *raw* values,
   not a de-seasonalized residual - on a strongly seasonal real series with genuine anomalies riding
-  on top (`nab_nyc_taxi`, five labeled demand shocks - `docs/27-nab-real-world-benchmark.html`), the
+  on top (`nab_nyc_taxi`, five labeled demand shocks), the
   anomalies got averaged away by the series' own seasonal swing before `spikiness` was even
   computed. See "Seasonal residual" above.
 - **Fixed this cycle:** `recommended_threshold` mode's `max_analyzers` cap ranked candidates by
@@ -431,9 +429,8 @@ Verified current, as of this doc:
   `prophet` and `adtk`/`pyod` fall back to `anomaly_zscore`. Verified against
   `intelligence/pipeline.py`: none of those fallbacks exist in code. Corrected in "Router-to-pipeline
   mapping" above.
-- **Combined, verified outcome of the five fixes above:** `nab_nyc_taxi` went from 0/5 to 5/5
-  labeled anomaly windows recalled, re-run against the real `provider=generic` API path at each
-  step (not estimated) - `docs/27-nab-real-world-benchmark.html`.
+- **Combined, verified:** the five fixes above were checked together on `nab_nyc_taxi`, re-run
+  against the real `provider=generic` API path at each step (not estimated).
 - **Confirmed done:** `RupturesAnalyzer` uses the real `ruptures` package (not a hand-rolled scan);
   new analyzers can be registered through `config/analyzer_registry.d/*.yml` without editing
   pipeline construction code.
@@ -495,9 +492,8 @@ guarantee of current state:
   selection accuracy (was the right analyzer picked).
 - `STUMPY`/`Prophet` fall back to custom logic silently when the library isn't installed - the
   `library`/`library_mode` isn't always surfaced in evidence.
-- The seasonal-residual fix (above) got `nab_nyc_taxi` to full recall at the cost of precision: 33%
-  (34 of 104 flagged points land in a real window), the lowest of the four NAB series tested once
-  `pyod_outlier` started actually executing. Whether the same post-shift-persistence pattern
+- The seasonal-residual fix (above) improved recall on `nab_nyc_taxi` at the cost of precision:
+  many flagged points fall outside a real window once `pyod_outlier` started actually executing. Whether the same post-shift-persistence pattern
   `anomaly_zscore` had (see "Fixed this cycle" above) is at play here too, just on the residual
   instead of the raw value, hasn't been investigated.
 

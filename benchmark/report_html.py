@@ -1501,9 +1501,7 @@ def _pending_section(suites: dict[str, Any]) -> str:
 <section id="pending">
   <h2>Not included in this run</h2>
   <div class="card"><p>These evaluations are planned. They are listed here so their absence is visible rather than
-  implied away. A snapshot that includes them shows their results in place of this list.</p><ul>{items}</ul>
-  <p class="small muted">An earlier, smaller real-data run on four NAB series is written up separately in
-  <span class="mono">docs/27-nab-real-world-benchmark.html</span>.</p></div>
+  implied away. A snapshot that includes them shows their results in place of this list.</p><ul>{items}</ul></div>
 </section>"""
 
 
