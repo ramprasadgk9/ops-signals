@@ -66,6 +66,10 @@ temp/
 # on every run) - not source, and re-running the suite locally shouldn't dirty the working tree.
 benchmark/reports/
 
+# Benchmark evidence snapshots (benchmark/run_all.py) - one folder per run with results.json and
+# report.html. Kept on the machine that produced them, never committed.
+benchmark/results/
+
 # Analyzer router experiment results, one JSON per routing run (experiments/analyzer_router/router.py).
 experiments/analyzer_router/output/
 

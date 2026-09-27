@@ -7,6 +7,40 @@ by CSV upload validation.
 
 Want to add a new scenario? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for a step-by-step walkthrough.
 
+## Run everything: the evidence report
+
+One command runs every suite and writes a local snapshot with a detailed HTML report:
+
+```bash
+.venv/bin/python -m benchmark.run_all
+```
+
+Each run gets its own folder, and `benchmark/results/latest` points at the newest one:
+
+```text
+benchmark/results/<UTC timestamp>-<short sha>/
+  report.html    open this - summary, per-scenario detail, charts, method basis, how to reproduce
+  results.json   every suite's raw results plus the run manifest
+  raw/           the per-scenario JSON/Markdown each individual runner writes
+```
+
+`benchmark/results/` is gitignored: snapshots stay on the machine that produced them. Keep the
+ones you want as evidence; delete the rest.
+
+The manifest records the commit (and any uncommitted changes), Python and library versions, CPU,
+and SHA-256 hashes of every config and dataset used. The **accuracy fingerprint** hashes all
+results except wall-clock timings, so a rerun on the same commit and data prints the same value -
+that's the quick check that a result is reproducible.
+
+Run only some suites with `--suites router,behavior`. Rebuild a report from an existing snapshot,
+without rerunning anything, with:
+
+```bash
+.venv/bin/python -m benchmark.report_html benchmark/results/latest/results.json
+```
+
+The command exits non-zero if any suite has a `FAIL` or `ERROR`. `GAP` doesn't fail it.
+
 ## Source datasets
 
 Raw TSBS exports (one host, one CPU series, 5-minute resolution):
