@@ -78,7 +78,7 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
         suites = {suite: suites[suite]}
         results = {**results, "suites": suites}
     manifest = results.get("manifest", {})
-    body = [_header(results, suite=suite), _summary(results)]
+    body = [_header(results, suite=suite), _at_a_glance(results, official_nab, suite), _summary(results)]
     if suite is None:
         body.append(_scope(suites, official_nab is not None))
     if "router" in suites:
@@ -102,7 +102,8 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
 
 
 def write_report(results_path: Path, output_path: Path | None = None) -> Path:
-    """Write report.html (every suite) plus report-<suite>.html for each suite in the snapshot."""
+    """Write report.html (every suite), report-<suite>.html for each suite in the snapshot, and
+    index.html, the landing page linking to them."""
     results = json.loads(results_path.read_text(encoding="utf-8"))
     output_path = output_path or results_path.with_name("report.html")
     official = load_official_nab(results_path.parent / "raw" / "nab_official")
@@ -110,6 +111,7 @@ def write_report(results_path: Path, output_path: Path | None = None) -> Path:
     for suite in results.get("suites", {}):
         suite_path = output_path.with_name(f"{output_path.stem}-{suite}.html")
         suite_path.write_text(render(results, official, suite=suite), encoding="utf-8")
+    output_path.with_name("index.html").write_text(render_index(results, official, stem=output_path.stem), encoding="utf-8")
     return output_path
 
 
@@ -137,6 +139,294 @@ def load_official_nab(official_dir: Path) -> dict[str, Any] | None:
         "published": json.loads(published_path.read_text(encoding="utf-8")),
         "totals": totals,
     }
+
+
+# --- at a glance ----------------------------------------------------------------------------
+
+SUITE_ORDER = ("router", "behavior", "performance", "nab", "tcpd", "ucr")
+DATASET_SPANS = {"24h": "24 hours", "7d": "7 days", "30d": "30 days"}
+
+
+def _at_a_glance(results: dict[str, Any], official_nab: dict[str, Any] | None, suite: str | None) -> str:
+    """Plain-language summary that opens every report: what each suite tests, where its data and
+    answer key come from, what we got, and what a good result looks like on that suite's scale."""
+    suites = results.get("suites", {})
+    briefs = [brief for name in SUITE_ORDER if name in suites for brief in [_brief(name, suites[name], official_nab)] if brief]
+    if not briefs:
+        return ""
+    if suite is not None:
+        b = briefs[0]
+        rows = "".join(
+            f"<div><dt>{label}</dt><dd>{value}</dd></div>"
+            for label, value in (
+                ("What it tests", b["tests"]),
+                ("Data source", b["source"]),
+                ("Ground truth", b["truth"][:1].upper() + b["truth"][1:]),
+                ("Our result", f"<b>{b['result']}</b>"),
+                ("What good looks like", b["good"]),
+            )
+        )
+        return f"""
+<section class="glance" aria-label="At a glance">
+  <h2>At a glance</h2>
+  <div class="card glance-card">
+    <p class="glance-verdict">{_verdict_pill(b['verdict'])} {b['verdict'][1]}</p>
+    <dl class="glance-list">{rows}</dl>
+  </div>
+</section>"""
+    table_rows = "".join(
+        f"<tr><td><a href='report-{escape(b['suite'])}.html'>{escape(b['title'])}</a><div class='small muted'>{b['tests']}</div></td>"
+        f"<td class='small'>{escape(b['kind'])}</td>"
+        f"<td class='small'>{b['source']}<div class='muted'>Answer key: {b['truth']}</div></td>"
+        f"<td><b>{b['result']}</b></td><td class='small'>{b['good']}</td>"
+        f"<td>{_verdict_pill(b['verdict'])}<div class='small'>{b['verdict'][1]}</div></td></tr>"
+        for b in briefs
+    )
+    own = sum(1 for b in briefs if b["kind"] == "Own test")
+    external = len(briefs) - own
+    return f"""
+<section class="glance" aria-label="At a glance">
+  <h2>At a glance</h2>
+  <p class="section-lede">This report measures how well Ops Signals finds real problems in metric data. It has {len(briefs)} parts:
+  {own} own test{'s' if own != 1 else ''} with answer keys written by this project (they catch regressions but aren't independent evidence) and
+  {external} public benchmark{'s' if external != 1 else ''} whose data and labels come from outside researchers, compared with published methods
+  where they exist. Each row below says what was tested, who decided the right answers, what we got, and what a good score is on that scale.
+  Details for each part follow further down and in its own report.</p>
+  <div class="table-wrap"><table class="glance-table">
+    <thead><tr><th>Part</th><th>Type</th><th>Data and answer key</th><th>Our result</th><th>What good looks like</th><th>Verdict</th></tr></thead>
+    <tbody>{table_rows}</tbody>
+  </table></div>
+</section>"""
+
+
+def _verdict_pill(verdict: tuple[str, str]) -> str:
+    kind = verdict[0]
+    icon, label = {"good": ("✓", "Good"), "warning": ("◐", "Mixed"), "critical": ("✕", "Weak")}[kind]
+    return f"<span class='pill pill-{kind}'><span aria-hidden='true'>{icon}</span> {label}</span>"
+
+
+def _brief(name: str, data: dict[str, Any], official_nab: dict[str, Any] | None) -> dict[str, Any] | None:
+    builder = {
+        "router": _brief_router,
+        "behavior": _brief_behavior,
+        "performance": _brief_performance,
+        "nab": lambda d: _brief_nab(d, official_nab),
+        "tcpd": _brief_tcpd,
+        "ucr": _brief_ucr,
+    }.get(name)
+    brief = builder(data) if builder else None
+    if brief:
+        brief.update(suite=name, title=SUITE_TITLES.get(name, name))
+    return brief
+
+
+def _brief_router(router: dict[str, Any]) -> dict[str, Any]:
+    counts = router["counts"]
+    total = sum(counts.values())
+    failed = counts.get("FAIL", 0) + counts.get("ERROR", 0)
+    gaps = counts.get("GAP", 0)
+    return {
+        "kind": "Own test",
+        "tests": "For each kind of problem (step change, trend, spikes, seasonality, ...), whether the router picks the right analyzer and the analyzer finds the injected event.",
+        "source": f"{total} scenarios built by this project from real CPU metrics with problems injected on purpose.",
+        "truth": "written by this project with each scenario, so it isn't independent.",
+        "result": f"{counts.get('PASS', 0)} of {total} pass{f', {gaps} known gap' + ('s' if gaps != 1 else '') if gaps else ''}, {failed} fail",
+        "good": "Every scenario passes. A failure means something that used to work broke. Known gaps are documented limits, not regressions.",
+        "verdict": ("critical", "Something broke; see the failing scenarios.") if failed else
+                   (("warning", f"No regressions; {gaps} documented gap{'s' if gaps != 1 else ''} remain.") if gaps else ("good", "No regressions.")),
+    }
+
+
+def _brief_behavior(behavior: dict[str, Any]) -> dict[str, Any]:
+    counts = behavior["counts"]
+    total = sum(counts.values())
+    passed = counts.get("PASS", 0)
+    return {
+        "kind": "Own test",
+        "tests": "Whether problems across several metrics at once (for example CPU and errors rising together) are recognized as the right named behavior.",
+        "source": f"{total} multi-metric scenarios built by this project.",
+        "truth": "written by this project with each scenario, so it isn't independent.",
+        "result": f"{passed} of {total} pass",
+        "good": "Every scenario passes. It's a regression check, not a measure of real-world accuracy.",
+        "verdict": ("good", "No regressions.") if passed == total else ("critical", "Something broke; see the failing scenarios."),
+    }
+
+
+def _brief_performance(performance: dict[str, Any]) -> dict[str, Any] | None:
+    datasets = performance.get("datasets") or []
+    if not datasets:
+        return None
+    largest = max(datasets, key=lambda d: d["sample_count"])
+    ceiling = performance.get("max_seconds_per_analyzer", 30)
+    slowest = max((row["elapsed_seconds"] for d in datasets for row in d["analyzers"] if not row.get("error")), default=0.0)
+    return {
+        "kind": "Own test",
+        "tests": "How long analysis takes as the data grows from one day to 30 days.",
+        "source": "Healthy CPU metrics from the TSBS benchmark data set, at 24 hours, 7 days and 30 days.",
+        "truth": "none needed; this measures time only.",
+        "result": f"{DATASET_SPANS.get(largest['dataset_label'], largest['dataset_label'])} of data ({largest['sample_count']:,} points) analyzed in {largest['total_seconds']:.2f} s",
+        "good": f"Seconds or less feels instant. The hard limit is {ceiling:.0f} s per analyzer, which only catches a catastrophic slowdown.",
+        "verdict": ("good", f"Slowest analyzer {slowest:.2f} s, well under the limit.") if slowest < ceiling else ("critical", "An analyzer exceeded the time limit."),
+    }
+
+
+def _brief_nab(nab: dict[str, Any], official: dict[str, Any] | None) -> dict[str, Any]:
+    headline = str(nab["settings"]["headline_threshold"])
+    replay = nab["overall"]["replay"][headline]
+    windows = f"caught {replay['detected_windows']} of {replay['windows']} labeled incidents; {_pct(replay['alarm_precision'])} of alarms were inside one"
+    brief = {
+        "kind": "Public benchmark",
+        "tests": "Whether real incidents are flagged, early, without too many false alarms, using only data seen so far.",
+        "source": f"Numenta Anomaly Benchmark: {len(nab['series'])} real and artificial series (server metrics, network traffic, ad clicks, sensor readings).",
+        "truth": "incident windows labeled by Numenta, not by this project.",
+    }
+    if official:
+        ours = official["final"].get(nab["detector_names"]["replay"], {})
+        score = float(ours.get("standard", 0.0))
+        published = {k: float(v.get("standard", 0.0)) for k, v in official["published"].items() if k not in ("null", "random")}
+        random_score = float(official["published"].get("random", {}).get("standard", 0.0))
+        best_name = max(published, key=published.get) if published else None
+        low, high = (min(published.values()), max(published.values())) if published else (0.0, 0.0)
+        brief["result"] = f"Official NAB score {score:.1f} of 100 <span class='muted'>({windows})</span>"
+        brief["good"] = (
+            f"100 is perfect; never raising an alarm scores 0; random alarms score {random_score:.1f}. Published detectors score "
+            f"{low:.1f} to {high:.1f} (best: {escape(best_name or '-')})."
+        )
+        if score <= 0.0:
+            brief["verdict"] = ("critical", "No better than never alarming: too many false alarms outweigh the incidents caught.")
+        elif score < random_score:
+            brief["verdict"] = ("critical", "Below random alarms.")
+        elif score < low:
+            brief["verdict"] = ("warning", "Above random, below every published detector.")
+        else:
+            brief["verdict"] = ("good", "Within the range of published detectors.")
+    else:
+        brief["result"] = windows.capitalize()
+        brief["good"] = "Catching most incidents with most alarms inside an incident. NAB's official score isn't in this snapshot."
+        brief["verdict"] = ("warning", "Official score not computed for this snapshot.")
+    return brief
+
+
+def _brief_tcpd(tcpd: dict[str, Any]) -> dict[str, Any] | None:
+    board = tcpd.get("leaderboard") or []
+    product = next((row for row in board if row["ours"] and "product" in row["method"]), None)
+    published = [row for row in board if not row["ours"]]
+    zero = next((row for row in published if row["method"] == "zero"), None)
+    if not product or not published or not zero:
+        return None
+    best = max(published, key=lambda row: row["f1"])
+    beaten = sum(1 for row in published if row["f1"] < product["f1"])
+    if product["f1"] <= zero["f1"]:
+        verdict = ("critical", "No better than never predicting a change.")
+    elif product["f1"] >= best["f1"] - 0.02:
+        verdict = ("good", f"On par with the best published method; ahead of {beaten} of {len(published)}.")
+    else:
+        verdict = ("warning", f"Better than never predicting a change; ahead of {beaten} of {len(published)} published methods.")
+    return {
+        "kind": "Public benchmark",
+        "tests": "Whether the moments a series changes behavior (level, trend or variance) are found in the right place.",
+        "source": f"Turing Change Point Dataset: {len(tcpd['evaluated'])} real series (economics, energy, transport, sensors), with results for 14 published methods.",
+        "truth": "change points marked independently by five human annotators.",
+        "result": f"F1 {product['f1']:.3f}",
+        "good": f"1.0 is perfect. Never predicting a change scores {zero['f1']:.3f} (silence is rewarded on series with no change). "
+                f"Best published method: {escape(best['method'])} {best['f1']:.3f}. Differences of a few hundredths are within noise.",
+        "verdict": verdict,
+    }
+
+
+def _brief_ucr(ucr: dict[str, Any]) -> dict[str, Any]:
+    overall = ucr["summary"]["overall"]
+    total = overall["series"]
+    product, discord, jump = overall["product"]["correct"], overall["discord"]["correct"], overall["max_jump"]["correct"]
+    random_expected = overall["default_rate"] * total
+    if product <= random_expected:
+        verdict = ("critical", "No better than guessing at random.")
+    elif product < jump:
+        verdict = ("critical", "Below a one-line baseline (the largest single jump).")
+    elif product < discord:
+        verdict = ("warning", "Above the trivial baseline, below the textbook shape-based method.")
+    else:
+        verdict = ("good", "At or above the textbook shape-based method.")
+    return {
+        "kind": "Public benchmark",
+        "tests": "Whether the one anomaly in each series is located, including anomalies that change a shape rather than a value.",
+        "source": f"UCR Time Series Anomaly Archive: {total} series (heartbeats, blood pressure, gait, respiration, insect feeding, power demand, NASA telemetry).",
+        "truth": "one anomaly per series, set by the archive's creators (Wu &amp; Keogh, 2021).",
+        "result": f"{product} of {total} located ({_pct(product / total if total else None)})",
+        "good": f"100% is perfect. Guessing at random gets about {random_expected:.1f} ({_pct(overall['default_rate'])}). "
+                f"The largest single jump gets {jump} ({_pct(jump / total if total else None)}); "
+                f"a textbook matrix-profile discord gets {discord} ({_pct(discord / total if total else None)}).",
+        "verdict": verdict,
+    }
+
+
+# --- index page -----------------------------------------------------------------------------
+
+SUITE_GUIDE = {
+    "router": ("Does Ops Signals pick the right detector for each kind of problem?", ("Own test", "Injected problems", "Right detector?", "Regression check")),
+    "behavior": ("Does it recognize a problem that shows up across several metrics at once?", ("Own test", "Several metrics", "Named problems", "Regression check")),
+    "performance": ("Is it fast enough as the data grows to 30 days?", ("Own test", "Speed", "Scale")),
+    "nab": ("Does it catch real incidents early without flooding you with false alarms?", ("Public benchmark", "Real data", "Incidents", "False alarms")),
+    "tcpd": ("Does it find the moment a metric's behavior changed, compared with published methods?", ("Public benchmark", "Real data", "Change points", "Human labels")),
+    "ucr": ("Can it pinpoint the one anomaly hidden in a long recording?", ("Public benchmark", "250 series", "Find the anomaly", "Shape changes")),
+}
+
+GLOSSARY = (
+    ("Ground truth", "The right answers a result is checked against, and who decided them."),
+    ("Own test", "Data and answers written by this project. Good for catching regressions, not independent proof."),
+    ("Public benchmark", "Data and answers published by outside researchers, often with other methods' scores to compare against."),
+    ("Anomaly", "A value or stretch of data that doesn't fit the usual pattern."),
+    ("Change point", "The moment a metric's level, trend or variability changes for good."),
+    ("False alarm", "An alert raised when nothing was actually wrong."),
+    ("F1", "A 0 to 1 score that balances finding the right things against flagging wrong ones. Higher is better."),
+    ("Router", "The part of Ops Signals that decides which detectors to run on a series."),
+)
+
+
+def render_index(results: dict[str, Any], official_nab: dict[str, Any] | None = None, *, stem: str = "report") -> str:
+    """The landing page of a snapshot: one card per report, in plain words, so a reader can pick
+    the report that answers their question."""
+    suites = results.get("suites", {})
+    manifest = results.get("manifest", {})
+    git = manifest.get("git", {})
+    cards = []
+    for name in [n for n in SUITE_ORDER if n in suites] + [n for n in suites if n not in SUITE_ORDER]:
+        brief = _brief(name, suites[name], official_nab)
+        question, tags = SUITE_GUIDE.get(name, ("", ()))
+        href = f"{stem}-{name}.html"
+        result = f"<p class='index-result'>{brief['result']}</p><p class='small'>{_verdict_pill(brief['verdict'])} {brief['verdict'][1]}</p>" if brief else ""
+        cards.append(f"""
+<a class="card index-card" href="{escape(href)}">
+  <div class="tags">{''.join(f"<span class='tag'>{escape(tag)}</span>" for tag in tags)}</div>
+  <h3>{escape(SUITE_TITLES.get(name, name))}</h3>
+  <p class="index-question">{escape(question)}</p>
+  {result}
+  <span class="index-open small">Open report →</span>
+</a>""")
+    glossary = "".join(f"<div><dt>{escape(term)}</dt><dd>{escape(text)}</dd></div>" for term, text in GLOSSARY)
+    dirty = " · <span class='pill pill-warning'>uncommitted changes present</span>" if git.get("dirty") else ""
+    body = f"""
+<header class="hero">
+  <p class="eyebrow">Ops Signals · Benchmark evidence</p>
+  <h1>Benchmark reports: start here</h1>
+  <p class="lede">These reports show how well Ops Signals finds problems in metric data. Pick the one that answers your question. Each card
+  says in plain words what it checks and how we did; the report itself has the detail.</p>
+  <p class="small muted">Run <span class="mono">{escape(results.get('run_id', ''))}</span> · {escape(_fmt_time(manifest.get('started_at')))} ·
+  commit <span class="mono">{escape((git.get('commit') or 'unknown')[:12])}</span>{dirty}</p>
+</header>
+<section>
+  <a class="card index-all" href="{escape(stem)}.html"><b>Everything on one page →</b>
+  <span class="small muted">The full report: an at-a-glance table of every part, then all the detail.</span></a>
+</section>
+<section>
+  <h2>Pick a report</h2>
+  <div class="index-grid">{''.join(cards)}</div>
+</section>
+<section>
+  <h2>Words used in these reports</h2>
+  <dl class="card glance-list">{glossary}</dl>
+</section>"""
+    return _document(f"Ops Signals Benchmark · Start here · {results.get('run_id', '')}", body)
 
 
 # --- sections -------------------------------------------------------------------------------
@@ -171,12 +461,13 @@ def _header(results: dict[str, Any], *, suite: str | None = None) -> str:
 def _suite_links(results: dict[str, Any], suite: str | None) -> str:
     """Links between the full report and the per-suite reports written next to it."""
     names = list(results.get("suites", {})) if suite is None else [suite]
+    start = "<a href='index.html'>← Start here (all reports)</a>"
     if suite is None and len(names) < 2:
-        return ""
+        return f"<p class='suite-links small'>{start}</p>"
     if suite is None:
         links = " · ".join(f"<a href='report-{escape(name)}.html'>{escape(SUITE_TITLES.get(name, name))}</a>" for name in names)
-        return f"<p class='suite-links small'>Per-suite reports: {links}</p>"
-    return "<p class='suite-links small'><a href='report.html'>← Full report (every suite in this run)</a></p>"
+        return f"<p class='suite-links small'>{start} · Per-suite reports: {links}</p>"
+    return f"<p class='suite-links small'>{start} · <a href='report.html'>Full report (every suite in this run)</a></p>"
 
 
 def _summary(results: dict[str, Any]) -> str:
@@ -1607,7 +1898,16 @@ td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}t
 .chart svg.tall{aspect-ratio:720/194}
 .chart .band{fill:var(--band)}.chart .shade{fill:var(--shade)}
 .chart .band-core{fill:var(--band-solid)}.chart .envelope{fill:var(--series);opacity:.2;stroke:none}
-.nowrap{white-space:nowrap}.ok-mark{color:var(--good-ink);font-weight:700}.bad-mark{color:var(--critical-ink);font-weight:700}
+.nowrap{white-space:nowrap}.ok-mark{color:var(--good-ink);font-weight:700}
+.glance-list{display:grid;gap:10px;margin:0}.glance-list div{display:grid;grid-template-columns:190px 1fr;gap:12px}
+.glance-list dt{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);padding-top:2px}.glance-list dd{margin:0}
+.glance-verdict{margin:0 0 14px;font-size:15px}
+.index-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.index-card,.index-all{display:flex;flex-direction:column;gap:6px;color:var(--ink);text-decoration:none;transition:border-color .15s}
+.index-card:hover,.index-all:hover{border-color:var(--accent)}.index-card h3{margin:4px 0 0}
+.index-question{color:var(--ink-2);margin:0}.index-result{margin:6px 0 0;font-weight:600}.index-open{color:var(--accent);margin-top:auto;padding-top:6px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}.tag{font-size:11.5px;padding:1px 8px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}.glance-table td{min-width:120px}
+@media (max-width:640px){.glance-list div{grid-template-columns:1fr;gap:2px}}.bad-mark{color:var(--critical-ink);font-weight:700}
 .chart .tick{stroke:var(--detected);stroke-width:1.5;vector-effect:non-scaling-stroke}
 .swatch-box{display:inline-block;width:14px;height:10px;border-radius:2px}.swatch-band{background:var(--band-solid)}
 .swatch-shade{background:var(--shade-solid)}

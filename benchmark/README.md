@@ -19,6 +19,7 @@ Each run gets its own folder, and `benchmark/results/latest` points at the newes
 
 ```text
 benchmark/results/<UTC timestamp>-<short sha>/
+  index.html               start here: one card per report, in plain words, with its result and verdict
   report.html              every suite in one page: summary, detail, charts, method basis, how to reproduce
   report-<suite>.html      the same report for one suite (report-router.html, report-nab.html, report-tcpd.html, ...)
   results.json             every suite's raw results plus the run manifest
