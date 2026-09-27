@@ -62,5 +62,25 @@ These metrics are not NAB's official score. NAB's score also rewards detecting e
 and applies three cost profiles. To get it, each run writes NAB-format files (`timestamp, value,
 anomaly_score, label`) for both detectors, `opsSignalsReplay` and `opsSignalsBatch`, under
 `<snapshot>/raw/nab_results/`, in the layout NAB's scorer reads from its `results/` directory.
-Running NAB's scorer means running NAB's own code, which this harness deliberately does not do.
-Doing that is a separate, explicit step.
+Running NAB's scorer means running NAB's own code, which the suite deliberately does not do.
+It is a separate, explicit step:
+
+```bash
+.venv/bin/python -m benchmark.nab.official_score benchmark/results/latest
+```
+
+NAB's scorer was written for pandas 0.23 and fails on pandas 3, so it runs in its own environment,
+never the project's. Set that up once:
+
+```bash
+/usr/bin/python3 -m venv benchmark/.cache/nab-venv
+benchmark/.cache/nab-venv/bin/pip install "pandas==1.5.3" "numpy==1.26.4" "python-dateutil==2.9.0.post0" simplejson
+```
+
+macOS's `/usr/bin/python3` is used because Homebrew's Python 3.11 and 3.12 can fail to load
+`pyexpat`, which pip needs. Any Python 3.9-3.11 with those packages works (`--python`).
+
+The step re-scores Numenta's own published detector alongside ours, as a check that the
+environment reproduces NAB's published numbers. It saves NAB's output and published scoreboard
+to `<snapshot>/raw/nab_official/`, rebuilds the report with an "Official NAB score" table, and
+restores the NAB checkout to the pinned commit, since the scorer rewrites files inside it.

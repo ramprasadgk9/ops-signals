@@ -10,6 +10,7 @@ Rebuild a report from an existing snapshot without rerunning anything:
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as _dt
 import json
 from html import escape
@@ -57,20 +58,20 @@ PROFILE_FEATURES = [
 ]
 
 
-def render(results: dict[str, Any]) -> str:
+def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None) -> str:
     suites = results.get("suites", {})
     manifest = results.get("manifest", {})
     body = [
         _header(results),
         _summary(results),
-        _scope(suites),
+        _scope(suites, official_nab is not None),
     ]
     if "router" in suites:
         body.append(_router_section(suites["router"]))
     if "behavior" in suites:
         body.append(_behavior_section(suites["behavior"]))
     if "nab" in suites:
-        body.append(_nab_section(suites["nab"]))
+        body.append(_nab_section(suites["nab"], official_nab))
     if "performance" in suites:
         body.append(_performance_section(suites["performance"]))
     body.append(_pending_section(suites))
@@ -82,8 +83,35 @@ def render(results: dict[str, Any]) -> str:
 def write_report(results_path: Path, output_path: Path | None = None) -> Path:
     results = json.loads(results_path.read_text(encoding="utf-8"))
     output_path = output_path or results_path.with_name("report.html")
-    output_path.write_text(render(results), encoding="utf-8")
+    official = load_official_nab(results_path.parent / "raw" / "nab_official")
+    output_path.write_text(render(results, official), encoding="utf-8")
     return output_path
+
+
+def load_official_nab(official_dir: Path) -> dict[str, Any] | None:
+    """NAB's own scorer output for this snapshot (benchmark/nab/official_score.py), if it was run."""
+    final_path = official_dir / "final_results.json"
+    published_path = official_dir / "published_final_results.json"
+    if not final_path.exists() or not published_path.exists():
+        return None
+    totals: dict[str, dict[str, dict[str, Any]]] = {}
+    for scores_path in sorted(official_dir.glob("*_scores.csv")):
+        with scores_path.open(encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows:
+            continue
+        detector, profile = rows[0]["Detector"], scores_path.stem[len(rows[0]["Detector"]) + 1 : -len("_scores")]
+        total = next((row for row in rows if row["Detector"] == "Totals"), None)
+        if total:
+            totals.setdefault(detector, {})[profile] = {
+                "threshold": float(rows[0]["Threshold"]),
+                **{key: float(total[key]) for key in ("TP", "FP", "FN", "Score")},
+            }
+    return {
+        "final": json.loads(final_path.read_text(encoding="utf-8")),
+        "published": json.loads(published_path.read_text(encoding="utf-8")),
+        "totals": totals,
+    }
 
 
 # --- sections -------------------------------------------------------------------------------
@@ -170,8 +198,13 @@ def _summary(results: dict[str, Any]) -> str:
     return f'<section aria-label="Summary"><div class="tiles">{"".join(tiles)}</div></section>'
 
 
-def _scope(suites: dict[str, Any]) -> str:
-    if "nab" in suites:
+def _scope(suites: dict[str, Any], has_official_nab: bool = False) -> str:
+    if "nab" in suites and has_official_nab:
+        real_world = (
+            "<li><b>A baseline comparison on the same data.</b> NAB's published scoreboard is shown for reference, but "
+            "simple baselines haven't been run through this harness yet.</li>"
+        )
+    elif "nab" in suites:
         real_world = (
             "<li><b>An official NAB score or a baseline comparison.</b> The NAB section reports this harness's window "
             "metrics on NAB's labeled data. NAB's own score, and how simple baselines do on the same data, are separate "
@@ -340,7 +373,7 @@ def _behavior_section(behavior: dict[str, Any]) -> str:
 </section>"""
 
 
-def _nab_section(nab: dict[str, Any]) -> str:
+def _nab_section(nab: dict[str, Any], official_nab: dict[str, Any] | None = None) -> str:
     settings = nab["settings"]
     headline = str(settings["headline_threshold"])
     overall = nab["overall"]
@@ -448,12 +481,12 @@ def _nab_section(nab: dict[str, Any]) -> str:
   </div>
 </details>""")
 
-    official = f"""<div class="callout callout-warning"><b>Official NAB score: not computed in this snapshot.</b> The numbers in
+    official = _nab_official(nab, official_nab) if official_nab else f"""<div class="callout callout-warning"><b>Official NAB score: not computed in this snapshot.</b> The numbers in
 this section are this harness's window metrics, not NAB's score, which also weights how early in a window a detection lands and
 applies three cost profiles. NAB-format result files for both detectors
 (<span class="mono">{escape(nab['detector_names']['replay'])}</span>, <span class="mono">{escape(nab['detector_names']['batch'])}</span>)
-are written to <span class="mono">raw/nab_results/</span> in this snapshot, in the layout NAB's scorer reads. Running NAB's own scorer on
-them produces the score comparable with NAB's published scoreboard.</div>"""
+are written to <span class="mono">raw/nab_results/</span> in this snapshot, in the layout NAB's scorer reads. To score them with NAB's own
+scorer, run <span class="mono">python -m benchmark.nab.official_score &lt;this snapshot&gt;</span>.</div>"""
 
     return f"""
 <section id="nab">
@@ -520,6 +553,71 @@ them produces the score comparable with NAB's published scoreboard.</div>"""
   </ul>
 </section>"""
 
+
+NAB_PROFILES = [("standard", "Standard"), ("reward_low_FP_rate", "Fewer false alarms"), ("reward_low_FN_rate", "Fewer misses")]
+NAB_REFERENCE_DETECTOR = "numenta"
+EMPHASIS_CLASS = ' class="emph"'
+
+
+def _nab_official(nab: dict[str, Any], official: dict[str, Any]) -> str:
+    final, published, totals = official["final"], official["published"], official["totals"]
+    ours = {nab["detector_names"]["replay"]: "Ops Signals, replay (causal)", nab["detector_names"]["batch"]: "Ops Signals, batch (sees whole series)"}
+
+    board = [(name, scores, False) for name, scores in published.items()]
+    board += [(name, final[name], True) for name in ours if name in final]
+    board.sort(key=lambda item: -float(item[1].get("standard", 0)))
+    rows = "".join(
+        f"<tr{EMPHASIS_CLASS if is_ours else ''}><td>{escape(ours.get(name, name))}</td>"
+        + "".join(f"<td class='num'>{float(scores.get(key, 0)):.1f}</td>" for key, _ in NAB_PROFILES)
+        + "</tr>"
+        for name, scores, is_ours in board
+    )
+
+    check = ""
+    reference, published_reference = final.get(NAB_REFERENCE_DETECTOR), published.get(NAB_REFERENCE_DETECTOR)
+    if reference and published_reference:
+        deltas = [abs(float(reference[key]) - float(published_reference[key])) for key, _ in NAB_PROFILES]
+        cells = " · ".join(
+            f"{label}: {float(reference[key]):.2f} re-scored vs {float(published_reference[key]):.2f} published"
+            for key, label in NAB_PROFILES
+        )
+        verdict = "matches" if max(deltas) < 0.5 else "does NOT match"
+        check = f"""<p class="small"><b>Scorer check:</b> Numenta's published detector was re-scored in the same run and
+{verdict} its published result ({escape(cells)}), so this environment scores the way NAB's published scoreboard was scored.</p>"""
+
+    count_rows = []
+    for name, label in ours.items():
+        for key, profile_label in NAB_PROFILES:
+            row = (totals.get(name) or {}).get(key)
+            if not row:
+                continue
+            no_alarms = row["threshold"] > 1.0
+            threshold = "none - raising no alarm scored best" if no_alarms else f"{row['threshold']:.3f}"
+            count_rows.append(
+                f"<tr><td>{escape(label)}</td><td>{escape(profile_label)}</td><td class='num'>{escape(threshold)}</td>"
+                f"<td class='num'>{int(row['TP']):,}</td><td class='num'>{int(row['FP']):,}</td><td class='num'>{float(final.get(name, {}).get(key, 0)):.1f}</td></tr>"
+            )
+    counts = ""
+    if count_rows:
+        counts = f"""<h4>What NAB's optimizer chose for each profile</h4>
+<p class="small muted">NAB picks each detector's alert threshold to maximize its score, separately per profile. When no threshold beats
+raising no alarm at all, the best choice is to alarm on nothing, and the normalized score is 0 - the same as NAB's "null" detector. TP and FP
+are NAB's own row counts at that threshold (only the first detection in a window earns credit).</p>
+<div class="table-wrap"><table><thead><tr><th>Detector</th><th>Profile</th><th class="num">Chosen threshold</th><th class="num">TP rows</th>
+<th class="num">FP rows</th><th class="num">Score</th></tr></thead><tbody>{''.join(count_rows)}</tbody></table></div>"""
+
+    return f"""<div class="card">
+<h3>Official NAB score</h3>
+<p class="small muted">Scored by NAB's own, unmodified scorer (<span class="mono">run.py --optimize --score --normalize</span>) at the pinned
+commit, in a separate environment. 100 is perfect detection; 0 is the score of never raising an alarm. The published rows come from NAB's
+scoreboard at the pinned commit.</p>
+<div class="table-wrap"><table><thead><tr><th>Detector</th>{''.join(f"<th class='num'>{escape(label)}</th>" for _, label in NAB_PROFILES)}</tr></thead>
+<tbody>{rows}</tbody></table></div>
+{check}
+{counts}
+</div>
+<p class="small muted">Everything below this point is this harness's own window metrics, which count caught windows and false alarms directly
+without NAB's early-detection weighting.</p>"""
 
 def _nab_undetected(nab: dict[str, Any]) -> str:
     """Series where the router ran no detector at all - only data_health, or nothing. Their zero

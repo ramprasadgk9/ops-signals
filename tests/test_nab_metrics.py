@@ -53,3 +53,28 @@ def test_window_timestamps_map_to_inclusive_row_ranges() -> None:
     rows = metrics.window_rows(timestamps, [["2014-04-10 00:05:00.000000", "2014-04-10 00:14:00.000000"]])
 
     assert rows == [(1, 2)]
+
+
+def test_report_shows_official_nab_scores_and_flags_when_no_alarm_scored_best(tmp_path) -> None:
+    import json
+
+    from benchmark.report_html import _nab_official, load_official_nab
+
+    official_dir = tmp_path / "nab_official"
+    official_dir.mkdir()
+    profiles = {"standard": 0.0, "reward_low_FP_rate": 0.0, "reward_low_FN_rate": 11.2}
+    numenta = {"standard": 70.1, "reward_low_FP_rate": 63.1, "reward_low_FN_rate": 74.3}
+    (official_dir / "final_results.json").write_text(json.dumps({"opsSignalsReplay": profiles, "numenta": numenta}))
+    (official_dir / "published_final_results.json").write_text(json.dumps({"numenta": numenta, "null": {k: 0.0 for k in numenta}}))
+    header = "Detector,Profile,File,Threshold,Score,TP,TN,FP,FN,Total_Count\n"
+    (official_dir / "opsSignalsReplay_standard_scores.csv").write_text(
+        header + "opsSignalsReplay,standard,a.csv,1.1,-1.0,0,10,0,1,11\nTotals,,,,-116.0,0,100,0,116,216\n"
+    )
+
+    official = load_official_nab(official_dir)
+    html = _nab_official({"detector_names": {"replay": "opsSignalsReplay", "batch": "opsSignalsBatch"}}, official)
+
+    assert official["totals"]["opsSignalsReplay"]["standard"]["threshold"] == 1.1
+    assert "Ops Signals, replay (causal)" in html
+    assert "raising no alarm scored best" in html
+    assert "matches its published result" in html
