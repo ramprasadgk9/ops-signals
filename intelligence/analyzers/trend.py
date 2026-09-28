@@ -53,17 +53,14 @@ class TrendAnalyzer(Analyzer):
             ordered = ordered.dropna(subset=["value"])
             if len(ordered) < 3:
                 continue
-            x_values = np.arange(len(ordered))
             y_values = ordered["value"].to_numpy(dtype=float)
             if not np.isfinite(y_values).all():
                 continue
-            model = sm.OLS(y_values, sm.add_constant(x_values)).fit()
-            intercept = float(model.params[0])
-            slope = float(model.params[1])
-            p_value = float(model.pvalues[1])
-            r_squared = float(model.rsquared)
-            baseline = abs(y_values[0]) if abs(y_values[0]) > 1e-9 else 1.0
-            if not np.isfinite(baseline) or baseline <= 0:
+            slope, intercept, p_value, r_squared, fit = _fit_trend(ordered["timestamp"], y_values)
+            # Relative to the window's average level, not its first point: a window that happens
+            # to start at a daily low would otherwise inflate every percentage.
+            baseline = abs(float(np.mean(y_values)))
+            if not np.isfinite(baseline) or baseline <= 1e-9:
                 baseline = 1.0
             slope_percent = (slope * (len(ordered) - 1) / baseline) * 100.0
             if not all(np.isfinite(value) for value in [slope, intercept, p_value, r_squared, slope_percent]):
@@ -104,6 +101,7 @@ class TrendAnalyzer(Analyzer):
                             "min_slope_percent": self.finding_min_slope_percent,
                         },
                         "finding_rule_matched": finding_rule_matched,
+                        "fit": fit,
                         "p_value": round(float(p_value), 6),
                         "r_squared": round(float(r_squared), 6),
                         "implementation": {
@@ -116,3 +114,40 @@ class TrendAnalyzer(Analyzer):
                 )
             )
         return signals
+
+
+# A window this many full days long is fitted through its daily means, so a daily cycle cancels out.
+MIN_DAYS_FOR_DAILY_FIT = 3
+
+
+def _fit_trend(timestamps: pd.Series, values: np.ndarray) -> tuple[float, float, float, float, str]:
+    """(slope per point, intercept, p-value, r-squared, fit) of the series' overall direction.
+
+    A straight line through every point of a metric with a daily cycle (request rates, taxi rides,
+    CPU on a user-facing service) takes its slope from wherever the cycle happens to sit at the two
+    ends of the window: a week of a perfectly repeating daily pattern reads as +14% or -34%
+    depending only on the hour the window starts. So a window of at least MIN_DAYS_FOR_DAILY_FIT
+    full days is fitted through its daily means instead - each whole day averages its cycle out -
+    and the per-day slope is converted back to per point. Days with under 90% of the fullest day's
+    points (the partial day at the end of a window) are left out. Shorter windows, and those
+    without enough full days, keep the straight line through every point.
+    """
+    stamps = pd.to_datetime(timestamps, utc=True).reset_index(drop=True)
+    span_days = (stamps.iloc[-1] - stamps.iloc[0]).total_seconds() / 86400.0
+    if span_days >= MIN_DAYS_FOR_DAILY_FIT:
+        elapsed_days = (stamps - stamps.iloc[0]).dt.total_seconds().to_numpy() / 86400.0
+        days = pd.DataFrame({"day": np.floor(elapsed_days), "t": elapsed_days, "value": values})
+        daily = days.groupby("day").agg(t=("t", "mean"), value=("value", "mean"), points=("value", "size"))
+        daily = daily[daily["points"] >= 0.9 * daily["points"].max()]
+        if len(daily) >= MIN_DAYS_FOR_DAILY_FIT:
+            model = sm.OLS(daily["value"].to_numpy(), sm.add_constant(daily["t"].to_numpy())).fit()
+            points_per_day = (len(values) - 1) / span_days
+            return (
+                float(model.params[1]) / points_per_day,
+                float(model.params[0]),
+                float(model.pvalues[1]),
+                float(model.rsquared),
+                "daily_means",
+            )
+    model = sm.OLS(values, sm.add_constant(np.arange(len(values)))).fit()
+    return float(model.params[1]), float(model.params[0]), float(model.pvalues[1]), float(model.rsquared), "points"
