@@ -225,6 +225,8 @@ def _story(before: dict[str, Any], after: dict[str, Any], rows: list[dict[str, A
                      "telemetry - each hiding exactly one abnormal stretch. The test: point at it.")}
       {_dataset_line("tcpd", by_suite, "<b>TCPD</b> (Turing Change Point Dataset): real series such as population, prices and energy use, "
                      "where five people independently marked the moments the behavior changed for good.")}
+      {_dataset_line("smd", by_suite, "<b>SMD</b> (Server Machine Dataset): 28 real production servers, 38 metrics each, over 5 weeks, "
+                     "with every incident marked by the people who ran them - and which metrics were involved.")}
       {_dataset_line("behavior", by_suite, "<b>Cross-metric behaviors</b>: our own small test of problems that show up in two metrics at once, "
                      "for example CPU spiking while memory keeps climbing (a server slowing down).")}
     </ul>
@@ -793,11 +795,11 @@ def _code_changes(before: dict[str, Any], after: dict[str, Any]) -> str:
 
 
 def _short_dataset(suite: str) -> str:
-    return {"nab": "NAB", "ucr": "UCR", "tcpd": "TCPD", "behavior": "Cross-metric behaviors"}.get(suite, suite)
+    return {"nab": "NAB", "ucr": "UCR", "tcpd": "TCPD", "smd": "SMD", "behavior": "Cross-metric behaviors"}.get(suite, suite)
 
 
 def _fmt_value(suite: str, value: float) -> str:
-    if suite == "tcpd":
+    if suite in ("tcpd", "smd"):
         return f"{value:.3f}"
     if suite in ("ucr", "behavior"):
         return f"{value:.0f}"
@@ -805,7 +807,7 @@ def _fmt_value(suite: str, value: float) -> str:
 
 
 def _delta_format(suite: str) -> str:
-    return {"tcpd": "{:+.3f}", "ucr": "{:+.0f}", "behavior": "{:+.0f}"}.get(suite, "{:+.1f}")
+    return {"tcpd": "{:+.3f}", "smd": "{:+.3f}", "ucr": "{:+.0f}", "behavior": "{:+.0f}"}.get(suite, "{:+.1f}")
 
 
 def main() -> None:

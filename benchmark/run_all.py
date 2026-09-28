@@ -159,6 +159,12 @@ def run_ucr_suite(raw_dir: Path) -> dict[str, Any]:
     return run_ucr(raw_dir)
 
 
+def run_smd_suite(raw_dir: Path) -> dict[str, Any]:
+    from benchmark.smd.run import run_smd_suite as run_smd
+
+    return run_smd(raw_dir)
+
+
 SUITES: dict[str, Callable[[Path], dict[str, Any]]] = {
     "router": run_router_suite,
     "behavior": run_behavior_suite,
@@ -166,6 +172,7 @@ SUITES: dict[str, Callable[[Path], dict[str, Any]]] = {
     "nab": run_nab_suite,
     "tcpd": run_tcpd_suite,
     "ucr": run_ucr_suite,
+    "smd": run_smd_suite,
 }
 
 

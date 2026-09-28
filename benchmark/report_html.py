@@ -66,6 +66,7 @@ SUITE_TITLES = {
     "nab": "Numenta Anomaly Benchmark (NAB)",
     "tcpd": "Turing Change Point Dataset (TCPD)",
     "ucr": "UCR Time Series Anomaly Archive",
+    "smd": "Server Machine Dataset (SMD)",
     "performance": "Performance and scale",
     "routing": "Does routing help? Router picks vs running everything",
 }
@@ -100,6 +101,8 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
         body.append(_tcpd_section(suites["tcpd"]))
     if "ucr" in suites:
         body.append(_ucr_section(suites["ucr"]))
+    if "smd" in suites:
+        body.append(_smd_section(suites["smd"]))
     if "performance" in suites:
         body.append(_performance_section(suites["performance"]))
     if suite is None:
@@ -154,7 +157,7 @@ def load_official_nab(official_dir: Path) -> dict[str, Any] | None:
 
 # --- at a glance ----------------------------------------------------------------------------
 
-SUITE_ORDER = ("router", "behavior", "performance", "nab", "tcpd", "ucr")
+SUITE_ORDER = ("router", "behavior", "performance", "nab", "tcpd", "ucr", "smd")
 DATASET_SPANS = {"24h": "24 hours", "7d": "7 days", "30d": "30 days"}
 
 
@@ -231,6 +234,7 @@ def _brief(name: str, data: dict[str, Any], official_nab: dict[str, Any] | None)
         "nab": lambda d: _brief_nab(d, official_nab),
         "tcpd": _brief_tcpd,
         "ucr": _brief_ucr,
+        "smd": _brief_smd,
     }.get(name)
     brief = builder(data) if builder else None
     if brief:
@@ -387,6 +391,116 @@ def _brief_ucr(ucr: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _brief_smd(smd: dict[str, Any]) -> dict[str, Any]:
+    headline = str(smd["settings"]["headline_threshold"])
+    comparison = smd["comparison"]
+    ours = comparison["router_picks"]["overall"][headline]
+    best_other = max((m for m in comparison if m != "router_picks"), key=lambda m: comparison[m]["overall"][headline]["f1"])
+    other = comparison[best_other]["overall"][headline]
+    hit = (ours.get("hit_rate") or {}).get("100")
+    if ours["f1"] >= other["f1"]:
+        verdict = ("good", f"Ahead of every alternative run here (best: {comparison[best_other]['label']}, F1 {other['f1']:.3f}).")
+    elif ours["f1"] >= 0.8 * other["f1"]:
+        verdict = ("warning", f"Close to, but below, {comparison[best_other]['label']} (F1 {other['f1']:.3f}).")
+    else:
+        verdict = ("critical", f"Well below {comparison[best_other]['label']} (F1 {other['f1']:.3f}).")
+    return {
+        "kind": "Public benchmark",
+        "tests": "Whether real incidents on production servers are caught without a flood of false alerts, and whether an alert points at the metrics involved.",
+        "source": f"Server Machine Dataset: {smd['smd']['machines']} servers from a large internet company, {smd['smd']['metrics_per_machine']} metrics each, 5 weeks at one-minute intervals.",
+        "truth": "incidents and the metrics involved in each, labeled by the dataset's authors (Su et al., KDD 2019).",
+        "result": f"Caught {ours['caught']} of {ours['incidents']} incidents; {ours['false_alerts']:,} false alerts; incident F1 {ours['f1']:.3f}"
+                  + (f"; {_pct(hit)} of the metrics involved found (HitRate@100%)" if hit is not None else ""),
+        "good": "F1 1.0 is perfect: every incident caught with no false alerts. Scored without \"point-adjust\", so it isn't comparable with "
+                "the much higher F1 many papers report for SMD. The fair comparison is the other methods run here on the same data.",
+        "verdict": verdict,
+    }
+
+
+def _smd_section(smd: dict[str, Any]) -> str:
+    headline = str(smd["settings"]["headline_threshold"])
+    comparison = smd["comparison"]
+    rows = []
+    for method, item in comparison.items():
+        c, cost = item["overall"][headline], item["cost"]
+        hit = c.get("hit_rate") or {}
+        rows.append(
+            f"<tr{EMPHASIS_CLASS if method == 'router_picks' else ''}><td>{escape(item['label'])}<div class='small muted'>{escape(item['description'])}</div></td>"
+            f"<td class='num'>{c['caught']}/{c['incidents']}</td><td class='num'>{c['alerts']:,}</td><td class='num'>{c['false_alerts']:,}</td>"
+            f"<td class='num'>{_num(c['false_alerts_per_machine_day'])}</td><td class='num'>{_pct(c['precision'])}</td><td class='num'>{_num(c['f1'])}</td>"
+            f"<td class='num'>{_pct(hit.get('100'))}</td><td class='num'>{_pct(hit.get('150'))}</td>"
+            f"<td class='num'>{_num(c['median_delay_minutes'])}</td><td class='num'>{cost['analyzer_runs']:,}</td>"
+            f"<td class='num'>{cost['seconds'] / 60:.1f} min</td></tr>"
+        )
+    sweep = []
+    for method, item in comparison.items():
+        for threshold, c in item["overall"].items():
+            sweep.append(
+                f"<tr{' class=emph' if threshold == headline else ''}><td>{escape(item['label'])}</td><td class='num'>≥ {escape(threshold)}</td>"
+                f"<td class='num'>{c['caught']}/{c['incidents']}</td><td class='num'>{c['false_alerts']:,}</td><td class='num'>{_num(c['f1'])}</td></tr>"
+            )
+    machine_rows = []
+    for m in smd["machines"]:
+        cells = "".join(
+            f"<td class='num'>{m['methods'][method]['headline']['caught']}/{m['methods'][method]['headline']['incidents']}"
+            f" <span class='muted small'>({m['methods'][method]['headline']['false_alerts']} false)</span></td>"
+            for method in comparison
+        )
+        flag = " <span class='pill pill-warning' title='The two label files disagree slightly on this machine'>labels</span>" if m["label_discrepancy"] else ""
+        machine_rows.append(f"<tr><td class='mono small'>{escape(m['machine'])}{flag}</td>{cells}</tr>")
+    head = "".join(f"<th class='num'>{escape(item['label'])}</th>" for item in comparison.values())
+    discrepancies = smd.get("label_discrepancies") or []
+    return f"""
+<section id="smd">
+  <h2>Server Machine Dataset (SMD)</h2>
+  <p class="section-lede">{smd['smd']['machines']} real servers from a large internet company, {smd['smd']['metrics_per_machine']} metrics each (CPU, memory,
+  network, disk and so on - the dataset doesn't say which is which, so they're numbered 1-38), 5 weeks at one-minute intervals, published with the
+  OmniAnomaly paper (Su et al., KDD 2019). Its authors labeled every incident in the second half, and for each one listed the metrics involved.
+  Pinned to commit <span class="mono">{escape(smd['smd']['commit'][:12])}</span> of <span class="mono">{escape(smd['smd']['repository'])}</span>.</p>
+
+  <div class="two-col explain">
+    <div class="card"><h3>What's measured</h3><p>Each metric runs through Ops Signals on its own, as a server's metrics would. Alarms from any
+    of a server's metrics within {smd['settings']['alert_gap_minutes']} minutes of each other count as one alert - one page to the on-call engineer.
+    An incident is <b>caught</b> when an alert starts inside it; an alert that starts outside every incident is a <b>false alert</b>. For caught
+    incidents, <b>HitRate@100%</b> is the share of the listed metrics found among as many top-ranked alarming metrics as were listed
+    (@150%: half as many again), as in the OmniAnomaly paper.</p></div>
+    <div class="card"><h3>How to compare it</h3><p>Scored <b>without "point-adjust"</b>, which counts a whole incident as found once any single
+    minute of it is, and which lets even random scores look strong (Kim et al., AAAI 2022). Published SMD F1 scores near 0.9 mostly use it, so
+    they aren't comparable. Analyzers see the whole series at once (batch mode, like a method scored offline), with the first half as history;
+    alerts count only in the second half. The fair comparison is the four methods below, run on exactly the same data.</p></div>
+  </div>
+
+  <h3 class="sub">All methods at confidence ≥ {escape(headline)}</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Method</th><th class="num">Incidents caught</th><th class="num">Alerts</th><th class="num">False alerts</th>
+    <th class="num">False alerts per server-day</th><th class="num">Alerts that were real</th><th class="num">F1</th>
+    <th class="num">HitRate@100%</th><th class="num">HitRate@150%</th><th class="num">Median delay (min)</th>
+    <th class="num">Analyzer runs</th><th class="num">Time</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table></div>
+
+  <h3 class="sub">Every threshold</h3>
+  <div class="table-wrap scroll-y"><table><thead><tr><th>Method</th><th class="num">Confidence</th><th class="num">Caught</th>
+  <th class="num">False alerts</th><th class="num">F1</th></tr></thead><tbody>{''.join(sweep)}</tbody></table></div>
+
+  <h3 class="sub">Every server, at confidence ≥ {escape(headline)}</h3>
+  <div class="table-wrap scroll-y tall-scroll"><table><thead><tr><th>Server</th>{head}</tr></thead><tbody>{''.join(machine_rows)}</tbody></table></div>
+
+  <h3 class="sub">Method notes</h3>
+  <ul class="notes">
+    <li>Incidents come from the per-minute labels (<span class="mono">test_label</span>), as in the published evaluations. The metrics involved come
+    from <span class="mono">interpretation_label</span>; each incident takes the metrics of every listed range that overlaps it.</li>
+    <li>{f"On {len(discrepancies)} servers ({escape(', '.join(discrepancies))}) the two label files disagree beyond the usual one-minute offset: a shifted range, a labeled incident missing from the list, or extra overlapping ranges." if discrepancies else "The two label files agree on every server."}</li>
+    <li>The dataset doesn't promise the first half is incident-free. It's the history analyzers see and the "normal" data the static threshold
+    learns its alert line from.</li>
+    <li>Signals spanning half the series or more (a trend, a forecast fit) don't point at a moment and are skipped.</li>
+    <li>The metrics are unnamed, so Behavior Intelligence's named rules (which need, for example, <span class="mono">cpu_usage</span>) can't
+    apply here. This dataset tests detection and which metrics, not named behaviors.</li>
+    <li>Harness code: <span class="mono">benchmark/smd/</span>. Only the dataset's files are used; none of OmniAnomaly's code is run.</li>
+  </ul>
+</section>"""
+
+
 # --- index page -----------------------------------------------------------------------------
 
 SUITE_GUIDE = {
@@ -396,6 +510,7 @@ SUITE_GUIDE = {
     "nab": ("Does it catch real incidents early without flooding you with false alarms?", ("Public benchmark", "Real data", "Incidents", "False alarms")),
     "tcpd": ("Does it find the moment a metric's behavior changed, compared with published methods?", ("Public benchmark", "Real data", "Change points", "Human labels")),
     "ucr": ("Can it pinpoint the one anomaly hidden in a long recording?", ("Public benchmark", "250 series", "Find the anomaly", "Shape changes")),
+    "smd": ("Does it catch real incidents on production servers, and point at the metrics involved?", ("Public benchmark", "28 servers", "38 metrics each", "Which metrics")),
     "routing": ("Does picking analyzers per series beat running everything, or a simple rule?", ("Ablation", "All datasets", "Accuracy", "Cost")),
 }
 
@@ -2129,6 +2244,25 @@ def routing_comparison(suites: dict[str, Any], official_nab: dict[str, Any] | No
             "suite": "nab",
             "dataset": f"NAB, {len(nab['series'])} real and artificial series",
             "measure": "Official NAB score (standard profile), 0-100" if final else f"Window F1 at confidence ≥ {headline} (official NAB score not computed)",
+            "cells": cells,
+        })
+    smd = suites.get("smd")
+    if smd and smd.get("comparison"):
+        headline = str(smd["settings"]["headline_threshold"])
+        cells = {}
+        for method, item in smd["comparison"].items():
+            counts = item["overall"][headline]
+            cells[method] = {
+                "text": f"<b>F1 {counts['f1']:.3f}</b><div class='small'>caught {counts['caught']}/{counts['incidents']} · "
+                        f"{counts['false_alerts']:,} false alerts</div>",
+                "value": float(counts["f1"] or 0.0),
+                "analyzer_runs": item["cost"]["analyzer_runs"],
+                "seconds": item["cost"]["seconds"],
+            }
+        rows.append({
+            "suite": "smd",
+            "dataset": f"SMD, {smd['smd']['machines']} servers × {smd['smd']['metrics_per_machine']} metrics",
+            "measure": f"Incident F1: incidents caught against alerts that were real, at confidence ≥ {headline}",
             "cells": cells,
         })
     ucr = suites.get("ucr")
