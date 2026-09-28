@@ -36,6 +36,9 @@ Two notes on what sits around those methods:
 - `data_health` (gaps and flatlines) is not a statistical method at all: it compares each
   stretch against simple, explicit rules about the metric's own reporting cadence and rate of
   change (see [`backend/app/analyzers/custom/data_health.py`](../backend/app/analyzers/custom/data_health.py)).
+  Two blind spots are accepted rather than fixed: on a series where long runs of zeros are normal,
+  an outage looks like a quiet period and goes unreported; and a busy service's error rate that
+  drops to exactly 0 for a long stretch is reported as stuck even if errors really stopped.
 
 ## The router's suitability scores: heuristic, and we say so
 

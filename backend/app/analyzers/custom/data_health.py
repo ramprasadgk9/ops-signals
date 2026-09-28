@@ -34,6 +34,17 @@ class DataHealthAnalyzer(Analyzer):
         if the metric also sits at exactly that value at other times - a counter or a climbing
         gauge that freezes at its latest (and so highest) value never has, so that stall is still
         reported, as is a value frozen mid-range or beyond where the metric normally goes.
+        One exception: a run of exact zeros is still reported if the metric has never before
+        stayed at zero for even half as long. A busy count that drops to 0 and stays there (every
+        NAB tweet-volume series hit 0 at the same moment for two hours - a collector outage) is
+        a source that stopped sending, not a floor; a stray zero now and then doesn't excuse it.
+
+    Known blind spots, accepted rather than fixed:
+      - a series where long runs of zeros are normal (a low-volume count that is often 0) can't
+        tell an outage from a quiet period, so an outage there is not reported;
+      - the other way round, a busy service's error rate that drops to exactly 0 for a long
+        stretch, for the first time in the window, is reported as stuck at 0 even if errors
+        really did stop. An error rate that touches 0 routinely is not affected.
 
     A series that went silent before the end of the window can't be seen in the data alone -
     normalization ends each series at its last point. Runs that know the requested window end
@@ -53,6 +64,7 @@ class DataHealthAnalyzer(Analyzer):
         max_constant_spread_ratio: float = 1e-4,
         edge_tolerance_ratio: float = 0.05,
         min_edge_repeats: int = 3,
+        min_zero_floor_run_ratio: float = 0.5,
         **config: object,
     ) -> None:
         self.gap_multiple = float(gap_multiple)
@@ -63,6 +75,7 @@ class DataHealthAnalyzer(Analyzer):
         self.max_constant_spread_ratio = float(max_constant_spread_ratio)
         self.edge_tolerance_ratio = float(edge_tolerance_ratio)
         self.min_edge_repeats = max(1, int(min_edge_repeats))
+        self.min_zero_floor_run_ratio = float(min_zero_floor_run_ratio)
         self.config = config
         self.analysis_window_end: pd.Timestamp | None = None
 
@@ -202,7 +215,7 @@ class DataHealthAnalyzer(Analyzer):
             if normal_change_ratio < self.min_normal_change_ratio:
                 continue
             value = float(values[first])
-            if self._at_floor_or_ceiling(value, np.concatenate([values[:first], values[last + 1 :]])):
+            if self._at_floor_or_ceiling(value, np.concatenate([values[:first], values[last + 1 :]]), points):
                 continue
             still_flat = last == len(present) - 1
             summary = (
@@ -210,6 +223,7 @@ class DataHealthAnalyzer(Analyzer):
                 f"({points} identical points)"
                 + (" and is still stuck at the end of the window." if still_flat else ".")
                 + f" It normally changes on {normal_change_ratio:.0%} of points."
+                + (" The source may have stopped sending, or activity really stopped." if value == 0.0 else "")
             )
             signals.append(
                 self._signal(
@@ -245,21 +259,31 @@ class DataHealthAnalyzer(Analyzer):
             return False
         return float(np.median(moving)) <= self.max_constant_spread_ratio * float(np.median(np.abs(values)))
 
-    def _at_floor_or_ceiling(self, value: float, outside: np.ndarray) -> bool:
+    def _at_floor_or_ceiling(self, value: float, outside: np.ndarray, points: int) -> bool:
         """True when a flat value is a level the metric is clamped to: it sits at the edge of where
         the rest of the series goes (within edge_tolerance_ratio of its range from the minimum or
         maximum) AND the metric is at exactly that value at least min_edge_repeats other times.
         The second test is what separates a floor from a stall at the series' latest high: an
         error rate returns to exactly its floor whenever load drops, while a counter or climbing
-        gauge never repeats the value it freezes at."""
+        gauge never repeats the value it freezes at.
+
+        A floor of exactly zero must also have held before for at least min_zero_floor_run_ratio
+        of this run's `points`: a few isolated zeros don't make hours of zeros a floor. Only zero
+        gets this check - a nonzero floor (an error rate clamped at its minimum) that holds for a
+        long quiet stretch looks the same in the data and is still treated as a floor."""
         if len(outside) == 0:
             return False
         low, high = float(np.min(outside)), float(np.max(outside))
         tolerance = self.edge_tolerance_ratio * (high - low)
         if abs(value - low) > tolerance and abs(value - high) > tolerance:
             return False
-        repeats = int(np.sum(np.isclose(outside, value, rtol=0.0, atol=1e-12)))
-        return repeats >= self.min_edge_repeats
+        at_value = np.isclose(outside, value, rtol=0.0, atol=1e-12)
+        if int(np.sum(at_value)) < self.min_edge_repeats:
+            return False
+        if value != 0.0:
+            return True
+        longest = max((end - start for start, end in _runs(at_value) if at_value[start]), default=0)
+        return longest >= self.min_zero_floor_run_ratio * points
 
     def _signal(
         self,
