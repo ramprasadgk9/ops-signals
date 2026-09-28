@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 
 from intelligence.analyzers.pyod_outlier import PyODOutlierAnalyzer
@@ -42,23 +43,45 @@ def test_pyod_outlier_analyzer_emits_anomaly_signal_for_outlier_series() -> None
     assert signal.evidence["outlier_indices"]
     assert signal.evidence["outlier_timestamps"]
     assert signal.evidence["min_samples"] == 50
-    assert signal.evidence["finding_rule"]["min_outlier_points"] == 1
+    assert signal.evidence["finding_rule"]["min_range_excess"] == 0.56
     assert signal.evidence["finding_rule_matched"] is True
 
 
-def test_pyod_outlier_analyzer_marks_finding_rule_as_unmatched_below_threshold() -> None:
+def test_a_single_clear_spike_is_a_finding() -> None:
+    # One point far outside the normal range: the case the old 8-points-per-group rule could never pass.
     values = [50.0 + (index % 5) for index in range(120)]
     values[20] = 180.0
 
-    signals = PyODOutlierAnalyzer(
-        contamination=0.01,
-        min_samples=50,
-        grouping_gap="5m",
-        finding_rule={"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
-    ).analyze(_frame(values))
+    signals = PyODOutlierAnalyzer(contamination=0.01, min_samples=50, grouping_gap="5m").analyze(_frame(values))
 
-    assert signals
+    spike = next(signal for signal in signals if 20 in signal.evidence["outlier_indices"])
+    assert spike.evidence["finding_rule_matched"] is True
+    assert spike.evidence["range_excess"] > 20
+    assert spike.confidence == 1.0
+
+
+def test_the_top_one_percent_of_healthy_noise_is_not_a_finding() -> None:
+    # KNN always marks its contamination share of points; on smooth noise those sit at the edge of
+    # the normal range, not beyond it.
+    rng = np.random.default_rng(7)
+    values = list(50.0 + rng.normal(0, 1, 300))
+
+    signals = PyODOutlierAnalyzer(contamination=0.01, min_samples=50, grouping_gap="5m").analyze(_frame(values))
+
+    assert signals, "KNN marks outliers even on healthy data"
     assert all(signal.evidence["finding_rule_matched"] is False for signal in signals)
+    assert all(signal.confidence < 0.5 for signal in signals)
+
+
+def test_confidence_is_absolute_and_crosses_one_half_at_the_rule() -> None:
+    analyzer = PyODOutlierAnalyzer()
+
+    assert analyzer._confidence(0.0) == 0.0
+    assert analyzer._confidence(0.28) == 0.25
+    assert analyzer._confidence(0.56) == 0.5
+    assert analyzer._confidence(0.78) == 0.75
+    assert analyzer._confidence(1.0) == 1.0
+    assert analyzer._confidence(29.0) == 1.0
 
 
 def test_pyod_outlier_analyzer_skips_short_dataset() -> None:

@@ -54,11 +54,27 @@ const PYOD_CONFIG = {
     min_samples: 50,
   },
   finding_rules: {
-    min_outlier_points: 8,
-    min_confidence: 0.75,
+    min_range_excess: 0.56,
     window: '15m',
   },
 };
+
+// Mirrors pyod_outlier's finding rule: an outlier is finding-worthy when it lies beyond the series'
+// normal range (5th-95th percentile) by at least min_range_excess times that range.
+function clearOutlierCount(points: GeneratedPoint[], minRangeExcess: number) {
+  const sorted = points.map((point) => point.value).sort((a, b) => a - b);
+  if (!sorted.length) return 0;
+  const percentile = (p: number) => {
+    const rank = (sorted.length - 1) * p;
+    const lower = Math.floor(rank);
+    const upper = Math.ceil(rank);
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (rank - lower);
+  };
+  const low = percentile(0.05);
+  const high = percentile(0.95);
+  const width = high - low > 1e-12 ? high - low : stats(points).stddev || 1e-9;
+  return points.filter((point) => point.is_anomaly && Math.max(point.value - high, low - point.value, 0) / width >= minRangeExcess).length;
+}
 
 function clampContamination(value: number) {
   if (!Number.isFinite(value)) return PYOD_CONFIG.implementation.contamination;
@@ -255,7 +271,8 @@ export function PyodOutlierLabPage() {
     grouping_gap: pyodGroupingGap,
   };
   const findingRules = PYOD_CONFIG.finding_rules;
-  const shouldFind = summary.anomalies >= findingRules.min_outlier_points;
+  const clearOutliers = clearOutlierCount(points, findingRules.min_range_excess);
+  const shouldFind = clearOutliers >= 1;
   const passFailStatus = result ? passFailFromFinding(shouldFind, result.findings.length > 0) : 'unknown';
   const yamlText = analyzerConfigYaml('pyod_outlier', {
     enabled: true,
@@ -439,8 +456,7 @@ export function PyodOutlierLabPage() {
           <Chip color={pyodDetectionBudget === summary.anomalies ? 'success' : 'warning'} label={`expected detector count ~${pyodDetectionBudget}`} />
           <Chip label={`run grouping gap ${pyodGroupingGap}`} />
           <Chip label={`run min samples ${pyodMinSamples}`} />
-          <Chip label={`finding rule ${PYOD_CONFIG.finding_rules.min_outlier_points}+ points / ${PYOD_CONFIG.finding_rules.window}`} />
-          <Chip label={`min confidence ${PYOD_CONFIG.finding_rules.min_confidence}`} />
+          <Chip label={`finding rule: ${PYOD_CONFIG.finding_rules.min_range_excess}x the normal range beyond it`} />
         </Stack>
         <Alert severity="info" sx={{ mt: 2 }}>
           These are experiment-only overrides. analyzers.yaml remains the production default; this run temporarily sends contamination, min_samples, and grouping_gap to pyod_outlier.
@@ -501,7 +517,7 @@ export function PyodOutlierLabPage() {
         implementation={implementation}
         findingRules={findingRules}
         passFailStatus={passFailStatus}
-        passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} based on ${summary.anomalies} generated outliers and rule ${findingRules.min_outlier_points}+ points. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
+        passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} based on ${clearOutliers} of ${summary.anomalies} generated outliers lying at least ${findingRules.min_range_excess}x the normal range beyond it. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
         productionNote="the metric usually stays near a normal baseline and you only want findings after repeated high-confidence isolated spikes or drops in a short window."
         benchmarkSummary={result ? { expected_outliers: score.expected, detected_outliers: score.detected, true_positive: score.truePositive, false_positive: score.falsePositive, false_negative: score.falseNegative, f1: score.f1 } : {}}
       />

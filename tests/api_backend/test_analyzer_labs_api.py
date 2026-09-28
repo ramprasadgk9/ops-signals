@@ -41,7 +41,7 @@ def test_analyzer_lab_config_suggestions_lifecycle():
         "suggestion_name": "strict pyod",
         "yaml_text": "pyod_outlier:\n  enabled: true\n",
         "implementation_json": {"library": "pyod", "contamination": 0.01},
-        "finding_rules_json": {"min_outlier_points": 8},
+        "finding_rules_json": {"min_range_excess": 0.56},
         "benchmark_summary_json": {"pass_rate": 1.0},
         "pass_fail_status": "pass",
         "created_by": "test",

@@ -73,8 +73,12 @@ analyzers:
         grouping_gap: 15m
         min_samples: 50
       finding_rule:
-        min_outlier_points: 8
-        min_confidence: 0.75
+        # A group of outliers is a finding when its value is at least this many normal ranges
+        # (5th-95th percentile) beyond the normal range. KNN always marks its contamination share
+        # of points, even on healthy data; 0.56 is the standard 3.5-standard-deviation outlier
+        # cut-off in these units (see PyODOutlierAnalyzer), so healthy noise stays quiet and real
+        # spikes (~29 on the isolated-spikes benchmark scenario) pass easily.
+        min_range_excess: 0.56
         window: 15m
 
   trend:

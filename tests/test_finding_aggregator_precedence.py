@@ -85,7 +85,7 @@ def test_pyod_outlier_finding_rule_suppresses_findings_below_threshold() -> None
         analyzer_id="pyod_outlier",
         evidence={
             "point_count": 3,
-            "finding_rule": {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
+            "finding_rule": {"min_range_excess": 0.56, "window": "15m"},
             "finding_rule_matched": False,
         },
     )
@@ -101,7 +101,7 @@ def test_pyod_outlier_finding_rule_allows_findings_when_threshold_matches() -> N
         analyzer_id="pyod_outlier",
         evidence={
             "point_count": 8,
-            "finding_rule": {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
+            "finding_rule": {"min_range_excess": 0.56, "window": "15m"},
             "finding_rule_matched": True,
         },
     )
