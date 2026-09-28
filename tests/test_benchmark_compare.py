@@ -35,7 +35,7 @@ def test_compare_page_shows_router_picks_before_and_after_in_one_file(tmp_path: 
 
     assert output == after / "compare-run-before.html"
     assert "Router fix: before and after, on the same data" in page
-    assert "0 of 2 behaviors recognized" in page and "2 of 2 behaviors recognized" in page
+    assert "<b>0 of 2</b> behaviors recognized" in page and "<b>2 of 2</b> behaviors recognized" in page
     assert "Router picks match or beat running everything on 1 of 1 datasets, up from 0." in page
     assert "Only the router changed." in page
     assert "../run-before/report-routing.html" in page
