@@ -17,11 +17,13 @@ behavior_definitions:
         metric_name: request_latency_p95
         analyzers:
           - anomaly_zscore
+          - pyod_outlier
           - trend
       - alias: errors
         metric_name: error_rate
         analyzers:
           - anomaly_zscore
+          - pyod_outlier
           - trend
     conditions:
       all:

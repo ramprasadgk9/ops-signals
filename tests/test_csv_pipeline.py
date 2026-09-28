@@ -180,6 +180,55 @@ def test_recommended_threshold_selects_top_recommended_executable_analyzers() ->
     assert "kats" not in allowed
 
 
+def _threshold_pipeline(**execution) -> SignalPipeline:
+    project_root = Path(__file__).resolve().parents[1]
+    config = load_config(project_root / "config.yaml")
+    config.analysis.selection_mode = "recommended_threshold"
+    config.analysis.recommendation_execution.min_score = 0.8
+    config.analysis.recommendation_execution.max_analyzers = 3
+    config.analysis.recommendation_execution.include_optional = False
+    for key, value in execution.items():
+        setattr(config.analysis.recommendation_execution, key, value)
+    return SignalPipeline(config=config, store=InMemoryStore(), embedder=StubEmbedder())
+
+
+# A spiky series as the router saw it on UCR: broad analyzers outscore the outlier detector, which
+# the router only rated OPTIONAL even though the profiler flagged the spikes.
+SPIKY_ROUTING = [
+    {"analyzer_id": "prophet", "recommendation": "RECOMMENDED", "final_score": 1.0, "matched_profiles": ["trend"]},
+    {"analyzer_id": "trend_regression", "recommendation": "RECOMMENDED", "final_score": 0.98, "matched_profiles": ["trend"]},
+    {"analyzer_id": "ruptures", "recommendation": "RECOMMENDED", "final_score": 0.9, "matched_profiles": ["trend"]},
+    {"analyzer_id": "pyod_outlier", "recommendation": "OPTIONAL", "final_score": 0.74, "matched_profiles": ["anomaly", "outlier", "spike"]},
+    {"analyzer_id": "adtk", "recommendation": "RECOMMENDED", "final_score": 0.96, "matched_profiles": ["outlier", "spike"]},
+]
+
+
+def test_a_detected_spike_profile_gets_an_outlier_detector_even_when_it_scores_lower(monkeypatch) -> None:
+    monkeypatch.setattr("intelligence.analyzer_selection._library_installed", lambda name: True)
+    pipeline = _threshold_pipeline()
+
+    allowed = pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING)
+
+    # adtk claims the spike profile too, but has no pipeline analyzer, so pyod_outlier covers it;
+    # the other two slots still go by score.
+    assert allowed == {"pyod_outlier", "prophet", "trend", "data_health"}
+
+
+def test_profile_coverage_can_be_turned_off_to_rank_by_score_alone(monkeypatch) -> None:
+    monkeypatch.setattr("intelligence.analyzer_selection._library_installed", lambda name: True)
+    pipeline = _threshold_pipeline(cover_detected_profiles=False)
+
+    assert pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING) == {"prophet", "trend", "ruptures", "data_health"}
+
+
+def test_an_analyzer_missing_its_optional_library_does_not_take_a_slot(monkeypatch) -> None:
+    monkeypatch.setattr("intelligence.analyzer_selection._library_installed", lambda name: name != "prophet")
+    pipeline = _threshold_pipeline(cover_detected_profiles=False)
+
+    # prophet would run a straight-line fallback, not the model the router scored.
+    assert pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING) == {"trend", "ruptures", "data_health"}
+
+
 def test_every_builtin_analyzer_constructs_under_the_real_generic_provider_config() -> None:
     # Regression test for a config-key mismatch that silently swallowed pyod_outlier for every
     # real analysis run through provider="generic" (the actual API upload path): builtin.yml

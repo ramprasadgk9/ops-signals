@@ -22,6 +22,7 @@ benchmark/results/<UTC timestamp>-<short sha>/
   index.html               start here: one card per report, in plain words, with its result and verdict
   report.html              every suite in one page: summary, detail, charts, method basis, how to reproduce
   report-<suite>.html      the same report for one suite (report-router.html, report-nab.html, report-tcpd.html, ...)
+  report-routing.html      does routing help? router picks vs running everything vs simple baselines, per dataset
   results.json             every suite's raw results plus the run manifest
   raw/                     the per-scenario JSON/Markdown each individual runner writes
 ```
@@ -46,6 +47,39 @@ without rerunning anything, with:
 ```
 
 The command exits non-zero if any suite has a `FAIL` or `ERROR`. `GAP` doesn't fail it.
+
+## Baselines: does routing help?
+
+Ops Signals runs only the analyzers its router picks for each series. That is only worth it if it
+keeps the accuracy of running everything, and beats a simple rule. So the NAB, UCR and TCPD suites,
+and the behavior suite, run the same data several ways, named the same in every report
+(`benchmark/methods.py`):
+
+| Method | What runs |
+| --- | --- |
+| Ops Signals, router picks | The product as users get it: the router's picks for each series. |
+| Ops Signals, all analyzers | Every enabled analyzer on every series, same finding rules and ranking. |
+| Z-score only | Just the `anomaly_zscore` analyzer on every series. |
+| Static threshold | A fixed alert line from data known to be normal (NAB's probationary period, UCR's training part); no analyzer. |
+
+Z-score only and static threshold don't report change points or behaviors, so TCPD and the behavior
+suite compare router picks with all analyzers only. Each method's analyzer runs and time are recorded
+too. Every analyzer is run once per process before anything is timed, so one-time compile costs
+(stumpy's numba kernels) don't land on whichever method runs first. `report-routing.html` puts all of
+it side by side, one row per dataset, with a verdict: router picks "match" running everything when
+within 2% of its score. NAB-format files for each baseline (`opsSignalsAllAnalyzers`, `zscoreOnly`,
+`staticThreshold`) are written next to the product's, so `benchmark.nab.official_score` grades them
+with NAB's own scorer as well.
+
+To see what a change did, compare two snapshots on one page (nothing is rerun):
+
+```bash
+.venv/bin/python -m benchmark.report_compare benchmark/results/<before run> benchmark/results/<after run>
+```
+
+It writes `compare-<before run>.html` into the after snapshot: router picks before and after on
+every dataset next to the other methods, a check that the other methods scored the same in both
+runs (so the change is the only difference), cost, and which series changed.
 
 ## Source datasets
 
@@ -147,6 +181,17 @@ Run one scenario:
 | --- | --- | --- |
 | `behavior_server_slow_v1` | `server_slow` | `cpu_usage`, `memory_usage` |
 | `behavior_latency_error_cascade_v1` | `latency_error_cascade` | `request_latency_p95`, `error_rate` |
+
+Both commands take `--mode all` (the default: every registered analyzer runs on every metric) or
+`--mode default` (only what the router selects for each metric, routed one metric at a time the
+way a scheduled run is - what users actually get). The two can disagree: a rule that passes in
+`all` mode can still never match in `default` mode if the router never selects an analyzer that
+produces the signals the rule needs. On failure, the runner lists which analyzers ran on each
+metric. Default-mode reports are written as `<scenario>_behavior_default.{json,md}`.
+
+```bash
+.venv/bin/python -m benchmark.run_behavior_scenarios --mode default
+```
 
 ## Performance Benchmark
 

@@ -75,6 +75,6 @@ def test_report_shows_official_nab_scores_and_flags_when_no_alarm_scored_best(tm
     html = _nab_official({"detector_names": {"replay": "opsSignalsReplay", "batch": "opsSignalsBatch"}}, official)
 
     assert official["totals"]["opsSignalsReplay"]["standard"]["threshold"] == 1.1
-    assert "Ops Signals, replay (causal)" in html
+    assert "Ops Signals, router picks · replay (causal)" in html
     assert "raising no alarm scored best" in html
     assert "matches its published result" in html

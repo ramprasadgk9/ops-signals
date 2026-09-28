@@ -21,10 +21,15 @@ from typing import Any
 
 import numpy as np
 
+from benchmark.methods import ALL_ANALYZERS, LABELS, ROUTER_PICKS
 from benchmark.tcpd import data, metrics
 from benchmark.tcpd.detector import CHANGE_SIGNAL_TYPES, DIRECT_ANALYZER, run_series, series_frame
 
-OURS = {"product": "Ops Signals (product)", "direct": f"Ops Signals ({DIRECT_ANALYZER}, direct)"}
+OURS = {
+    "product": f"{LABELS[ROUTER_PICKS]} (product)",
+    ALL_ANALYZERS: LABELS[ALL_ANALYZERS],
+    "direct": f"Ops Signals, {DIRECT_ANALYZER} only",
+}
 SERIES_POINTS = 360
 
 
@@ -41,7 +46,11 @@ def run_tcpd_suite() -> dict[str, Any]:
         series = data.load_series(tcpd_dir, name)
         run = run_series(series)
         scores = {}
-        for mode, cps, error in (("product", run.product_cps, run.product_error), ("direct", run.direct_cps, run.direct_error)):
+        for mode, cps, error in (
+            ("product", run.product_cps, run.product_error),
+            (ALL_ANALYZERS, run.all_cps, run.all_error),
+            ("direct", run.direct_cps, run.direct_error),
+        ):
             if error:
                 scores[mode] = {"f1": 0.0, "precision": None, "recall": None, "cover": 0.0}
                 continue
@@ -74,6 +83,13 @@ def run_tcpd_suite() -> dict[str, Any]:
         "evaluated": available,
         "unavailable": unavailable,
         "leaderboard": _leaderboard(rows, published, available),
+        "cost": {
+            mode: {
+                "seconds": round(sum(row["seconds"].get(mode, 0.0) for row in rows), 3),
+                "analyzer_runs": sum(len(row[key]) for row in rows) if key else len(rows),
+            }
+            for mode, key in (("product", "executed_analyzers"), (ALL_ANALYZERS, "all_executed_analyzers"), ("direct", None))
+        },
         "leaderboard_full_published": _published_averages(published, evaluation),
         "series": rows,
     }
@@ -114,6 +130,7 @@ def _leaderboard(rows: list[dict[str, Any]], published: dict[str, Any], names: l
         board.append(
             {
                 "method": label,
+                "key": mode,
                 "ours": True,
                 "f1": statistics.mean(row["scores"][mode]["f1"] for row in rows) if rows else None,
                 "cover": statistics.mean(row["scores"][mode]["cover"] for row in rows) if rows else None,

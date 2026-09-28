@@ -5,8 +5,13 @@ Two modes:
 - product: the production pipeline (generic provider). The router decides which analyzers run;
   change points are read from the change analyzers' signals (`ruptures`, `baseline_shift`). When
   the router doesn't select one, Ops Signals reports no change point - exactly what a user sees.
+- all_analyzers: the same pipeline with every enabled analyzer, whatever the router decides - the
+  "run everything" baseline. Change points are read the same way as for the product.
 - direct: the `ruptures` analyzer with its production configuration, run on every series whatever
   the router would decide. This measures the change-point detector itself.
+
+Z-score only and static threshold don't report change points, so they have no method here; TCPD's
+own "zero" method (no change points) is the trivial baseline in the leaderboard.
 
 Both change analyzers report at most one change point per series - the primary shift - by design.
 TCPD series often have several, so recall is capped on those series.
@@ -20,6 +25,7 @@ mapped back to its row.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from benchmark import harness
+from benchmark.methods import ALL_ANALYZERS
 from benchmark.router_benchmark import _instantiate_analyzer
 from benchmark.tcpd.data import TcpdSeries
 from intelligence.normalize.normalizer import normalize_timeseries
@@ -48,6 +55,10 @@ class TcpdRun:
     routing: list[dict[str, Any]] = field(default_factory=list)
     product_error: str | None = None
     direct_error: str | None = None
+    all_cps: list[int] = field(default_factory=list)
+    all_executed_analyzers: list[str] = field(default_factory=list)
+    all_error: str | None = None
+    seconds: dict[str, float] = field(default_factory=dict)
 
 
 def series_frame(series: TcpdSeries) -> pd.DataFrame:
@@ -62,11 +73,13 @@ def series_frame(series: TcpdSeries) -> pd.DataFrame:
 
 def run_series(series: TcpdSeries) -> TcpdRun:
     logging.disable(logging.WARNING)
+    harness.warm_up()
     frame = series_frame(series)
     timestamps = frame["timestamp"].dt.tz_convert(None).to_numpy()
     run = TcpdRun(series=series.name, n_obs=len(frame))
     pipeline = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME)
 
+    started = time.perf_counter()
     try:
         result = pipeline.run_dataframe(frame)
         run.executed_analyzers = list(result.executed_analyzers)
@@ -84,13 +97,25 @@ def run_series(series: TcpdSeries) -> TcpdRun:
         run.product_cps = _change_points(change_signals, timestamps)
     except Exception as exc:  # a failure scores 0, as TCPD's paper scores method failures
         run.product_error = f"{type(exc).__name__}: {exc}"
+    run.seconds["product"] = round(time.perf_counter() - started, 3)
 
+    started = time.perf_counter()
+    try:
+        result = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME, ALL_ANALYZERS).run_dataframe(frame)
+        run.all_executed_analyzers = list(result.executed_analyzers)
+        run.all_cps = _change_points([s for s in result.signals if s.signal_type in CHANGE_SIGNAL_TYPES], timestamps)
+    except Exception as exc:
+        run.all_error = f"{type(exc).__name__}: {exc}"
+    run.seconds[ALL_ANALYZERS] = round(time.perf_counter() - started, 3)
+
+    started = time.perf_counter()
     try:
         analyzer = _instantiate_analyzer(DIRECT_ANALYZER)
         normalized = normalize_timeseries(frame, pipeline.config.input)
         run.direct_cps = _change_points(analyzer.analyze(normalized), timestamps)
     except Exception as exc:
         run.direct_error = f"{type(exc).__name__}: {exc}"
+    run.seconds["direct"] = round(time.perf_counter() - started, 3)
     return run
 
 

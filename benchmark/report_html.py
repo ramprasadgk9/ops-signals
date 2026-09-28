@@ -67,13 +67,21 @@ SUITE_TITLES = {
     "tcpd": "Turing Change Point Dataset (TCPD)",
     "ucr": "UCR Time Series Anomaly Archive",
     "performance": "Performance and scale",
+    "routing": "Does routing help? Router picks vs running everything",
 }
 
 
 def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, *, suite: str | None = None) -> str:
     """The full report, or with `suite` set, a report for that one suite (same header, summary,
-    method basis and reproduction details; no cross-suite scope or pending list)."""
+    method basis and reproduction details; no cross-suite scope or pending list). `suite="routing"`
+    is the cross-suite comparison of router picks with every baseline."""
     suites = results.get("suites", {})
+    routing_rows = routing_comparison(suites, official_nab)
+    if suite == ROUTING:
+        manifest = results.get("manifest", {})
+        body = [_header(results, suite=suite), _at_a_glance(results, official_nab, suite), _routing_section(routing_rows),
+                _method_section(), _reproduce_section(results, manifest)]
+        return _document(f"Ops Signals Benchmark · {SUITE_TITLES[ROUTING]} · {results.get('run_id', '')}", "\n".join(body))
     if suite is not None:
         suites = {suite: suites[suite]}
         results = {**results, "suites": suites}
@@ -81,6 +89,7 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
     body = [_header(results, suite=suite), _at_a_glance(results, official_nab, suite), _summary(results)]
     if suite is None:
         body.append(_scope(suites, official_nab is not None))
+        body.append(_routing_section(routing_rows))
     if "router" in suites:
         body.append(_router_section(suites["router"]))
     if "behavior" in suites:
@@ -94,7 +103,7 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
     if "performance" in suites:
         body.append(_performance_section(suites["performance"]))
     if suite is None:
-        body.append(_pending_section(suites))
+        body.append(_pending_section(suites, has_baselines=bool(routing_rows)))
     body.append(_method_section())
     body.append(_reproduce_section(results, manifest))
     title = f"{SUITE_TITLES.get(suite, suite)} · " if suite else ""
@@ -111,6 +120,8 @@ def write_report(results_path: Path, output_path: Path | None = None) -> Path:
     for suite in results.get("suites", {}):
         suite_path = output_path.with_name(f"{output_path.stem}-{suite}.html")
         suite_path.write_text(render(results, official, suite=suite), encoding="utf-8")
+    if routing_comparison(results.get("suites", {}), official):
+        output_path.with_name(f"{output_path.stem}-{ROUTING}.html").write_text(render(results, official, suite=ROUTING), encoding="utf-8")
     output_path.with_name("index.html").write_text(render_index(results, official, stem=output_path.stem), encoding="utf-8")
     return output_path
 
@@ -151,7 +162,13 @@ def _at_a_glance(results: dict[str, Any], official_nab: dict[str, Any] | None, s
     """Plain-language summary that opens every report: what each suite tests, where its data and
     answer key come from, what we got, and what a good result looks like on that suite's scale."""
     suites = results.get("suites", {})
-    briefs = [brief for name in SUITE_ORDER if name in suites for brief in [_brief(name, suites[name], official_nab)] if brief]
+    routing = _brief_routing(routing_comparison(suites, official_nab)) if suite in (None, ROUTING) else None
+    if suite == ROUTING:
+        briefs = [routing] if routing else []
+    else:
+        briefs = [brief for name in SUITE_ORDER if name in suites for brief in [_brief(name, suites[name], official_nab)] if brief]
+        if routing:
+            briefs.insert(0, routing)
     if not briefs:
         return ""
     if suite is not None:
@@ -183,14 +200,15 @@ def _at_a_glance(results: dict[str, Any], official_nab: dict[str, Any] | None, s
         for b in briefs
     )
     own = sum(1 for b in briefs if b["kind"] == "Own test")
-    external = len(briefs) - own
+    external = sum(1 for b in briefs if b["kind"] == "Public benchmark")
+    ablation = " The first row compares, across those datasets, the product's router with running every analyzer and with simple baselines." if routing else ""
     return f"""
 <section class="glance" aria-label="At a glance">
   <h2>At a glance</h2>
-  <p class="section-lede">This report measures how well Ops Signals finds real problems in metric data. It has {len(briefs)} parts:
+  <p class="section-lede">This report measures how well Ops Signals finds real problems in metric data. It has {len(briefs) - (1 if routing else 0)} parts:
   {own} own test{'s' if own != 1 else ''} with answer keys written by this project (they catch regressions but aren't independent evidence) and
   {external} public benchmark{'s' if external != 1 else ''} whose data and labels come from outside researchers, compared with published methods
-  where they exist. Each row below says what was tested, who decided the right answers, what we got, and what a good score is on that scale.
+  where they exist.{ablation} Each row below says what was tested, who decided the right answers, what we got, and what a good score is on that scale.
   Details for each part follow further down and in its own report.</p>
   <div class="table-wrap"><table class="glance-table">
     <thead><tr><th>Part</th><th>Type</th><th>Data and answer key</th><th>Our result</th><th>What good looks like</th><th>Verdict</th></tr></thead>
@@ -241,7 +259,8 @@ def _brief_behavior(behavior: dict[str, Any]) -> dict[str, Any]:
     counts = behavior["counts"]
     total = sum(counts.values())
     passed = counts.get("PASS", 0)
-    return {
+    default_counts = behavior.get("default_mode_counts")
+    brief = {
         "kind": "Own test",
         "tests": "Whether problems across several metrics at once (for example CPU and errors rising together) are recognized as the right named behavior.",
         "source": f"{total} multi-metric scenarios built by this project.",
@@ -250,6 +269,14 @@ def _brief_behavior(behavior: dict[str, Any]) -> dict[str, Any]:
         "good": "Every scenario passes. It's a regression check, not a measure of real-world accuracy.",
         "verdict": ("good", "No regressions.") if passed == total else ("critical", "Something broke; see the failing scenarios."),
     }
+    if default_counts is not None:
+        default_passed = default_counts.get("PASS", 0)
+        brief["result"] = f"{passed} of {total} with all analyzers; {default_passed} of {total} with router picks"
+        brief["good"] = ("Every scenario passes both ways. \"All analyzers\" is the regression check; \"router picks\" is what users get, "
+                         "and falls short when the router doesn't run an analyzer a behavior rule needs.")
+        if passed == total and default_passed < total:
+            brief["verdict"] = ("warning", "No regressions, but with the router's picks some behaviors aren't recognized: a known routing gap.")
+    return brief
 
 
 def _brief_performance(performance: dict[str, Any]) -> dict[str, Any] | None:
@@ -309,7 +336,7 @@ def _brief_nab(nab: dict[str, Any], official: dict[str, Any] | None) -> dict[str
 
 def _brief_tcpd(tcpd: dict[str, Any]) -> dict[str, Any] | None:
     board = tcpd.get("leaderboard") or []
-    product = next((row for row in board if row["ours"] and "product" in row["method"]), None)
+    product = next((row for row in board if row["ours"] and row.get("key", "product") == "product" and "product" in row["method"]), None)
     published = [row for row in board if not row["ours"]]
     zero = next((row for row in published if row["method"] == "zero"), None)
     if not product or not published or not zero:
@@ -369,6 +396,7 @@ SUITE_GUIDE = {
     "nab": ("Does it catch real incidents early without flooding you with false alarms?", ("Public benchmark", "Real data", "Incidents", "False alarms")),
     "tcpd": ("Does it find the moment a metric's behavior changed, compared with published methods?", ("Public benchmark", "Real data", "Change points", "Human labels")),
     "ucr": ("Can it pinpoint the one anomaly hidden in a long recording?", ("Public benchmark", "250 series", "Find the anomaly", "Shape changes")),
+    "routing": ("Does picking analyzers per series beat running everything, or a simple rule?", ("Ablation", "All datasets", "Accuracy", "Cost")),
 }
 
 GLOSSARY = (
@@ -380,6 +408,11 @@ GLOSSARY = (
     ("False alarm", "An alert raised when nothing was actually wrong."),
     ("F1", "A 0 to 1 score that balances finding the right things against flagging wrong ones. Higher is better."),
     ("Router", "The part of Ops Signals that decides which detectors to run on a series."),
+    ("Router picks", "The product as users get it: only the analyzers the router chose for that series run."),
+    ("All analyzers", "Every analyzer runs on every series. The \"run everything\" baseline the router is compared with."),
+    ("Z-score only", "A single classic detector: flag points far from the recent average."),
+    ("Static threshold", "A fixed alert line set from data known to be normal. The most common alerting setup."),
+    ("Ablation", "Running the same data with one part changed or removed (here, the router) to measure what that part contributes."),
 )
 
 
@@ -390,8 +423,10 @@ def render_index(results: dict[str, Any], official_nab: dict[str, Any] | None = 
     manifest = results.get("manifest", {})
     git = manifest.get("git", {})
     cards = []
-    for name in [n for n in SUITE_ORDER if n in suites] + [n for n in suites if n not in SUITE_ORDER]:
-        brief = _brief(name, suites[name], official_nab)
+    routing_brief = _brief_routing(routing_comparison(suites, official_nab))
+    names = [n for n in SUITE_ORDER if n in suites] + [n for n in suites if n not in SUITE_ORDER]
+    for name in ([ROUTING] if routing_brief else []) + names:
+        brief = routing_brief if name == ROUTING else _brief(name, suites[name], official_nab)
         question, tags = SUITE_GUIDE.get(name, ("", ()))
         href = f"{stem}-{name}.html"
         result = f"<p class='index-result'>{brief['result']}</p><p class='small'>{_verdict_pill(brief['verdict'])} {brief['verdict'][1]}</p>" if brief else ""
@@ -465,6 +500,8 @@ def _suite_links(results: dict[str, Any], suite: str | None) -> str:
     if suite is None and len(names) < 2:
         return f"<p class='suite-links small'>{start}</p>"
     if suite is None:
+        if routing_comparison(results.get("suites", {})):
+            names = [ROUTING, *names]
         links = " · ".join(f"<a href='report-{escape(name)}.html'>{escape(SUITE_TITLES.get(name, name))}</a>" for name in names)
         return f"<p class='suite-links small'>{start} · Per-suite reports: {links}</p>"
     return f"<p class='suite-links small'>{start} · <a href='report.html'>Full report (every suite in this run)</a></p>"
@@ -522,7 +559,7 @@ def _summary(results: dict[str, Any]) -> str:
     tcpd = suites.get("tcpd")
     if tcpd and tcpd.get("leaderboard"):
         board = tcpd["leaderboard"]
-        product = next((row for row in board if row["ours"] and "product" in row["method"]), None)
+        product = next((row for row in board if row["ours"] and row.get("key", "product") == "product" and "product" in row["method"]), None)
         best = next((row for row in board if not row["ours"]), None)
         if product and best:
             tiles.append(
@@ -553,7 +590,12 @@ def _summary(results: dict[str, Any]) -> str:
 
 
 def _scope(suites: dict[str, Any], has_official_nab: bool = False) -> str:
-    if "nab" in suites and has_official_nab:
+    if routing_comparison(suites):
+        real_world = (
+            "<li><b>Tuned baselines.</b> The z-score and static-threshold baselines use one fixed, stated setting each; "
+            "they aren't tuned per dataset, and a tuned version could score higher.</li>"
+        )
+    elif "nab" in suites and has_official_nab:
         real_world = (
             "<li><b>A baseline comparison on the same data.</b> NAB's published scoreboard is shown for reference, but "
             "simple baselines haven't been run through this harness yet.</li>"
@@ -698,9 +740,22 @@ def _behavior_section(behavior: dict[str, Any]) -> str:
             for f in findings
         ) or "<tr><td colspan='4' class='muted'>No behavior matched.</td></tr>"
         charts = "".join(_line_chart(points, [], title=metric) for metric, points in (item.get("series") or {}).items())
+        default_evaluation = item.get("default_mode_evaluation")
+        modes = ""
+        default_pill = ""
+        if default_evaluation:
+            default_pill = f" <span class='small muted'>router picks:</span> {_status_pill(default_evaluation['status'])}"
+            mode_rows = "".join(
+                f"<tr><td>{label}</td><td>{_status_pill(ev['status'])}</td><td class='mono small'>{escape(', '.join(ev.get('matched_definition_ids') or []) or 'none')}</td>"
+                f"<td class='small'>{_analyzers_by_metric(ev)}</td></tr>"
+                for label, ev in (("Ops Signals, all analyzers", evaluation), ("Ops Signals, router picks", default_evaluation))
+            )
+            modes = f"""<h4>With every analyzer, and with the router's picks</h4>
+    <div class="table-wrap"><table><thead><tr><th>Method</th><th>Result</th><th>Behaviors matched</th><th>Analyzers run on each metric</th></tr></thead>
+    <tbody>{mode_rows}</tbody></table></div>"""
         cards.append(f"""
 <details class="card scenario" id="{escape(scenario['id'])}">
-  <summary><span class="summary-title">{escape(scenario['name'])}</span>{_status_pill(evaluation['status'])}</summary>
+  <summary><span class="summary-title">{escape(scenario['name'])}</span><span class='small muted'>all analyzers:</span> {_status_pill(evaluation['status'])}{default_pill}</summary>
   <div class="card-body">
     <p>{escape(scenario.get('description') or '')}</p>
     <div class="chart-grid">{charts}</div>
@@ -711,7 +766,8 @@ def _behavior_section(behavior: dict[str, Any]) -> str:
         <li><b>Must not match:</b> <span class="mono">{escape(', '.join(expected.get('forbidden_matched') or []) or 'nothing')}</span></li>
       </ul></div>
     </div>
-    <h4>Behavior findings produced</h4>
+    {modes}
+    <h4>Behavior findings produced (all analyzers)</h4>
     <div class="table-wrap"><table><thead><tr><th>Definition</th><th>Title</th><th>Severity</th><th class="num">Confidence</th></tr></thead><tbody>{finding_rows}</tbody></table></div>
     {"<h4>Scenario notes</h4><ul class='notes'>" + "".join(f"<li>{escape(n)}</li>" for n in scenario.get('notes') or []) + "</ul>" if scenario.get('notes') else ""}
     <p class="small muted">Source: <span class="mono">{escape(scenario['path'])}/</span></p>
@@ -722,9 +778,18 @@ def _behavior_section(behavior: dict[str, Any]) -> str:
   <h2>Cross-metric behavior suite</h2>
   <p class="section-lede">These scenarios put several correlated metrics in one analysis window. Behavior
   Intelligence must combine signals across the metrics into the right named behavior, and must not match a behavior
-  whose required metric isn't even present.</p>
+  whose required metric isn't even present. Each scenario runs twice: with every analyzer on every metric ("Ops Signals, all analyzers",
+  the regression check that sets this suite's pass/fail) and with only the analyzers the router picks for each metric ("Ops Signals,
+  router picks", what users get on a scheduled run).</p>
   <div class="cards">{"".join(cards)}</div>
 </section>"""
+
+
+def _analyzers_by_metric(evaluation: dict[str, Any]) -> str:
+    return "<br>".join(
+        f"<span class='mono'>{escape(metric)}</span>: {escape(', '.join(analyzers) or 'none')}"
+        for metric, analyzers in (evaluation.get("analyzers_by_metric") or {}).items()
+    )
 
 
 def _nab_section(nab: dict[str, Any], official_nab: dict[str, Any] | None = None) -> str:
@@ -856,6 +921,7 @@ scorer, run <span class="mono">python -m benchmark.nab.official_score &lt;this s
   <div class="tiles">{stats}</div>
   <p class="small muted">The {escape(headline)} threshold was fixed before scoring and is not tuned per series or per dataset. The sweep
   below shows every threshold, so nothing depends on that choice being favorable.</p>
+  {_nab_comparison(nab)}
 
   <div class="two-col explain">
     <div class="card"><h3>Replay mode (causal, counts toward the headline)</h3><p>A trailing window of up to
@@ -908,6 +974,33 @@ scorer, run <span class="mono">python -m benchmark.nab.official_score &lt;this s
 </section>"""
 
 
+def _nab_comparison(nab: dict[str, Any]) -> str:
+    comparison = nab.get("comparison")
+    if not comparison:
+        return ""
+    headline = str(nab["settings"]["headline_threshold"])
+    rows = []
+    for method, item in comparison.items():
+        counts, cost = item["overall"][headline], item["cost"]
+        per_run = cost["analyzer_runs"] / cost["runs"] if cost["runs"] and method != "static_threshold" else None
+        rows.append(
+            f"<tr{EMPHASIS_CLASS if method == 'router_picks' else ''}><td>{escape(item['label'])}<div class='small muted'>{escape(item['description'])}</div></td>"
+            f"<td class='num'>{counts['detected_windows']}/{counts['windows']}</td><td class='num'>{_pct(counts['alarm_precision'])}</td>"
+            f"<td class='num'>{counts['false_alarms']:,}</td><td class='num'>{_num(counts['f1'])}</td>"
+            f"<td class='num'>{cost['analyzer_runs']:,}</td><td class='num'>{f'{per_run:.1f}' if per_run is not None else '-'}</td>"
+            f"<td class='num'>{cost['seconds'] / 60:.1f} min</td></tr>"
+        )
+    return f"""<h3 class="sub">Router picks compared with running everything and with simple baselines</h3>
+  <p class="small muted">All four in replay mode (causal), at confidence ≥ {escape(headline)}, on the same {len(nab['series'])} series. Analyzer runs are
+  summed over every scheduled run of every series; time is wall-clock on this machine, so compare rows with each other, not with other
+  runs. The static threshold's alarms all score 1.0. NAB's official score for each is in the table above when it was computed.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Method</th><th class="num">Windows caught</th><th class="num">Alarm precision</th><th class="num">False alarms</th>
+    <th class="num">F1</th><th class="num">Analyzer runs</th><th class="num">Per scheduled run</th><th class="num">Time</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table></div>"""
+
+
 NAB_PROFILES = [("standard", "Standard"), ("reward_low_FP_rate", "Fewer false alarms"), ("reward_low_FN_rate", "Fewer misses")]
 NAB_REFERENCE_DETECTOR = "numenta"
 EMPHASIS_CLASS = ' class="emph"'
@@ -915,7 +1008,12 @@ EMPHASIS_CLASS = ' class="emph"'
 
 def _nab_official(nab: dict[str, Any], official: dict[str, Any]) -> str:
     final, published, totals = official["final"], official["published"], official["totals"]
-    ours = {nab["detector_names"]["replay"]: "Ops Signals, replay (causal)", nab["detector_names"]["batch"]: "Ops Signals, batch (sees whole series)"}
+    ours = {
+        nab["detector_names"]["replay"]: "Ops Signals, router picks · replay (causal)",
+        nab["detector_names"]["batch"]: "Ops Signals, router picks · batch (sees whole series)",
+    }
+    for method, detector_name in (nab.get("baseline_detector_names") or {}).items():
+        ours[detector_name] = f"{nab['comparison'][method]['label']} · replay (causal)"
 
     board = [(name, scores, False) for name, scores in published.items()]
     board += [(name, final[name], True) for name in ours if name in final]
@@ -1125,13 +1223,14 @@ def _tcpd_section(tcpd: dict[str, Any]) -> str:
 
   <h3 class="sub">All methods on the same {evaluated} series</h3>
   <p class="small muted">Published methods use their default parameters (the paper's "default" experiment, no per-series tuning), the fair
-  comparison for Ops Signals' default configuration. "Product" is what a user gets: the router decides whether a change-point analyzer runs.
-  "Direct" runs <span class="mono">{escape(tcpd['settings']['direct_analyzer'])}</span> on every series. Differences of a few hundredths
-  across {evaluated} series are within noise.</p>
+  comparison for Ops Signals' default configuration. "Router picks (product)" is what a user gets: the router decides whether a
+  change-point analyzer runs. "All analyzers" runs every enabled analyzer on every series. "<span class="mono">{escape(tcpd['settings']['direct_analyzer'])}</span>
+  only" runs that one change-point analyzer on every series. Differences of a few hundredths across {evaluated} series are within noise.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Method</th><th class="num">F1</th><th class="num">Cover</th><th class="num">Paper's average over all {tcpd['evaluation_set_size']} (F1 / cover)</th></tr></thead>
     <tbody>{''.join(board_rows)}</tbody>
   </table></div>
+  {_tcpd_cost_table(tcpd)}
 
   <h3 class="sub">What the results show</h3>
   <ul class="notes findings">{''.join(findings)}</ul>
@@ -1158,13 +1257,45 @@ def _tcpd_section(tcpd: dict[str, Any]) -> str:
 
 
 UCR_METHOD_LABELS = {
-    "product": ("Ops Signals (product)", "What a user gets: the router picks the analyzers, the top-ranked finding is the answer."),
-    "anomaly_zscore": ("anomaly_zscore, direct", "One production analyzer on every series, most confident signal."),
-    "pyod_outlier": ("pyod_outlier, direct", "One production analyzer on every series, most confident signal."),
-    "seasonal_anomaly": ("seasonal_anomaly, direct", "One production analyzer on every series, most confident signal."),
+    "product": ("Ops Signals, router picks (product)", "What a user gets: the router picks the analyzers, the top-ranked finding is the answer."),
+    "all_analyzers": ("Ops Signals, all analyzers", "Every enabled analyzer on every series, same ranking as the product: the \"run everything\" baseline."),
+    "anomaly_zscore": ("Z-score only (anomaly_zscore)", "One production analyzer on every series, most confident signal."),
+    "pyod_outlier": ("pyod_outlier only", "One production analyzer on every series, most confident signal."),
+    "seasonal_anomaly": ("seasonal_anomaly only", "One production analyzer on every series, most confident signal."),
+    "static_threshold": ("Static threshold (baseline)", "Alert line at the training part's lowest and highest value; the answer is the point farthest outside it."),
     "discord": ("Matrix-profile discord (reference)", "Textbook subsequence method, not an Ops Signals analyzer."),
     "max_jump": ("Largest single jump (trivial baseline)", "A one-liner: the biggest point-to-point change in the test part."),
 }
+UCR_SHORT_LABELS = {
+    "product": "Router picks",
+    "all_analyzers": "All analyzers",
+    "anomaly_zscore": "Z-score only",
+    "pyod_outlier": "pyod_outlier",
+    "seasonal_anomaly": "seasonal_anomaly",
+    "static_threshold": "Static threshold",
+    "discord": "Discord",
+    "max_jump": "Max jump",
+}
+# Methods that give one answer with no ranked candidate list, so "found anywhere" doesn't apply.
+UCR_SINGLE_ANSWER_METHODS = ("static_threshold", "discord", "max_jump")
+
+
+def _tcpd_cost_table(tcpd: dict[str, Any]) -> str:
+    cost = tcpd.get("cost")
+    if not cost:
+        return ""
+    board = {row.get("key"): row for row in tcpd["leaderboard"] if row["ours"]}
+    rows = "".join(
+        f"<tr{EMPHASIS_CLASS if mode == 'product' else ''}><td>{escape(board[mode]['method'])}</td><td class='num'>{board[mode]['f1']:.3f}</td>"
+        f"<td class='num'>{cost[mode]['analyzer_runs']:,}</td><td class='num'>{cost[mode]['seconds']:.1f} s</td></tr>"
+        for mode in cost
+        if mode in board
+    )
+    return f"""<h3 class="sub">What each Ops Signals method cost</h3>
+  <p class="small muted">Analyzer runs and wall-clock seconds summed over all {len(tcpd['evaluated'])} series. Timing depends on the machine;
+  compare the rows with each other, not with other runs.</p>
+  <div class="table-wrap"><table><thead><tr><th>Method</th><th class="num">F1</th><th class="num">Analyzer runs</th><th class="num">Time</th></tr></thead>
+  <tbody>{rows}</tbody></table></div>"""
 
 
 def _ucr_section(ucr: dict[str, Any]) -> str:
@@ -1179,7 +1310,7 @@ def _ucr_section(ucr: dict[str, Any]) -> str:
     for method in ranked:
         stats = overall[method]
         label, note = UCR_METHOD_LABELS.get(method, (method, ""))
-        found = f"{stats['found_anywhere']}" if method not in ("discord", "max_jump") else "-"
+        found = f"{stats['found_anywhere']}" if method not in UCR_SINGLE_ANSWER_METHODS else "-"
         board_rows.append(
             f"<tr{EMPHASIS_CLASS if method == 'product' else ''}><td>{escape(label)}<div class='small muted'>{escape(note)}</div></td>"
             f"<td class='num'>{stats['correct']}<span class='muted'>/{total}</span></td><td class='num'>{_pct(stats['correct'] / total if total else None)}</td>"
@@ -1240,7 +1371,7 @@ def _ucr_section(ucr: dict[str, Any]) -> str:
         )
 
     def group_table(title: str, groups: dict[str, Any]) -> str:
-        head = "".join(f"<th class='num'>{escape(UCR_METHOD_LABELS.get(m, (m,))[0].split(' (')[0].split(',')[0])}</th>" for m in methods)
+        head = "".join(f"<th class='num'>{escape(UCR_SHORT_LABELS.get(m, m))}</th>" for m in methods)
         body = "".join(
             f"<tr><td>{escape(name)}</td><td class='num'>{g['series']}</td>"
             + "".join(f"<td class='num'>{g[m]['correct']}</td>" for m in methods)
@@ -1306,7 +1437,7 @@ def _ucr_section(ucr: dict[str, Any]) -> str:
   <h3 class="sub">Every series</h3>
   <div class="table-wrap scroll-y tall-scroll"><table>
     <thead><tr><th class="num">#</th><th>Series</th><th>Domain</th><th class="num">Points</th><th class="num">Anomaly</th>
-    {''.join(f"<th class='num'>{escape(UCR_METHOD_LABELS.get(m, (m,))[0].split(' (')[0].split(',')[0])}</th>" for m in methods)}</tr></thead>
+    {''.join(f"<th class='num'>{escape(UCR_SHORT_LABELS.get(m, m))}</th>" for m in methods)}</tr></thead>
     <tbody>{''.join(detail_rows)}</tbody>
   </table></div>
 
@@ -1492,8 +1623,9 @@ def _performance_section(performance: dict[str, Any]) -> str:
 </section>"""
 
 
-def _pending_section(suites: dict[str, Any]) -> str:
-    pending = [item for item in PENDING_SECTIONS if item[0] not in suites]
+def _pending_section(suites: dict[str, Any], *, has_baselines: bool = False) -> str:
+    done = set(suites) | ({"baselines"} if has_baselines else set())
+    pending = [item for item in PENDING_SECTIONS if item[0] not in done]
     if not pending:
         return ""
     items = "".join(f"<li><b>{escape(title)}.</b> {escape(text)}</li>" for _, title, text in pending)
@@ -1800,7 +1932,10 @@ def _fmt_time(value: Any) -> str:
     return text.replace("T", " ").replace("+00:00", " UTC").replace("Z", " UTC")
 
 
-def _document(title: str, body: str) -> str:
+DEFAULT_FOOTER = "Generated by <span class=\"mono\">benchmark/report_html.py</span> from this run's <span class=\"mono\">results.json</span>."
+
+
+def _document(title: str, body: str, *, footer: str = DEFAULT_FOOTER) -> str:
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1812,8 +1947,7 @@ def _document(title: str, body: str) -> str:
 <body>
 <main class="page">
 {body}
-<footer class="small muted">Generated by <span class="mono">benchmark/report_html.py</span> from this run's
-<span class="mono">results.json</span>.</footer>
+<footer class="small muted">{footer}</footer>
 </main>
 <script>{_JS}</script>
 </body>
@@ -1874,6 +2008,8 @@ details.scenario[open]>summary::before{transform:rotate(90deg)}
 .table-wrap.narrow{max-width:560px}.scroll-y{max-height:320px;overflow-y:auto}.tall-scroll{max-height:560px}
 tr.emph td{font-weight:650;background:var(--surface-2)}
 .explain{margin-top:20px}.explain h3{margin-bottom:6px}
+.story{display:flex;flex-direction:column;gap:12px}.story-card p{max-width:80ch;margin:8px 0}.story-card h4{margin:14px 0 2px}
+.story-list{font-size:14.5px;color:var(--ink);gap:8px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
 thead th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);background:var(--surface-2);font-weight:600}
@@ -1952,6 +2088,203 @@ document.querySelectorAll('.chart-frame').forEach(function(frame){
 });
 window.addEventListener('beforeprint',function(){document.querySelectorAll('details').forEach(function(d){d.open=true})});
 """
+
+
+# --- does routing help? (router picks vs every baseline, across suites) ---------------------
+
+ROUTING = "routing"
+ROUTING_METHODS = ("router_picks", "all_analyzers", "zscore_only", "static_threshold")
+ROUTING_LABELS = {
+    "router_picks": "Ops Signals, router picks",
+    "all_analyzers": "Ops Signals, all analyzers",
+    "zscore_only": "Z-score only",
+    "static_threshold": "Static threshold",
+}
+# Router picks "match" running everything when within this share of its score.
+ROUTING_MATCH_TOLERANCE = 0.02
+
+
+def routing_comparison(suites: dict[str, Any], official_nab: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """One row per dataset that ran the baselines: each method's accuracy and what it cost. A cell is
+    None when the method doesn't apply to that dataset."""
+    rows = []
+    nab = suites.get("nab")
+    if nab and nab.get("comparison"):
+        headline = str(nab["settings"]["headline_threshold"])
+        final = (official_nab or {}).get("final") or {}
+        cells = {}
+        for method, item in nab["comparison"].items():
+            counts = item["overall"][headline]
+            official = final.get(item["detector_name"], {}).get("standard")
+            text = f"caught {counts['detected_windows']}/{counts['windows']} · F1 {_num(counts['f1'])} · {counts['false_alarms']:,} false alarms"
+            if official is not None:
+                text = f"<b>NAB score {float(official):.1f}</b><div class='small'>{text}</div>"
+            cells[method] = {
+                "text": text,
+                "value": float(official) if official is not None else float(counts["f1"] or 0.0),
+                "analyzer_runs": item["cost"]["analyzer_runs"] if method != "static_threshold" else 0,
+                "seconds": item["cost"]["seconds"],
+            }
+        rows.append({
+            "suite": "nab",
+            "dataset": f"NAB, {len(nab['series'])} real and artificial series",
+            "measure": "Official NAB score (standard profile), 0-100" if final else f"Window F1 at confidence ≥ {headline} (official NAB score not computed)",
+            "cells": cells,
+        })
+    ucr = suites.get("ucr")
+    if ucr and "all_analyzers" in ucr["summary"]["overall"]:
+        overall, series = ucr["summary"]["overall"], ucr["series"]
+        total = overall["series"]
+        keys = {"router_picks": "product", "all_analyzers": "all_analyzers", "zscore_only": "anomaly_zscore", "static_threshold": "static_threshold"}
+        cells = {}
+        for method, key in keys.items():
+            if key not in overall:
+                continue
+            correct = overall[key]["correct"]
+            if key in ("product", "all_analyzers"):
+                runs = sum(len(s["methods"][key].get("executed_analyzers") or []) for s in series)
+            else:
+                runs = total if key == "anomaly_zscore" else 0
+            cells[method] = {
+                "text": f"<b>{correct} of {total}</b> located ({_pct(correct / total if total else None)})",
+                "value": float(correct),
+                "analyzer_runs": runs,
+                "seconds": sum(float(s["methods"][key].get("seconds") or 0.0) for s in series),
+            }
+        rows.append({"suite": "ucr", "dataset": f"UCR Anomaly Archive, {total} series", "measure": "Series where the one anomaly was located", "cells": cells})
+    tcpd = suites.get("tcpd")
+    if tcpd and tcpd.get("cost"):
+        board = {row.get("key"): row for row in tcpd["leaderboard"] if row["ours"]}
+        cells = {}
+        for method, key in (("router_picks", "product"), ("all_analyzers", "all_analyzers")):
+            if key in board:
+                cells[method] = {
+                    "text": f"<b>F1 {board[key]['f1']:.3f}</b> · cover {board[key]['cover']:.3f}",
+                    "value": float(board[key]["f1"]),
+                    "analyzer_runs": tcpd["cost"][key]["analyzer_runs"],
+                    "seconds": tcpd["cost"][key]["seconds"],
+                }
+        rows.append({
+            "suite": "tcpd",
+            "dataset": f"TCPD, {len(tcpd['evaluated'])} real series",
+            "measure": "Change-point F1 (z-score and static thresholds don't report change points)",
+            "cells": cells,
+        })
+    behavior = suites.get("behavior")
+    if behavior and behavior.get("default_mode_counts") is not None:
+        scenarios = behavior["scenarios"]
+        total = len(scenarios)
+        cells = {}
+        for method, key in (("router_picks", "default_mode_evaluation"), ("all_analyzers", "evaluation")):
+            passed = sum(1 for s in scenarios if s[key]["status"] == "PASS")
+            cells[method] = {
+                "text": f"<b>{passed} of {total}</b> behaviors recognized",
+                "value": float(passed),
+                "analyzer_runs": sum(len(a) for s in scenarios for a in (s[key].get("analyzers_by_metric") or {}).values()),
+                "seconds": None,
+            }
+        rows.append({
+            "suite": "behavior",
+            "dataset": f"Cross-metric behaviors, {total} own scenarios",
+            "measure": "Scenarios where the right named behavior was recognized (the rules need analyzer signals, so single-rule baselines don't apply)",
+            "cells": cells,
+        })
+    for row in rows:
+        row["verdict"] = _routing_row_verdict(row["cells"])
+    return rows
+
+
+def _routing_row_verdict(cells: dict[str, Any]) -> tuple[str, str]:
+    router, everything = cells.get("router_picks"), cells.get("all_analyzers")
+    if not router or not everything:
+        return ("warning", "Not enough methods ran to compare.")
+    saved = ""
+    if everything["analyzer_runs"]:
+        share = 1 - router["analyzer_runs"] / everything["analyzer_runs"]
+        saved = f"{_pct(share)} fewer analyzer runs" if share >= 0 else f"{_pct(-share)} more analyzer runs"
+    simple = {ROUTING_LABELS[m]: cells[m]["value"] for m in ("zscore_only", "static_threshold") if cells.get(m)}
+    ahead = [label for label, value in simple.items() if value > router["value"]]
+    tolerance = ROUTING_MATCH_TOLERANCE * abs(everything["value"])
+    if router["value"] > everything["value"] + tolerance:
+        kind, text = "good", "Better than running everything"
+    elif router["value"] >= everything["value"] - tolerance:
+        kind, text = "good", "Matches running everything"
+    else:
+        kind, text = "critical", "Behind running everything"
+    text = f"{text}{f', with {saved}' if saved else ''}."
+    if ahead:
+        kind = "critical" if kind == "critical" else "warning"
+        text += f" {' and '.join(ahead)} {'score' if len(ahead) > 1 else 'scores'} higher than router picks."
+    return (kind, text)
+
+
+def _brief_routing(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    kinds = [row["verdict"][0] for row in rows]
+    matched = sum(1 for row in rows if row["verdict"][1].startswith(("Matches", "Better")))
+    router_runs = sum(row["cells"]["router_picks"]["analyzer_runs"] for row in rows if row["cells"].get("router_picks") and row["cells"].get("all_analyzers"))
+    all_runs = sum(row["cells"]["all_analyzers"]["analyzer_runs"] for row in rows if row["cells"].get("router_picks") and row["cells"].get("all_analyzers"))
+    saving = f"; {_pct(1 - router_runs / all_runs)} fewer analyzer runs overall" if all_runs else ""
+    if all(kind == "good" for kind in kinds):
+        verdict = ("good", "Routing keeps the accuracy of running everything at a fraction of the cost.")
+    elif "critical" in kinds and kinds.count("critical") > len(kinds) / 2:
+        verdict = ("critical", "On most datasets, choosing analyzers loses accuracy against running everything or a simple rule.")
+    else:
+        verdict = ("warning", "Mixed: routing holds up on some datasets and loses accuracy on others; see each row.")
+    return {
+        "suite": ROUTING,
+        "title": SUITE_TITLES[ROUTING],
+        "kind": "Ablation",
+        "tests": "Whether letting the router pick a few analyzers per series is as accurate as running every analyzer, and better than a simple rule, for less compute.",
+        "source": "The same datasets as the other parts of this report, each run four ways: router picks, all analyzers, z-score only and a static threshold.",
+        "truth": "each dataset's own answer key (NAB, UCR and TCPD labels come from outside researchers).",
+        "result": f"Matches or beats running everything on {matched} of {len(rows)} datasets{saving}",
+        "good": "Router picks score about the same as all analyzers (within 2%) with far fewer analyzer runs, and above z-score only and a static threshold.",
+        "verdict": verdict,
+    }
+
+
+def _routing_section(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return ""
+    body = []
+    for row in rows:
+        cells = []
+        for method in ROUTING_METHODS:
+            cell = row["cells"].get(method)
+            if cell is None:
+                cells.append("<td class='muted small'>doesn't apply</td>")
+                continue
+            cost = [f"{cell['analyzer_runs']:,} analyzer runs"] if method != "static_threshold" else ["no analyzer"]
+            if cell.get("seconds") is not None:
+                cost.append(f"{cell['seconds'] / 60:.1f} min" if cell["seconds"] >= 120 else f"{cell['seconds']:.1f} s")
+            cells.append(f"<td{EMPHASIS_CLASS if method == 'router_picks' else ''}>{cell['text']}<div class='small muted'>{' · '.join(cost)}</div></td>")
+        body.append(
+            f"<tr><td><a href='report-{escape(row['suite'])}.html'>{escape(row['dataset'])}</a><div class='small muted'>{escape(row['measure'])}</div></td>"
+            f"{''.join(cells)}<td>{_verdict_pill(row['verdict'])}<div class='small'>{escape(row['verdict'][1])}</div></td></tr>"
+        )
+    head = "".join(f"<th>{escape(ROUTING_LABELS[m])}</th>" for m in ROUTING_METHODS)
+    return f"""
+<section id="routing">
+  <h2>{escape(SUITE_TITLES[ROUTING])}</h2>
+  <p class="section-lede">Ops Signals doesn't run every analyzer on every series: a router profiles each series and runs only the few it
+  expects to fit. That is only worth it if it keeps the accuracy of running everything, and beats a simple rule. Each dataset below was run four ways on
+  exactly the same data, with the same answer key:</p>
+  <ul class="notes">
+    <li><b>{escape(ROUTING_LABELS['router_picks'])}</b>: the product as users get it; the router chooses the analyzers for each series.</li>
+    <li><b>{escape(ROUTING_LABELS['all_analyzers'])}</b>: every enabled analyzer on every series, with the same finding rules and ranking. The "run everything" baseline.</li>
+    <li><b>{escape(ROUTING_LABELS['zscore_only'])}</b>: just the <span class="mono">anomaly_zscore</span> analyzer, the classic single-method approach.</li>
+    <li><b>{escape(ROUTING_LABELS['static_threshold'])}</b>: a fixed alert line learned from data known to be normal, with no analyzer. The most common alerting setup in operations.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Dataset and measure</th>{head}<th>Routing verdict</th></tr></thead>
+    <tbody>{''.join(body)}</tbody>
+  </table></div>
+  <p class="small muted">Higher is better in every row. "Matches" means within {ROUTING_MATCH_TOLERANCE:.0%} of running everything's score.
+  Analyzer runs count one analyzer executed on one series (or on one scheduled run, for NAB's replay); time is wall-clock on this machine, so
+  compare methods within a row, not across runs. Each dataset's own report has the full detail behind its row.</p>
+</section>"""
 
 
 def main() -> None:

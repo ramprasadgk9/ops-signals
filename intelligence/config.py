@@ -38,6 +38,9 @@ class RecommendationExecutionConfig:
     min_score: float = 0.8
     max_analyzers: int = 3
     include_optional: bool = False
+    # Before filling slots by score, give each problem shape the router detected (spikes, level
+    # shifts, seasonality, trend) its best runnable analyzer - see RegistryAnalyzerSelection.
+    cover_detected_profiles: bool = True
 
 
 @dataclass(slots=True)
@@ -138,6 +141,7 @@ def load_config(config_path: str | Path) -> AppConfig:
                 min_score=float(recommendation_execution.get("min_score", 0.8)),
                 max_analyzers=int(recommendation_execution.get("max_analyzers", 3)),
                 include_optional=bool(recommendation_execution.get("include_optional", False)),
+                cover_detected_profiles=bool(recommendation_execution.get("cover_detected_profiles", True)),
             ),
         ),
         output=OutputConfig(**raw["output"]),

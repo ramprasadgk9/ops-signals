@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from benchmark.ucr import data, metrics
-from benchmark.ucr.detector import DISCORD, MAX_JUMP, PRODUCT, estimate_period, run_method
+from benchmark.ucr.detector import ALL_ANALYZERS, DISCORD, MAX_JUMP, PRODUCT, STATIC_THRESHOLD, estimate_period, run_method
 from benchmark.ucr.run import _score, run_tasks
 
 
@@ -113,3 +113,34 @@ def test_worker_pool_runs_every_task(tmp_path) -> None:
 
     assert set(results) == {(path, MAX_JUMP), (path, DISCORD)}
     assert all(result["error"] is None for result in results.values())
+
+
+def test_static_threshold_answers_with_the_point_farthest_outside_the_training_range(tmp_path) -> None:
+    values = np.sin(np.arange(5000) / 10)
+    values[3000] = 1.4
+    values[4000] = 3.0
+    path = _write_series(tmp_path, values, 2000, 4001, 4001)
+
+    result = run_method(str(path), STATIC_THRESHOLD)
+
+    assert result["row"] == 4000
+    assert _score(result, data.load_series(path))["correct"]
+
+
+def test_static_threshold_gives_no_answer_when_the_test_part_stays_in_range(tmp_path) -> None:
+    path = _reversed_cycle(tmp_path)
+
+    assert run_method(str(path), STATIC_THRESHOLD)["row"] is None
+
+
+def test_all_analyzers_runs_more_analyzers_than_the_router_picks(tmp_path) -> None:
+    rng = np.random.default_rng(7)
+    values = rng.normal(0, 1, 3000)
+    values[2500] = 40.0
+    path = _write_series(tmp_path, values, 1000, 2501, 2501)
+
+    router = run_method(str(path), PRODUCT)
+    everything = run_method(str(path), ALL_ANALYZERS)
+
+    assert router["error"] is None and everything["error"] is None
+    assert set(router["executed_analyzers"]) < set(everything["executed_analyzers"])

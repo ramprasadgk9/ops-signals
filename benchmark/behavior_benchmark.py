@@ -19,10 +19,19 @@ from backend.app.models.db import get_engine, get_session_local, init_engine
 from backend.app.models.entities import Base
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from benchmark.router_benchmark import DEFAULT_ANALYZER_REGISTRY_DIR, PROJECT_ROOT
+from backend.app.services.timeseries_routing_service import TimeSeriesRoutingService
 from intelligence.analyzer_registry import AnalyzerRegistrationError, instantiate, load_registrations
+from intelligence.analyzer_selection import RegistryAnalyzerSelection
+from intelligence.analyzers.base import Analyzer
+from intelligence.config import AppConfig
 from intelligence.normalize.normalizer import normalize_timeseries
 
 DEFAULT_BEHAVIOR_DEFINITIONS_DIR = PROJECT_ROOT / "config" / "behavior_definitions.d"
+
+# "all" runs every registered analyzer on every metric. "default" runs only what the router
+# selects for each metric under the provider config's selection mode (recommended_threshold),
+# routing each metric on its own the way a scheduled run does - the mode real users get.
+MODES = ("all", "default")
 
 
 class BehaviorBenchmarkExecutionError(RuntimeError):
@@ -39,6 +48,8 @@ class BehaviorEvaluation:
     incorrectly_matched: list[str]
     matched_findings: list[dict[str, Any]] = field(default_factory=list)
     execution_error: str | None = None
+    mode: str = "all"
+    analyzers_by_metric: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -55,15 +66,42 @@ def load_scenario_dataframe(scenario_dir: Path) -> pd.DataFrame:
     return dataframe
 
 
+class _RouterSelection(RegistryAnalyzerSelection):
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+
+
+def _all_analyzers() -> list[Analyzer]:
+    analyzers = []
+    for registration in load_registrations(DEFAULT_ANALYZER_REGISTRY_DIR):
+        try:
+            analyzers.append(instantiate(registration))
+        except AnalyzerRegistrationError:
+            continue
+    return analyzers
+
+
+def _router_selected_analyzers(metric_frame: pd.DataFrame, config: AppConfig) -> list[Analyzer]:
+    try:
+        routing = TimeSeriesRoutingService().route_normalized(metric_frame).analyzer_routing
+    except ValueError as exc:
+        raise BehaviorBenchmarkExecutionError(str(exc)) from exc
+    return _RouterSelection(config)._build_analyzers(routing)
+
+
 def run_behavior_evaluation(
     scenario_dir: Path,
     *,
+    mode: str = "all",
     service_name: str = "benchmark-behavior",
     analysis_run_id: str = "behavior-benchmark-run",
-) -> list:
-    """Normalizes the scenario's (possibly multi-metric) CSV, runs every real analyzer against it,
-    and hands all resulting signals to the real BehaviorIntelligenceService - the same shared
-    evaluate() production code uses, not a mock."""
+) -> tuple[list, dict[str, list[str]]]:
+    """Normalizes the scenario's (possibly multi-metric) CSV, runs the real analyzers against each
+    metric (every one in "all" mode, the router's picks in "default" mode), and hands all resulting
+    signals to the real BehaviorIntelligenceService - the same shared evaluate() production code
+    uses, not a mock. Returns the findings and which analyzers ran on each metric."""
+    if mode not in MODES:
+        raise BehaviorBenchmarkExecutionError(f"Unknown mode {mode!r}; expected one of {MODES}")
     dataframe = load_scenario_dataframe(scenario_dir)
     config = build_csv_routing_config(
         provider="prometheus",
@@ -83,19 +121,20 @@ def run_behavior_evaluation(
     normalized["service"] = service_name
 
     all_signals = []
-    for registration in load_registrations(DEFAULT_ANALYZER_REGISTRY_DIR):
-        try:
-            analyzer = instantiate(registration)
-        except AnalyzerRegistrationError:
-            continue
-        try:
-            signals = analyzer.analyze(normalized)
-        except Exception:
-            continue
-        for signal in signals:
-            signal.service = service_name
-            signal.analysis_run_id = analysis_run_id
-        all_signals.extend(signals)
+    analyzers_by_metric: dict[str, list[str]] = {}
+    for metric_name, metric_frame in normalized.groupby("metric_name"):
+        metric_frame = metric_frame.reset_index(drop=True)
+        analyzers = _all_analyzers() if mode == "all" else _router_selected_analyzers(metric_frame, config)
+        analyzers_by_metric[str(metric_name)] = sorted(analyzer.analyzer_id for analyzer in analyzers)
+        for analyzer in analyzers:
+            try:
+                signals = analyzer.analyze(metric_frame)
+            except Exception:
+                continue
+            for signal in signals:
+                signal.service = service_name
+                signal.analysis_run_id = analysis_run_id
+            all_signals.extend(signals)
 
     signal_dicts = [asdict(signal) for signal in all_signals]
 
@@ -104,7 +143,7 @@ def run_behavior_evaluation(
     db = get_session_local()()
     try:
         behavior_service = BehaviorIntelligenceService(DEFAULT_BEHAVIOR_DEFINITIONS_DIR)
-        return behavior_service.evaluate(signal_dicts, db)
+        return behavior_service.evaluate(signal_dicts, db), analyzers_by_metric
     finally:
         db.close()
 
@@ -136,7 +175,7 @@ def evaluate_behavior_output(scenario_id: str, expected_behavior: dict[str, Any]
     )
 
 
-def run_benchmark(scenario_dir: Path, *, reports_dir: Path | None = None) -> BehaviorEvaluation:
+def run_benchmark(scenario_dir: Path, *, mode: str = "all", reports_dir: Path | None = None) -> BehaviorEvaluation:
     scenario_dir = scenario_dir.resolve()
     ground_truth_path = scenario_dir / "ground_truth.yaml"
     if not ground_truth_path.exists():
@@ -149,8 +188,9 @@ def run_benchmark(scenario_dir: Path, *, reports_dir: Path | None = None) -> Beh
 
     scenario_id = str(ground_truth.get("scenario", {}).get("id") or scenario_dir.name)
     try:
-        findings = run_behavior_evaluation(scenario_dir)
+        findings, analyzers_by_metric = run_behavior_evaluation(scenario_dir, mode=mode)
         evaluation = evaluate_behavior_output(scenario_id, expected_behavior, findings)
+        evaluation.analyzers_by_metric = analyzers_by_metric
     except BehaviorBenchmarkExecutionError as exc:
         evaluation = BehaviorEvaluation(
             scenario_id=scenario_id,
@@ -161,6 +201,7 @@ def run_benchmark(scenario_dir: Path, *, reports_dir: Path | None = None) -> Beh
             incorrectly_matched=[],
             execution_error=str(exc),
         )
+    evaluation.mode = mode
 
     write_report(evaluation, reports_dir=reports_dir)
     return evaluation
@@ -169,8 +210,9 @@ def run_benchmark(scenario_dir: Path, *, reports_dir: Path | None = None) -> Beh
 def write_report(evaluation: BehaviorEvaluation, *, reports_dir: Path | None = None) -> None:
     reports_dir = reports_dir or (PROJECT_ROOT / "benchmark" / "reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
-    json_path = reports_dir / f"{evaluation.scenario_id}_behavior.json"
-    markdown_path = reports_dir / f"{evaluation.scenario_id}_behavior.md"
+    suffix = "_behavior" if evaluation.mode == "all" else f"_behavior_{evaluation.mode}"
+    json_path = reports_dir / f"{evaluation.scenario_id}{suffix}.json"
+    markdown_path = reports_dir / f"{evaluation.scenario_id}{suffix}.md"
 
     payload = asdict(evaluation)
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=_json_default) + "\n", encoding="utf-8")
@@ -179,6 +221,7 @@ def write_report(evaluation: BehaviorEvaluation, *, reports_dir: Path | None = N
         f"# Behavior Benchmark Report: {evaluation.scenario_id}",
         "",
         f"- Status: `{evaluation.status}`",
+        f"- Mode: `{evaluation.mode}`",
         f"- Matched definitions: `{evaluation.matched_definition_ids}`",
         "",
         "## Checks",
@@ -192,6 +235,9 @@ def write_report(evaluation: BehaviorEvaluation, *, reports_dir: Path | None = N
         lines.extend(["", f"Incorrectly matched (forbidden) behaviors: `{evaluation.incorrectly_matched}`"])
     if evaluation.execution_error:
         lines.extend(["", f"Execution error: `{evaluation.execution_error}`"])
+    if evaluation.analyzers_by_metric:
+        lines.extend(["", "## Analyzers run", ""])
+        lines.extend(f"- `{metric}`: `{analyzers}`" for metric, analyzers in evaluation.analyzers_by_metric.items())
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -206,12 +252,13 @@ def _json_default(value: Any) -> Any:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Ops Signals Behavior Intelligence benchmarks")
     parser.add_argument("--scenario", required=True, help="Path to benchmark scenario directory")
+    parser.add_argument("--mode", choices=MODES, default="all", help="Which analyzers run: every one, or the router's default picks.")
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    evaluation = run_benchmark(Path(args.scenario))
+    evaluation = run_benchmark(Path(args.scenario), mode=args.mode)
     print(json.dumps(asdict(evaluation), indent=2, sort_keys=True, default=_json_default))
     if evaluation.status != "PASS":
         raise SystemExit(1)

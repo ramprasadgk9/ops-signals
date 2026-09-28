@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 
 from benchmark.nab.fetch import NAB_COMMIT, ensure_nab
-from benchmark.nab.run import DETECTOR_NAMES
+from benchmark.nab.run import BASELINE_DETECTOR_NAMES, DETECTOR_NAMES
 from benchmark.router_benchmark import PROJECT_ROOT
 from benchmark.report_html import write_report
 
@@ -49,7 +49,7 @@ def score_snapshot(snapshot: Path, python: Path = NAB_VENV_PYTHON) -> Path:
         raise OfficialScoreError(f"No scorer environment at {python}; see this module's docstring for setup")
 
     nab_dir = ensure_nab()
-    detectors = list(DETECTOR_NAMES.values())
+    detectors = [name for name in (*DETECTOR_NAMES.values(), *BASELINE_DETECTOR_NAMES.values()) if (staged / name).is_dir()]
     out_dir = snapshot / OFFICIAL_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "published_final_results.json").write_text(

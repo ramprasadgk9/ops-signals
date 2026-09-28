@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from benchmark.behavior_benchmark import BehaviorBenchmarkExecutionError, BehaviorEvaluation, run_benchmark
+from benchmark.behavior_benchmark import MODES, BehaviorBenchmarkExecutionError, BehaviorEvaluation, run_benchmark
 from benchmark.router_benchmark import PROJECT_ROOT
 
 
@@ -21,8 +21,8 @@ def _is_behavior_scenario(scenario_dir: Path) -> bool:
     return isinstance(ground_truth, dict) and "expected_behavior_findings" in ground_truth
 
 
-def run_suite(scenarios_root: Path) -> list[BehaviorEvaluation]:
-    return [run_benchmark(scenario_dir) for scenario_dir in discover_scenarios(scenarios_root)]
+def run_suite(scenarios_root: Path, *, mode: str = "all") -> list[BehaviorEvaluation]:
+    return [run_benchmark(scenario_dir, mode=mode) for scenario_dir in discover_scenarios(scenarios_root)]
 
 
 def print_summary(evaluations: list[BehaviorEvaluation]) -> None:
@@ -54,6 +54,8 @@ def print_failure_diagnostics(evaluations: list[BehaviorEvaluation]) -> None:
         if evaluation.incorrectly_matched:
             print(f"Incorrectly matched (forbidden) behaviors: {', '.join(evaluation.incorrectly_matched)}")
         print(f"Actually matched: {', '.join(evaluation.matched_definition_ids) or 'none'}")
+        for metric_name, analyzers in evaluation.analyzers_by_metric.items():
+            print(f"Analyzers run on {metric_name}: {', '.join(analyzers) or 'none'}")
 
 
 def exit_code(evaluations: list[BehaviorEvaluation]) -> int:
@@ -71,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(PROJECT_ROOT / "benchmark" / "scenarios"),
         help="Directory containing scenario subdirectories.",
     )
+    parser.add_argument("--mode", choices=MODES, default="all", help="Which analyzers run: every one, or the router's default picks.")
     return parser
 
 
@@ -80,10 +83,11 @@ def main() -> None:
     if not scenarios_root.exists():
         raise SystemExit(2)
     try:
-        evaluations = run_suite(scenarios_root)
+        evaluations = run_suite(scenarios_root, mode=args.mode)
     except BehaviorBenchmarkExecutionError as exc:
         print(f"Benchmark configuration error: {exc}")
         raise SystemExit(2) from exc
+    print(f"Mode: {args.mode}")
     print_summary(evaluations)
     print_failure_diagnostics(evaluations)
     raise SystemExit(exit_code(evaluations))

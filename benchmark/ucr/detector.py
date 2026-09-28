@@ -3,9 +3,11 @@
 UCR tells every method there is exactly one anomaly, after the training part, and scores one
 location per series. The methods:
 
-- product: the production pipeline (generic provider), with the router choosing the analyzers,
-  exactly as a CSV upload runs. The answer is the top-ranked localized finding after the training
-  part, ranked by importance score, the order a user sees findings in.
+- product (Ops Signals, router picks): the production pipeline (generic provider), with the router
+  choosing the analyzers, exactly as a CSV upload runs. The answer is the top-ranked localized
+  finding after the training part, ranked by importance score, the order a user sees findings in.
+- all_analyzers (Ops Signals, all analyzers): the same pipeline and ranking with every enabled
+  analyzer, whatever the router would decide - the "run everything" baseline.
 - anomaly_zscore, pyod_outlier, seasonal_anomaly: one analyzer with its production configuration,
   run on every series whatever the router would decide. The answer is its most confident localized
   signal after the training part. This measures each detector without routing.
@@ -13,6 +15,9 @@ location per series. The methods:
   test subsequence is compared with every training subsequence (the training part is guaranteed
   normal), and the answer is the centre of the test subsequence farthest from its nearest training
   neighbour. The window is one period, estimated from the training part's autocorrelation.
+- static_threshold (baseline): the alert line is the training part's lowest and highest value (the
+  training part is guaranteed normal). The answer is the test point farthest outside that range;
+  no answer when the test part never leaves it.
 - max_jump (trivial baseline): the largest point-to-point jump in the test part. Wu & Keogh
   argue a good benchmark should defeat one-liners like this, so it shows how much of the archive
   is that easy.
@@ -37,6 +42,7 @@ import numpy as np
 import pandas as pd
 
 from benchmark import harness
+from benchmark.methods import ALL_ANALYZERS, ROUTER_PICKS, STATIC_THRESHOLD
 from benchmark.router_benchmark import _instantiate_analyzer
 from benchmark.ucr.data import UcrSeries, load_series
 from intelligence.normalize.normalizer import normalize_timeseries
@@ -45,7 +51,8 @@ METRIC_NAME = "ucr_series"
 INTERVAL_MINUTES = 1
 DIRECT_ANALYZERS = ("anomaly_zscore", "pyod_outlier", "seasonal_anomaly")
 PRODUCT, DISCORD, MAX_JUMP = "product", "discord", "max_jump"
-METHODS = (PRODUCT, *DIRECT_ANALYZERS, DISCORD, MAX_JUMP)
+METHODS = (PRODUCT, ALL_ANALYZERS, *DIRECT_ANALYZERS, STATIC_THRESHOLD, DISCORD, MAX_JUMP)
+PIPELINE_METHODS = {PRODUCT: ROUTER_PICKS, ALL_ANALYZERS: ALL_ANALYZERS}
 WHOLE_SERIES_FRACTION = 0.5
 TOP_CANDIDATES = 5
 
@@ -67,16 +74,19 @@ def series_frame(series: UcrSeries) -> pd.DataFrame:
 def run_method(path: str, method: str) -> dict[str, Any]:
     """One method on one series. Never raises: a failure is recorded and scores as no answer."""
     logging.disable(logging.WARNING)
+    harness.warm_up()
     series = load_series(Path(path))
     started = time.perf_counter()
     result: dict[str, Any] = {"method": method, "row": None, "error": None}
     try:
-        if method == PRODUCT:
-            result.update(_product(series))
+        if method in PIPELINE_METHODS:
+            result.update(_product(series, PIPELINE_METHODS[method]))
         elif method in DIRECT_ANALYZERS:
             result.update(_direct(series, method))
         elif method == DISCORD:
             result.update(_discord(series))
+        elif method == STATIC_THRESHOLD:
+            result.update(_static_threshold(series))
         elif method == MAX_JUMP:
             result.update(_max_jump(series))
         else:
@@ -87,9 +97,9 @@ def run_method(path: str, method: str) -> dict[str, Any]:
     return result
 
 
-def _product(series: UcrSeries) -> dict[str, Any]:
+def _product(series: UcrSeries, analyzers: str = ROUTER_PICKS) -> dict[str, Any]:
     frame = series_frame(series)
-    pipeline = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME)
+    pipeline = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME, analyzers)
     result = pipeline.run_dataframe(frame)
     candidates = _candidates(result.signals, frame, series.train_end)
     candidates.sort(key=lambda c: (-c["importance"], -c["confidence"], c["row"]))
@@ -131,6 +141,15 @@ def _discord(series: UcrSeries) -> dict[str, Any]:
     distances[~np.isfinite(distances)] = -np.inf
     start = int(np.argmax(distances))
     return {"row": train_end + start + window // 2, "window": window, "discord_distance": round(float(distances[start]), 6)}
+
+
+def _static_threshold(series: UcrSeries) -> dict[str, Any]:
+    train, test = series.values[: series.train_end], series.values[series.train_end :]
+    low, high = float(np.nanmin(train)), float(np.nanmax(train))
+    excess = np.maximum(test - high, low - test)
+    if not len(excess) or not np.nanmax(excess) > 0:
+        return {"row": None, "low": low, "high": high}
+    return {"row": series.train_end + int(np.nanargmax(excess)), "low": low, "high": high}
 
 
 def _max_jump(series: UcrSeries) -> dict[str, Any]:

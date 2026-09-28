@@ -110,6 +110,9 @@ analyzers:
     display_name: Prophet
     enabled: true
     class_path: intelligence.analyzers.prophet.ProphetAnalyzer
+    # Optional dependency. Without it ProphetAnalyzer falls back to a straight-line fit, so the
+    # router's Prophet score doesn't describe what runs and it doesn't get a router slot.
+    requires_library: prophet
     runtime_params:
       horizon_points: 10
       changepoint_prior_scale: 0.05

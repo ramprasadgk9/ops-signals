@@ -20,6 +20,7 @@ behavior_definitions:
         metric_name: error_rate
         analyzers:
           - anomaly_zscore
+          - pyod_outlier
     conditions:
       all:
         - fact: errors.anomaly.present
