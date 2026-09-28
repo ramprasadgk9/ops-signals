@@ -277,6 +277,48 @@ def test_error_rate_parked_at_its_floor_while_load_is_low_is_not_a_flatline() ->
     assert _signals(_normalized(error_rate, metric="error_rate")) == []
 
 
+def test_busy_count_that_drops_to_zero_for_hours_is_a_flatline_despite_stray_zeros() -> None:
+    # Like NAB's tweet-volume series during a collector outage: normally dozens per interval, a
+    # few isolated zeros, then two hours of exact zeros. The stray zeros don't make 0 its floor.
+    counts = np.random.default_rng(12).poisson(50, len(INDEX)).astype(float)
+    counts[[30, 200, 250]] = 0.0
+    counts[120:146] = 0.0
+
+    [signal] = _signals(_normalized(counts, metric="tweets"))
+
+    assert signal.signal_type == "flatline"
+    assert signal.evidence["stuck_value"] == 0.0
+    assert signal.evidence["identical_points"] == 26
+    assert "The source may have stopped sending, or activity really stopped." in signal.summary
+
+
+def test_count_whose_zero_runs_are_normal_is_not_reported_known_blind_spot() -> None:
+    # A low-volume count that often sits at 0 for a while: an outage here looks like a quiet
+    # period, so it goes unreported. Accepted - see DataHealthAnalyzer's known blind spots.
+    counts = np.random.default_rng(13).poisson(40, len(INDEX)).astype(float)
+    counts[20:50] = 0.0
+    counts[90:118] = 0.0
+    counts[200:226] = 0.0
+
+    assert _signals(_normalized(counts, metric="orders")) == []
+
+
+def test_busy_error_rate_that_drops_to_exactly_zero_for_hours_is_reported_known_blind_spot() -> None:
+    # The same quiet stretch as the error rate parked at its floor above, but with a floor of
+    # exactly 0: the data can't tell "errors stopped" from "source stopped", so it is reported.
+    # Accepted - see DataHealthAnalyzer's known blind spots.
+    rng = np.random.default_rng(9)
+    cpu = 0.80 + rng.normal(0, 0.03, len(INDEX))
+    cpu[60:180] = 0.60
+    cpu[[20, 21, 220, 221, 260]] = 0.65
+    error_rate = np.round(np.clip(np.maximum(cpu - 0.72, 0.0) * 0.22, 0.0, 0.35), 5)
+
+    [signal] = _signals(_normalized(error_rate, metric="error_rate"))
+
+    assert signal.signal_type == "flatline"
+    assert signal.evidence["stuck_value"] == 0.0
+
+
 def test_rate_that_only_jitters_around_a_constant_is_not_a_flatline() -> None:
     # rate() of a counter that ticks once per scrape: constant apart from float jitter, with
     # occasional stretches where the jitter happens to pause.
