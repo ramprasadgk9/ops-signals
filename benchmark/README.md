@@ -71,6 +71,16 @@ within 2% of its score. NAB-format files for each baseline (`opsSignalsAllAnalyz
 `staticThreshold`) are written next to the product's, so `benchmark.nab.official_score` grades them
 with NAB's own scorer as well.
 
+To see what a change did, compare two snapshots on one page (nothing is rerun):
+
+```bash
+.venv/bin/python -m benchmark.report_compare benchmark/results/<before run> benchmark/results/<after run>
+```
+
+It writes `compare-<before run>.html` into the after snapshot: router picks before and after on
+every dataset next to the other methods, a check that the other methods scored the same in both
+runs (so the change is the only difference), cost, and which series changed.
+
 ## Source datasets
 
 Raw TSBS exports (one host, one CPU series, 5-minute resolution):
