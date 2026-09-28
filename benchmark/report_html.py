@@ -67,8 +67,10 @@ SUITE_TITLES = {
     "tcpd": "Turing Change Point Dataset (TCPD)",
     "ucr": "UCR Time Series Anomaly Archive",
     "smd": "Server Machine Dataset (SMD)",
+    "analyzers": "Analyzer checks on own scenarios",
     "performance": "Performance and scale",
     "routing": "Does routing help? Router picks vs running everything",
+    "scorecard": "Router choices and analyzer scorecard",
 }
 
 
@@ -78,6 +80,11 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
     is the cross-suite comparison of router picks with every baseline."""
     suites = results.get("suites", {})
     routing_rows = routing_comparison(suites, official_nab)
+    if suite == SCORECARD:
+        manifest = results.get("manifest", {})
+        body = [_header(results, suite=suite), _at_a_glance(results, official_nab, suite), _scorecard_section(results),
+                _reproduce_section(results, manifest)]
+        return _document(f"Ops Signals Benchmark · {SUITE_TITLES[SCORECARD]} · {results.get('run_id', '')}", "\n".join(body))
     if suite == ROUTING:
         manifest = results.get("manifest", {})
         body = [_header(results, suite=suite), _at_a_glance(results, official_nab, suite), _routing_section(routing_rows),
@@ -90,6 +97,7 @@ def render(results: dict[str, Any], official_nab: dict[str, Any] | None = None, 
     body = [_header(results, suite=suite), _at_a_glance(results, official_nab, suite), _summary(results)]
     if suite is None:
         body.append(_scope(suites, official_nab is not None))
+        body.append(_scorecard_section(results))
         body.append(_routing_section(routing_rows))
     if "router" in suites:
         body.append(_router_section(suites["router"]))
@@ -125,6 +133,8 @@ def write_report(results_path: Path, output_path: Path | None = None) -> Path:
         suite_path.write_text(render(results, official, suite=suite), encoding="utf-8")
     if routing_comparison(results.get("suites", {}), official):
         output_path.with_name(f"{output_path.stem}-{ROUTING}.html").write_text(render(results, official, suite=ROUTING), encoding="utf-8")
+    if _has_scorecard(results.get("suites", {})):
+        output_path.with_name(f"{output_path.stem}-{SCORECARD}.html").write_text(render(results, official, suite=SCORECARD), encoding="utf-8")
     output_path.with_name("index.html").write_text(render_index(results, official, stem=output_path.stem), encoding="utf-8")
     return output_path
 
@@ -166,12 +176,17 @@ def _at_a_glance(results: dict[str, Any], official_nab: dict[str, Any] | None, s
     answer key come from, what we got, and what a good result looks like on that suite's scale."""
     suites = results.get("suites", {})
     routing = _brief_routing(routing_comparison(suites, official_nab)) if suite in (None, ROUTING) else None
+    scorecard = _brief_scorecard(suites) if suite in (None, SCORECARD) else None
     if suite == ROUTING:
         briefs = [routing] if routing else []
+    elif suite == SCORECARD:
+        briefs = [scorecard] if scorecard else []
     else:
         briefs = [brief for name in SUITE_ORDER if name in suites for brief in [_brief(name, suites[name], official_nab)] if brief]
         if routing:
             briefs.insert(0, routing)
+        if scorecard:
+            briefs.insert(0, scorecard)
     if not briefs:
         return ""
     if suite is not None:
@@ -203,12 +218,14 @@ def _at_a_glance(results: dict[str, Any], official_nab: dict[str, Any] | None, s
         for b in briefs
     )
     own = sum(1 for b in briefs if b["kind"] == "Own test")
+    cross = sum(1 for b in briefs if b["kind"] in ("Ablation", "Scorecard"))
     external = sum(1 for b in briefs if b["kind"] == "Public benchmark")
-    ablation = " The first row compares, across those datasets, the product's router with running every analyzer and with simple baselines." if routing else ""
+    ablation = (" The first rows look across those datasets: whether the router picks the right analyzers and each analyzer is good at its "
+                "job, and whether routing does as well as running every analyzer or a simple rule.") if (routing or scorecard) else ""
     return f"""
 <section class="glance" aria-label="At a glance">
   <h2>At a glance</h2>
-  <p class="section-lede">This report measures how well Ops Signals finds real problems in metric data. It has {len(briefs) - (1 if routing else 0)} parts:
+  <p class="section-lede">This report measures how well Ops Signals finds real problems in metric data. It has {len(briefs) - cross} parts:
   {own} own test{'s' if own != 1 else ''} with answer keys written by this project (they catch regressions but aren't independent evidence) and
   {external} public benchmark{'s' if external != 1 else ''} whose data and labels come from outside researchers, compared with published methods
   where they exist.{ablation} Each row below says what was tested, who decided the right answers, what we got, and what a good score is on that scale.
@@ -511,6 +528,8 @@ SUITE_GUIDE = {
     "tcpd": ("Does it find the moment a metric's behavior changed, compared with published methods?", ("Public benchmark", "Real data", "Change points", "Human labels")),
     "ucr": ("Can it pinpoint the one anomaly hidden in a long recording?", ("Public benchmark", "250 series", "Find the anomaly", "Shape changes")),
     "smd": ("Does it catch real incidents on production servers, and point at the metrics involved?", ("Public benchmark", "28 servers", "38 metrics each", "Which metrics")),
+    "scorecard": ("Does the router pick the right analyzers, and is each analyzer good at its job?", ("Router choices", "Per analyzer", "All datasets", "What users see")),
+    "analyzers": ("Does each analyzer report its own kind of problem, and stay quiet on healthy data?", ("Own test", "Per analyzer", "Healthy control")),
     "routing": ("Does picking analyzers per series beat running everything, or a simple rule?", ("Ablation", "All datasets", "Accuracy", "Cost")),
 }
 
@@ -539,9 +558,10 @@ def render_index(results: dict[str, Any], official_nab: dict[str, Any] | None = 
     git = manifest.get("git", {})
     cards = []
     routing_brief = _brief_routing(routing_comparison(suites, official_nab))
+    scorecard_brief = _brief_scorecard(suites)
     names = [n for n in SUITE_ORDER if n in suites] + [n for n in suites if n not in SUITE_ORDER]
-    for name in ([ROUTING] if routing_brief else []) + names:
-        brief = routing_brief if name == ROUTING else _brief(name, suites[name], official_nab)
+    for name in ([SCORECARD] if scorecard_brief else []) + ([ROUTING] if routing_brief else []) + names:
+        brief = {ROUTING: routing_brief, SCORECARD: scorecard_brief}.get(name) or (_brief(name, suites[name], official_nab) if name in suites else None)
         question, tags = SUITE_GUIDE.get(name, ("", ()))
         href = f"{stem}-{name}.html"
         result = f"<p class='index-result'>{brief['result']}</p><p class='small'>{_verdict_pill(brief['verdict'])} {brief['verdict'][1]}</p>" if brief else ""
@@ -617,6 +637,8 @@ def _suite_links(results: dict[str, Any], suite: str | None) -> str:
     if suite is None:
         if routing_comparison(results.get("suites", {})):
             names = [ROUTING, *names]
+        if _has_scorecard(results.get("suites", {})):
+            names = [SCORECARD, *names]
         links = " · ".join(f"<a href='report-{escape(name)}.html'>{escape(SUITE_TITLES.get(name, name))}</a>" for name in names)
         return f"<p class='suite-links small'>{start} · Per-suite reports: {links}</p>"
     return f"<p class='suite-links small'>{start} · <a href='report.html'>Full report (every suite in this run)</a></p>"
@@ -2418,6 +2440,158 @@ def _routing_section(rows: list[dict[str, Any]]) -> str:
   <p class="small muted">Higher is better in every row. "Matches" means within {ROUTING_MATCH_TOLERANCE:.0%} of running everything's score.
   Analyzer runs count one analyzer executed on one series (or on one scheduled run, for NAB's replay); time is wall-clock on this machine, so
   compare methods within a row, not across runs. Each dataset's own report has the full detail behind its row.</p>
+</section>"""
+
+
+
+# --- router choices and analyzer scorecard ---------------------------------------------------
+
+SCORECARD = "scorecard"
+MISSES_SHOWN = 25
+
+
+def _has_scorecard(suites: dict[str, Any]) -> bool:
+    from benchmark.scorecard import analyzer_scorecard, router_choices
+
+    return bool(router_choices(suites)) or any(row["verdict"] != "not graded" for row in analyzer_scorecard(suites))
+
+
+def _brief_scorecard(suites: dict[str, Any]) -> dict[str, Any] | None:
+    from benchmark.scorecard import ROUTER_BAR, analyzer_scorecard, router_choices
+
+    if not _has_scorecard(suites):
+        return None
+    choices = router_choices(suites)
+    cards = analyzer_scorecard(suites)
+    kind_ok = sum(1 for row in choices if row["right_kind"]["meets_bar"])
+    worked_rows = [row for row in choices if row["worked"]["total"]]
+    worked_ok = sum(1 for row in worked_rows if row["worked"]["meets_bar"])
+    graded = [row for row in cards if row["verdict"] != "not graded"]
+    good = [row["analyzer"] for row in graded if row["verdict"] == "good"]
+    weak = [row["analyzer"] for row in graded if row["verdict"] == "weak"]
+    if choices and kind_ok == len(choices) and worked_ok == len(worked_rows) and not weak:
+        verdict = ("good", "The router picks well on every dataset, and every graded analyzer meets its bar.")
+    elif not choices or kind_ok >= len(choices) / 2:
+        verdict = ("warning", "Partly there: see which datasets fall below the router bar and which analyzers are weak.")
+    else:
+        verdict = ("critical", "The router misses the right analyzers on most datasets.")
+    return {
+        "suite": SCORECARD,
+        "title": SUITE_TITLES[SCORECARD],
+        "kind": "Scorecard",
+        "tests": "Two questions: does the router send each case to the right analyzers, and is each analyzer good at the job it's built for?",
+        "source": "Every public dataset in this run (NAB, UCR, TCPD, SMD) plus our own scenarios for analyzers no public dataset can grade.",
+        "truth": "each dataset's own answer key; only what a user would actually see (findings) counts.",
+        "result": (f"Router picked the right kind of analyzer on {kind_ok} of {len(choices)} datasets and one that worked on {worked_ok} of "
+                   f"{len(worked_rows)} (bar {ROUTER_BAR:.0%}); analyzers good: {', '.join(good) or 'none'}; weak: {', '.join(weak) or 'none'}"),
+        "good": f"The router meets the {ROUTER_BAR:.0%} bar on both measures everywhere, and every analyzer meets its own bar - good, not perfect.",
+        "verdict": verdict,
+    }
+
+
+def _scorecard_section(results: dict[str, Any]) -> str:
+    from benchmark.scorecard import CHANGE_ANALYZERS, ANOMALY_ANALYZERS, PUBLISHED_MARGIN, ROUTER_BAR, analyzer_scorecard, own_router_scenarios, router_choices
+
+    suites = results.get("suites", {})
+    if not _has_scorecard(suites):
+        return ""
+    sample = (results.get("manifest") or {}).get("sample")
+    banner = (f"<div class='callout callout-warning'><b>Sample run ({escape(sample)}):</b> a fixed subset of NAB, UCR and SMD "
+              "(benchmark/samples.py). Good for a quick read; final evidence comes from a full run.</div>") if sample else ""
+
+    def rate(r: dict[str, Any]) -> str:
+        if not r["total"]:
+            return "<span class='muted'>-</span>"
+        pill = "good" if r["meets_bar"] else "critical"
+        return f"<span class='tile-{pill}'>{r['hits']} of {r['total']} ({_pct(r['share'])})</span>"
+
+    choices = router_choices(suites)
+    choice_rows = "".join(
+        f"<tr><td><b>{escape(row['dataset'])}</b><div class='small muted'>needs a {escape(row['kind'])} detector</div></td>"
+        f"<td class='num'>{rate(row['right_kind'])}<div class='small muted'>{escape(row['kind_unit'])}</div></td>"
+        f"<td class='num'>{rate(row['worked'])}<div class='small muted'>{escape(row['unit'])} some analyzer solved</div></td>"
+        f"<td class='num'>{row['nobody_could']}</td></tr>"
+        for row in choices
+    )
+    misses = []
+    for row in choices:
+        items = "".join(
+            f"<tr><td class='mono small'>{escape(c['id'])}</td><td class='mono small'>{escape(', '.join(c['capable']))}</td>"
+            f"<td class='mono small'>{escape(', '.join(a for a in c['ran'] if a != 'data_health') or 'no detector')}</td></tr>"
+            for c in row["misses"][:MISSES_SHOWN]
+        )
+        if items:
+            more = f"<p class='small muted'>Showing {MISSES_SHOWN} of {len(row['misses'])}.</p>" if len(row["misses"]) > MISSES_SHOWN else ""
+            misses.append(f"""<details class="card scenario"><summary><span class="summary-title">{escape(row['dataset'])}: {len(row['misses'])} case(s) where an analyzer could solve it but the router didn't pick one</span></summary>
+<div class="card-body"><div class="table-wrap scroll-y"><table><thead><tr><th>Case</th><th>Analyzers that solved it on their own</th><th>Router ran</th></tr></thead><tbody>{items}</tbody></table></div>{more}</div></details>""")
+    own = own_router_scenarios(suites)
+    own_line = ""
+    if own:
+        router_only = sorted(set(own["router_only"]))
+        own_line = (f"<p class='small'><b>Our own router scenarios, counting only analyzers that can run:</b> {own['runnable_passed']} of "
+                    f"{own['runnable']} pass. The other {own['total'] - own['runnable']} scenarios require an analyzer that exists only as a router "
+                    f"recommendation ({escape(', '.join(router_only))}), so they don't show that the router picks working analyzers.</p>")
+
+    cards = analyzer_scorecard(suites)
+    columns = [("nab", "NAB"), ("ucr", "UCR"), ("smd", "SMD"), ("tcpd", "TCPD"), ("own", "Own scenarios")]
+    card_rows = []
+    for row in cards:
+        cells = []
+        for key, _ in columns:
+            if key not in row["cells"]:
+                cells.append("<td class='muted small'>not its job</td>")
+                continue
+            cell = row["cells"][key]
+            if cell is None:
+                cells.append("<td class='muted small'>not in this run</td>")
+                continue
+            mark = "<span class='tile-good'>✓</span>" if cell["good"] else "<span class='tile-critical'>✕</span>"
+            cells.append(f"<td>{mark} {escape(cell['text'])}<div class='small muted'>{escape(cell['detail'])}</div></td>")
+        verdict = {"good": ("good", "Good"), "weak": ("critical", "Weak"), "not graded": ("warning", "Not graded")}[row["verdict"]]
+        card_rows.append(
+            f"<tr><td><b class='mono'>{escape(row['analyzer'])}</b><div class='small muted'>{escape(row['built_for'])}</div></td>"
+            f"{''.join(cells)}<td><span class='pill pill-{verdict[0]}'>{verdict[1]}</span></td></tr>"
+        )
+    head = "".join(f"<th>{label}</th>" for _, label in columns)
+    return f"""
+<section id="scorecard">
+  <h2>{escape(SUITE_TITLES[SCORECARD])}</h2>
+  {banner}
+  <p class="section-lede">Two questions about the part of Ops Signals that chooses and runs detectors. Only what a user would actually see
+  counts: an analyzer's own finding rules drop weak hunches before anything is shown, so those count as neither catches nor false alarms.</p>
+
+  <h3 class="sub">1. Did the router pick the right analyzers?</h3>
+  <p class="small">Judged case by case against two measures, with a bar of {ROUTER_BAR:.0%}:
+  <b>right kind</b> - an anomaly dataset needs an anomaly detector ({escape(', '.join(ANOMALY_ANALYZERS))}) among the router's picks, a change
+  dataset a change detector ({escape(', '.join(CHANGE_ANALYZERS))}); extra picks are fine. <b>One that worked</b> - where some analyzer, on its own,
+  found the problem, did the router pick one of those? When no analyzer could, that's not the router's fault and it's counted separately.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Dataset</th><th class="num">Right kind picked</th><th class="num">Picked one that worked</th><th class="num">Cases no analyzer solved</th></tr></thead>
+    <tbody>{choice_rows}</tbody>
+  </table></div>
+  {own_line}
+  {''.join(misses)}
+
+  <h3 class="sub">2. Is each analyzer good at what it's built for?</h3>
+  <p class="small">Each analyzer is graded only on its own kind of problem, against bars fixed before any result was seen. <b>Anomaly
+  detectors</b>: catch at least as many incidents as the static threshold, with no more false alerts (UCR: locate at least as many).
+  <b>Change detectors</b>: F1 above never predicting a change, and within {PUBLISHED_MARGIN} of the best published method. <b>Own
+  scenarios</b>: report the problem in every target case and nothing on healthy data. "Not its job" means that dataset doesn't test what
+  the analyzer is built for.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Analyzer</th>{head}<th>Verdict</th></tr></thead>
+    <tbody>{''.join(card_rows)}</tbody>
+  </table></div>
+
+  <h3 class="sub">Notes</h3>
+  <ul class="notes">
+    <li>On NAB and SMD, each analyzer's own results come from the run with every analyzer, split by which analyzer raised each finding. On
+    UCR, the single-analyzer methods are used, where each analyzer runs alone.</li>
+    <li>On NAB, "right kind" and "one that worked" use the analyzers the router ran on the scheduled runs that ended inside each incident
+    window. On SMD, "right kind" is judged on each metric listed as involved in an incident, and "one that worked" on each incident.</li>
+    <li>TCPD series where most annotators marked no change are left out of the router measures: any choice is fine there.</li>
+    <li>The own-scenario checks are this project's own test, with its own answer key.</li>
+  </ul>
 </section>"""
 
 

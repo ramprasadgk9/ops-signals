@@ -23,6 +23,7 @@ benchmark/results/<UTC timestamp>-<short sha>/
   report.html              every suite in one page: summary, detail, charts, method basis, how to reproduce
   report-<suite>.html      the same report for one suite (report-router.html, report-nab.html, report-tcpd.html, ...)
   report-routing.html      does routing help? router picks vs running everything vs simple baselines, per dataset
+  report-scorecard.html    router choices (right kind of analyzer? one that worked?) and each analyzer's scorecard
   results.json             every suite's raw results plus the run manifest
   raw/                     the per-scenario JSON/Markdown each individual runner writes
 ```
@@ -47,6 +48,39 @@ without rerunning anything, with:
 ```
 
 The command exits non-zero if any suite has a `FAIL` or `ERROR`. `GAP` doesn't fail it.
+
+## What counts: what a user would see
+
+Every analyzer raises raw signals, including weak hunches, and its own finding rules decide which
+become findings a user sees (e.g. `pyod_outlier` needs a group of at least 8 outlier points). The
+NAB, UCR, TCPD and SMD harnesses count only signals that became part of a finding
+(`harness.user_facing_signals`), so a dropped hunch is neither a catch nor a false alarm.
+
+## Samples, for fast runs while developing a change
+
+```bash
+.venv/bin/python -m benchmark.run_all --sample dev     # minutes: the data a change may be designed on
+.venv/bin/python -m benchmark.run_all --sample check   # ~1 hour: held out, only to confirm a change
+```
+
+The subsets of NAB, UCR and SMD are fixed in `benchmark/samples.py` (drawn once with a seeded random
+choice). TCPD and the own scenarios always run in full. A sample run is named `...-dev` or
+`...-check` and doesn't move `latest`; final evidence always comes from a full run.
+`--skip-methods all_analyzers` leaves out the slowest method, e.g. when re-measuring only a router
+change; the comparison page then takes it from the other run and says so.
+
+## Router choices and analyzer scorecard
+
+`report-scorecard.html` answers two questions (`benchmark/scorecard.py`):
+
+- **Did the router pick the right analyzers?** Case by case, with an 80% bar: the right *kind*
+  (an anomaly detector on NAB, UCR and SMD, a change detector on TCPD; extra picks are fine), and
+  *one that worked* (where some analyzer alone found the problem, did the router pick one of them?).
+- **Is each analyzer good at what it's built for?** Anomaly detectors must catch at least as much as
+  the static threshold with no more false alerts; change detectors must beat never predicting a
+  change and come within 0.05 of the best published TCPD method; analyzers no public dataset can
+  grade (`trend`, `stumpy`, `data_health`) are checked on own scenarios with a target case and a
+  healthy control (`benchmark/analyzer_checks.py`, the `analyzers` suite).
 
 ## Baselines: does routing help?
 
