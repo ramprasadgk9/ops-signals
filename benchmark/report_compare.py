@@ -9,10 +9,18 @@ snapshots' full reports. Nothing is rerun; both snapshots must already exist, wi
 score computed if the NAB row should show it.
 
 The page opens with a plain-language story for readers new to Ops Signals. The part about this
-particular change - what was wrong, what changed, what was expected - comes from a small YAML file,
-change.yaml in the AFTER snapshot by default (or --about), with lists of plain sentences under
-`problem`, `change` and `expected`, and an optional `title`. Without it, the commit subjects between
-the two runs stand in.
+particular change comes from a small YAML file, change.yaml in the AFTER snapshot by default (or
+--about):
+
+    headline: "pyod_outlier fix: before and after, on the same data"   # the page title
+    summary: "Two runs, before and after ..."                          # one line under it
+    changed: "the pyod_outlier finding rule"                           # what "the change" refers to
+    affected_methods: [router_picks, all_analyzers]                    # methods expected to move
+    title: ...                                                         # heading of the story card
+    problem: [...]  change: [...]  expected: [...]                     # plain sentences
+
+Every method not in affected_methods (default: router_picks only) must score the same in both runs;
+the page checks that. Without change.yaml, the commit subjects between the two runs stand in.
 """
 
 from __future__ import annotations
@@ -64,17 +72,18 @@ def load_snapshot(path: Path) -> dict[str, Any]:
 def render_compare(before: dict[str, Any], after: dict[str, Any], output_dir: Path, about: dict[str, Any] | None = None) -> str:
     rows = _paired_rows(before, after)
     body = [
-        _header(before, after, output_dir),
+        _header(before, after, output_dir, about),
         _glance(before, after, rows),
         _story(before, after, rows, about),
         _tiles(rows, before, after),
         _main_table(rows),
-        _baselines_check(rows),
+        _baselines_check(rows, about),
         _cost_table(rows),
         _nab_changes(before, after),
         _ucr_changes(before, after),
         _tcpd_changes(before, after),
         _behavior_changes(before, after),
+        _scorecard_changes(before, after),
         _still_weak(rows),
         _code_changes(before, after),
     ]
@@ -142,7 +151,7 @@ def _router_matches(row: dict[str, Any], side: str) -> bool:
 # --- sections -------------------------------------------------------------------------------
 
 
-def _header(before: dict[str, Any], after: dict[str, Any], output_dir: Path) -> str:
+def _header(before: dict[str, Any], after: dict[str, Any], output_dir: Path, about: dict[str, Any] | None = None) -> str:
     def run_card(label: str, snap: dict[str, Any]) -> str:
         manifest = snap["results"].get("manifest", {})
         git = manifest.get("git", {})
@@ -160,10 +169,10 @@ def _header(before: dict[str, Any], after: dict[str, Any], output_dir: Path) -> 
     return f"""
 <header class="hero">
   <p class="eyebrow">Ops Signals · Benchmark evidence · Before and after</p>
-  <h1>Router fix: before and after, on the same data</h1>
-  <p class="lede">Two complete benchmark runs, one before and one after a change to how the router picks analyzers. Same datasets, same
-  answer keys, same baselines; only the code changed. Every number here comes from the two snapshots below, each produced by one command
-  against a known commit.</p>
+  <h1>{_plain((about or {}).get("headline") or "Router fix: before and after, on the same data")}</h1>
+  <p class="lede">{_plain((about or {}).get("summary") or "Two complete benchmark runs, one before and one after a change to how the router picks analyzers.")}
+  Same datasets, same answer keys, same baselines; only the code changed. Every number here comes from the two snapshots below, each produced
+  by one command against a known commit.</p>
 </header>
 <section><div class="two-col">{run_card("Before", before)}{run_card("After", after)}</div></section>"""
 
@@ -267,8 +276,8 @@ def _story(before: dict[str, Any], after: dict[str, Any], rows: list[dict[str, A
       then the three alternatives. Higher is better in every row.</li>
       <li><span class="tile-good">▲ green</span> means the change made that number better; <span class="tile-critical">▼ red</span> means
       worse. For false alarms, fewer is better, so a rise shows red.</li>
-      <li><b>"Only the router changed"</b> checks that every alternative scored exactly the same in both runs - so any difference in Ops
-      Signals' own numbers comes from the change, not from luck or different data.</li>
+      <li><b>"Nothing else moved"</b> checks that every method the change shouldn't affect scored exactly the same in both runs - so any
+      difference comes from the change, not from luck or different data.</li>
       <li>Further down, each dataset lists exactly which series got better or worse, so any claim can be checked one example at a time.</li>
     </ul>
   </div>"""
@@ -568,30 +577,89 @@ def _main_table(rows: list[dict[str, Any]]) -> str:
 </section>"""
 
 
-def _baselines_check(rows: list[dict[str, Any]]) -> str:
-    differences = []
+def _baselines_check(rows: list[dict[str, Any]], about: dict[str, Any] | None = None) -> str:
+    affected = set((about or {}).get("affected_methods") or ["router_picks"])
+    changed = _plain((about or {}).get("changed") or "the router change")
+    differences, moved = [], []
     compared = 0
     borrowed = sorted({(ROUTING_LABELS[m], _short_dataset(row["suite"])) for row in rows for m in row.get("borrowed") or []})
     for row in rows:
-        for method in BASELINE_METHODS:
+        for method in ROUTING_METHODS:
             b, a = row["before"]["cells"].get(method), row["after"]["cells"].get(method)
             if not b or not a or method in (row.get("borrowed") or []):
                 continue
+            line = (f"<li>{escape(_short_dataset(row['suite']))}, {escape(ROUTING_LABELS[method])}: "
+                    f"{_fmt_value(row['suite'], b['value'])} before, {_fmt_value(row['suite'], a['value'])} after</li>")
+            if method in affected:
+                if method != "router_picks" and abs(b["value"] - a["value"]) > 1e-9:
+                    moved.append(line)
+                continue
             compared += 1
             if abs(b["value"] - a["value"]) > 1e-9:
-                differences.append(f"<li>{escape(_short_dataset(row['suite']))}, {escape(ROUTING_LABELS[method])}: "
-                                   f"{_fmt_value(row['suite'], b['value'])} before, {_fmt_value(row['suite'], a['value'])} after</li>")
+                differences.append(line)
     note = ""
     if borrowed:
         names = ", ".join(f"{label} on {dataset}" for label, dataset in borrowed)
-        note = (f" The before run left out {escape(names)}, which don't depend on the router; those results are taken from the after run "
+        note = (f" The before run left out {escape(names)}, which the change doesn't affect; those results are taken from the after run "
                 "and aren't part of this check.")
+    expected = ""
+    if moved:
+        expected = (f"<p class='small'>Expected to move, because {changed} is part of them:</p><ul class='notes'>{''.join(moved)}</ul>")
     if not differences:
-        return f"""<div class="callout callout-good"><b>Only the router changed.</b> All {compared} results of the other methods
-that ran in both are identical, so the differences above come from the router change, not from the data, the scoring or run-to-run
-noise.{note}</div>"""
-    return f"""<div class="callout callout-warning"><b>Some other methods scored differently between the runs</b>, so not every difference
-above is the router change alone:<ul class="notes">{''.join(differences)}</ul></div>"""
+        return f"""<div class="callout callout-good"><b>Nothing else moved.</b> All {compared} results of the methods {changed} shouldn't affect
+are identical in both runs, so the differences above come from {changed}, not from the data, the scoring or run-to-run noise.{note}{expected}</div>"""
+    return f"""<div class="callout callout-warning"><b>Methods {changed} shouldn't affect scored differently between the runs</b>, so not every
+difference above is {changed} alone:<ul class="notes">{''.join(differences)}</ul>{expected}</div>"""
+
+
+def _scorecard_changes(before: dict[str, Any], after: dict[str, Any]) -> str:
+    """Router choices and each analyzer's scorecard verdict, before and after."""
+    from benchmark.scorecard import analyzer_scorecard, router_choices
+
+    sb, sa = before["results"]["suites"], after["results"]["suites"]
+    cards_b = {row["analyzer"]: row for row in analyzer_scorecard(sb)}
+    cards_a = analyzer_scorecard(sa)
+    if not any(row["verdict"] != "not graded" for row in cards_a):
+        return ""
+    verdict_pill = {"good": ("good", "Good"), "weak": ("critical", "Weak"), "not graded": ("warning", "Not graded")}
+    card_rows = []
+    for row in cards_a:
+        prev = cards_b.get(row["analyzer"])
+        cells = []
+        for key, label in (("nab", "NAB"), ("ucr", "UCR"), ("smd", "SMD"), ("tcpd", "TCPD"), ("own", "Own scenarios")):
+            a = row["cells"].get(key)
+            b = (prev or {}).get("cells", {}).get(key) if prev else None
+            if key not in row["cells"] or a is None:
+                continue
+            mark = lambda c: "✓" if c and c["good"] else "✕"
+            before_text = f"{mark(b)} {escape(b['text'])}" if b else "-"
+            cells.append(f"<div><b>{label}:</b> {before_text} → {mark(a)} {escape(a['text'])}</div>")
+        vb = verdict_pill[(prev or {}).get("verdict", "not graded")]
+        va = verdict_pill[row["verdict"]]
+        card_rows.append(
+            f"<tr><td class='mono'>{escape(row['analyzer'])}</td><td class='small'>{''.join(cells) or '-'}</td>"
+            f"<td><span class='pill pill-{vb[0]}'>{vb[1]}</span> → <span class='pill pill-{va[0]}'>{va[1]}</span></td></tr>"
+        )
+    choice_b = {row["dataset"]: row for row in router_choices(sb)}
+    choice_rows = []
+    for row in router_choices(sa):
+        prev = choice_b.get(row["dataset"])
+        def fmt(r):
+            return f"{r['hits']}/{r['total']} ({_pct(r['share'])})" if r and r["total"] else "-"
+        choice_rows.append(
+            f"<tr><td>{escape(row['dataset'])}</td><td class='num'>{fmt(prev['right_kind'] if prev else None)} → {fmt(row['right_kind'])}</td>"
+            f"<td class='num'>{fmt(prev['worked'] if prev else None)} → {fmt(row['worked'])}</td></tr>"
+        )
+    return f"""
+<section id="scorecard">
+  <h2>Router choices and analyzer scorecard, before and after</h2>
+  <p class="section-lede">The same grading as each run's scorecard page: every analyzer against the bar fixed for its kind of problem, and
+  whether the router picked the right kind of analyzer, and one that worked.</p>
+  <div class="table-wrap"><table><thead><tr><th>Analyzer</th><th>Before → after</th><th>Verdict</th></tr></thead>
+  <tbody>{''.join(card_rows)}</tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>Router choices</th><th class="num">Right kind picked</th><th class="num">Picked one that worked</th></tr></thead>
+  <tbody>{''.join(choice_rows)}</tbody></table></div>
+</section>"""
 
 
 def _cost_table(rows: list[dict[str, Any]]) -> str:
