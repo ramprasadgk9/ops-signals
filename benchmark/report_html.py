@@ -382,8 +382,10 @@ def _brief_tcpd(tcpd: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _brief_ucr(ucr: dict[str, Any]) -> dict[str, Any]:
+def _brief_ucr(ucr: dict[str, Any]) -> dict[str, Any] | None:
     overall = ucr["summary"]["overall"]
+    if not all(method in overall for method in ("product", "discord", "max_jump")):
+        return None
     total = overall["series"]
     product, discord, jump = overall["product"]["correct"], overall["discord"]["correct"], overall["max_jump"]["correct"]
     random_expected = overall["default_rate"] * total
@@ -1438,6 +1440,8 @@ def _tcpd_cost_table(tcpd: dict[str, Any]) -> str:
 def _ucr_section(ucr: dict[str, Any]) -> str:
     summary = ucr["summary"]
     overall = summary["overall"]
+    if not all(method in overall for method in ("product", "discord", "max_jump")):
+        return "<section id='ucr'><h2>UCR Time Series Anomaly Archive</h2><p class='muted'>This run left out methods the UCR section needs.</p></section>"
     series = ucr["series"]
     total = overall["series"]
     methods = ucr["settings"]["methods"]

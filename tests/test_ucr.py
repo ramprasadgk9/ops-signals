@@ -144,3 +144,20 @@ def test_all_analyzers_runs_more_analyzers_than_the_router_picks(tmp_path) -> No
 
     assert router["error"] is None and everything["error"] is None
     assert set(router["executed_analyzers"]) < set(everything["executed_analyzers"])
+
+
+def test_suite_scores_every_method_it_runs_and_none_it_skips(tmp_path, monkeypatch) -> None:
+    from benchmark.ucr import run as ucr_run
+
+    values = np.zeros(3000)
+    values[2500:] = 10.0
+    _write_series(tmp_path, values, 1000, 2501, 2501)
+    monkeypatch.setattr(ucr_run.data, "ensure_ucr", lambda: tmp_path)
+    kept = {"max_jump", "static_threshold"}
+    from benchmark.ucr.detector import METHODS
+
+    result = ucr_run.run_ucr_suite(workers=1, skip=frozenset(set(METHODS) - kept), timeout=60)
+
+    assert set(result["settings"]["methods"]) == kept
+    assert set(result["series"][0]["methods"]) == kept
+    assert result["summary"]["overall"]["max_jump"]["correct"] == 1

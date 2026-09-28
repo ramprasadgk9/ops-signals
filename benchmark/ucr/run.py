@@ -32,14 +32,14 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
                   timeout: float = TASK_TIMEOUT_SECONDS) -> dict[str, Any]:
     from benchmark.ucr.detector import DIRECT_ANALYZERS, DISCORD, MAX_JUMP, METHODS, PIPELINE_METHODS, PRODUCT, WHOLE_SERIES_FRACTION
 
-    methods = tuple(m for m in METHODS if m not in skip)
+    selected = tuple(m for m in METHODS if m not in skip)
 
     series_dir = data.ensure_ucr()
     paths = [path for path in data.series_files(series_dir) if not only or int(path.name.split("_", 1)[0]) in only]
     workers = workers or max(1, (os.cpu_count() or 2) - 1)
 
     # Biggest series first, so a long run doesn't start last while the other workers sit idle.
-    tasks = [(str(path), method) for path in sorted(paths, key=lambda p: -p.stat().st_size) for method in methods]
+    tasks = [(str(path), method) for path in sorted(paths, key=lambda p: -p.stat().st_size) for method in selected]
     started = time.perf_counter()
     outcomes = run_tasks(tasks, workers=workers, timeout=timeout)
     wall_seconds = time.perf_counter() - started
@@ -48,7 +48,7 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
     for path in paths:
         series = data.load_series(path)
         methods = {}
-        for method in methods:
+        for method in selected:
             outcome = dict(outcomes[(str(path), method)])
             methods[method] = _score(outcome, series)
         rows.append(
@@ -74,9 +74,9 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
     return {
         "archive": {"url": data.ARCHIVE_URL, "sha256": data.ARCHIVE_SHA256, "series": len(rows)},
         "settings": {
-            "methods": list(methods),
+            "methods": list(selected),
             "product": PRODUCT,
-            "pipeline_methods": [m for m in PIPELINE_METHODS if m in methods],
+            "pipeline_methods": [m for m in PIPELINE_METHODS if m in selected],
             "direct_analyzers": list(DIRECT_ANALYZERS),
             "reference": DISCORD,
             "baseline": MAX_JUMP,
@@ -86,7 +86,7 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
         },
         "workers": workers,
         "wall_seconds_total": round(wall_seconds, 1),
-        "summary": summarize(rows, methods),
+        "summary": summarize(rows, selected),
         "series": rows,
     }
 
