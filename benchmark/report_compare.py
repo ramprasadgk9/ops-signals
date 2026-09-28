@@ -7,6 +7,12 @@ per dataset, with what changed series by series.
 Writes compare-<before run>.html into the AFTER snapshot (override with --output), linked to both
 snapshots' full reports. Nothing is rerun; both snapshots must already exist, with NAB's official
 score computed if the NAB row should show it.
+
+The page opens with a plain-language story for readers new to Ops Signals. The part about this
+particular change - what was wrong, what changed, what was expected - comes from a small YAML file,
+change.yaml in the AFTER snapshot by default (or --about), with lists of plain sentences under
+`problem`, `change` and `expected`, and an optional `title`. Without it, the commit subjects between
+the two runs stand in.
 """
 
 from __future__ import annotations
@@ -14,10 +20,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 from html import escape
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from benchmark.report_html import (
     ROUTING_LABELS,
@@ -36,6 +45,14 @@ from benchmark.router_benchmark import PROJECT_ROOT
 BASELINE_METHODS = [m for m in ROUTING_METHODS if m != "router_picks"]
 
 
+def load_about(after_path: Path, about: Path | None = None) -> dict[str, Any] | None:
+    path = about or (after_path / "change.yaml")
+    if not path.exists():
+        return None
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return data if isinstance(data, dict) else None
+
+
 def load_snapshot(path: Path) -> dict[str, Any]:
     path = path.resolve()
     results = json.loads((path / "results.json").read_text(encoding="utf-8"))
@@ -43,11 +60,12 @@ def load_snapshot(path: Path) -> dict[str, Any]:
     return {"path": path, "results": results, "official": official, "rows": routing_comparison(results.get("suites", {}), official)}
 
 
-def render_compare(before: dict[str, Any], after: dict[str, Any], output_dir: Path) -> str:
+def render_compare(before: dict[str, Any], after: dict[str, Any], output_dir: Path, about: dict[str, Any] | None = None) -> str:
     rows = _paired_rows(before, after)
     body = [
         _header(before, after, output_dir),
         _glance(before, after, rows),
+        _story(before, after, rows, about),
         _tiles(rows, before, after),
         _main_table(rows),
         _baselines_check(rows),
@@ -67,10 +85,11 @@ def render_compare(before: dict[str, Any], after: dict[str, Any], output_dir: Pa
     return _document(title, "\n".join(part for part in body if part), footer=footer)
 
 
-def write_compare(before_path: Path, after_path: Path, output: Path | None = None) -> Path:
+def write_compare(before_path: Path, after_path: Path, output: Path | None = None, about: Path | None = None) -> Path:
     before, after = load_snapshot(before_path), load_snapshot(after_path)
     output = output or (after["path"] / f"compare-{before['results']['run_id']}.html")
-    output.write_text(render_compare(before, after, output.parent.resolve()), encoding="utf-8")
+    story = load_about(after["path"], about)
+    output.write_text(render_compare(before, after, output.parent.resolve(), story), encoding="utf-8")
     return output
 
 
@@ -146,11 +165,14 @@ def _glance(before: dict[str, Any], after: dict[str, Any], rows: list[dict[str, 
     else:
         verdict = ("warning", "No dataset got worse, but routing still doesn't match running everything.")
     items = (
-        ("What it tests", "Whether the router change made the product more accurate on the same data, and whether the router now keeps up with running every analyzer and with simple baselines."),
+        ("What it tests", "Whether a change to Ops Signals made it better at spotting real problems in metric data, tested on the same data before and "
+                          "after, and whether choosing a few detectors per metric now works as well as running all of them. New to this? Read "
+                          "<a href='#story'>the story in plain words</a> just below."),
         ("Data source", "The datasets from both runs: " + ", ".join(escape(row["after"]["dataset"]) for row in rows) + "."),
         ("Ground truth", "Each dataset's own answer key. NAB, UCR and TCPD labels come from outside researchers; the behavior scenarios are this project's own."),
-        ("Our result", f"<b>Router picks match or beat running everything on {matched_after} of {len(rows)} datasets, up from {matched_before}.</b> "
-                       f"Router picks scored higher after the change on {len(improved)} of {len(rows)}, lower on {len(worse)}."),
+        ("Our result", f"<b>After the change, Ops Signals scored higher on {len(improved)} of {len(rows)} datasets and lower on {len(worse)}.</b> "
+                       f"Choosing a few detectors per metric now matches or beats running all of them on {matched_after} of {len(rows)} datasets, "
+                       f"up from {matched_before}."),
         ("What good looks like", "Every dataset improves or holds, the other methods score the same in both runs (so the change is the only difference), "
                                  "and router picks end up at least as accurate as running everything, for fewer analyzer runs."),
     )
@@ -163,6 +185,322 @@ def _glance(before: dict[str, Any], after: dict[str, Any], rows: list[dict[str, 
     <dl class="glance-list">{rows_html}</dl>
   </div>
 </section>"""
+
+
+def _story(before: dict[str, Any], after: dict[str, Any], rows: list[dict[str, Any]], about: dict[str, Any] | None) -> str:
+    """The context a newcomer needs, in plain words with examples: what Ops Signals is, what was
+    tested, what changed and why, what was expected, what happened, and what it says about quality."""
+    suites_a, suites_b = after["results"]["suites"], before["results"]["suites"]
+    by_suite = {row["suite"]: row for row in rows}
+    analyzer_count = _analyzer_count(suites_a)
+
+    intro = f"""
+  <div class="card story-card">
+    <h3>1. What is Ops Signals?</h3>
+    <p>Ops Signals watches the numbers a software system produces - CPU use, memory, error rate, response time, traffic - and tells
+    the people running it when something looks wrong. <b>Example:</b> a web server's CPU normally sits at 30% during the day. At 3 a.m.
+    it jumps to 95% for ten minutes. Ops Signals should flag that. It should <i>not</i> alert you every weekday at 9 a.m. just because
+    traffic always rises then.</p>
+    <p>A good monitoring tool has to get three things right: <b>catch real problems</b>, <b>not cry wolf</b> (every false alarm wastes
+    someone's time and teaches them to ignore alerts), and <b>stay cheap enough</b> to run on thousands of metrics.</p>
+  </div>
+  <div class="card story-card">
+    <h3>2. Detectors, and the "router" that picks them</h3>
+    <p>Ops Signals has {analyzer_count} detectors, called <i>analyzers</i>. Each is a specialist in one kind of problem: one spots sudden
+    spikes, one spots a slow upward drift, one spots the moment a metric jumps to a new level and stays there, one spots values that are
+    unusual for the time of day, and so on.</p>
+    <p>Running every specialist on every metric is slow and noisy, so Ops Signals has a <b>router</b>: it first looks at each metric's
+    shape and sends it to the few specialists it thinks fit - at most 3, plus a data-quality check. Think of a hospital triage nurse
+    who sends each patient to the right doctors instead of to every doctor in the building. <b>The risk:</b> if triage sends a patient
+    with a broken arm to the heart specialist, the broken arm is missed. Whether the router chooses well is what this page is about.</p>
+  </div>
+  <div class="card story-card">
+    <h3>3. How we test it</h3>
+    <p>We run Ops Signals on data where the right answers are already known, and count how often it finds them - like marking an exam
+    against an answer sheet. Most answer sheets here were written by outside researchers, not by us, so we can't grade our own homework:</p>
+    <ul class="notes">
+      {_dataset_line("nab", by_suite, "<b>NAB</b> (Numenta Anomaly Benchmark): real server and application metrics - AWS CPU and network, "
+                     "ad clicks, Twitter volume, factory sensors - with the times of real incidents marked by the people who published it.")}
+      {_dataset_line("ucr", by_suite, "<b>UCR Anomaly Archive</b>: 250 long recordings - heartbeats, blood pressure, walking, power use, NASA "
+                     "telemetry - each hiding exactly one abnormal stretch. The test: point at it.")}
+      {_dataset_line("tcpd", by_suite, "<b>TCPD</b> (Turing Change Point Dataset): real series such as population, prices and energy use, "
+                     "where five people independently marked the moments the behavior changed for good.")}
+      {_dataset_line("behavior", by_suite, "<b>Cross-metric behaviors</b>: our own small test of problems that show up in two metrics at once, "
+                     "for example CPU spiking while memory keeps climbing (a server slowing down).")}
+    </ul>
+    <p>Each dataset is run four ways, so Ops Signals is compared against real alternatives, not just against itself:</p>
+    <ul class="notes">
+      <li><b>{escape(ROUTING_LABELS['router_picks'])}</b> - Ops Signals as users get it: the router chooses the detectors.</li>
+      <li><b>{escape(ROUTING_LABELS['all_analyzers'])}</b> - every detector on every metric. If the router is any good, it should do about
+      as well as this while doing far less work.</li>
+      <li><b>{escape(ROUTING_LABELS['zscore_only'])}</b> - one classic rule: flag values far from the recent average.</li>
+      <li><b>{escape(ROUTING_LABELS['static_threshold'])}</b> - a fixed alert line, like "alert if CPU goes above anything seen in normal
+      times". This is how most alerting is set up today.</li>
+    </ul>
+  </div>"""
+
+    change = _change_card(before, after, about)
+    achieved = _achieved_card(before, after, by_suite)
+    quality = _quality_card(after, by_suite, rows)
+    reading = """
+  <div class="card story-card">
+    <h3>7. How to read the rest of this page</h3>
+    <ul class="notes">
+      <li><b>"Does routing help? Before and after"</b> is the main table: one row per dataset, Ops Signals before and after the change,
+      then the three alternatives. Higher is better in every row.</li>
+      <li><span class="tile-good">▲ green</span> means the change made that number better; <span class="tile-critical">▼ red</span> means
+      worse. For false alarms, fewer is better, so a rise shows red.</li>
+      <li><b>"Only the router changed"</b> checks that every alternative scored exactly the same in both runs - so any difference in Ops
+      Signals' own numbers comes from the change, not from luck or different data.</li>
+      <li>Further down, each dataset lists exactly which series got better or worse, so any claim can be checked one example at a time.</li>
+    </ul>
+  </div>"""
+    return f"""
+<section id="story">
+  <h2>New here? The story in plain words</h2>
+  <div class="story">{intro}{change}{achieved}{quality}{reading}</div>
+</section>"""
+
+
+def _dataset_line(suite: str, by_suite: dict[str, Any], text: str) -> str:
+    return f"<li>{text}</li>" if suite in by_suite else ""
+
+
+def _analyzer_count(suites: dict[str, Any]) -> str:
+    ucr = suites.get("ucr")
+    if ucr:
+        counts = [len(s["methods"].get("all_analyzers", {}).get("executed_analyzers") or []) for s in ucr["series"]]
+        if counts and max(counts):
+            return str(max(counts))
+    return "several"
+
+
+def _plain(text: Any) -> str:
+    """Escape a plain sentence from change.yaml, allowing **bold**."""
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escape(str(text)))
+
+
+def _change_card(before: dict[str, Any], after: dict[str, Any], about: dict[str, Any] | None) -> str:
+    if about:
+        def block(title: str, key: str) -> str:
+            items = about.get(key) or []
+            if not items:
+                return ""
+            return f"<h4>{title}</h4><ul class='notes'>{''.join(f'<li>{_plain(item)}</li>' for item in items)}</ul>"
+
+        heading = _plain(about.get("title") or "What we changed, and why")
+        body = block("What was wrong", "problem") + block("What we changed", "change") + block("What we expected", "expected")
+    else:
+        heading = "What we changed"
+        body = "<p>No description of this change was provided (change.yaml). The commits between the two runs are listed at the bottom of the page.</p>"
+    return f"""
+  <div class="card story-card">
+    <h3>4. {heading}</h3>
+    {body}
+  </div>"""
+
+
+def _achieved_card(before: dict[str, Any], after: dict[str, Any], by_suite: dict[str, Any]) -> str:
+    suites_a, suites_b = after["results"]["suites"], before["results"]["suites"]
+    items = []
+    nab = by_suite.get("nab")
+    if nab and suites_a.get("nab") and suites_b.get("nab"):
+        headline = str(suites_a["nab"]["settings"]["headline_threshold"])
+        ob, oa = suites_b["nab"]["overall"]["replay"][headline], suites_a["nab"]["overall"]["replay"][headline]
+        rb, ra = _router(nab, "before"), _router(nab, "after")
+        scale = ""
+        if after["official"]:
+            published = {k: float(v.get("standard", 0)) for k, v in after["official"]["published"].items() if k not in ("null", "random")}
+            random_score = float(after["official"]["published"].get("random", {}).get("standard", 0))
+            if published:
+                scale = (f" On NAB's official 0-100 scale, where staying silent scores 0 and random alerts score {random_score:.1f}, "
+                         f"Ops Signals went from <b>{rb['value']:.1f} to {ra['value']:.1f}</b>; published monitoring tools score "
+                         f"{min(published.values()):.1f} to {max(published.values()):.1f}.")
+        example = _nab_best_example(suites_b["nab"], suites_a["nab"])
+        items.append(
+            f"<li><b>Real incidents (NAB):</b> of {oa['windows']} real incidents, Ops Signals caught <b>{ob['detected_windows']} before and "
+            f"{oa['detected_windows']} after</b>.{scale}{example}</li>"
+        )
+    ucr = by_suite.get("ucr")
+    if ucr and suites_a.get("ucr") and suites_b.get("ucr"):
+        total = suites_a["ucr"]["summary"]["overall"]["series"]
+        rb, ra = _router(ucr, "before"), _router(ucr, "after")
+        gained, lost = _ucr_flips(suites_b["ucr"], suites_a["ucr"])
+        example = ""
+        if gained:
+            first = gained[0]
+            earlier = next(s for s in suites_b["ucr"]["series"] if s["number"] == first["number"])
+            example = (f" <b>Example:</b> recording #{first['number']}, a {escape(first['domain'][:1].lower() + first['domain'][1:])} series, "
+                       f"was missed before, when the router ran {_analyzer_list(earlier['methods']['product'])}. After the change it ran "
+                       f"{_analyzer_list(first['methods']['product'])} and pointed at the right place.")
+        items.append(
+            f"<li><b>Hidden anomalies (UCR):</b> Ops Signals found the one abnormal stretch in <b>{rb['value']:.0f} of {total} recordings "
+            f"before and {ra['value']:.0f} after</b> - {len(gained)} newly found, {len(lost)} lost.{example}</li>"
+        )
+    tcpd = by_suite.get("tcpd")
+    if tcpd:
+        rb, ra = _router(tcpd, "before"), _router(tcpd, "after")
+        items.append(
+            f"<li><b>Moments of change (TCPD):</b> a score from 0 to 1, where 1 means every change the annotators marked was found in the right "
+            f"place with nothing extra. It went from <b>{rb['value']:.3f} to {ra['value']:.3f}</b>, a small gain.</li>"
+        )
+    behavior = by_suite.get("behavior")
+    if behavior:
+        rb, ra = _router(behavior, "before"), _router(behavior, "after")
+        total = len(suites_a["behavior"]["scenarios"])
+        items.append(
+            f"<li><b>Problems across two metrics (our own test):</b> recognized in <b>{rb['value']:.0f} of {total} before and {ra['value']:.0f} "
+            f"of {total} after</b>.{_behavior_example(suites_b['behavior'], suites_a['behavior'])}</li>"
+        )
+    cost = _cost_sentence(by_suite)
+    if cost:
+        items.append(f"<li><b>Work done:</b> {cost}</li>")
+    return f"""
+  <div class="card story-card">
+    <h3>5. What we achieved</h3>
+    <ul class="notes story-list">{''.join(items)}</ul>
+  </div>"""
+
+
+def _quality_card(after: dict[str, Any], by_suite: dict[str, Any], rows: list[dict[str, Any]]) -> str:
+    matched = sum(_router_matches(row, "after") for row in rows)
+    improved = sum(1 for row in rows if (_router(row, "after") or {}).get("value", 0) > (_router(row, "before") or {}).get("value", 0))
+    worse = sum(1 for row in rows if (_router(row, "after") or {}).get("value", 0) < (_router(row, "before") or {}).get("value", 0))
+    router_runs = sum(_router(row, "after")["analyzer_runs"] for row in rows if _router(row, "after") and row["after"]["cells"].get("all_analyzers"))
+    all_runs = sum(row["after"]["cells"]["all_analyzers"]["analyzer_runs"] for row in rows if _router(row, "after") and row["after"]["cells"].get("all_analyzers"))
+    saving = _pct(1 - router_runs / all_runs) if all_runs else "-"
+    identical = not any(
+        abs(row["before"]["cells"][m]["value"] - row["after"]["cells"][m]["value"]) > 1e-9
+        for row in rows
+        for m in BASELINE_METHODS
+        if row["before"]["cells"].get(m) and row["after"]["cells"].get(m)
+    )
+    if worse:
+        catch = f"Better than before on {improved} of {len(rows)} datasets, but worse on {worse} - see the tables below."
+    elif improved == len(rows):
+        catch = "Better than before on every dataset tested."
+    else:
+        catch = f"Better than before on {improved} of {len(rows)} datasets, and no worse on the rest."
+    worth = (
+        f"Yes on {matched} of {len(rows)} datasets: choosing a few detectors per metric does as well as or better than running all of them"
+        if matched else "Not yet: on every dataset, running all detectors still does better than choosing a few"
+    )
+    trust = (
+        "every alternative scored identically in both runs, " if identical
+        else "some alternatives scored differently between the runs (listed further down), so not every difference is the change alone; "
+    )
+    weak = []
+    for row in rows:
+        router = _router(row, "after")
+        if not router:
+            continue
+        for method in BASELINE_METHODS:
+            cell = row["after"]["cells"].get(method)
+            if cell and cell["value"] > router["value"]:
+                weak.append((row["suite"], ROUTING_LABELS[method], cell["value"], router["value"]))
+    false_alarm_line = ""
+    nab = after["results"]["suites"].get("nab")
+    if nab:
+        headline = str(nab["settings"]["headline_threshold"])
+        counts = nab["overall"]["replay"][headline]
+        per_series = counts["false_alarms"] / len(nab["series"]) if nab["series"] else 0
+        false_alarm_line = (
+            f"<li><b>Does it cry wolf?</b> Still too often. On NAB, {counts['false_alarms']:,} of its {counts['alarms']:,} alerts "
+            f"({_pct(counts['false_alarms'] / counts['alarms'] if counts['alarms'] else None)}) came when nothing was wrong - about "
+            f"{per_series:.0f} per series, each covering weeks to months of data. This is the main thing holding the NAB score down.</li>"
+        )
+    weak_items = "".join(
+        f"<li>{escape(_short_dataset(suite))}: {escape(label)} still scores higher ({_fmt_value(suite, theirs)} against "
+        f"{_fmt_value(suite, ours)}).</li>"
+        for suite, label, theirs, ours in weak
+    )
+    return f"""
+  <div class="card story-card">
+    <h3>6. What this says about the quality of Ops Signals</h3>
+    <ul class="notes story-list">
+      <li><b>Does it catch real problems?</b> {catch}</li>
+      {false_alarm_line}
+      <li><b>Is choosing detectors worth it?</b> {worth}, while running {saving} fewer detectors. Running everything isn't automatically
+      better - more detectors also means more false alarms and a noisier list of findings.</li>
+      <li><b>Can these numbers be trusted?</b> Both runs used the same data and answer keys, {trust}and each run is tied to a recorded
+      code version, so anyone can rerun it and check.</li>
+    </ul>
+    {f"<h4>Where it still falls short</h4><ul class='notes'>{weak_items}</ul>" if weak_items else ""}
+  </div>"""
+
+
+def _nab_best_example(nab_before: dict[str, Any], nab_after: dict[str, Any]) -> str:
+    earlier = {s["series"]: s for s in nab_before["series"]}
+    best = None
+    for item in nab_after["series"]:
+        b = earlier.get(item["series"])
+        if not b:
+            continue
+        before_caught = b["modes"]["replay"]["headline"]["detected_windows"]
+        after_caught = item["modes"]["replay"]["headline"]["detected_windows"]
+        gain = after_caught - before_caught
+        if gain > 0 and (best is None or gain > best[0]):
+            best = (gain, item["series"], before_caught, after_caught, item["modes"]["replay"]["headline"]["windows"])
+    if not best:
+        return ""
+    _, name, b, a, total = best
+    return f" <b>Example:</b> on <span class='mono'>{escape(name)}</span>, it caught {b} of {total} incidents before and {a} of {total} after."
+
+
+def _analyzer_list(product: dict[str, Any]) -> str:
+    names = [name for name in product.get("executed_analyzers") or [] if name != "data_health"]
+    return ", ".join(f"<span class='mono'>{escape(name)}</span>" for name in names) or "no detector"
+
+
+def _behavior_example(behavior_before: dict[str, Any], behavior_after: dict[str, Any]) -> str:
+    """A scenario the change fixed, with the detectors run on each metric before and after."""
+    earlier = {s["scenario"]["id"]: s for s in behavior_before["scenarios"]}
+    for scenario in behavior_after["scenarios"]:
+        b = earlier.get(scenario["scenario"]["id"])
+        if not b or "default_mode_evaluation" not in b or "default_mode_evaluation" not in scenario:
+            continue
+        eb, ea = b["default_mode_evaluation"], scenario["default_mode_evaluation"]
+        if eb["status"] == ea["status"]:
+            continue
+
+        def ran(evaluation: dict[str, Any]) -> str:
+            return "; ".join(
+                f"{', '.join(n for n in analyzers if n != 'data_health') or 'no detector'} on <span class='mono'>{escape(metric)}</span>"
+                for metric, analyzers in (evaluation.get("analyzers_by_metric") or {}).items()
+            )
+
+        verb = "recognized" if ea["status"] == "PASS" else "missed"
+        return (f" <b>Example:</b> \"{escape(scenario['scenario']['name'])}\" is now {verb}. Before, the router ran {ran(eb)}; "
+                f"after, {ran(ea)}.")
+    return ""
+
+
+def _ucr_flips(ucr_before: dict[str, Any], ucr_after: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    earlier = {s["number"]: s for s in ucr_before["series"]}
+    gained, lost = [], []
+    for s in ucr_after["series"]:
+        b = earlier.get(s["number"])
+        if not b:
+            continue
+        was, now = b["methods"]["product"]["correct"], s["methods"]["product"]["correct"]
+        if now and not was:
+            gained.append(s)
+        elif was and not now:
+            lost.append(s)
+    return gained, lost
+
+
+def _cost_sentence(by_suite: dict[str, Any]) -> str:
+    router = everything = 0
+    for row in by_suite.values():
+        r, e = row["after"]["cells"].get("router_picks"), row["after"]["cells"].get("all_analyzers")
+        if r and e:
+            router += r["analyzer_runs"]
+            everything += e["analyzer_runs"]
+    if not everything:
+        return ""
+    return (f"across all the tests, Ops Signals ran detectors {router:,} times, against {everything:,} if it had run every detector on "
+            f"everything - <b>{_pct(1 - router / everything)} less work</b>.")
 
 
 def _tiles(rows: list[dict[str, Any]], before: dict[str, Any], after: dict[str, Any]) -> str:
@@ -328,17 +666,7 @@ def _ucr_changes(before: dict[str, Any], after: dict[str, Any]) -> str:
     ub, ua = before["results"]["suites"].get("ucr"), after["results"]["suites"].get("ucr")
     if not ub or not ua:
         return ""
-    earlier = {s["number"]: s for s in ub["series"]}
-    gained, lost = [], []
-    for s in ua["series"]:
-        b = earlier.get(s["number"])
-        if not b:
-            continue
-        was, now = b["methods"]["product"]["correct"], s["methods"]["product"]["correct"]
-        if now and not was:
-            gained.append(s)
-        elif was and not now:
-            lost.append(s)
+    gained, lost = _ucr_flips(ub, ua)
     pb, pa = ub["summary"]["overall"]["product"], ua["summary"]["overall"]["product"]
 
     def series_list(items: list[dict[str, Any]]) -> str:
@@ -485,8 +813,9 @@ def main() -> None:
     parser.add_argument("before", type=Path, help="The earlier snapshot folder (benchmark/results/<run>/)")
     parser.add_argument("after", type=Path, help="The later snapshot folder")
     parser.add_argument("--output", type=Path, help="Where to write the HTML (default: compare-<before run>.html in the after snapshot)")
+    parser.add_argument("--about", type=Path, help="A YAML description of the change (default: change.yaml in the after snapshot)")
     args = parser.parse_args()
-    print(write_compare(args.before, args.after, args.output))
+    print(write_compare(args.before, args.after, args.output, args.about))
 
 
 if __name__ == "__main__":

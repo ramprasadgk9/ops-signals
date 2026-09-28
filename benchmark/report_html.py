@@ -2008,6 +2008,8 @@ details.scenario[open]>summary::before{transform:rotate(90deg)}
 .table-wrap.narrow{max-width:560px}.scroll-y{max-height:320px;overflow-y:auto}.tall-scroll{max-height:560px}
 tr.emph td{font-weight:650;background:var(--surface-2)}
 .explain{margin-top:20px}.explain h3{margin-bottom:6px}
+.story{display:flex;flex-direction:column;gap:12px}.story-card p{max-width:80ch;margin:8px 0}.story-card h4{margin:14px 0 2px}
+.story-list{font-size:14.5px;color:var(--ink);gap:8px}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
 thead th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);background:var(--surface-2);font-weight:600}
