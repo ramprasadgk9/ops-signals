@@ -55,6 +55,7 @@ const PYOD_CONFIG = {
   },
   finding_rules: {
     min_range_excess: 0.56,
+    min_sustained_points: 8,
     window: '15m',
   },
 };
@@ -456,7 +457,7 @@ export function PyodOutlierLabPage() {
           <Chip color={pyodDetectionBudget === summary.anomalies ? 'success' : 'warning'} label={`expected detector count ~${pyodDetectionBudget}`} />
           <Chip label={`run grouping gap ${pyodGroupingGap}`} />
           <Chip label={`run min samples ${pyodMinSamples}`} />
-          <Chip label={`finding rule: ${PYOD_CONFIG.finding_rules.min_range_excess}x the normal range beyond it`} />
+          <Chip label={`finding rule: ${PYOD_CONFIG.finding_rules.min_range_excess}x the normal range beyond it, or ${PYOD_CONFIG.finding_rules.min_sustained_points}+ outliers in a row`} />
         </Stack>
         <Alert severity="info" sx={{ mt: 2 }}>
           These are experiment-only overrides. analyzers.yaml remains the production default; this run temporarily sends contamination, min_samples, and grouping_gap to pyod_outlier.
