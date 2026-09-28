@@ -24,8 +24,13 @@ technique - Ops Signals applies them to operational time series, it doesn't inve
 If you're evaluating whether the *detection* math is legitimate: yes - every one of these is a
 citable, independently-published method, not something invented for this project.
 
-Two notes on what sits around those methods:
+Three notes on what sits around those methods:
 
+- `trend` fits its line through the daily means when the window holds at least 3 full days, so a
+  daily cycle cancels out instead of setting the slope by where the cycle sits at the window's
+  ends; shorter windows fit every point. The change is measured against the window's average,
+  not its first point. Known limits: under 3 days a large daily swing still skews the result,
+  a weekly cycle is not removed, and a single temporary dip can still read as a trend.
 - `seasonal_anomaly` only runs on a daily or weekly cycle found by `calendar_seasonality` in
   [`experiments/analyzer_router/feature_extractor.py`](../experiments/analyzer_router/feature_extractor.py):
   classical decomposition (a centred moving average one period wide removes the level) followed by
