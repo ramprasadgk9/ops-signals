@@ -38,6 +38,7 @@ from benchmark.report_html import (
     _tile,
     _verdict_pill,
     load_official_nab,
+    _routing_row_verdict,
     routing_comparison,
 )
 from benchmark.router_benchmark import PROJECT_ROOT
@@ -97,9 +98,23 @@ def write_compare(before_path: Path, after_path: Path, output: Path | None = Non
 
 
 def _paired_rows(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
-    """The routing rows present in both snapshots, keyed by suite, in the after snapshot's order."""
+    """The routing rows present in both snapshots, keyed by suite, in the after snapshot's order.
+
+    A before run may skip a method that doesn't depend on the change being measured (run_all
+    --skip-methods, e.g. all_analyzers when only the router changed). Its cell is then taken from the
+    after run, marked `borrowed`, and the before verdict is recomputed with it."""
     earlier = {row["suite"]: row for row in before["rows"]}
-    return [{"suite": row["suite"], "before": earlier[row["suite"]], "after": row} for row in after["rows"] if row["suite"] in earlier]
+    paired = []
+    for row in after["rows"]:
+        if row["suite"] not in earlier:
+            continue
+        previous = earlier[row["suite"]]
+        borrowed = [m for m in row["cells"] if m != "router_picks" and m not in previous["cells"]]
+        if borrowed:
+            cells = {**previous["cells"], **{m: row["cells"][m] for m in borrowed}}
+            previous = {**previous, "cells": cells, "verdict": _routing_row_verdict(cells)}
+        paired.append({"suite": row["suite"], "before": previous, "after": row, "borrowed": borrowed})
+    return paired
 
 
 def _router(row: dict[str, Any], side: str) -> dict[str, Any] | None:
@@ -556,19 +571,25 @@ def _main_table(rows: list[dict[str, Any]]) -> str:
 def _baselines_check(rows: list[dict[str, Any]]) -> str:
     differences = []
     compared = 0
+    borrowed = sorted({(ROUTING_LABELS[m], _short_dataset(row["suite"])) for row in rows for m in row.get("borrowed") or []})
     for row in rows:
         for method in BASELINE_METHODS:
             b, a = row["before"]["cells"].get(method), row["after"]["cells"].get(method)
-            if not b or not a:
+            if not b or not a or method in (row.get("borrowed") or []):
                 continue
             compared += 1
             if abs(b["value"] - a["value"]) > 1e-9:
                 differences.append(f"<li>{escape(_short_dataset(row['suite']))}, {escape(ROUTING_LABELS[method])}: "
                                    f"{_fmt_value(row['suite'], b['value'])} before, {_fmt_value(row['suite'], a['value'])} after</li>")
+    note = ""
+    if borrowed:
+        names = ", ".join(f"{label} on {dataset}" for label, dataset in borrowed)
+        note = (f" The before run left out {escape(names)}, which don't depend on the router; those results are taken from the after run "
+                "and aren't part of this check.")
     if not differences:
         return f"""<div class="callout callout-good"><b>Only the router changed.</b> All {compared} results of the other methods
-(all analyzers, z-score only, static threshold) are identical in both runs, so the differences above come from the router change, not
-from the data, the scoring or run-to-run noise.</div>"""
+that ran in both are identical, so the differences above come from the router change, not from the data, the scoring or run-to-run
+noise.{note}</div>"""
     return f"""<div class="callout callout-warning"><b>Some other methods scored differently between the runs</b>, so not every difference
 above is the router change alone:<ul class="notes">{''.join(differences)}</ul></div>"""
 

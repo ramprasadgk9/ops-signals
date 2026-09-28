@@ -6,6 +6,7 @@ Analyzers see the whole series at once - batch mode, like a published method sco
 test half. Replaying it causally, as the NAB suite does, would mean hundreds of thousands of pipeline
 runs; this is stated in the report.
 
+Only signals a user would see count: those that became part of a finding (harness.user_facing_signals).
 A signal becomes an alarm on the first row at or after its start, scored with its confidence, and
 only when that row is in the test half. Signals spanning half the series or more (a trend, a
 forecast fit) don't point at a moment and are skipped.
@@ -85,7 +86,7 @@ def _pipeline_alarms(machine: SmdMachine, analyzers: str | tuple[str, ...]) -> d
             continue
         analyzer_runs += len(result.executed_analyzers)
         analyzers_by_metric[name] = list(result.executed_analyzers)
-        for signal in result.signals:
+        for signal in harness.user_facing_signals(result):
             start, end = _row(times, signal.start_time), _row(times, signal.end_time)
             if end - start >= WHOLE_SERIES_FRACTION * len(times) or start < history:
                 continue

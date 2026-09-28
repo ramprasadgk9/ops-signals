@@ -10,6 +10,9 @@ Two modes:
 - direct: the `ruptures` analyzer with its production configuration, run on every series whatever
   the router would decide. This measures the change-point detector itself.
 
+In every mode only change points a user would see count: those from signals that became part of a
+finding (harness.user_facing_signals).
+
 Z-score only and static threshold don't report change points, so they have no method here; TCPD's
 own "zero" method (no change points) is the trivial baseline in the leaderboard.
 
@@ -34,13 +37,12 @@ import pandas as pd
 
 from benchmark import harness
 from benchmark.methods import ALL_ANALYZERS
-from benchmark.router_benchmark import _instantiate_analyzer
 from benchmark.tcpd.data import TcpdSeries
-from intelligence.normalize.normalizer import normalize_timeseries
 
 METRIC_NAME = "tcpd_series"
 INTERVAL_MINUTES = 1440
 CHANGE_SIGNAL_TYPES = {"ruptures", "baseline_shift"}
+CHANGE_ANALYZERS = {"ruptures", "baseline_shift"}
 DIRECT_ANALYZER = "ruptures"
 
 
@@ -56,6 +58,8 @@ class TcpdRun:
     product_error: str | None = None
     direct_error: str | None = None
     all_cps: list[int] = field(default_factory=list)
+    # Each change analyzer's own change points, from the all-analyzers run.
+    all_cps_by_analyzer: dict[str, list[int]] = field(default_factory=dict)
     all_executed_analyzers: list[str] = field(default_factory=list)
     all_error: str | None = None
     seconds: dict[str, float] = field(default_factory=dict)
@@ -92,7 +96,7 @@ def run_series(series: TcpdSeries) -> TcpdRun:
             }
             for d in result.analyzer_routing
         ]
-        change_signals = [s for s in result.signals if s.signal_type in CHANGE_SIGNAL_TYPES]
+        change_signals = [s for s in harness.user_facing_signals(result) if s.signal_type in CHANGE_SIGNAL_TYPES]
         run.change_analyzers_run = sorted({str(s.analyzer_id) for s in change_signals} | ({*run.executed_analyzers} & {"ruptures", "baseline_shift"}))
         run.product_cps = _change_points(change_signals, timestamps)
     except Exception as exc:  # a failure scores 0, as TCPD's paper scores method failures
@@ -103,16 +107,20 @@ def run_series(series: TcpdSeries) -> TcpdRun:
     try:
         result = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME, ALL_ANALYZERS).run_dataframe(frame)
         run.all_executed_analyzers = list(result.executed_analyzers)
-        run.all_cps = _change_points([s for s in result.signals if s.signal_type in CHANGE_SIGNAL_TYPES], timestamps)
+        change_signals = [s for s in harness.user_facing_signals(result) if s.signal_type in CHANGE_SIGNAL_TYPES]
+        run.all_cps = _change_points(change_signals, timestamps)
+        run.all_cps_by_analyzer = {
+            analyzer: _change_points([s for s in change_signals if str(s.analyzer_id) == analyzer], timestamps)
+            for analyzer in sorted(CHANGE_ANALYZERS)
+        }
     except Exception as exc:
         run.all_error = f"{type(exc).__name__}: {exc}"
     run.seconds[ALL_ANALYZERS] = round(time.perf_counter() - started, 3)
 
     started = time.perf_counter()
     try:
-        analyzer = _instantiate_analyzer(DIRECT_ANALYZER)
-        normalized = normalize_timeseries(frame, pipeline.config.input)
-        run.direct_cps = _change_points(analyzer.analyze(normalized), timestamps)
+        result = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME, (DIRECT_ANALYZER,)).run_dataframe(frame)
+        run.direct_cps = _change_points(harness.user_facing_signals(result), timestamps)
     except Exception as exc:
         run.direct_error = f"{type(exc).__name__}: {exc}"
     run.seconds["direct"] = round(time.perf_counter() - started, 3)

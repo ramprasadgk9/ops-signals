@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 
 from benchmark.methods import ALL_ANALYZERS, DESCRIPTIONS, LABELS, ROUTER_PICKS, STATIC_THRESHOLD, ZSCORE_ONLY
+from benchmark.router_benchmark import DEFAULT_ANALYZER_REGISTRY_DIR
+from intelligence.analyzer_registry import load_registrations
 from benchmark.nab import detector, metrics
 from benchmark.nab.fetch import NAB_COMMIT, NAB_REPOSITORY, ensure_nab
 
@@ -37,7 +39,7 @@ MODES = ("replay", "batch")
 SERIES_POINTS = 360
 
 
-def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] | None = None) -> dict[str, Any]:
+def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] | None = None, skip: frozenset[str] = frozenset()) -> dict[str, Any]:
     nab_dir = ensure_nab()
     windows = json.loads((nab_dir / "labels" / "combined_windows.json").read_text(encoding="utf-8"))
     series_names = sorted(name for name in windows if not only or name in only)
@@ -48,13 +50,15 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
     by_size = sorted(series_names, key=lambda name: -(nab_dir / "data" / name).stat().st_size)
     started = time.perf_counter()
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        finished = dict(zip(by_size, pool.map(detector.run_series, [nab_dir / "data" / name for name in by_size], by_size)))
+        finished = dict(zip(by_size, pool.map(detector.run_series, [nab_dir / "data" / name for name in by_size], by_size, [frozenset(skip)] * len(by_size))))
     runs = [finished[name] for name in series_names]
     wall_seconds = time.perf_counter() - started
 
     results_dir = raw_dir / "nab_results"
     overall = {mode: {threshold: metrics.WindowCounts() for threshold in metrics.THRESHOLDS} for mode in MODES}
-    baseline_overall = {method: {threshold: metrics.WindowCounts() for threshold in metrics.THRESHOLDS} for method in detector.BASELINES}
+    baseline_overall = {method: {threshold: metrics.WindowCounts() for threshold in metrics.THRESHOLDS} for method in detector.BASELINES if method not in skip}
+    analyzer_ids = sorted(r.analyzer_id for r in load_registrations(DEFAULT_ANALYZER_REGISTRY_DIR) if r.enabled)
+    analyzer_overall = {a: {threshold: metrics.WindowCounts() for threshold in metrics.THRESHOLDS} for a in analyzer_ids}
     categories: dict[str, dict[str, metrics.WindowCounts]] = {}
     series_payload = []
     for run in runs:
@@ -97,10 +101,18 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
                 "first_error": method_run.first_error,
             }
 
+        by_analyzer = run.baselines[ALL_ANALYZERS].scores_by_analyzer if ALL_ANALYZERS in run.baselines else {}
+        for analyzer in analyzer_ids:
+            analyzer_scores = by_analyzer.get(analyzer) or [0.0] * len(frame)
+            for threshold in metrics.THRESHOLDS:
+                analyzer_overall[analyzer][threshold].add(metrics.score_series(analyzer_scores, rows, threshold))
+        windows_detail = _router_choices(run, rows, len(frame), by_analyzer)
+
         record = asdict(run)
         record.pop("batch_scores")
         record.pop("replay_scores")
         record.pop("baselines")
+        record.pop("replay_executed_by_run")
         series_payload.append(
             {
                 **record,
@@ -110,6 +122,7 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
                 "probation_end": _iso(frame["timestamp"].iloc[min(metrics.probation_rows(len(frame)), len(frame) - 1)]),
                 "modes": per_mode,
                 "baselines": per_baseline,
+                "windows_detail": windows_detail,
                 "plot": _plot_points(frame),
             }
         )
@@ -130,6 +143,10 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
         "detector_names": DETECTOR_NAMES,
         "baseline_detector_names": BASELINE_DETECTOR_NAMES,
         "comparison": _comparison(runs, overall["replay"], baseline_overall),
+        "analyzers": {
+            analyzer: {str(threshold): counts.summary() for threshold, counts in by_threshold.items()}
+            for analyzer, by_threshold in analyzer_overall.items()
+        } if ALL_ANALYZERS not in skip else {},
         "nab_format_dir": str(results_dir),
         "wall_seconds_total": round(wall_seconds, 1),
         "overall": {
@@ -145,6 +162,26 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
             item["series"] for item in series_payload if item["batch_error"] or item["replay_errors"]
         ],
     }
+
+
+def _router_choices(run, rows: list[tuple[int, int]], length: int, by_analyzer: dict[str, list[float]]) -> list[dict[str, Any]]:
+    """For each labeled window: which analyzers, each on its own, alarmed inside it at the headline
+    threshold ("capable"), which analyzers the router ran on the scheduled runs whose last row falls
+    inside it, and whether the router caught it."""
+    threshold = metrics.HEADLINE_THRESHOLD
+    probation = metrics.probation_rows(length)
+    router_scores = np.asarray(run.replay_scores, dtype=float)
+    detail = []
+    for start, end in rows:
+        first = max(start, probation)
+        capable = sorted(
+            analyzer for analyzer, scores in by_analyzer.items()
+            if first <= end and np.any(np.asarray(scores[first : end + 1], dtype=float) >= threshold)
+        )
+        ran = sorted({a for row, analyzers in run.replay_executed_by_run.items() if start <= row <= end for a in analyzers})
+        caught = bool(first <= end and np.any(router_scores[first : end + 1] >= threshold))
+        detail.append({"rows": [start, end], "capable": capable, "router_ran": ran, "router_caught": caught})
+    return detail
 
 
 def _comparison(runs, router_overall, baseline_overall) -> dict[str, Any]:

@@ -22,7 +22,9 @@ location per series. The methods:
   argue a good benchmark should defeat one-liners like this, so it shows how much of the archive
   is that easy.
 
-A signal's location is its change point when it reports one, otherwise its first row. Signals
+Only signals a user would see count: those that became part of a finding, after each analyzer's own
+finding rules (harness.user_facing_signals). A signal's location is its change point when it reports
+one, otherwise its first row. Signals
 spanning half the series or more (a trend, a forecast fit, a motif summary) don't point at a
 location and are skipped. `stumpy`, the product's matrix-profile analyzer, reports repeated
 patterns (motifs), not unusual ones, so it gives no location and has no direct method here.
@@ -45,7 +47,6 @@ from benchmark import harness
 from benchmark.methods import ALL_ANALYZERS, ROUTER_PICKS, STATIC_THRESHOLD
 from benchmark.router_benchmark import _instantiate_analyzer
 from benchmark.ucr.data import UcrSeries, load_series
-from intelligence.normalize.normalizer import normalize_timeseries
 
 METRIC_NAME = "ucr_series"
 INTERVAL_MINUTES = 1
@@ -101,10 +102,16 @@ def _product(series: UcrSeries, analyzers: str = ROUTER_PICKS) -> dict[str, Any]
     frame = series_frame(series)
     pipeline = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME, analyzers)
     result = pipeline.run_dataframe(frame)
-    candidates = _candidates(result.signals, frame, series.train_end)
+    candidates = _candidates(harness.user_facing_signals(result), frame, series.train_end)
+    # What each analyzer alone would answer: its most confident localized signal, the rule the
+    # single-analyzer methods use.
+    per_analyzer: dict[str, int] = {}
+    for candidate in sorted(candidates, key=lambda c: (-c["confidence"], c["row"])):
+        per_analyzer.setdefault(candidate["analyzer"], candidate["row"])
     candidates.sort(key=lambda c: (-c["importance"], -c["confidence"], c["row"]))
     return {
         **_answer(candidates),
+        "per_analyzer_rows": per_analyzer,
         "executed_analyzers": list(result.executed_analyzers),
         "routing": [
             {
@@ -116,19 +123,18 @@ def _product(series: UcrSeries, analyzers: str = ROUTER_PICKS) -> dict[str, Any]
             for d in result.analyzer_routing
         ],
         "signal_count": len(result.signals),
+        "finding_count": len(result.findings),
     }
 
 
 def _direct(series: UcrSeries, analyzer_id: str) -> dict[str, Any]:
-    analyzer = _instantiate_analyzer(analyzer_id)
-    if analyzer is None:
+    if _instantiate_analyzer(analyzer_id) is None:
         raise RuntimeError(f"{analyzer_id} is not registered or can't be built")
     frame = series_frame(series)
-    config = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME).config
-    signals = analyzer.analyze(normalize_timeseries(frame, config.input))
-    candidates = _candidates(signals, frame, series.train_end)
+    result = harness.build_pipeline(INTERVAL_MINUTES, METRIC_NAME, (analyzer_id,)).run_dataframe(frame)
+    candidates = _candidates(harness.user_facing_signals(result), frame, series.train_end)
     candidates.sort(key=lambda c: (-c["confidence"], c["row"]))
-    return {**_answer(candidates), "signal_count": len(signals)}
+    return {**_answer(candidates), "signal_count": len(result.signals), "finding_count": len(result.findings)}
 
 
 def _discord(series: UcrSeries) -> dict[str, Any]:

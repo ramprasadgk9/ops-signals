@@ -36,6 +36,7 @@ import yaml
 from benchmark import behavior_benchmark, performance_benchmark, router_benchmark
 from benchmark.router_benchmark import DEFAULT_ANALYZER_REGISTRY_DIR, PROJECT_ROOT
 from benchmark.run_behavior_scenarios import discover_scenarios as discover_behavior_scenarios
+from benchmark.samples import SAMPLES, subset
 from benchmark.run_router_scenarios import discover_scenarios as discover_router_scenarios
 from intelligence.analyzer_registry import load_registrations
 
@@ -141,10 +142,16 @@ def run_performance_suite(raw_dir: Path) -> dict[str, Any]:
     }
 
 
+# The --sample in effect for this run (benchmark/samples.py), or None for every series, and the
+# methods left out with --skip-methods.
+_SAMPLE: str | None = None
+_SKIP: frozenset[str] = frozenset()
+
+
 def run_nab_suite(raw_dir: Path) -> dict[str, Any]:
     from benchmark.nab.run import run_nab_suite as run_nab
 
-    return run_nab(raw_dir)
+    return run_nab(raw_dir, only=subset(_SAMPLE, "nab"), skip=_SKIP)
 
 
 def run_tcpd_suite(raw_dir: Path) -> dict[str, Any]:
@@ -156,17 +163,24 @@ def run_tcpd_suite(raw_dir: Path) -> dict[str, Any]:
 def run_ucr_suite(raw_dir: Path) -> dict[str, Any]:
     from benchmark.ucr.run import run_ucr_suite as run_ucr
 
-    return run_ucr(raw_dir)
+    return run_ucr(raw_dir, only=subset(_SAMPLE, "ucr"), skip=_SKIP)
+
+
+def run_analyzer_checks_suite(raw_dir: Path) -> dict[str, Any]:
+    from benchmark.analyzer_checks import run_analyzer_checks
+
+    return run_analyzer_checks(raw_dir)
 
 
 def run_smd_suite(raw_dir: Path) -> dict[str, Any]:
     from benchmark.smd.run import run_smd_suite as run_smd
 
-    return run_smd(raw_dir)
+    return run_smd(raw_dir, only=subset(_SAMPLE, "smd"), skip=_SKIP)
 
 
 SUITES: dict[str, Callable[[Path], dict[str, Any]]] = {
     "router": run_router_suite,
+    "analyzers": run_analyzer_checks_suite,
     "behavior": run_behavior_suite,
     "performance": run_performance_suite,
     "nab": run_nab_suite,
@@ -208,11 +222,18 @@ def accuracy_fingerprint(suites: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def run(selected: list[str], out_dir: Path | None = None) -> Path:
+def run(selected: list[str], out_dir: Path | None = None, sample: str | None = None, skip: frozenset[str] = frozenset()) -> Path:
+    """A sample run (benchmark/samples.py) is named after its sample and doesn't move `latest`,
+    which always points at a full run."""
+    global _SAMPLE, _SKIP
+    _SAMPLE, _SKIP = sample, frozenset(skip)
     started_at = datetime.now(timezone.utc)
     manifest = build_manifest(started_at)
+    manifest["sample"] = sample
+    manifest["skipped_methods"] = sorted(skip)
     short_sha = (manifest["git"].get("commit") or "nogit")[:8]
-    out_dir = out_dir or RESULTS_ROOT / f"{started_at:%Y%m%dT%H%M%SZ}-{short_sha}"
+    suffix = f"-{sample}" if sample else ""
+    out_dir = out_dir or RESULTS_ROOT / f"{started_at:%Y%m%dT%H%M%SZ}-{short_sha}{suffix}"
     raw_dir = out_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -236,7 +257,7 @@ def run(selected: list[str], out_dir: Path | None = None) -> Path:
     from benchmark.report_html import write_report
 
     write_report(out_dir / "results.json")
-    if out_dir.resolve().parent == RESULTS_ROOT.resolve():
+    if out_dir.resolve().parent == RESULTS_ROOT.resolve() and not sample:
         _point_latest(out_dir)
     return out_dir
 
@@ -258,6 +279,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Comma-separated suites to run (default: all - {', '.join(SUITES)})",
     )
     parser.add_argument("--out-dir", type=Path, help="Write the snapshot here instead of benchmark/results/<timestamp>-<sha>/")
+    parser.add_argument("--sample", choices=sorted(SAMPLES), help="Run a fixed subset of NAB, UCR and SMD (benchmark/samples.py) instead of everything")
+    parser.add_argument(
+        "--skip-methods",
+        default="",
+        help="Comma-separated methods to leave out of NAB, UCR and SMD (e.g. all_analyzers, when re-measuring only a router change)",
+    )
     return parser
 
 
@@ -267,7 +294,8 @@ def main() -> None:
     unknown = [name for name in selected if name not in SUITES]
     if unknown:
         raise SystemExit(f"Unknown suite(s): {', '.join(unknown)}. Available: {', '.join(SUITES)}")
-    out_dir = run(selected, args.out_dir)
+    skip = frozenset(name.strip() for name in args.skip_methods.split(",") if name.strip())
+    out_dir = run(selected, args.out_dir, args.sample, skip)
     results = json.loads((out_dir / "results.json").read_text(encoding="utf-8"))
     print(f"\nFingerprint: {results['fingerprint']}")
     for name, suite in results["suites"].items():

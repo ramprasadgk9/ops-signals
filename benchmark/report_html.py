@@ -2266,7 +2266,7 @@ def routing_comparison(suites: dict[str, Any], official_nab: dict[str, Any] | No
             "cells": cells,
         })
     ucr = suites.get("ucr")
-    if ucr and "all_analyzers" in ucr["summary"]["overall"]:
+    if ucr and "product" in ucr["summary"]["overall"]:
         overall, series = ucr["summary"]["overall"], ucr["series"]
         total = overall["series"]
         keys = {"router_picks": "product", "all_analyzers": "all_analyzers", "zscore_only": "anomaly_zscore", "static_threshold": "static_threshold"}
