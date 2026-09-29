@@ -92,6 +92,9 @@ analyzers:
     display_name: STUMPY
     enabled: true
     class_path: intelligence.analyzers.stumpy.STUMPYAnalyzer
+    # Runs on every series, outside the router's slots: in discord mode it stays quiet unless a
+    # stretch stands out (min_surprise), and the router only scored it for seasonal series.
+    always_run: true
     runtime_params:
       window_size: 20
       motif_count: 1
@@ -99,10 +102,16 @@ analyzers:
       implementation:
         library: stumpy
         algorithm: stump
+        # Report the series' most unusual stretches (matrix-profile discords), not its most
+        # repeated one: "found a repeated pattern" fired on almost any series. Analyzer Labs'
+        # motif page still runs motif mode.
+        mode: discord
+        max_discords: 3
         window_size: 20
         motif_count: 1
         profile_threshold: 2.0
       finding_rules:
+        min_surprise: 8.0
         max_motif_distance: 1.0
         min_confidence: 0.75
 

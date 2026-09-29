@@ -96,7 +96,8 @@ def test_always_run_analyzer_is_selected_outside_the_max_analyzers_cap(
     ]
 
     for runner in (MetricAnalysisExecutor(_threshold_config(1), store=NullStore()), SignalPipeline(config=_threshold_config(1), store=NullStore())):
-        assert runner._allowed_pipeline_analyzers(routing) == {"ruptures", CUSTOM_ID}
+        # stumpy is itself an always_run analyzer.
+        assert runner._allowed_pipeline_analyzers(routing) == {"ruptures", CUSTOM_ID, "stumpy"}
 
 
 def test_always_run_analyzer_still_respects_a_router_rejection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,19 +109,21 @@ def test_always_run_analyzer_still_respects_a_router_rejection(tmp_path: Path, m
 
     allowed = SignalPipeline(config=_threshold_config(3), store=NullStore())._allowed_pipeline_analyzers(routing)
 
-    assert allowed == {"ruptures"}
+    # stumpy is itself an always_run analyzer; the rejected custom one stays out.
+    assert allowed == {"ruptures", "stumpy"}
 
 
 def test_analyzers_without_always_run_keep_the_existing_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _registry_dir_with_custom(tmp_path, monkeypatch, always_run=False)
     routing = [
         {"analyzer_id": "ruptures", "recommendation": "RECOMMENDED", "final_score": 1.0},
-        {"analyzer_id": "stumpy", "recommendation": "RECOMMENDED", "final_score": 0.9},
+        {"analyzer_id": "prophet", "recommendation": "RECOMMENDED", "final_score": 0.9},
     ]
 
     allowed = SignalPipeline(config=_threshold_config(1), store=NullStore())._allowed_pipeline_analyzers(routing)
 
-    assert allowed == {"ruptures"}
+    # prophet is capped out; stumpy runs regardless - it's an always_run analyzer.
+    assert allowed == {"ruptures", "stumpy"}
 
 
 def _flat_series(points: int = 60) -> pd.DataFrame:
