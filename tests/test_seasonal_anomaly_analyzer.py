@@ -142,9 +142,10 @@ def _routing(values: np.ndarray) -> list[dict[str, object]]:
     return TimeSeriesRoutingService().route_normalized(_normalized(values)).analyzer_routing
 
 
-def test_router_recommends_it_on_a_strong_daily_cycle_and_it_takes_a_slot_from_pyod() -> None:
+def test_router_no_longer_picks_it_even_on_a_strong_daily_cycle() -> None:
+    # Retired from routing (see config/analyzer_registry.d/custom_seasonal_anomaly.yml): the router
+    # has no decision for it, so it never takes the slot that pyod_outlier used to lose to it.
     routing = _routing(_daily_traffic())
-    decision = next(d for d in routing if d["analyzer_id"] == "seasonal_anomaly")
     config = load_config(PROJECT_ROOT / "config.yaml")
     config.analysis.selection_mode = "recommended_threshold"
     config.analysis.recommendation_execution.min_score = 0.8
@@ -152,15 +153,5 @@ def test_router_recommends_it_on_a_strong_daily_cycle_and_it_takes_a_slot_from_p
 
     allowed = SignalPipeline(config=config, store=NullStore())._allowed_pipeline_analyzers(routing)
 
-    assert decision["recommendation"] == "RECOMMENDED"
-    assert decision["final_score"] == 1.0
-    assert "seasonal_anomaly" in allowed
-    assert "pyod_outlier" not in allowed
-
-
-def test_router_does_not_recommend_it_without_a_daily_cycle() -> None:
-    noise = 50 + np.random.default_rng(3).normal(0, 3, DAY * 7)
-
-    decision = next(d for d in _routing(noise) if d["analyzer_id"] == "seasonal_anomaly")
-
-    assert decision["recommendation"] == "NOT_RECOMMENDED"
+    assert all(d["analyzer_id"] != "seasonal_anomaly" for d in routing)
+    assert "seasonal_anomaly" not in allowed
