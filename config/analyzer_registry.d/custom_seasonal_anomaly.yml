@@ -3,22 +3,18 @@ analyzers:
     display_name: Seasonal Anomaly
     enabled: true
     class_path: backend.app.analyzers.custom.seasonal_anomaly.SeasonalAnomalyAnalyzer
+    # Not routed: without supported_profiles or scoring_rules the router never picks it, so it runs
+    # only in "run everything" mode and Analyzer Labs - the same status as anomaly_zscore. The
+    # eligibility facts stay for the assistant's analyzer catalog. On all 58 NAB series its product
+    # alarms were 588 false for 3 extra windows caught: leaving it out took false alarms
+    # 1,679 -> 1,091 and F1 0.284 -> 0.335. Stricter settings (z 7-10, swing 0.6-1.0) lost those
+    # catches before cutting enough noise; stumpy's discords now cover "a day unlike the others".
+    # To route it again, restore supported_profiles and scoring_rules from git history.
     router:
-      supported_profiles:
-      - seasonal_cycle
       eligibility_rules:
         min_samples: 100
         requires_numeric: true
         requires_regular_sampling: true
-      scoring_rules:
-        base: 0.3
-        rules:
-        - metric: calendar_seasonality_strength
-          gte: 0.5
-          add: 0.5
-        - metric: calendar_seasonality_strength
-          gte: 0.7
-          add: 0.2
       explanation_templates:
         selected: The series repeats on a daily or weekly cycle, so values can be judged
           against what is normal for that time of day or week.
