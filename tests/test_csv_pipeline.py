@@ -211,14 +211,14 @@ def test_a_detected_spike_profile_gets_an_outlier_detector_even_when_it_scores_l
 
     # adtk claims the spike profile too, but has no pipeline analyzer, so pyod_outlier covers it;
     # the other two slots still go by score.
-    assert allowed == {"pyod_outlier", "prophet", "trend", "data_health"}
+    assert allowed == {"pyod_outlier", "prophet", "trend", "data_health", "stumpy"}
 
 
 def test_profile_coverage_can_be_turned_off_to_rank_by_score_alone(monkeypatch) -> None:
     monkeypatch.setattr("intelligence.analyzer_selection._library_installed", lambda name: True)
     pipeline = _threshold_pipeline(cover_detected_profiles=False)
 
-    assert pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING) == {"prophet", "trend", "ruptures", "data_health"}
+    assert pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING) == {"prophet", "trend", "ruptures", "data_health", "stumpy"}
 
 
 def test_an_analyzer_missing_its_optional_library_does_not_take_a_slot(monkeypatch) -> None:
@@ -226,7 +226,7 @@ def test_an_analyzer_missing_its_optional_library_does_not_take_a_slot(monkeypat
     pipeline = _threshold_pipeline(cover_detected_profiles=False)
 
     # prophet would run a straight-line fallback, not the model the router scored.
-    assert pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING) == {"trend", "ruptures", "data_health"}
+    assert pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING) == {"trend", "ruptures", "data_health", "stumpy"}
 
 
 def test_every_builtin_analyzer_constructs_under_the_real_generic_provider_config() -> None:
