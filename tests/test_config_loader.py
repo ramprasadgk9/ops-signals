@@ -142,9 +142,12 @@ def test_modular_analyzer_config_supports_nested_baseline_shift_schema() -> None
     assert "detector_type" not in pyod_params
     assert stumpy_params["finding_rules"]["max_motif_distance"] == 1.0
     assert stumpy_params["finding_rules"]["min_confidence"] == 0.75
+    assert stumpy_params["finding_rules"]["min_surprise"] == 8.0
     assert stumpy_params["implementation"] == {
         "library": "stumpy",
         "algorithm": "stump",
+        "mode": "discord",
+        "max_discords": 3,
         "window_size": 20,
         "motif_count": 1,
         "profile_threshold": 2.0,
