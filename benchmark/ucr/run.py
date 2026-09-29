@@ -28,16 +28,18 @@ OVERVIEW_POINTS = 200
 ZOOM_POINTS = 240
 
 
-def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, only: list[int] | None = None,
+def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, only: list[int] | None = None, skip: frozenset[str] = frozenset(),
                   timeout: float = TASK_TIMEOUT_SECONDS) -> dict[str, Any]:
     from benchmark.ucr.detector import DIRECT_ANALYZERS, DISCORD, MAX_JUMP, METHODS, PIPELINE_METHODS, PRODUCT, WHOLE_SERIES_FRACTION
+
+    selected = tuple(m for m in METHODS if m not in skip)
 
     series_dir = data.ensure_ucr()
     paths = [path for path in data.series_files(series_dir) if not only or int(path.name.split("_", 1)[0]) in only]
     workers = workers or max(1, (os.cpu_count() or 2) - 1)
 
     # Biggest series first, so a long run doesn't start last while the other workers sit idle.
-    tasks = [(str(path), method) for path in sorted(paths, key=lambda p: -p.stat().st_size) for method in METHODS]
+    tasks = [(str(path), method) for path in sorted(paths, key=lambda p: -p.stat().st_size) for method in selected]
     started = time.perf_counter()
     outcomes = run_tasks(tasks, workers=workers, timeout=timeout)
     wall_seconds = time.perf_counter() - started
@@ -46,7 +48,7 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
     for path in paths:
         series = data.load_series(path)
         methods = {}
-        for method in METHODS:
+        for method in selected:
             outcome = dict(outcomes[(str(path), method)])
             methods[method] = _score(outcome, series)
         rows.append(
@@ -72,9 +74,9 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
     return {
         "archive": {"url": data.ARCHIVE_URL, "sha256": data.ARCHIVE_SHA256, "series": len(rows)},
         "settings": {
-            "methods": list(METHODS),
+            "methods": list(selected),
             "product": PRODUCT,
-            "pipeline_methods": list(PIPELINE_METHODS),
+            "pipeline_methods": [m for m in PIPELINE_METHODS if m in selected],
             "direct_analyzers": list(DIRECT_ANALYZERS),
             "reference": DISCORD,
             "baseline": MAX_JUMP,
@@ -84,7 +86,7 @@ def run_ucr_suite(raw_dir: Path | None = None, *, workers: int | None = None, on
         },
         "workers": workers,
         "wall_seconds_total": round(wall_seconds, 1),
-        "summary": summarize(rows, METHODS),
+        "summary": summarize(rows, selected),
         "series": rows,
     }
 
@@ -116,6 +118,10 @@ def _score(outcome: dict[str, Any], series: data.UcrSeries) -> dict[str, Any]:
         outcome["status"] = "error" if outcome.get("error") else ("answered" if row is not None else "no_answer")
     outcome["position"] = position
     outcome["correct"] = metrics.is_correct(position, series.begin, series.end)
+    if outcome.get("per_analyzer_rows") is not None:
+        outcome["per_analyzer_correct"] = {
+            analyzer: metrics.is_correct(int(row) + 1, series.begin, series.end) for analyzer, row in outcome["per_analyzer_rows"].items()
+        }
     if candidate_rows is not None:
         outcome["candidates_after_train"] = len(candidate_rows)
         outcome["hit_rank"] = next(

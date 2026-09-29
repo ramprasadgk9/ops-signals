@@ -23,7 +23,7 @@ import numpy as np
 
 from benchmark.methods import ALL_ANALYZERS, LABELS, ROUTER_PICKS
 from benchmark.tcpd import data, metrics
-from benchmark.tcpd.detector import CHANGE_SIGNAL_TYPES, DIRECT_ANALYZER, run_series, series_frame
+from benchmark.tcpd.detector import CHANGE_ANALYZERS, CHANGE_SIGNAL_TYPES, DIRECT_ANALYZER, run_series, series_frame
 
 OURS = {
     "product": f"{LABELS[ROUTER_PICKS]} (product)",
@@ -56,7 +56,15 @@ def run_tcpd_suite() -> dict[str, Any]:
                 continue
             f1, precision, recall = metrics.f_measure(series.annotations, cps, return_PR=True)
             scores[mode] = {"f1": f1, "precision": precision, "recall": recall, "cover": metrics.covering(series.annotations, cps, len(series.values))}
+        scores["no_change"] = {"f1": metrics.f_measure(series.annotations, []), "cover": metrics.covering(series.annotations, [], len(series.values))}
+        per_analyzer = {}
+        for analyzer, cps in run.all_cps_by_analyzer.items():
+            if run.all_error:
+                per_analyzer[analyzer] = {"f1": 0.0, "cover": 0.0}
+            else:
+                per_analyzer[analyzer] = {"f1": metrics.f_measure(series.annotations, cps), "cover": metrics.covering(series.annotations, cps, len(series.values))}
         record = asdict(run)
+        record["per_analyzer_scores"] = per_analyzer
         rows.append(
             {
                 **record,
@@ -83,6 +91,13 @@ def run_tcpd_suite() -> dict[str, Any]:
         "evaluated": available,
         "unavailable": unavailable,
         "leaderboard": _leaderboard(rows, published, available),
+        "analyzers": {
+            analyzer: {
+                "f1": statistics.mean(row["per_analyzer_scores"][analyzer]["f1"] for row in rows) if rows else None,
+                "cover": statistics.mean(row["per_analyzer_scores"][analyzer]["cover"] for row in rows) if rows else None,
+            }
+            for analyzer in sorted(CHANGE_ANALYZERS)
+        },
         "cost": {
             mode: {
                 "seconds": round(sum(row["seconds"].get(mode, 0.0) for row in rows), 3),

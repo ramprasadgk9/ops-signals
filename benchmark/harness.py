@@ -103,3 +103,12 @@ def warm_up() -> None:
         build_pipeline(5, "warm_up", ALL_ANALYZERS).run_dataframe(frame)
     except Exception:
         pass
+
+
+def user_facing_signals(result) -> list:
+    """The signals a user actually sees: those that became part of a finding. Each analyzer's own
+    finding rules (e.g. pyod_outlier's minimum outlier points and confidence) decide this inside the
+    pipeline; a signal left out of every finding was a hunch the product itself dropped, so it
+    counts as neither a catch nor a false alarm."""
+    kept = {signal_id for finding in result.findings for signal_id in finding.signal_ids}
+    return [signal for signal in result.signals if signal.signal_id in kept]

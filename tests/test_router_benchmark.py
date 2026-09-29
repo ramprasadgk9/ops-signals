@@ -196,7 +196,7 @@ def test_csv_routing_config_applies_analyzer_overrides_for_preview_runs() -> Non
                     "min_samples": 75,
                     "grouping_gap": "10m",
                 },
-                "finding_rules": {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"},
+                "finding_rules": {"min_range_excess": 0.56, "min_sustained_points": 8, "window": "15m"},
             }
         },
     )
@@ -205,7 +205,7 @@ def test_csv_routing_config_applies_analyzer_overrides_for_preview_runs() -> Non
     assert params["implementation"]["contamination"] == 0.0278
     assert params["implementation"]["min_samples"] == 75
     assert params["implementation"]["grouping_gap"] == "10m"
-    assert params["finding_rules"] == {"min_outlier_points": 8, "min_confidence": 0.75, "window": "15m"}
+    assert params["finding_rules"] == {"min_range_excess": 0.56, "min_sustained_points": 8, "window": "15m"}
     assert config.analysis.selected_analyzers == ["pyod_outlier"]
 
 
