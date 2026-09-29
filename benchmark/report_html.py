@@ -384,11 +384,22 @@ def _brief_tcpd(tcpd: dict[str, Any]) -> dict[str, Any] | None:
 
 def _brief_ucr(ucr: dict[str, Any]) -> dict[str, Any] | None:
     overall = ucr["summary"]["overall"]
-    if not all(method in overall for method in ("product", "discord", "max_jump")):
+    if "product" not in overall:
         return None
     total = overall["series"]
-    product, discord, jump = overall["product"]["correct"], overall["discord"]["correct"], overall["max_jump"]["correct"]
+    product = overall["product"]["correct"]
     random_expected = overall["default_rate"] * total
+    if "discord" not in overall or "max_jump" not in overall:
+        return {
+            "kind": "Public benchmark",
+            "tests": "Whether the one anomaly in each series is located, including anomalies that change a shape rather than a value.",
+            "source": f"UCR Time Series Anomaly Archive: {total} series.",
+            "truth": "one anomaly per series, set by the archive's creators (Wu &amp; Keogh, 2021).",
+            "result": f"{product} of {total} located ({_pct(product / total if total else None)})",
+            "good": f"100% is perfect. Guessing at random gets about {random_expected:.1f} ({_pct(overall['default_rate'])}).",
+            "verdict": ("warning", "Not compared: the comparison methods were skipped in this snapshot (--skip-methods)."),
+        }
+    discord, jump = overall["discord"]["correct"], overall["max_jump"]["correct"]
     if product <= random_expected:
         verdict = ("critical", "No better than guessing at random.")
     elif product < jump:
@@ -414,10 +425,13 @@ def _brief_smd(smd: dict[str, Any]) -> dict[str, Any]:
     headline = str(smd["settings"]["headline_threshold"])
     comparison = smd["comparison"]
     ours = comparison["router_picks"]["overall"][headline]
-    best_other = max((m for m in comparison if m != "router_picks"), key=lambda m: comparison[m]["overall"][headline]["f1"])
-    other = comparison[best_other]["overall"][headline]
+    others = [m for m in comparison if m != "router_picks"]
     hit = (ours.get("hit_rate") or {}).get("100")
-    if ours["f1"] >= other["f1"]:
+    best_other = max(others, key=lambda m: comparison[m]["overall"][headline]["f1"]) if others else None
+    other = comparison[best_other]["overall"][headline] if best_other else None
+    if other is None:
+        verdict = ("warning", "Not compared: the comparison methods were skipped in this snapshot (--skip-methods).")
+    elif ours["f1"] >= other["f1"]:
         verdict = ("good", f"Ahead of every alternative run here (best: {comparison[best_other]['label']}, F1 {other['f1']:.3f}).")
     elif ours["f1"] >= 0.8 * other["f1"]:
         verdict = ("warning", f"Close to, but below, {comparison[best_other]['label']} (F1 {other['f1']:.3f}).")
@@ -717,7 +731,9 @@ def _summary(results: dict[str, Any]) -> str:
             _tile(
                 "UCR anomalies located",
                 f"{overall['product']['correct']}<span class='of'>/{total}</span>",
-                f"product, one answer per series · matrix-profile discord {overall['discord']['correct']} · random guess {overall['default_rate'] * total:.1f}",
+                f"product, one answer per series · "
+                + (f"matrix-profile discord {overall['discord']['correct']} · " if "discord" in overall else "")
+                + f"random guess {overall['default_rate'] * total:.1f}",
                 None,
             )
         )
@@ -1482,24 +1498,33 @@ def _ucr_section(ucr: dict[str, Any]) -> str:
         for analyzer in m.get("executed_analyzers") or []:
             executed_counts[analyzer] = executed_counts.get(analyzer, 0) + 1
     executed_text = ", ".join(f"<span class='mono'>{escape(a)}</span> {n}" for a, n in sorted(executed_counts.items(), key=lambda kv: -kv[1]))
-    discord = overall["discord"]
-    both = sum(1 for s in series if s["methods"]["product"]["correct"] and s["methods"]["discord"]["correct"])
-    discord_only = sum(1 for s in series if s["methods"]["discord"]["correct"] and not s["methods"]["product"]["correct"])
-    product_only = sum(1 for s in series if s["methods"]["product"]["correct"] and not s["methods"]["discord"]["correct"])
+    if "discord" in overall:
+        discord = overall["discord"]
+        both = sum(1 for s in series if s["methods"]["product"]["correct"] and s["methods"]["discord"]["correct"])
+        discord_only = sum(1 for s in series if s["methods"]["discord"]["correct"] and not s["methods"]["product"]["correct"])
+        product_only = sum(1 for s in series if s["methods"]["product"]["correct"] and not s["methods"]["discord"]["correct"])
+        against_discord = (
+            f"; the matrix-profile discord reference answered {discord['correct']}. Both were right on {both}; "
+            f"the discord only on {discord_only}; the product only on {product_only}."
+        )
+    else:
+        against_discord = ". The matrix-profile discord reference was not run in this snapshot."
     findings = [
-        f"<li><b>The product answered {product['correct']} of {total} correctly ({_pct(product['correct'] / total if total else None)})</b>; the matrix-profile "
-        f"discord reference answered {discord['correct']}. Both were right on {both}; the discord only on {discord_only}; the product only on {product_only}.</li>",
+        f"<li><b>The product answered {product['correct']} of {total} correctly ({_pct(product['correct'] / total if total else None)})</b>{against_discord}</li>",
         f"<li><b>Right place, wrong rank on {ranked_lower} series.</b> The product listed a finding inside the correct region but ranked another one first. "
         "UCR scores only the top answer.</li>",
         f"<li><b>No localized finding after the training part on {silent} series.</b> The router ran a point-anomaly analyzer "
         f"(<span class='mono'>anomaly_zscore</span>, <span class='mono'>pyod_outlier</span> or <span class='mono'>seasonal_anomaly</span>) on {ran_point} of {total}. "
         f"Analyzers run, by number of series: {executed_text or 'none'}.</li>",
         "<li><b>Most UCR anomalies are shapes, not values.</b> A reversed heartbeat, a slowed gait cycle or a smoothed stretch stays inside the normal "
-        "value range, so point detectors can't see it. Finding it needs a subsequence method such as a discord. The product's "
-        "<span class='mono'>stumpy</span> analyzer computes a matrix profile but reports repeated patterns (motifs), not unusual ones, so it gives no location here.</li>",
-        f"<li><b>{overall['max_jump']['correct']} of {total} series are solved by the largest single jump.</b> Wu &amp; Keogh designed the archive to avoid "
-        "one-liner solutions, and this shows how much of it still yields to one.</li>",
+        "value range, so point detectors can't see it. Finding it needs a subsequence method such as a discord, which is what the product's "
+        "<span class='mono'>stumpy</span> analyzer reports: the stretches least like the rest of the series.</li>",
     ]
+    if "max_jump" in overall:
+        findings.append(
+            f"<li><b>{overall['max_jump']['correct']} of {total} series are solved by the largest single jump.</b> Wu &amp; Keogh designed the archive to avoid "
+            "one-liner solutions, and this shows how much of it still yields to one.</li>"
+        )
     timeouts = [(s, m) for s in series for m, o in s["methods"].items() if o["status"] == "timeout"]
     if timeouts:
         by_method: dict[str, list[int]] = {}
