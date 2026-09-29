@@ -16,6 +16,7 @@ behavior_definitions:
         analyzers:
           - trend
           - baseline_shift
+          - ruptures
       - alias: errors
         metric_name: error_rate
         analyzers:
@@ -33,6 +34,9 @@ behavior_definitions:
         - fact: memory.baseline_shift.present
           operator: equals
           value: true
+        - fact: memory.ruptures.change_percent
+          operator: greater_than
+          value: 25
     correlation:
       same_analysis_context: true
       max_time_gap: 20m
@@ -48,4 +52,5 @@ behavior_definitions:
         - memory.trend.direction
         - memory.trend.change_percent
         - memory.baseline_shift.present
+        - memory.ruptures.change_percent
         - errors.anomaly.count

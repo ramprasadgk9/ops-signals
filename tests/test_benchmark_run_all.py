@@ -37,7 +37,7 @@ def test_run_writes_results_and_report_for_selected_suite(tmp_path: Path) -> Non
     results = json.loads((out_dir / "results.json").read_text(encoding="utf-8"))
     assert results["schema_version"] == run_all.SCHEMA_VERSION
     assert set(results["suites"]) == {"behavior"}
-    assert results["suites"]["behavior"]["counts"] == {"PASS": 2}
+    assert results["suites"]["behavior"]["counts"] == {"PASS": 3}
     assert results["manifest"]["git"]["commit"]
     assert results["manifest"]["dataset_sha256"]
     assert run_all.exit_code(out_dir / "results.json") == 0

@@ -1,0 +1,27 @@
+scenario:
+  id: behavior_server_slow_memory_step_v1
+  name: Correlated CPU Anomaly + Memory Step (Server Slow)
+  description: >
+    The same short CPU anomaly burst as behavior_server_slow_v1, but memory jumps to a new level
+    half way through the window and stays there instead of climbing steadily. The "server_slow"
+    Behavior Intelligence definition in config/behavior_definitions.d/core.yml accepts an upward
+    memory trend or a memory baseline shift; this scenario exercises the baseline-shift side.
+
+dataset:
+  scenario_dataset: benchmark/scenarios/behavior_server_slow_memory_step_v1/dataset.csv
+  metrics:
+    - cpu_usage
+    - memory_usage
+  interval: 5m
+
+expected_behavior_findings:
+  required_matched:
+    - server_slow
+  forbidden_matched:
+    - cpu_throttling
+
+notes:
+  - memory steps from about 30 to about 55 at row 300 and stays there - a level change, not a
+    trend - so in default (router) mode the rule can only match if baseline_shift runs.
+  - cpu_throttling is listed as forbidden because this dataset has no cpu_throttled_seconds
+    metric at all, so it should never be able to match regardless of the CPU anomaly.
