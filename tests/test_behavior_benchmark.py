@@ -80,7 +80,11 @@ def test_run_benchmark_reports_missing_dataset_as_execution_error(tmp_path: Path
 def test_discover_scenarios_only_finds_behavior_scenarios_not_router_scenarios() -> None:
     discovered = {path.name for path in discover_scenarios(SCENARIOS_ROOT)}
 
-    assert discovered == {"behavior_server_slow_v1", "behavior_latency_error_cascade_v1"}
+    assert discovered == {
+        "behavior_server_slow_v1",
+        "behavior_server_slow_memory_step_v1",
+        "behavior_latency_error_cascade_v1",
+    }
 
 
 def test_suite_runner_passes_for_all_behavior_scenarios() -> None:
@@ -100,8 +104,21 @@ def test_default_mode_runs_only_the_router_selected_analyzers_on_each_metric(tmp
     assert (tmp_path / "behavior_server_slow_v1_behavior_default.json").exists()
 
 
-@pytest.mark.parametrize("scenario", ["behavior_server_slow_v1", "behavior_latency_error_cascade_v1"])
+@pytest.mark.parametrize(
+    "scenario",
+    ["behavior_server_slow_v1", "behavior_server_slow_memory_step_v1", "behavior_latency_error_cascade_v1"],
+)
 def test_default_mode_matches_the_expected_behavior(scenario: str, tmp_path: Path) -> None:
     evaluation = run_benchmark(SCENARIOS_ROOT / scenario, mode="default", reports_dir=tmp_path)
 
     assert evaluation.status == "PASS"
+
+
+def test_default_mode_matches_a_memory_level_change_through_ruptures(tmp_path: Path) -> None:
+    # Memory steps to a new level: the router picks ruptures for it but never runs baseline_shift,
+    # so server_slow's memory.ruptures.change_percent condition is what matches.
+    evaluation = run_benchmark(SCENARIOS_ROOT / "behavior_server_slow_memory_step_v1", mode="default", reports_dir=tmp_path)
+
+    assert "ruptures" in evaluation.analyzers_by_metric["memory_usage"]
+    assert "baseline_shift" not in evaluation.analyzers_by_metric["memory_usage"]
+    assert evaluation.matched_definition_ids == ["server_slow"]

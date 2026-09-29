@@ -77,6 +77,7 @@ behavior_definitions:
           - pyod_outlier
           - trend
           - baseline_shift
+          - ruptures
     conditions:
       all:
         - fact: cpu.anomaly.present
@@ -89,6 +90,11 @@ behavior_definitions:
         - fact: memory.baseline_shift.present
           operator: equals
           value: true
+        # ruptures runs in default (router) mode on a level change; baseline_shift does not.
+        # 25 matches baseline_shift's own minimum change.
+        - fact: memory.ruptures.change_percent
+          operator: greater_than
+          value: 25
     correlation:
       same_analysis_context: true
       max_time_gap: 20m
@@ -105,6 +111,7 @@ behavior_definitions:
         - cpu.anomaly.max_score
         - memory.trend.direction
         - memory.baseline_shift.present
+        - memory.ruptures.change_percent
 
   memory_leak:
     enabled: true
@@ -126,6 +133,7 @@ behavior_definitions:
         analyzers:
           - trend
           - baseline_shift
+          - ruptures
     conditions:
       all:
         - fact: memory.trend.direction
@@ -138,6 +146,9 @@ behavior_definitions:
         - fact: throttling.baseline_shift.present
           operator: equals
           value: true
+        - fact: throttling.ruptures.change_percent
+          operator: greater_than
+          value: 25
     correlation:
       same_analysis_context: true
       max_time_gap: 30m
@@ -153,6 +164,7 @@ behavior_definitions:
         - memory.trend.direction
         - memory.trend.change_percent
         - throttling.baseline_shift.present
+        - throttling.ruptures.change_percent
 
   pool_exhaustion:
     enabled: true
