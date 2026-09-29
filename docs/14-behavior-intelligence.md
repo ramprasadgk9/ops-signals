@@ -77,9 +77,9 @@ behavior_definitions:
         - fact: memory.trend.direction
           operator: equals
           value: upward
-        - fact: memory.baseline_shift.present
-          operator: equals
-          value: true
+        - fact: memory.baseline_shift.signed_change_percent
+          operator: greater_than
+          value: 0
     correlation:
       same_analysis_context: true
       max_time_gap: 20m
@@ -94,14 +94,15 @@ behavior_definitions:
       evidence:
         - memory.trend.direction
         - memory.trend.change_percent
-        - memory.baseline_shift.present
+        - memory.baseline_shift.signed_change_percent
         - errors.anomaly.count
 ```
 
 Reading it top to bottom: `inputs` names the metrics involved and which analyzers must have run
 against them (`memory` needs `trend` or `baseline_shift`, `errors` needs `anomaly_zscore`).
 `conditions` reference *facts* those analyzers produce (`errors.anomaly.present`,
-`memory.trend.direction`) - `all` must hold, plus at least one of `any`. `correlation` bounds how
+`memory.trend.direction`, and `memory.baseline_shift.signed_change_percent`, positive when memory
+moved up - a level change counts in either direction unless a condition says which) - `all` must hold, plus at least one of `any`. `correlation` bounds how
 close in time the two signals need to be to count as related. `output` is what gets written as the
 Behavior Finding if everything matches.
 

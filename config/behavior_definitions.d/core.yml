@@ -87,12 +87,13 @@ behavior_definitions:
         - fact: memory.trend.direction
           operator: equals
           value: upward
-        - fact: memory.baseline_shift.present
-          operator: equals
-          value: true
+        # Level changes count only upward - memory freed is not degradation. baseline_shift
+        # already requires a 25% change; ruptures doesn't, so its condition adds the same 25.
         # ruptures runs in default (router) mode on a level change; baseline_shift does not.
-        # 25 matches baseline_shift's own minimum change.
-        - fact: memory.ruptures.change_percent
+        - fact: memory.baseline_shift.signed_change_percent
+          operator: greater_than
+          value: 0
+        - fact: memory.ruptures.signed_change_percent
           operator: greater_than
           value: 25
     correlation:
@@ -110,8 +111,8 @@ behavior_definitions:
         - cpu.anomaly.count
         - cpu.anomaly.max_score
         - memory.trend.direction
-        - memory.baseline_shift.present
-        - memory.ruptures.change_percent
+        - memory.baseline_shift.signed_change_percent
+        - memory.ruptures.signed_change_percent
 
   memory_leak:
     enabled: true
@@ -143,10 +144,11 @@ behavior_definitions:
         - fact: throttling.trend.direction
           operator: equals
           value: upward
-        - fact: throttling.baseline_shift.present
-          operator: equals
-          value: true
-        - fact: throttling.ruptures.change_percent
+        # Upward level changes only, as in server_slow.
+        - fact: throttling.baseline_shift.signed_change_percent
+          operator: greater_than
+          value: 0
+        - fact: throttling.ruptures.signed_change_percent
           operator: greater_than
           value: 25
     correlation:
@@ -163,8 +165,8 @@ behavior_definitions:
       evidence:
         - memory.trend.direction
         - memory.trend.change_percent
-        - throttling.baseline_shift.present
-        - throttling.ruptures.change_percent
+        - throttling.baseline_shift.signed_change_percent
+        - throttling.ruptures.signed_change_percent
 
   pool_exhaustion:
     enabled: true
