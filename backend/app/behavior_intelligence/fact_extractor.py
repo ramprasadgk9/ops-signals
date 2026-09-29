@@ -11,6 +11,19 @@ def _to_iso(value: Any) -> Any:
     return value
 
 
+def _largest_change(signals: list[dict[str, Any]]) -> float:
+    """The level change with the largest magnitude among these signals, as a signed percentage:
+    positive means the metric moved up. Both level-change analyzers (baseline_shift, ruptures)
+    report it as evidence["percent_change"]; "change_percent" is accepted too."""
+    changes = []
+    for sig in signals:
+        evidence = sig.get("evidence", {})
+        value = evidence.get("percent_change", evidence.get("change_percent"))
+        if value is not None:
+            changes.append(float(value))
+    return max(changes, key=abs, default=0.0)
+
+
 def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     by_metric: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -51,12 +64,14 @@ def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "baseline_shift": {
                 "present": bool(baseline_signals),
                 "count": len(baseline_signals),
-                "change_percent": max([abs(float(sig.get("evidence", {}).get("change_percent", 0.0))) for sig in baseline_signals], default=0.0),
+                "change_percent": abs(_largest_change(baseline_signals)),
+                "signed_change_percent": _largest_change(baseline_signals),
             },
             "ruptures": {
                 "present": bool(ruptures_signals),
                 "count": len(ruptures_signals),
-                "change_percent": max([abs(float(sig.get("evidence", {}).get("percent_change", 0.0))) for sig in ruptures_signals], default=0.0),
+                "change_percent": abs(_largest_change(ruptures_signals)),
+                "signed_change_percent": _largest_change(ruptures_signals),
                 "change_point_index": min([int(sig.get("evidence", {}).get("change_point_index", 0)) for sig in ruptures_signals], default=0),
             },
             "signal": {

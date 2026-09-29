@@ -116,7 +116,7 @@ def test_default_mode_matches_the_expected_behavior(scenario: str, tmp_path: Pat
 
 def test_default_mode_matches_a_memory_level_change_through_ruptures(tmp_path: Path) -> None:
     # Memory steps to a new level: the router picks ruptures for it but never runs baseline_shift,
-    # so server_slow's memory.ruptures.change_percent condition is what matches.
+    # so server_slow's memory.ruptures.signed_change_percent condition is what matches.
     evaluation = run_benchmark(SCENARIOS_ROOT / "behavior_server_slow_memory_step_v1", mode="default", reports_dir=tmp_path)
 
     assert "ruptures" in evaluation.analyzers_by_metric["memory_usage"]
