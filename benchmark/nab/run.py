@@ -26,6 +26,7 @@ from benchmark.methods import ALL_ANALYZERS, DESCRIPTIONS, LABELS, ROUTER_PICKS,
 from benchmark.router_benchmark import DEFAULT_ANALYZER_REGISTRY_DIR
 from intelligence.analyzer_registry import load_registrations
 from benchmark.nab import detector, metrics
+from benchmark.nab.alert_budget import AlertBudget
 from benchmark.nab.fetch import NAB_COMMIT, NAB_REPOSITORY, ensure_nab
 
 DETECTOR_NAMES = {"replay": "opsSignalsReplay", "batch": "opsSignalsBatch"}
@@ -60,6 +61,7 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
     analyzer_ids = sorted(r.analyzer_id for r in load_registrations(DEFAULT_ANALYZER_REGISTRY_DIR) if r.enabled)
     analyzer_overall = {a: {threshold: metrics.WindowCounts() for threshold in metrics.THRESHOLDS} for a in analyzer_ids}
     categories: dict[str, dict[str, metrics.WindowCounts]] = {}
+    budget = AlertBudget()
     series_payload = []
     for run in runs:
         frame = detector.load_series(nab_dir / "data" / run.series)
@@ -69,6 +71,11 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
         for start, end in rows:
             labels[start : end + 1] = 1
         category = run.series.split("/")[0]
+        budget.add_series(timestamps, frame["value"].to_numpy(dtype=float), rows, {
+            "live": run.replay_scores,
+            "batch": run.batch_scores,
+            **({"zscore_only": run.baselines[ZSCORE_ONLY].scores} if ZSCORE_ONLY in run.baselines else {}),
+        })
 
         per_mode: dict[str, Any] = {}
         for mode in MODES:
@@ -143,6 +150,7 @@ def run_nab_suite(raw_dir: Path, *, workers: int | None = None, only: list[str] 
         "detector_names": DETECTOR_NAMES,
         "baseline_detector_names": BASELINE_DETECTOR_NAMES,
         "comparison": _comparison(runs, overall["replay"], baseline_overall),
+        "alert_budget": budget.summary(),
         "analyzers": {
             analyzer: {str(threshold): counts.summary() for threshold, counts in by_threshold.items()}
             for analyzer, by_threshold in analyzer_overall.items()
