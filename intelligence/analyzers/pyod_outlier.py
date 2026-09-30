@@ -22,6 +22,7 @@ class PyODOutlierConfig:
     finding_min_range_excess: float = 0.56
     finding_min_sustained_points: int = 8
     finding_window: pd.Timedelta = pd.Timedelta("15m")
+    finding_compare_daily_peaks: bool = False
 
 
 class PyODOutlierAnalyzer(Analyzer):
@@ -41,12 +42,26 @@ class PyODOutlierAnalyzer(Analyzer):
       (within grouping_gap of each other), even when their values stay inside the normal range - the
       kind of anomaly that changes a series' shape rather than its level.
 
+    Quiet mode (finding_rule.compare_daily_peaks, off by default): a clear spike must also be
+    unusual for this metric, not just far from its middle. When the
+    window holds at least MIN_OTHER_DAYS other days, the spike's day must have an outlying peak
+    among the daily peaks: beyond the typical day's peak (their median) by the same 3.5 robust
+    z-score cut-off (Iglewicz & Hoaglin, using the median absolute deviation of the peaks). Dips
+    are judged the same way against the daily lows. Medians keep a few incident days from raising
+    the bar, so spikes that recur on some days are still found, while a lunch rush that reaches the
+    same height every day is not a finding, and a burst far above anything the metric does on a
+    normal day still is. Bursty metrics - a tweet count, an error counter that sits at zero -
+    reach "far beyond the 5th-95th range" every day, which the range rule alone reported as spikes.
+    With fewer days of data there is nothing to compare with, and the range rule decides alone.
+
     When most values are identical and the 5th-95th range is empty, the standard deviation stands in
     for it.
 
     Confidence says how strong the evidence is on an absolute scale: 0.5 exactly at either threshold,
     rising towards 1.0 without reaching it (0.75 at twice the threshold), and below 0.5 when neither
-    is met - so stronger outliers always rank above weaker ones. (It used to be the group's KNN score
+    is met - so stronger outliers always rank above weaker ones. For a spike compared with daily
+    peaks it is the weaker of the two measures, so a spike ranks high only when it is both far from
+    the middle and well past the daily-peak bar (0.75 when twice as far from the median as the bar). (It used to be the group's KNN score
     divided by the window's largest, so the most unusual point of every window scored 1.0, however
     normal it was.)
     """
@@ -81,6 +96,7 @@ class PyODOutlierAnalyzer(Analyzer):
             finding_min_range_excess=max(0.0, float(rule.get("min_range_excess", 0.56))),
             finding_min_sustained_points=max(2, int(rule.get("min_sustained_points", 8))),
             finding_window=pd.to_timedelta(str(rule.get("window", grouping_gap))),
+            finding_compare_daily_peaks=bool(rule.get("compare_daily_peaks", False)),
         )
 
     def capability(self) -> Capability:
@@ -127,13 +143,16 @@ class PyODOutlierAnalyzer(Analyzer):
             anomalies = ordered[ordered["pyod_label"] == 1].copy()
             if anomalies.empty:
                 continue
+            median = float(np.median(values))
+            days = _daily_extremes(ordered) if self.config.finding_compare_daily_peaks else None
 
             anomalies["group_id"] = (anomalies["timestamp"].diff().gt(self.config.grouping_gap)).cumsum()
             for _, anomaly_group in anomalies.groupby("group_id"):
                 max_score = float(anomaly_group["pyod_score"].max())
                 range_excess = float(anomaly_group["range_excess"].max())
                 points = int(len(anomaly_group))
-                confidence = self._confidence(range_excess, points)
+                peaks = _usual_peaks(days, anomaly_group, median)
+                confidence = self._confidence(range_excess, points, peaks["peak_ratio"] if peaks else None)
                 severity = "high" if confidence >= 0.75 else "medium"
                 metric_name = anomaly_group.iloc[0]["metric_name"]
                 service = anomaly_group.iloc[0].get("service")
@@ -174,13 +193,16 @@ class PyODOutlierAnalyzer(Analyzer):
                             "min_samples": self.config.min_samples,
                             "range_excess": round(range_excess, 4),
                             "normal_range": {"low": round(low, 6), "high": round(high, 6)},
+                            "daily_peaks": peaks,
                             "finding_rule": {
                                 "min_range_excess": self.config.finding_min_range_excess,
                                 "min_sustained_points": self.config.finding_min_sustained_points,
                                 "window": str(self.config.finding_window),
+                                "compare_daily_peaks": self.config.finding_compare_daily_peaks,
                             },
                             "finding_rule_matched": (
-                                range_excess >= self.config.finding_min_range_excess
+                                (range_excess >= self.config.finding_min_range_excess
+                                 and (peaks is None or peaks["peak_ratio"] > 1.0))
                                 or points >= self.config.finding_min_sustained_points
                             ),
                         },
@@ -188,10 +210,59 @@ class PyODOutlierAnalyzer(Analyzer):
                 )
         return signals
 
-    def _confidence(self, range_excess: float, points: int = 1) -> float:
-        """The stronger of the two kinds of evidence, each 0.5 exactly at its threshold."""
-        return round(max(_strength(range_excess, self.config.finding_min_range_excess),
-                         _strength(float(points), float(self.config.finding_min_sustained_points))), 4)
+    def _confidence(self, range_excess: float, points: int = 1, peak_ratio: float | None = None) -> float:
+        """The stronger of the two kinds of evidence, each 0.5 exactly at its threshold. A spike
+        compared with daily peaks takes the weaker of its range and peak measures."""
+        spike = _strength(range_excess, self.config.finding_min_range_excess)
+        if peak_ratio is not None:
+            spike = min(spike, _strength(peak_ratio, 1.0))
+        return round(max(spike, _strength(float(points), float(self.config.finding_min_sustained_points))), 4)
+
+
+MIN_OTHER_DAYS = 3
+# Robust outlier cut-off on daily peaks: modified z-score 0.6745 * (x - median) / MAD above 3.5.
+ROBUST_Z = 3.5
+MAD_TO_Z = 0.6745
+
+
+def _daily_extremes(ordered: pd.DataFrame) -> pd.DataFrame:
+    """Each calendar day's highest and lowest value, for days with at least half the usual number of
+    points (a partial first or last day would understate its peak)."""
+    by_day = ordered.groupby(ordered["timestamp"].dt.floor("D"))["value"].agg(["max", "min", "count"])
+    return by_day[by_day["count"] >= 0.5 * by_day["count"].median()]
+
+
+def _usual_peaks(days: pd.DataFrame | None, group: pd.DataFrame, median: float) -> dict[str, object] | None:
+    """How far the group reaches from the series median, as a multiple of how far the daily-peak
+    bar (or daily-low bar) reaches: above 1 means past it. None when there are too few other days
+    to compare with."""
+    if days is None:
+        return None
+    other = days[~days.index.isin(group["timestamp"].dt.floor("D").unique())]
+    if len(other) < MIN_OTHER_DAYS:
+        return None
+    highs, lows = other["max"].to_numpy(dtype=float), other["min"].to_numpy(dtype=float)
+    usual_high, usual_low = float(np.median(highs)), float(np.median(lows))
+    margin = ROBUST_Z / MAD_TO_Z
+    high_bar = usual_high + margin * float(np.median(np.abs(highs - usual_high)))
+    low_bar = usual_low - margin * float(np.median(np.abs(lows - usual_low)))
+    up = _reach(float(group["value"].max()) - median, high_bar - median)
+    down = _reach(median - float(group["value"].min()), median - low_bar)
+    return {
+        "days_compared": int(len(other)),
+        "usual_high": round(usual_high, 6),
+        "usual_low": round(usual_low, 6),
+        "high_bar": round(high_bar, 6),
+        "low_bar": round(low_bar, 6),
+        "peak_ratio": round(max(up, down), 4),
+    }
+
+
+def _reach(distance: float, usual: float) -> float:
+    if distance <= 0:
+        return 0.0
+    # Capped so the evidence stays valid JSON when the usual peak sits at the median (a flat metric).
+    return min(distance / usual, 1e6) if usual > 1e-12 else 1e6
 
 
 def _strength(value: float, threshold: float) -> float:
