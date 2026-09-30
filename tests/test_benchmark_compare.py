@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from benchmark.report_compare import write_compare
+from benchmark.report_compare import _cost_table, _match_sentence, write_compare
 
 
 def _snapshot(root: Path, run_id: str, commit: str, default_status: str) -> Path:
@@ -70,3 +70,31 @@ def test_compare_page_takes_its_title_and_expected_changes_from_change_yaml(tmp_
 
     assert "<h1>Spike fix: before and after</h1>" in page
     assert "the spike rule" in page
+
+
+def _row(suite: str, with_all_analyzers: bool) -> dict:
+    def side() -> dict:
+        cells = {"router_picks": {"value": 0.5, "analyzer_runs": 10, "seconds": 1.0}}
+        if with_all_analyzers:
+            cells["all_analyzers"] = {"value": 0.6, "analyzer_runs": 30, "seconds": 2.0}
+        return {"cells": cells, "verdict": ("warning", "Behind running everything.")}
+
+    return {"suite": suite, "before": side(), "after": side()}
+
+
+def test_compare_page_counts_routing_matches_only_where_all_analyzers_ran() -> None:
+    # run_all --skip-methods all_analyzers leaves NAB and UCR with nothing to compare routing against
+    rows = [_row("nab", False), _row("ucr", False), _row("tcpd", True)]
+
+    assert _match_sentence(rows) == (
+        "Choosing a few detectors per metric now matches or beats running all of them on 0 of 1 datasets where running all of them "
+        "was measured, up from 0."
+    )
+    assert _match_sentence(rows[:2]) == "Running every analyzer wasn't measured in these runs, so routing isn't compared with it here."
+
+
+def test_compare_cost_table_renders_when_all_analyzers_was_skipped() -> None:
+    table = _cost_table([_row("nab", False), _row("tcpd", True)])
+
+    assert "<td>NAB</td><td class='num'>10</td><td class='num'>10</td><td class='num'>-</td>" in table
+    assert "<td class='num'>30</td>" in table

@@ -148,6 +148,22 @@ def _router_matches(row: dict[str, Any], side: str) -> bool:
     return row[side]["verdict"][1].startswith(("Matches", "Better"))
 
 
+def _compared(row: dict[str, Any], side: str) -> bool:
+    """Whether running every analyzer was measured for this dataset in this run (not skipped)."""
+    return bool(row[side]["cells"].get("all_analyzers"))
+
+
+def _match_sentence(rows: list[dict[str, Any]]) -> str:
+    """How often router picks match running everything, counted only where both runs measured running everything."""
+    both = [row for row in rows if _compared(row, "before") and _compared(row, "after")]
+    if not both:
+        return "Running every analyzer wasn't measured in these runs, so routing isn't compared with it here."
+    matched_before = sum(_router_matches(row, "before") for row in both)
+    matched_after = sum(_router_matches(row, "after") for row in both)
+    scope = f"{len(both)} datasets" if len(both) == len(rows) else f"{len(both)} datasets where running all of them was measured"
+    return f"Choosing a few detectors per metric now matches or beats running all of them on {matched_after} of {scope}, up from {matched_before}."
+
+
 # --- sections -------------------------------------------------------------------------------
 
 
@@ -178,14 +194,15 @@ def _header(before: dict[str, Any], after: dict[str, Any], output_dir: Path, abo
 
 
 def _glance(before: dict[str, Any], after: dict[str, Any], rows: list[dict[str, Any]]) -> str:
-    matched_before = sum(_router_matches(row, "before") for row in rows)
-    matched_after = sum(_router_matches(row, "after") for row in rows)
+    both = [row for row in rows if _compared(row, "before") and _compared(row, "after")]
+    matched_before = sum(_router_matches(row, "before") for row in both)
+    matched_after = sum(_router_matches(row, "after") for row in both)
     improved = [row for row in rows if (_router(row, "after") or {}).get("value", 0) > (_router(row, "before") or {}).get("value", 0)]
     worse = [row for row in rows if (_router(row, "after") or {}).get("value", 0) < (_router(row, "before") or {}).get("value", 0)]
     if worse:
         verdict = ("warning", f"Better on {len(improved)} of {len(rows)} datasets, worse on {len(worse)}.")
     elif matched_after > matched_before:
-        verdict = ("good", f"Better or unchanged on every dataset; router picks now match or beat running everything on {matched_after} of {len(rows)}.")
+        verdict = ("good", f"Better or unchanged on every dataset; router picks now match or beat running everything on {matched_after} of {len(both)}.")
     else:
         verdict = ("warning", "No dataset got worse, but routing still doesn't match running everything.")
     items = (
@@ -195,8 +212,7 @@ def _glance(before: dict[str, Any], after: dict[str, Any], rows: list[dict[str, 
         ("Data source", "The datasets from both runs: " + ", ".join(escape(row["after"]["dataset"]) for row in rows) + "."),
         ("Ground truth", "Each dataset's own answer key. NAB, UCR and TCPD labels come from outside researchers; the behavior scenarios are this project's own."),
         ("Our result", f"<b>After the change, Ops Signals scored higher on {len(improved)} of {len(rows)} datasets and lower on {len(worse)}.</b> "
-                       f"Choosing a few detectors per metric now matches or beats running all of them on {matched_after} of {len(rows)} datasets, "
-                       f"up from {matched_before}."),
+                       + _match_sentence(rows)),
         ("What good looks like", "Every dataset improves or holds, the other methods score the same in both runs (so the change is the only difference), "
                                  "and router picks end up at least as accurate as running everything, for fewer analyzer runs."),
     )
@@ -368,7 +384,8 @@ def _achieved_card(before: dict[str, Any], after: dict[str, Any], by_suite: dict
         rb, ra = _router(tcpd, "before"), _router(tcpd, "after")
         items.append(
             f"<li><b>Moments of change (TCPD):</b> a score from 0 to 1, where 1 means every change the annotators marked was found in the right "
-            f"place with nothing extra. It went from <b>{rb['value']:.3f} to {ra['value']:.3f}</b>, a small gain.</li>"
+            f"place with nothing extra. It went from <b>{rb['value']:.3f} to {ra['value']:.3f}</b>, "
+            f"{'a gain' if ra['value'] > rb['value'] else 'a drop' if ra['value'] < rb['value'] else 'no change'}.</li>"
         )
     behavior = by_suite.get("behavior")
     if behavior:
@@ -389,7 +406,8 @@ def _achieved_card(before: dict[str, Any], after: dict[str, Any], by_suite: dict
 
 
 def _quality_card(after: dict[str, Any], by_suite: dict[str, Any], rows: list[dict[str, Any]]) -> str:
-    matched = sum(_router_matches(row, "after") for row in rows)
+    compared = [row for row in rows if _compared(row, "after")]
+    matched = sum(_router_matches(row, "after") for row in compared)
     improved = sum(1 for row in rows if (_router(row, "after") or {}).get("value", 0) > (_router(row, "before") or {}).get("value", 0))
     worse = sum(1 for row in rows if (_router(row, "after") or {}).get("value", 0) < (_router(row, "before") or {}).get("value", 0))
     router_runs = sum(_router(row, "after")["analyzer_runs"] for row in rows if _router(row, "after") and row["after"]["cells"].get("all_analyzers"))
@@ -407,10 +425,14 @@ def _quality_card(after: dict[str, Any], by_suite: dict[str, Any], rows: list[di
         catch = "Better than before on every dataset tested."
     else:
         catch = f"Better than before on {improved} of {len(rows)} datasets, and no worse on the rest."
-    worth = (
-        f"Yes on {matched} of {len(rows)} datasets: choosing a few detectors per metric does as well as or better than running all of them"
-        if matched else "Not yet: on every dataset, running all detectors still does better than choosing a few"
-    )
+    if not compared:
+        worth = "Not measured here: running all detectors was skipped in these runs"
+    elif matched:
+        worth = (f"Yes on {matched} of {len(compared)} datasets where it was measured: choosing a few detectors per metric does as well as "
+                 "or better than running all of them")
+    else:
+        worth = (f"Not yet: on {'every dataset' if len(compared) == len(rows) else f'the {len(compared)} datasets where it was measured'}, "
+                 "running all detectors still does better than choosing a few")
     trust = (
         "every alternative scored identically in both runs, " if identical
         else "some alternatives scored differently between the runs (listed further down), so not every difference is the change alone; "
@@ -674,10 +696,13 @@ def _cost_table(rows: list[dict[str, Any]]) -> str:
                 return "-"
             return f"{cell['seconds'] / 60:.1f} min" if cell["seconds"] >= 120 else f"{cell['seconds']:.1f} s"
 
+        def runs(cell):
+            return f"{cell['analyzer_runs']:,}" if cell else "-"
+
         body.append(
             f"<tr><td>{escape(_short_dataset(row['suite']))}</td>"
             f"<td class='num'>{b['analyzer_runs']:,}</td><td class='num'>{a['analyzer_runs']:,}</td>"
-            f"<td class='num'>{everything['analyzer_runs']:,}</td>"
+            f"<td class='num'>{runs(everything)}</td>"
             f"<td class='num'>{seconds(b)}</td><td class='num'>{seconds(a)}</td><td class='num'>{seconds(everything)}</td></tr>"
         )
     return f"""
@@ -871,7 +896,14 @@ def _code_changes(before: dict[str, Any], after: dict[str, Any]) -> str:
         log = []
     items = "".join(
         f"<li><span class='mono'>{escape(line.split(chr(9))[0])}</span> {escape(line.split(chr(9), 1)[-1])}</li>" for line in log
-    ) or "<li class='muted'>Commit history between the two runs isn't available in this checkout.</li>"
+    )
+    if not items and commit_b == commit_a:
+        dirty = after["results"]["manifest"]["git"].get("dirty_files") or []
+        items = "<li>Both runs are on the same commit.</li>" + (
+            "<li>The after run had uncommitted changes: " + ", ".join(f"<span class='mono'>{escape(f)}</span>" for f in dirty) + "</li>"
+            if dirty else ""
+        )
+    items = items or "<li class='muted'>Commit history between the two runs isn't available in this checkout.</li>"
     return f"""
 <section id="code">
   <h2>What changed in the code</h2>
