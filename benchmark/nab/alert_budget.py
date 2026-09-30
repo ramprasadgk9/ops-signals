@@ -50,8 +50,7 @@ class AlertBudget:
                    scores: dict[str, list[float] | np.ndarray]) -> None:
         self.windows += len(window_rows)
         probation = metrics.probation_rows(len(values))
-        diffs = np.sort(np.diff(timestamps))  # keeps the timestamps' own time unit
-        gap = max(MIN_GAP, diffs[len(diffs) // 2]) if len(diffs) else MIN_GAP
+        gap = alert_gap(timestamps)
         for method, method_scores in scores.items():
             values_ = np.asarray(method_scores, dtype=float)
             for knob in KNOBS:
@@ -63,7 +62,7 @@ class AlertBudget:
     def _add(self, method: str, knob: float, rows: np.ndarray, timestamps: np.ndarray,
              window_rows: list[tuple[int, int]], probation: int, gap) -> None:
         rows = rows[rows >= probation]
-        alerts = 1 + int((np.diff(timestamps[rows]) > gap).sum()) if len(rows) else 0
+        alerts = len(group_alerts(timestamps, rows, gap))
         caught = sum(1 for start, end in window_rows if ((rows >= start) & (rows <= end)).any())
         point = self.points.setdefault(method, {}).setdefault(knob, [0, 0])
         point[0] += alerts
@@ -86,6 +85,20 @@ class AlertBudget:
             "budgets": [{"alerts": budget, "caught": {method: best_under(curve, budget) for method, curve in curves.items()}}
                         for budget in budgets],
         }
+
+
+def alert_gap(timestamps: np.ndarray) -> np.timedelta64:
+    """Flags closer than this are one alert: 15 minutes, or one sampling interval if longer."""
+    diffs = np.sort(np.diff(timestamps))  # keeps the timestamps' own time unit
+    return max(MIN_GAP, diffs[len(diffs) // 2]) if len(diffs) else MIN_GAP
+
+
+def group_alerts(timestamps: np.ndarray, rows: np.ndarray, gap: np.timedelta64) -> list[np.ndarray]:
+    """Flagged rows (sorted) split into alerts: a new alert starts where the gap to the previous flag is larger than `gap`."""
+    if not len(rows):
+        return []
+    breaks = np.nonzero(np.diff(timestamps[rows]) > gap)[0] + 1
+    return np.split(rows, breaks)
 
 
 def best_under(curve: list[dict[str, Any]], budget: int) -> int | None:
