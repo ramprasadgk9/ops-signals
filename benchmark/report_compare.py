@@ -49,6 +49,7 @@ from benchmark.report_html import (
     _routing_row_verdict,
     routing_comparison,
 )
+from benchmark.nab.alert_budget import best_under
 from benchmark.router_benchmark import PROJECT_ROOT
 
 BASELINE_METHODS = [m for m in ROUTING_METHODS if m != "router_picks"]
@@ -80,6 +81,7 @@ def render_compare(before: dict[str, Any], after: dict[str, Any], output_dir: Pa
         _baselines_check(rows, about),
         _cost_table(rows),
         _nab_changes(before, after),
+        _alert_budget_changes(before, after),
         _ucr_changes(before, after),
         _tcpd_changes(before, after),
         _behavior_changes(before, after),
@@ -775,6 +777,43 @@ def _nab_changes(before: dict[str, Any], after: dict[str, Any]) -> str:
   <h3 class="sub">Series where the incidents caught changed ({len(gained)} gained, {len(lost)} lost)</h3>
   <div class="table-wrap scroll-y"><table><thead><tr><th>Series</th><th class="num">Windows caught, before</th><th class="num">After</th></tr></thead>
   <tbody>{flips}</tbody></table></div>
+</section>"""
+
+
+def _alert_budget_changes(before: dict[str, Any], after: dict[str, Any]) -> str:
+    """Before and after at the same alert budgets: did the change make Ops Signals catch more for the
+    same number of alerts, or only alert less? Needs both snapshots to carry nab.alert_budget."""
+    ab_b = (before["results"]["suites"].get("nab") or {}).get("alert_budget")
+    ab_a = (after["results"]["suites"].get("nab") or {}).get("alert_budget")
+    if not ab_b or not ab_a:
+        return ""
+    methods = [m for m in ("live", "batch") if m in ab_b["curves"] and m in ab_a["curves"]]
+    head = "".join(f"<th class='num'>{escape(ab_a['labels'][m])}, before</th><th class='num'>after</th>" for m in methods)
+    rows, tally = [], {m: [0, 0, 0] for m in methods}
+    for budget in [row["alerts"] for row in ab_a["budgets"]]:
+        cells = []
+        for m in methods:
+            was, now = best_under(ab_b["curves"][m], budget), best_under(ab_a["curves"][m], budget)
+            if was is not None and now is not None:
+                tally[m][0 if now > was else 1 if now == was else 2] += 1
+            cells.append(f"<td class='num'>{'-' if was is None else was}</td><td class='num'>{'-' if now is None else now}"
+                         f"{'' if was is None or now is None or was == now else ' ' + _delta(was, now, fmt='{:+,.0f}')}</td>")
+        threshold = best_under(ab_a["curves"]["static_threshold"], budget) if "static_threshold" in ab_a["curves"] else None
+        rows.append(f"<tr><td class='num'>{budget:,}</td>{''.join(cells)}<td class='num'>{'-' if threshold is None else threshold}</td></tr>")
+    verdict = " ".join(
+        f"<b>{escape(ab_a['labels'][m])}</b>: more incidents caught at {up} budget{'' if up == 1 else 's'}, the same at {same}, fewer at {down}."
+        for m, (up, same, down) in tally.items()
+    )
+    return f"""
+<section id="alert-budget">
+  <h2>NAB at the same number of alerts, before and after</h2>
+  <p class="section-lede">Fewer false alarms can come from alerting less. This compares the two runs at the same alert budgets: the most
+  incident windows (of {ab_a['windows']}) each catches with at most that many alerts, choosing its confidence cutoff for all series at once.
+  A change that is only quieter moves along the same line; a change that is smarter lifts it. {verdict}</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">Alert budget</th>{head}<th class="num">Best threshold (hindsight)</th></tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table></div>
 </section>"""
 
 

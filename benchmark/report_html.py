@@ -1077,6 +1077,7 @@ scorer, run <span class="mono">python -m benchmark.nab.official_score &lt;this s
   <p class="small muted">The {escape(headline)} threshold was fixed before scoring and is not tuned per series or per dataset. The sweep
   below shows every threshold, so nothing depends on that choice being favorable.</p>
   {_nab_comparison(nab)}
+  {_nab_alert_budget(nab)}
 
   <div class="two-col explain">
     <div class="card"><h3>Replay mode (causal, counts toward the headline)</h3><p>A trailing window of up to
@@ -1127,6 +1128,113 @@ scorer, run <span class="mono">python -m benchmark.nab.official_score &lt;this s
     <li>Harness code: <span class="mono">benchmark/nab/</span>. Only NAB's data and labels are used; none of NAB's code is run.</li>
   </ul>
 </section>"""
+
+
+AB_ORDER = ("batch", "live", "static_threshold", "zscore_only")
+
+
+def _nab_alert_budget(nab: dict[str, Any]) -> str:
+    """The equal-alert-budget check (benchmark/nab/alert_budget.py): incidents caught against alerts
+    sent, each method through its sensitivity settings, and the best each does within set budgets."""
+    ab = nab.get("alert_budget")
+    if not ab or "static_threshold" not in ab["curves"]:
+        return ""
+    methods = [m for m in AB_ORDER if m in ab["curves"]]
+    verdicts = []
+    for method in ("live", "batch"):
+        if method not in ab["curves"]:
+            continue
+        rows = [(r["caught"][method], r["caught"]["static_threshold"]) for r in ab["budgets"]
+                if r["caught"][method] is not None and r["caught"]["static_threshold"] is not None]
+        more, same, fewer = (sum(o > t for o, t in rows), sum(o == t for o, t in rows), sum(o < t for o, t in rows))
+        verdicts.append(f"<b>{escape(ab['labels'][method])}</b> catches more incidents than the best threshold at {more} of {len(rows)} "
+                        f"alert budgets, as many at {same}, and fewer at {fewer}.")
+    head = "".join(f"<th class='num'>{escape(ab['labels'][m])}</th>" for m in methods)
+    body = []
+    for row in ab["budgets"]:
+        values = [row["caught"][m] for m in methods]
+        best = max((v for v in values if v is not None), default=None)
+        cells = "".join(
+            f"<td class='num'>{'<b>' + str(v) + '</b>' if v is not None and v == best else ('-' if v is None else v)}</td>" for v in values
+        )
+        usual = [ab["labels"][m] for m in methods if ab["usual"][m]["alerts"] == row["alerts"]]
+        note = f" <span class='muted small'>({escape(', '.join(usual))} usual setting)</span>" if usual else ""
+        body.append(f"<tr><td class='num'>{row['alerts']:,}{note}</td>{cells}</tr>")
+    return f"""
+  <h3 class="sub">The fair test: the same number of alerts</h3>
+  <p class="small">A method can send fewer false alarms just by alerting less. Here each method's sensitivity is turned through many
+  settings, one setting for all series at a time, and each setting is a point: alerts sent, incident windows caught. The higher a line
+  at a given number of alerts, the more real incidents that method catches for the same alerts. Flags less than 15 minutes (or one
+  reading) apart count as one alert, for every method.</p>
+  <ul class="notes">{"".join(f"<li>{v}</li>" for v in verdicts)}</ul>
+  {_budget_chart(ab, methods)}
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">Alert budget</th>{head}</tr></thead>
+    <tbody>{"".join(body)}</tbody>
+  </table></div>
+  <p class="small muted">Each cell is the most incident windows (of {ab['windows']}) a method catches with at most that many alerts; "-" means
+  it can't get that quiet. The threshold's line is the best of {len(ab['curves']['static_threshold'])} limit settings, and picking the best one
+  needs the answer key, so it is the best a threshold can do with hindsight. {"Ops Signals and the z-score use their" if "zscore_only" in methods else "Ops Signals uses its"} confidence cutoff;
+  {"their" if "zscore_only" in methods else "its"} usual setting is ≥ {escape(str(nab['settings']['headline_threshold']))}. Budgets are fractions of the threshold's usual alert count,
+  plus Ops Signals' usual counts.</p>"""
+
+
+def _nice_step(top: int) -> int:
+    """A 1, 2 or 5 x 10^k axis step giving at most 8 ticks from 0 to top."""
+    magnitude = 10 ** max(0, math.floor(math.log10(max(top, 1))) - 1)
+    return next(n * magnitude for n in (1, 2, 5, 10, 20, 50, 100) if top / (n * magnitude) <= 8)
+
+
+def _budget_chart(ab: dict[str, Any], methods: list[str]) -> str:
+    width, height, pad_l, pad_r, pad_t, pad_b = 720, 320, 48, 130, 14, 40
+    x_max = max(1, round(max(ab["usual"][m]["alerts"] for m in methods) * 1.1))  # every usual setting on the chart
+    y_max = max(1, ab["windows"])
+
+    def sx(alerts: float) -> float:
+        return pad_l + min(alerts, x_max) / x_max * (width - pad_l - pad_r)
+
+    def sy(caught: float) -> float:
+        return pad_t + (1 - caught / y_max) * (height - pad_t - pad_b)
+
+    grid = []
+    for value in range(0, y_max + 1, _nice_step(y_max)):
+        grid.append(f"<line class='grid' x1='{pad_l}' x2='{width - pad_r}' y1='{sy(value):.1f}' y2='{sy(value):.1f}'/>"
+                    f"<text class='axis' x='{pad_l - 6}' y='{sy(value) + 4:.1f}' text-anchor='end'>{value}</text>")
+    for tick in range(0, x_max + 1, _nice_step(x_max)):
+        grid.append(f"<text class='axis' x='{sx(tick):.1f}' y='{height - pad_b + 16}' text-anchor='middle'>{tick:,}</text>")
+    grid.append(f"<text class='axis' x='{(pad_l + width - pad_r) / 2:.1f}' y='{height - 4}' text-anchor='middle'>Alerts sent (fewer = less to investigate)</text>"
+                f"<text class='axis' x='12' y='{(pad_t + height - pad_b) / 2:.1f}' text-anchor='middle' transform='rotate(-90 12 {(pad_t + height - pad_b) / 2:.1f})'>Incidents caught, of {y_max}</text>")
+    lines, rings, ends = [], [], []
+    for method in methods:
+        # Highest cutoff or widest limits first: the line runs from fewest alerts to most.
+        curve = sorted((p for p in ab["curves"][method] if p["alerts"] <= x_max), key=lambda p: -p["setting"])
+        if not curve:
+            continue
+        d = "M" + " L".join(f"{sx(p['alerts']):.1f},{sy(p['caught']):.1f}" for p in curve)
+        lines.append(f"<path class='curve ab-{method}' d='{d}'><title>{escape(ab['labels'][method])}</title></path>")
+        usual = ab["usual"][method]
+        if usual["alerts"] <= x_max:
+            rings.append(f"<circle class='usual ab-{method}' cx='{sx(usual['alerts']):.1f}' cy='{sy(usual['caught']):.1f}' r='5'>"
+                         f"<title>{escape(ab['labels'][method])}, usual setting: {usual['alerts']:,} alerts, {usual['caught']} caught</title></circle>")
+        last = curve[-1]
+        ends.append([sy(last["caught"]), sx(last["alerts"]), ab["labels"][method].replace("Ops Signals, ", "")])
+    ends.sort()
+    placed: list[list[Any]] = []
+    for end in ends:  # move a label down only past labels it would actually overlap
+        for other in placed:
+            if abs(other[1] - end[1]) < 7 * len(other[2]) + 10 and end[0] < other[0] + 14:
+                end[0] = other[0] + 14
+        placed.append(end)
+    labels = "".join(f"<text class='end-label' x='{x + 8:.1f}' y='{y + 4:.1f}'>{escape(text)}</text>" for y, x, text in ends)
+    legend = "".join(f"<span class='legend-item'><span class='swatch ab-{m}'></span>{escape(ab['labels'][m])}</span>" for m in methods)
+    return f"""
+  <figure class="chart">
+    <figcaption>Incidents caught against alerts sent, across sensitivity settings</figcaption>
+    <svg class="budget" viewBox="0 0 {width} {height}" role="img" aria-label="Incidents caught against alerts sent for each method; the table below lists the values.">
+      {''.join(grid)}{''.join(lines)}{''.join(rings)}{labels}
+    </svg>
+    <div class="legend">{legend}<span class='legend-item'>○ usual setting</span></div>
+  </figure>"""
 
 
 def _nab_comparison(nab: dict[str, Any]) -> str:
@@ -2124,14 +2232,14 @@ def _document(title: str, body: str, *, footer: str = DEFAULT_FOOTER) -> str:
 _CSS = """
 :root{color-scheme:light;--paper:#f4f4f2;--surface:#fcfcfb;--surface-2:#ecebe7;--ink:#0b0b0b;--ink-2:#52514e;--ink-3:#7d7c77;
 --line:#dedcd6;--accent:#2a78d6;--series:#2a78d6;--grid:#e6e4df;--good:#0ca30c;--good-ink:#006300;--warning:#fab219;--warning-ink:#8a5a00;
---critical:#d03b3b;--critical-ink:#a32222;--detected:#eb6834;
+--critical:#d03b3b;--critical-ink:#a32222;--detected:#eb6834;--series-3:#1baf7a;--series-4:#eda100;
 --band:rgba(208,59,59,.13);--band-solid:rgba(208,59,59,.35);--shade:rgba(125,124,119,.12);--shade-solid:rgba(125,124,119,.35)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--paper:#121211;--surface:#1a1a19;--surface-2:#262624;
 --ink:#ffffff;--ink-2:#c3c2b7;--ink-3:#8f8e86;--line:#34332f;--accent:#3987e5;--series:#3987e5;--grid:#2c2b28;--good:#0ca30c;--good-ink:#5fd35f;
---warning:#fab219;--warning-ink:#fab219;--critical:#d03b3b;--critical-ink:#f08585;--detected:#d95926;
+--warning:#fab219;--warning-ink:#fab219;--critical:#d03b3b;--critical-ink:#f08585;--detected:#d95926;--series-3:#199e70;--series-4:#c98500;
 --band:rgba(230,103,103,.17);--band-solid:rgba(230,103,103,.45);--shade:rgba(143,142,134,.12);--shade-solid:rgba(143,142,134,.4)}}
 :root[data-theme="dark"]{color-scheme:dark;--paper:#121211;--surface:#1a1a19;--surface-2:#262624;--ink:#ffffff;--ink-2:#c3c2b7;--ink-3:#8f8e86;
---line:#34332f;--accent:#3987e5;--series:#3987e5;--grid:#2c2b28;--good-ink:#5fd35f;--warning-ink:#fab219;--critical-ink:#f08585;--detected:#d95926;
+--line:#34332f;--accent:#3987e5;--series:#3987e5;--grid:#2c2b28;--good-ink:#5fd35f;--warning-ink:#fab219;--critical-ink:#f08585;--detected:#d95926;--series-3:#199e70;--series-4:#c98500;
 --band:rgba(230,103,103,.17);--band-solid:rgba(230,103,103,.45);--shade:rgba(143,142,134,.12);--shade-solid:rgba(143,142,134,.4)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -2222,6 +2330,12 @@ td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}t
 border-radius:6px;white-space:nowrap;opacity:0;transform:translateX(-50%)}
 .chart-frame:hover .tooltip{opacity:1}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--ink-2);margin-top:4px}
+.chart svg.budget{aspect-ratio:720/320}
+.budget .curve{fill:none;stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
+.budget .usual{fill:var(--surface);stroke-width:2.5;stroke-dasharray:none}.budget .end-label{fill:var(--ink);font-size:12px;font-weight:600}
+.budget .guide{stroke:var(--ink-3);stroke-dasharray:2 4}
+.ab-live{stroke:var(--series)}.ab-batch{stroke:var(--series-3)}.ab-static_threshold{stroke:var(--detected);stroke-dasharray:6 4}.ab-zscore_only{stroke:var(--series-4);stroke-dasharray:2 3}
+.swatch.ab-live{border-color:var(--series)}.swatch.ab-batch{border-color:var(--series-3)}.swatch.ab-static_threshold{border-color:var(--detected);border-top-style:dashed}.swatch.ab-zscore_only{border-color:var(--series-4);border-top-style:dotted}
 .legend-item{display:inline-flex;align-items:center;gap:6px}
 .swatch{display:inline-block;width:16px;height:0;border-top:2px solid}.swatch-expected{border-color:var(--ink-2);border-top-style:dashed}
 .swatch-detected{border-color:var(--detected)}

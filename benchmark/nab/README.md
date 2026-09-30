@@ -58,6 +58,19 @@ probationary period in batch mode.
 The report's headline uses a confidence threshold of 0.5, fixed before scoring and not tuned. It
 also shows every threshold in `metrics.THRESHOLDS`.
 
+### The same number of alerts
+
+A method can send fewer false alarms just by alerting less, so every run also records an
+equal-alert-budget check (`alert_budget.py`, stored as `alert_budget` in the NAB results and charted
+in the NAB report). Each method's sensitivity is turned through many settings, one setting for all
+series at a time: Ops Signals (live and batch) and the z-score through their confidence cutoff, the
+static threshold by widening its limits. Each setting gives alerts sent and windows caught, and the
+report compares the most each method catches within the same alert budgets. Flags less than
+max(15 minutes, one sampling interval) apart count as one alert, for every method. Choosing the
+threshold's best setting needs the answer key, so its line is the best a threshold can do with
+hindsight. The before/after comparison page (`benchmark/report_compare.py`) shows the same budgets
+for both runs: a change that only makes Ops Signals quieter moves along its line, a smarter one lifts it.
+
 These metrics are not NAB's official score. NAB's score also rewards detecting early in a window
 and applies three cost profiles. To get it, each run writes NAB-format files (`timestamp, value,
 anomaly_score, label`) for both detectors, `opsSignalsReplay` and `opsSignalsBatch`, under

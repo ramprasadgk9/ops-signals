@@ -218,15 +218,18 @@ def run_series(path: Path, series_name: str, skip: frozenset[str] = frozenset())
     )
 
 
-def static_threshold_scores(values: np.ndarray) -> np.ndarray:
+def static_threshold_scores(values: np.ndarray, margin: float = 0.0) -> np.ndarray:
     """1.0 on each row where the value leaves the probationary period's [min, max] range, counting
-    only the first row of each excursion; 0 elsewhere."""
+    only the first row of each excursion; 0 elsewhere. A margin widens both limits by that fraction
+    of the range (0.3 moves each limit 30% of the range further out), as a team would move the line
+    to get fewer alerts."""
     scores = np.zeros(len(values))
     learn = probation_rows(len(values))
     normal = values[:learn][np.isfinite(values[:learn])]
     if not len(normal):
         return scores
-    low, high = float(normal.min()), float(normal.max())
+    span = float(normal.max() - normal.min())
+    low, high = float(normal.min()) - margin * span, float(normal.max()) + margin * span
     outside = (values < low) | (values > high)
     for row in range(learn, len(values)):
         if outside[row] and not outside[row - 1]:
