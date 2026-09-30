@@ -143,7 +143,8 @@ Precision and F1 count flags; the alert columns merge flags less than 15 minutes
                         f"<td class='n'>{n(r['low_fp'], 1)}</td><td class='n'>{n(r['low_fn'], 1)}</td></tr>" for r in official["board"])
         parts.append(f"""
 <div class="table-wrap"><table><caption>Table {t2}. Official NAB scores (NAB's own scorer, unmodified; 0 = null detector, 100 = perfect),
-with the published detectors re-scored in the same environment.</caption>
+with the published detectors re-scored in the same environment. NAB scores online detectors; Ops Signals' batch mode sees each
+whole series, so only its live (causal replay) row is comparable with the published detectors.</caption>
 <thead><tr><th>Detector</th><th class="n">Standard</th><th class="n">Low FP</th><th class="n">Low FN</th></tr></thead><tbody>{board}</tbody></table></div>""")
     budget = nab["budget"]
     if budget and "static_threshold" in budget["curves"]:
