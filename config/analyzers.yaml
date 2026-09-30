@@ -77,6 +77,11 @@ analysis:
         min_range_excess: 0.56
         min_sustained_points: 8
         window: 15m
+        # Quiet mode: a spike must also stand out from the metric's usual daily peaks (see
+        # PyODOutlierAnalyzer). Far fewer alerts, but it misses incidents about the size of a normal
+        # busy peak: on full NAB false alarms 1,091 -> 251 but incidents caught 79 -> 65, and on
+        # SMD caught 40 -> 29 of 52, fewer than the old rule at the same alert volume. Off by default.
+        compare_daily_peaks: false
     trend:
       enabled: true
       implementation:

@@ -107,3 +107,94 @@ def test_pyod_outlier_analyzer_skips_short_dataset() -> None:
     signals = PyODOutlierAnalyzer(min_samples=50).analyze(_frame([1.0, 2.0, 100.0]))
 
     assert signals == []
+
+
+def _week(values_for_day, days: int = 7) -> pd.DataFrame:
+    """Five-minute readings for `days` days; values_for_day(day, slot) gives each reading (288 slots a day)."""
+    start = datetime(2026, 1, 5, tzinfo=timezone.utc)
+    rows = [(start + timedelta(days=day, minutes=5 * slot), float(values_for_day(day, slot)))
+            for day in range(days) for slot in range(288)]
+    return pd.DataFrame(
+        {
+            "timestamp": [row[0] for row in rows],
+            "value": [row[1] for row in rows],
+            "metric_name": ["logins"] * len(rows),
+            "service": ["web"] * len(rows),
+            "env": ["prod"] * len(rows),
+        }
+    )
+
+
+QUIET = {"compare_daily_peaks": True}
+
+
+def _findings(frame: pd.DataFrame) -> list:
+    """Findings in quiet mode (compare_daily_peaks on)."""
+    signals = PyODOutlierAnalyzer(contamination=0.01, min_samples=50, grouping_gap="15m", finding_rule=QUIET).analyze(frame)
+    return [signal for signal in signals if signal.evidence["finding_rule_matched"] and signal.confidence >= 0.5]
+
+
+def _logins(day: int, slot: int) -> float:
+    """About 12 logins per five minutes, rising to about 70 over the lunch hour every day."""
+    rng = np.random.default_rng(day * 1000 + slot)
+    lunch = 144 <= slot < 156
+    return (70.0 if lunch else 12.0) + rng.normal(0, 2)
+
+
+def test_a_rush_that_happens_every_day_is_not_a_finding() -> None:
+    # The lunch rush is far beyond the 5th-95th range, which the range rule alone reported every day.
+    lunch = [f for f in _findings(_week(_logins)) if 12 <= f.start_time.hour < 13]
+
+    assert lunch == []
+
+
+def test_a_burst_far_above_the_usual_daily_peak_is_a_finding() -> None:
+    def attack(day: int, slot: int) -> float:
+        return 1200.0 if (day, slot) == (5, 40) else _logins(day, slot)
+
+    findings = sorted(_findings(_week(attack)), key=lambda f: f.confidence, reverse=True)
+
+    assert findings[0].start_time == datetime(2026, 1, 10, 3, 20, tzinfo=timezone.utc)
+    assert findings[0].evidence["daily_peaks"]["peak_ratio"] > 10
+    assert findings[0].confidence > 0.9
+    assert all(f.confidence < 0.6 for f in findings[1:])
+
+
+def test_a_counter_at_zero_blips_to_the_same_size_every_day_but_an_outage_stands_out() -> None:
+    def errors(day: int, slot: int) -> float:
+        if (day, slot) == (5, 200):
+            return 300.0
+        return 5.0 if slot == 100 + day else 0.0
+
+    findings = _findings(_week(errors))
+
+    assert len(findings) == 1 and findings[0].evidence["daily_peaks"]["usual_high"] == 5.0
+    assert findings[0].start_time.day == 10
+
+
+def test_with_under_three_other_days_the_range_rule_decides_alone() -> None:
+    signals = PyODOutlierAnalyzer(
+        contamination=0.01, min_samples=50, grouping_gap="15m", finding_rule=QUIET
+    ).analyze(_week(_logins, days=2))
+
+    assert any(signal.evidence["finding_rule_matched"] for signal in signals)
+    assert all(signal.evidence["daily_peaks"] is None for signal in signals)
+
+
+def test_quiet_mode_is_off_by_default_so_the_rush_is_still_reported() -> None:
+    signals = PyODOutlierAnalyzer(contamination=0.01, min_samples=50, grouping_gap="15m").analyze(_week(_logins))
+
+    assert any(signal.evidence["finding_rule_matched"] for signal in signals)
+    assert all(signal.evidence["daily_peaks"] is None for signal in signals)
+    assert signals[0].evidence["finding_rule"]["compare_daily_peaks"] is False
+
+
+def test_spikes_that_recur_on_some_days_are_still_findings() -> None:
+    # A spike on three days of the week: the typical day's peak, not the second-highest, sets the bar.
+    def spikes(day: int, slot: int) -> float:
+        rng = np.random.default_rng(day * 1000 + slot)
+        return 56.0 if day in (0, 2, 4) and slot == 150 else 38.0 + rng.normal(0, 0.2)
+
+    days = sorted({f.start_time.day for f in _findings(_week(spikes)) if f.evidence["range_excess"] > 5})
+
+    assert days == [5, 7, 9]
