@@ -13,6 +13,8 @@ What the project is, and how to get it running.
 - [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with an incident already
   in progress (a deploy, a latency shift, an enriched alert, a matching past case). Start here to
   see it working before installing anything.
+- [`live-demo.md`](live-demo.md) - a live, menu-driven demo next to `run_all.sh`: rollouts, slow
+  rises, spikes and staging deploys, with real alerts and pod breakdowns.
 - **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,
   open the UI. Start here to actually install it.
 - [`comparison.md`](comparison.md) - how Ops Signals relates to Robusta/HolmesGPT, Keep and

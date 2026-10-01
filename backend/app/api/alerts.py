@@ -118,9 +118,24 @@ def receive_generic_alert(
     return _accept([from_generic(payload, config.service_labels)], config, service, background_tasks)
 
 
+class AlertChangeOut(BaseModel):
+    """A change event matched to the alert (backend/app/alerts/correlation.py)."""
+
+    id: int | None = None
+    event_type: str | None = None
+    version: str | None = None
+    description: str | None = None
+    author: str | None = None
+    url: str | None = None
+    timestamp: datetime | None = None
+    minutes_before_anchor: float | None = None
+
+
 class AlertOut(BaseModel):
     """One received alert occurrence, as the UI lists it. The Slack message and the raw enrichment
-    payload stay out - this is the index, not the audit record."""
+    payload stay out - this is the index, not the audit record - but the parts the UI shows next to
+    the alert come along: the start time used for deploy matching (backend/app/alerts/timing.py),
+    the matched change events, and the finding's pod breakdown."""
 
     id: int
     source: str
@@ -139,6 +154,24 @@ class AlertOut(BaseModel):
     notify_status: str | None = None
     finding_id: int | None = None
     case_id: int | None = None
+    timing: dict | None = None
+    changes: list[AlertChangeOut] = Field(default_factory=list)
+    change_window_before_minutes: int | None = None
+    service_has_change_events: bool | None = None
+    breakdown: dict | None = None
+
+
+def _enrichment_fields(row: AlertEnrichmentEntity) -> dict:
+    enrichment = row.enrichment_json or {}
+    analysis = enrichment.get("analysis") or {}
+    changes = enrichment.get("changes") or {}
+    return {
+        "timing": analysis.get("timing"),
+        "changes": [AlertChangeOut(**{key: match.get(key) for key in AlertChangeOut.model_fields}) for match in changes.get("matches") or []],
+        "change_window_before_minutes": changes.get("window_before_minutes"),
+        "service_has_change_events": changes.get("service_has_any_events") if changes else None,
+        "breakdown": (analysis.get("finding") or {}).get("breakdown"),
+    }
 
 
 def _alert_summary(row: AlertEnrichmentEntity) -> str:
@@ -198,6 +231,7 @@ def list_alerts(
             recommendation=row.recommendation,
             notify_status=row.notify_status,
             finding_id=row.finding_id,
+            **_enrichment_fields(row),
             case_id=case_by_finding.get(row.finding_id) if row.finding_id is not None else None,
         )
         for row in rows

@@ -880,6 +880,8 @@ then:
 ./scripts/send_test_alert.py      # fire a test alert on demand (--scenario status, --deploy-minutes-ago 5, ...)
 ```
 
+For a live demo with pods and deploys, run [`./scripts/demo_live.py`](docs/live-demo.md) in a second terminal.
+
 **Connect your own Alertmanager** by adding a webhook receiver pointing at
 `/api/integrations/alertmanager` with `continue: true`, pointing `OPS_SIGNALS_PROMETHEUS_URL` at the
 same Prometheus, and (optionally) sending deploy events from CI. Full guide - why it matters,

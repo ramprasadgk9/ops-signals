@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Iterable
+from statistics import median
+from typing import Any, Iterable, Sequence
 
 from backend.app.alerts.correlation import as_utc
 
@@ -22,6 +23,11 @@ STEP_CHANGE = "step_change"
 SPIKE = "spike"
 TREND = "trend"
 ALERT_TIME = "alert_time"
+
+# A change point is a step only if the metric stays shifted: the median after it must be at least
+# this fraction of the way from the level before it to the peak after it. A spike that has ended
+# also gives change-point analyzers a "change point", but its median after is back near before.
+STEP_PERSISTENCE = 0.5
 
 
 @dataclass
@@ -51,6 +57,21 @@ def _parse(value: Any) -> datetime | None:
         return None
 
 
+def _persists(moment: datetime, series: Sequence[tuple[datetime, float]] | None) -> bool:
+    """Whether the level after `moment` stays shifted. True when there's no series to check."""
+    if not series:
+        return True
+    before = [value for at, value in series if at < moment]
+    after = [value for at, value in series if at >= moment]
+    if len(before) < 3 or len(after) < 3:
+        return True
+    base = median(before)
+    peak = max(after, key=lambda value: abs(value - base))
+    if peak == base:
+        return True
+    return abs(median(after) - base) >= STEP_PERSISTENCE * abs(peak - base)
+
+
 def choose_start_time(
     signals: Iterable[Any],
     alert_starts_at: datetime,
@@ -58,13 +79,15 @@ def choose_start_time(
     step_lookback: timedelta | None,
     spike_lookback: timedelta,
     after: timedelta,
+    series: Sequence[tuple[datetime, float]] | None = None,
 ) -> StartTime:
     """`signals` are pipeline OperationalSignals or stored SignalEntity rows: anything with
     `analyzer_id`, `signal_type`, `start_time` and `evidence` / `evidence_json`.
 
     A step change wins over a spike (a lasting jump is the strongest sign of a change event);
     among spikes, the latest one before the alert. Moments later than `after` past the alert, or
-    older than the lookback, can't be what fired it and are ignored."""
+    older than the lookback, can't be what fired it and are ignored. With `series` (the alert's
+    data), a change point the metric didn't stay shifted after counts as a spike, not a step."""
     alert_at = as_utc(alert_starts_at)
     latest = alert_at + after
     steps: list[tuple[int, datetime, str]] = []
@@ -76,7 +99,12 @@ def choose_start_time(
         evidence = getattr(signal, "evidence", None) or getattr(signal, "evidence_json", None) or {}
         if analyzer_id in STEP_ANALYZERS:
             moment = _parse(evidence.get("change_point_time"))
-            if moment and moment <= latest and (step_lookback is None or moment >= alert_at - step_lookback):
+            if not moment or moment > latest:
+                continue
+            if not _persists(moment, series):
+                if alert_at - spike_lookback <= moment:
+                    spikes.append((moment, analyzer_id))
+            elif step_lookback is None or moment >= alert_at - step_lookback:
                 steps.append((STEP_ANALYZERS.index(analyzer_id), moment, analyzer_id))
         elif signal_type == SPIKE_SIGNAL_TYPE:
             moment = _parse(getattr(signal, "start_time", None))

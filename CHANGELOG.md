@@ -2,6 +2,26 @@
 
 ## 0.3.0 - Unreleased
 
+- Alert messages say which pods a change came from. With `OPS_SIGNALS_DRILLDOWN_ENABLED=true`,
+  alert-triggered analysis runs the same pod drill-down as autonomous runs and adds a "📍 Where"
+  line, e.g. "2 of 6 pods rose: checkout-5, checkout-6 … looks like a rollout in progress". A
+  reused autonomous finding keeps its breakdown. See [`docs/finding-drilldown.md`](docs/finding-drilldown.md).
+- Fix: alert enrichment reused a finding from an earlier alert's analysis of the same service and
+  metric, so an alert that fired again within 30 minutes skipped fresh analysis and claimed Ops
+  Signals "detected this N min before". Only findings from autonomous analysis are reused now.
+- "What changed" timing: a change point counts as a step change only if the metric stays shifted
+  after it. A short spike that has already ended, which change-point analyzers also mark, is
+  treated as a spike, so the message no longer calls it a step change.
+- Drill-down: a pod with fewer than 3 points before the change counts as new. Before, a pod that
+  came up a scrape or two before the detected change point was compared with its own couple of
+  post-rollout points and reported as unchanged.
+- The alerts panel (Integrations and Overview) shows each alert's "Where" (pods) and "What changed"
+  (deploys, worded like the Slack message) and marks deploys on the timeline. `GET /api/alerts`
+  returns `timing`, `changes`, `change_window_before_minutes`, `service_has_change_events` and
+  `breakdown` for this.
+- New `scripts/demo_live.py`: a live demo next to `run_all.sh`, with per-pod metrics changed on
+  demand and real alerts through Alertmanager. See [`docs/live-demo.md`](docs/live-demo.md).
+  `OPS_SIGNALS_ALERT_MIN_STEP` sets the smallest query step for alert analysis (default 30s).
 - **Behavior change:** the alert message's "What changed" section now times change events from
   the pattern the analyzers found. A step change or a spike gives a start time ("Spike started
   2 min after deploy `v4.1`"). A slow trend, or no analysis, gives none: nearby changes are listed

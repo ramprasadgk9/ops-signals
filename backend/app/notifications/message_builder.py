@@ -80,6 +80,76 @@ def _minutes(value: float) -> str:
     return f"{minutes / 60:.1f} h"
 
 
+# --- Pod breakdown: the same wording as the UI (frontend/src/utils/findingBreakdown.ts) -------------
+
+
+def _plural(label: str, count: int) -> str:
+    return label if count == 1 else f"{label}s"
+
+
+def _format_value(value: float | None) -> str:
+    if value is None:
+        return "–"
+    magnitude = abs(value)
+    if magnitude == 0:
+        return "0"
+    if magnitude >= 100:
+        return f"{value:.0f}"
+    if magnitude >= 1:
+        return f"{value:.2f}"
+    return f"{value:.2g}"
+
+
+def _breakdown_sentence(breakdown: dict) -> str:
+    label = breakdown.get("label") or "pod"
+    total = breakdown.get("parts_total") or 0
+    moved = [part for part in breakdown.get("top") or [] if part.get("moved")]
+    changed = breakdown.get("parts_changed") or len(moved)
+    verb = "fell" if breakdown.get("direction") == "down" else "rose"
+    change_word = "decrease" if breakdown.get("direction") == "down" else "increase"
+    names = ", ".join(str(part.get("value")) for part in moved)
+
+    if breakdown.get("spread") == "widespread":
+        who = f"All {total} {_plural(label, total)}" if changed == total else f"{changed} of {total} {_plural(label, total)}"
+        return f"{who} {verb} by a similar amount."
+    if breakdown.get("mode") == "share":
+        share = f"{round(sum(part.get('share') or 0.0 for part in moved) * 100)}%"
+        if breakdown.get("spread") == "concentrated" and moved:
+            is_new = f" (a new {label})" if moved[0].get("new") else ""
+            return f"{share} of the {change_word} comes from {label} {moved[0].get('value')}{is_new}, 1 of {total} {_plural(label, total)}."
+        return f"{share} of the {change_word} comes from {changed} of {total} {_plural(label, total)}: {names}."
+    if breakdown.get("spread") == "concentrated" and moved:
+        part = moved[0]
+        before = f"other {_plural(label, 2)}’ normal level" if part.get("new") else _format_value(part.get("before"))
+        others = total - 1
+        return (
+            f"Only {label} {part.get('value')} {verb} ({before} → {_format_value(part.get('after'))}). "
+            f"The other {others} {_plural(label, others)} are unchanged."
+        )
+    return f"{changed} of {total} {_plural(label, total)} {verb}: {names}."
+
+
+def _breakdown_next_step(breakdown: dict) -> str:
+    label = breakdown.get("label") or "pod"
+    moved = [part for part in breakdown.get("top") or [] if part.get("moved")]
+    if breakdown.get("spread") == "widespread":
+        return f"Not a single bad {label}. Look at recent code or config changes, or a shared dependency (database, downstream API)."
+    if moved and all(part.get("new") for part in moved):
+        return (
+            f"These {_plural(label, len(moved))} first appeared after the change started, which looks like a rollout "
+            "in progress. Compare the new version with the old one before it finishes."
+        )
+    if breakdown.get("spread") == "concentrated" and moved:
+        return f"Check {label} {moved[0].get('value')} and the node it runs on. The other {_plural(label, 2)} look normal, so a rollback is probably not needed."
+    return f"Check what these {_plural(label, len(moved))} have in common, such as node, zone or version."
+
+
+def _where(breakdown: dict | None) -> str | None:
+    if not breakdown or breakdown.get("status") != "ok" or not breakdown.get("parts_total"):
+        return None
+    return f"📍 *Where:* {_breakdown_sentence(breakdown)}\n_{_breakdown_next_step(breakdown)}_"
+
+
 def _what_happened(analysis: dict) -> str:
     status = analysis.get("status")
     finding = analysis.get("finding") or {}
@@ -88,6 +158,9 @@ def _what_happened(analysis: dict) -> str:
         lines = [f"*{finding.get('title', 'Finding')}*", finding.get("summary") or ""]
         if analysis.get("change_point_time"):
             lines.append(f"Change started around *{_hhmm(analysis['change_point_time'])}*.")
+        where = _where(finding.get("breakdown"))
+        if where:
+            lines.append(where)
         if status == "reused" and analysis.get("detected_before_alert_minutes"):
             lines.append(
                 f"🔎 Ops Signals detected this *{_minutes(analysis['detected_before_alert_minutes'])} before* the alert fired."
@@ -138,7 +211,9 @@ def _what_changed(changes: dict | None, service: str | None, timing: dict | None
         kind = "step change" if basis == "step_change" else "spike"
         source = _ANALYZER_LABEL.get(timing.get("analyzer_id"), timing.get("analyzer_id") or "analysis")
         note = f"_Start time {_hhmm(timing.get('time'))}, from a {kind} ({source})."
-        if trend:
+        # Only a spike sits "on" a trend. A step change makes the trend analyzer fire too (a line
+        # fitted across a jump has a slope), so for a step the trend is the same change, not context.
+        if trend and basis == "spike":
             note += f" It sits on a gradual {trend} trend, which these changes may not explain."
         note += "_"
         if not matches:

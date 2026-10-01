@@ -38,8 +38,10 @@ A grouping inside **Experiments**, not a separate top-level tab:
 ### Not a page: alert enrichment and Slack
 
 Alert enrichment and finding notifications have no tab: their output is a Slack message. Each
-enriched alert's analysis still produces an ordinary finding, so it appears under **Findings**, and
-the change events it correlates are available at `GET /api/events`. See
+enriched alert's analysis still produces an ordinary finding, so it appears under **Findings**. The
+alerts panel on **Integrations** and the Overview lists received alerts with the same "Where" and
+"What changed" as the message, and marks deploys on its timeline; all change events are available at
+`GET /api/events`. See
 [`docs/alert-enrichment.md`](alert-enrichment.md), or run [`docs/demo.md`](demo.md) to see one.
 
 ### System

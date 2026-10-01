@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { relativeTime, ui } from '../standalone/theme';
 import type { AlertItem } from '../types';
+import { whatChanged } from '../utils/alertChanges';
+import { breakdownNextStep, breakdownScopeLabel, breakdownSentence, findingBreakdown } from '../utils/findingBreakdown';
 
 const FIRING = '#ea580c';
 
@@ -26,6 +28,41 @@ function linkedTo(alert: AlertItem) {
   if (alert.case_id !== null) return { text: `Case #${alert.case_id}`, to: `/cases/${alert.case_id}` };
   if (alert.finding_id !== null) return { text: `Finding #${alert.finding_id}`, to: `/findings?finding=${alert.finding_id}` };
   return null;
+}
+
+function alertBreakdown(alert: AlertItem) {
+  const breakdown = findingBreakdown({ comparison_json: { breakdown: alert.breakdown } });
+  return breakdown?.status === 'ok' ? breakdown : null;
+}
+
+/** Where the change came from (pods) and what changed (deploys), as in the Slack message. Full: a
+ * box with every matched change; compact: one line for an occurrence in a list. */
+export function AlertInsight({ alert, compact = false }: { alert: AlertItem; compact?: boolean }) {
+  const changed = whatChanged(alert);
+  const breakdown = alertBreakdown(alert);
+  if (!changed && !breakdown) return null;
+  if (compact) {
+    const parts = [breakdown ? breakdownScopeLabel(breakdown) : null, changed?.lines[0] ?? null].filter(Boolean);
+    return <Typography sx={{ color: '#475569', fontSize: 13, mt: 0.25 }}>{parts.join(' · ')}</Typography>;
+  }
+  return (
+    <Stack spacing={0.75} aria-label="What changed" sx={{ mt: 1, px: 1.25, py: 1, borderRadius: '6px', bgcolor: '#eef2ff', fontSize: 13 }}>
+      {breakdown ? (
+        <Box>
+          <Typography component="span" sx={{ fontSize: 12, fontWeight: 800 }}>Where </Typography>
+          <Typography component="span" sx={{ fontSize: 13 }}>{breakdownSentence(breakdown)}</Typography>
+          <Typography sx={{ fontSize: 12, color: ui.muted }}>{breakdownNextStep(breakdown)}</Typography>
+        </Box>
+      ) : null}
+      {changed ? (
+        <Box>
+          <Typography sx={{ fontSize: 12, fontWeight: 800 }}>What changed</Typography>
+          {changed.lines.map((line) => <Typography key={line} sx={{ fontSize: 13 }}>{line}</Typography>)}
+          {changed.note ? <Typography sx={{ fontSize: 12, color: ui.muted }}>{changed.note}</Typography> : null}
+        </Box>
+      ) : null}
+    </Stack>
+  );
 }
 
 export function AlertRow({ alert }: { alert: AlertItem }) {
@@ -55,6 +92,7 @@ export function AlertRow({ alert }: { alert: AlertItem }) {
         {alert.summary !== alert.alert_name ? (
           <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{alert.summary}</Typography>
         ) : null}
+        <AlertInsight alert={alert} compact />
       </Box>
     </Stack>
   );

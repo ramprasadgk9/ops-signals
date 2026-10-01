@@ -170,6 +170,42 @@ describe('AlertsOverviewPanel', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('shows where the change came from, what changed, and deploy markers on the lane', async () => {
+    const deployedAt = ago(0.5);
+    vi.mocked(api.alerts).mockResolvedValue([
+      alert({
+        id: 9, alert_name: 'CheckoutLatencyHigh', service: 'checkout', status: 'firing', starts_at: ago(0.45), ends_at: null, received_at: ago(0.45), finding_id: 7,
+        timing: { basis: 'step_change', time: ago(0.47), analyzer_id: 'ruptures', trend_direction: null },
+        changes: [{ id: 3, event_type: 'deploy', version: 'v2.4.38', description: null, author: 'demo', url: null, timestamp: deployedAt, minutes_before_anchor: 1 }],
+        change_window_before_minutes: 30,
+        service_has_change_events: true,
+        breakdown: {
+          status: 'ok', label: 'pod', mode: 'changed_parts', spread: 'partial', direction: 'up', parts_total: 6, parts_changed: 2, new_parts: 2,
+          top: [
+            { value: 'checkout-5', before: null, after: 620, change: null, relative_change: null, moved: true, new: true, gone: false },
+            { value: 'checkout-6', before: null, after: 600, change: null, relative_change: null, moved: true, new: true, gone: false },
+          ],
+        },
+      }),
+    ]);
+    renderPanel();
+
+    const box = await screen.findByLabelText('What changed');
+    expect(within(box).getByText('2 of 6 pods rose: checkout-5, checkout-6.')).toBeInTheDocument();
+    expect(within(box).getByText(/looks like a rollout in progress/)).toBeInTheDocument();
+    expect(within(box).getByText('Started 1 min after deploy v2.4.38 by demo')).toBeInTheDocument();
+    expect(within(box).getByText(/from a step change \(change-point detection\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^deploy v2\.4\.38 by demo · /)).toBeInTheDocument();
+    expect(screen.getByText('deploy or other change')).toBeInTheDocument();
+  });
+
+  it('shows no change box for an alert that was never enriched', async () => {
+    vi.mocked(api.alerts).mockResolvedValue([alert({ id: 1, status: 'firing', ends_at: null })]);
+    renderPanel();
+    await screen.findAllByText('DemoMixedLabLatencyHigh');
+    expect(screen.queryByLabelText('What changed')).not.toBeInTheDocument();
+  });
+
   it('shows an empty state otherwise', async () => {
     vi.mocked(api.alerts).mockResolvedValue([]);
     renderPanel();

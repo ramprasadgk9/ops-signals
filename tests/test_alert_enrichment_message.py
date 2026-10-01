@@ -183,3 +183,58 @@ def test_no_matching_changes_names_the_window_it_searched() -> None:
     assert "No changes recorded for `checkout-api` in the 30 min before the step change at 14:08 UTC." in step
     trend = _what_changed_text({"basis": "trend", "trend_direction": "downward"}, [])
     assert trend.endswith("Gradual downward trend with no clear start time. No changes recorded for `checkout-api` in the 30 min before the alert fired.")
+
+
+def _breakdown(**overrides) -> dict:
+    breakdown = {
+        "status": "ok", "label": "pod", "mode": "changed_parts", "spread": "partial", "direction": "up",
+        "parts_total": 6, "parts_changed": 2, "new_parts": 2,
+        "top": [
+            {"value": "checkout-5", "before": None, "after": 600.0, "moved": True, "new": True},
+            {"value": "checkout-6", "before": None, "after": 600.0, "moved": True, "new": True},
+            {"value": "checkout-1", "before": 180.0, "after": 181.0, "moved": False, "new": False},
+        ],
+    }
+    breakdown.update(overrides)
+    return breakdown
+
+
+def _what_happened_text(breakdown: dict | None) -> str:
+    enrichment = _enrichment()
+    if breakdown is not None:
+        enrichment["analysis"]["finding"]["breakdown"] = breakdown
+    payload = build_alert_enrichment_blocks(enrichment, UI)
+    return next(block["text"]["text"] for block in payload["blocks"] if "What happened" in block.get("text", {}).get("text", ""))
+
+
+def test_new_pods_read_as_a_rollout() -> None:
+    text = _what_happened_text(_breakdown())
+    assert "📍 *Where:* 2 of 6 pods rose: checkout-5, checkout-6." in text
+    assert "looks like a rollout in progress" in text
+
+
+def test_one_pod_with_most_of_the_increase_is_named_with_its_share() -> None:
+    text = _what_happened_text(_breakdown(
+        mode="share", spread="concentrated", parts_changed=1, new_parts=0,
+        top=[{"value": "checkout-x2", "share": 0.91, "moved": True, "new": False}],
+    ))
+    assert "📍 *Where:* 91% of the increase comes from pod checkout-x2, 1 of 6 pods." in text
+    assert "Check pod checkout-x2 and the node it runs on." in text
+
+
+def test_widespread_change_points_away_from_a_single_pod() -> None:
+    text = _what_happened_text(_breakdown(spread="widespread", parts_changed=6))
+    assert "📍 *Where:* All 6 pods rose by a similar amount." in text
+    assert "Not a single bad pod." in text
+
+
+def test_no_usable_breakdown_adds_nothing() -> None:
+    assert "Where:" not in _what_happened_text(None)
+    assert "Where:" not in _what_happened_text({"status": "skipped", "reason": "single_part"})
+
+
+def test_step_change_does_not_claim_a_separate_trend() -> None:
+    # The trend analyzer fires on a step too (a line fitted across a jump has a slope).
+    text = _what_changed_text({"basis": "step_change", "time": "2026-09-23T14:08:00+00:00", "analyzer_id": "ruptures", "trend_direction": "upward"})
+    assert "_Start time 14:08 UTC, from a step change (change-point detection)._" in text
+    assert "trend" not in text

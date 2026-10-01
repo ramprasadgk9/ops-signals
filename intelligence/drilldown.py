@@ -162,6 +162,11 @@ def compute_breakdown(
     frame = frame[frame["value"].map(math.isfinite)]
     before = frame[(frame["timestamp"] >= window.before_start) & (frame["timestamp"] < window.change_start)]
     after = frame[(frame["timestamp"] >= window.change_start) & (frame["timestamp"] <= window.change_end)]
+    # A part with fewer than MIN_BASELINE_POINTS samples before the change has no normal level to
+    # compare with: it started just before the change point (which often lands a scrape or two
+    # after a rollout's new pods come up), so it counts as new rather than as a pod that "moved".
+    before_counts = before.groupby("part")["value"].size()
+    before = before[before["part"].isin(before_counts[before_counts >= MIN_BASELINE_POINTS].index)]
 
     names = sorted(set(before["part"]) | set(after["part"]))
     if len(names) < 2:

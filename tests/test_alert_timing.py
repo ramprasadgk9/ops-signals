@@ -83,3 +83,33 @@ def test_nothing_usable_falls_back_to_alert_time() -> None:
 def test_downward_trend_and_stored_signal_rows_are_understood() -> None:
     stored = SimpleNamespace(analyzer_id="trend", signal_type="trend", start_time=WINDOW_START, evidence=None, evidence_json={"slope": -2.0})
     assert choose([stored]).trend_direction == "downward"
+
+
+def _series(level_at) -> list[tuple[datetime, float]]:
+    return [(WINDOW_START + timedelta(minutes=m), level_at(m)) for m in range(0, 361)]
+
+
+CHANGE_MIN = 300  # 13:00, an hour before the alert
+
+
+def test_change_point_where_the_metric_stays_shifted_is_a_step() -> None:
+    series = _series(lambda m: 100.0 if m < CHANGE_MIN else 300.0)
+    start = choose_start_time([step("ruptures", WINDOW_START + timedelta(minutes=CHANGE_MIN))], ALERT, step_lookback=None,
+                              spike_lookback=timedelta(hours=2), after=timedelta(minutes=5), series=series)
+    assert start.basis == STEP_CHANGE
+
+
+def test_change_point_on_a_spike_that_ended_is_a_spike() -> None:
+    # Change-point analyzers also mark a short spike; the level after it is back to normal.
+    series = _series(lambda m: 900.0 if CHANGE_MIN <= m < CHANGE_MIN + 2 else 100.0 + m * 0.1)
+    at = WINDOW_START + timedelta(minutes=CHANGE_MIN)
+    start = choose_start_time([step("ruptures", at), trend()], ALERT, step_lookback=None,
+                              spike_lookback=timedelta(hours=2), after=timedelta(minutes=5), series=series)
+    assert (start.basis, start.time, start.analyzer_id, start.trend_direction) == (SPIKE, at, "ruptures", "upward")
+
+
+def test_ended_spike_older_than_the_spike_lookback_is_dropped() -> None:
+    series = _series(lambda m: 900.0 if CHANGE_MIN <= m < CHANGE_MIN + 2 else 100.0)
+    start = choose_start_time([step("ruptures", WINDOW_START + timedelta(minutes=CHANGE_MIN))], ALERT, step_lookback=None,
+                              spike_lookback=timedelta(minutes=30), after=timedelta(minutes=5), series=series)
+    assert start.basis == ALERT_TIME

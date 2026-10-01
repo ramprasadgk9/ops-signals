@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Protocol
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.alerts.classifier import REASON_TEXT, AnalysisDecision, classify
@@ -22,7 +22,8 @@ from backend.app.alerts.correlation import ChangeCorrelation, as_utc, correlate_
 from backend.app.alerts.query_builder import QueryWindow, query_window
 from backend.app.alerts.schemas import AlertReceiptOut, NormalizedAlert
 from backend.app.alerts.timing import ALERT_TIME, STEP_ANALYZERS, StartTime, choose_start_time
-from backend.app.config import AlertEnrichmentConfig, PrometheusConnectionConfig
+from backend.app.autonomous.drilldown import finding_breakdown
+from backend.app.config import AlertEnrichmentConfig, DrillDownConfig, PrometheusConnectionConfig, get_drilldown_config
 from backend.app.memory.alert_context import build_alert_context
 from backend.app.memory.schemas import AlertContextResponse
 from backend.app.models.entities import AlertEnrichmentEntity, FindingEntity, SignalEntity
@@ -98,8 +99,10 @@ class AlertEnrichmentService:
         context_builder: Callable[[Session, str, str | None, str], AlertContextResponse] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], datetime] | None = None,
+        drilldown_config: DrillDownConfig | None = None,
     ) -> None:
         self.config = config
+        self.drilldown_config = drilldown_config or get_drilldown_config()
         self.prometheus_config = prometheus_config
         self.session_factory = session_factory
         self.query_service = query_service or PrometheusQueryService(prometheus_config)
@@ -297,6 +300,9 @@ class AlertEnrichmentService:
         if not alert.service:
             return None
         cutoff = self.clock() - timedelta(seconds=self.config.reuse_window_seconds)
+        # Only findings analysis produced on its own count. An earlier alert's analysis isn't
+        # "detected before the alert", and its data is older than this alert's.
+        alert_runs = select(AlertEnrichmentEntity.analysis_run_id).where(AlertEnrichmentEntity.analysis_run_id.is_not(None))
         finding = db.execute(
             select(FindingEntity)
             .where(
@@ -304,6 +310,7 @@ class AlertEnrichmentService:
                 FindingEntity.metric_name == metric_key,
                 FindingEntity.health_status != "normal",
                 FindingEntity.created_at >= cutoff,
+                or_(FindingEntity.analysis_run_id.is_(None), FindingEntity.analysis_run_id.not_in(alert_runs)),
             )
             .order_by(FindingEntity.importance_score.desc(), FindingEntity.created_at.desc())
             .limit(1)
@@ -430,10 +437,15 @@ class AlertEnrichmentService:
         headline = max(significant, key=lambda f: f.importance_score)
         finding = _finding_dict(headline)
         finding["id"] = self._stored_finding_id(result.analysis_run_id, headline.title)
-        timing = self._start_time(getattr(result, "signals", []), alert).to_dict()
+        breakdown = self._breakdown(decision.query, fetched, result, headline)
+        if breakdown is not None:
+            finding["breakdown"] = breakdown
+            self._store_breakdown(finding["id"], breakdown)
+        series = [(as_utc(sample.timestamp), float(sample.value)) for sample in fetched.series.samples]
+        timing = self._start_time(getattr(result, "signals", []), alert, series).to_dict()
         return {"status": "analyzed", "finding": finding, "change_point_time": change_point, "timing": timing, **common}
 
-    def _start_time(self, signals: list[Any], alert: NormalizedAlert) -> StartTime:
+    def _start_time(self, signals: list[Any], alert: NormalizedAlert, series: list[tuple[datetime, float]] | None = None) -> StartTime:
         step = self.config.step_lookback_seconds
         return choose_start_time(
             signals,
@@ -441,7 +453,43 @@ class AlertEnrichmentService:
             step_lookback=timedelta(seconds=step) if step is not None else None,
             spike_lookback=timedelta(seconds=self.config.spike_lookback_seconds),
             after=timedelta(seconds=self.config.correlation_after_seconds),
+            series=series,
         )
+
+    def _breakdown(self, query: str | None, fetched: _FetchedSeries, result: Any, headline: Any) -> dict[str, Any] | None:
+        """Which pods the headline finding's change came from (docs/finding-drilldown.md), using the
+        same OPS_SIGNALS_DRILLDOWN_* settings as autonomous runs."""
+        if not self.drilldown_config.enabled or not query or not fetched.series.samples:
+            return None
+        all_signals = list(getattr(result, "signals", []))
+        wanted = set(getattr(headline, "signal_ids", None) or [])
+        signals = [signal for signal in all_signals if getattr(signal, "signal_id", None) in wanted] or all_signals
+        timestamps = [as_utc(sample.timestamp) for sample in fetched.series.samples]
+        try:
+            return finding_breakdown(
+                prometheus=self.query_service,
+                promql=query,
+                step=fetched.window.step,
+                signals=signals,
+                series_start=min(timestamps),
+                series_end=max(timestamps),
+                labels=self.drilldown_config.labels,
+            )
+        except Exception:  # noqa: BLE001 - a drill-down must never fail the alert
+            logger.warning("Drill-down failed for alert query %s", query, exc_info=True)
+            return {"status": "failed", "reason": "error"}
+
+    def _store_breakdown(self, finding_id: int | None, breakdown: dict[str, Any]) -> None:
+        if finding_id is None:
+            return
+        try:
+            with self.session_factory() as db:
+                row = db.get(FindingEntity, finding_id)
+                if row is not None:
+                    row.comparison_json = {**(row.comparison_json or {}), "breakdown": breakdown}
+                    db.commit()
+        except Exception:  # noqa: BLE001
+            logger.warning("Could not store drill-down for finding %s", finding_id, exc_info=True)
 
     def _stored_finding_id(self, analysis_run_id: str, title: str) -> int | None:
         try:
@@ -561,7 +609,7 @@ def _parse_iso(value: str | None) -> datetime | None:
 
 
 def _finding_dict(finding: Any) -> dict[str, Any]:
-    return {
+    result = {
         "id": getattr(finding, "id", None),
         "title": finding.title,
         "summary": finding.summary,
@@ -569,6 +617,11 @@ def _finding_dict(finding: Any) -> dict[str, Any]:
         "health_status": finding.health_status,
         "importance_score": round(float(finding.importance_score or 0.0), 4),
     }
+    # Set by autonomous runs with drill-down on, so a reused finding keeps its pod breakdown.
+    breakdown = (getattr(finding, "comparison_json", None) or {}).get("breakdown")
+    if breakdown:
+        result["breakdown"] = breakdown
+    return result
 
 
 def _alert_dict(alert: NormalizedAlert, metric_key: str | None) -> dict[str, Any]:
