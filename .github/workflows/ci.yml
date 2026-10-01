@@ -30,6 +30,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # The MiniLM embedding model (~90 MB) used by test_memory_recall.py and test_assistant_golden.py.
+      # The model is pinned by name, so the key never needs to change.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2
+
       # tests/scenarios/backend, tests/api_backend, and the analyzer/router unit tests all run
       # against in-memory SQLite (see tests/api_backend/conftest.py) — no docker/Postgres needed.
       - name: Run pytest

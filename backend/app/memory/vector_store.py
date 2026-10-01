@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from uuid import UUID
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct
+from qdrant_client.models import Filter, PointStruct
 
 
 class VectorStore(ABC):
@@ -123,7 +123,7 @@ class QdrantVectorStore(VectorStore):
             results = self.client.query_points(
                 collection_name=self.collection_name,
                 query=vector,
-                query_filter=filters,
+                query_filter=Filter.model_validate(filters) if filters else None,
                 limit=limit,
                 score_threshold=score_threshold,
                 with_payload=True,
