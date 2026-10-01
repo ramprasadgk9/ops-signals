@@ -38,6 +38,21 @@ def _step(minutes_before_alert: float) -> SimpleNamespace:
     return SimpleNamespace(analyzer_id="baseline_shift", signal_type="baseline_shift", start_time=STARTS_AT - timedelta(hours=6), evidence={"change_point_time": at.isoformat()})
 
 
+class ShiftedQueryService(FakeQueryService):
+    """FakeQueryService's series, but shifting at `change_at` instead of 5 minutes before the alert."""
+
+    def __init__(self, change_at) -> None:
+        super().__init__()
+        self.change_at = change_at
+
+    def preview(self, query, start, end, step):
+        preview = super().preview(query, start, end, step)
+        for series in preview.series:
+            for sample in series.samples:
+                sample.value = 0.42 if sample.timestamp >= self.change_at else 0.18 + (sample.timestamp.minute % 3) * 0.001
+        return preview
+
+
 class SignalsPipeline:
     """Returns one significant finding plus whichever signals the test scripts."""
 
@@ -55,14 +70,14 @@ class SignalsPipeline:
 
 @pytest.fixture()
 def receiver(client: TestClient):
-    def build(signals: list[SimpleNamespace], **config_overrides):
+    def build(signals: list[SimpleNamespace], query_service: FakeQueryService | None = None, **config_overrides):
         config = AlertEnrichmentConfig(enabled=True, slack_webhook_url="http://slack.example/hook", ui_base_url="http://ops.local", **config_overrides)
         posted: list[dict] = []
         service = AlertEnrichmentService(
             config,
             PrometheusConnectionConfig(base_url="http://prometheus:9090"),
             session_factory=lambda: get_session_local()(),
-            query_service=FakeQueryService(),
+            query_service=query_service or FakeQueryService(),
             pipeline_runner=SignalsPipeline(signals),
             poster=posted.append,
             sleep=lambda _: None,
@@ -131,7 +146,7 @@ def test_spike_lookback_is_configurable(receiver) -> None:
 
 
 def test_step_change_hours_before_the_alert_is_still_its_start(receiver) -> None:
-    h = receiver([_step(3 * 60)])
+    h = receiver([_step(3 * 60)], ShiftedQueryService(STARTS_AT - timedelta(hours=3)))
     _deploy(h.client, "v4.0", 3 * 60 + 6)
     _deploy(h.client, "v4.2", 10)
 

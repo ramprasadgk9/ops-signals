@@ -275,3 +275,21 @@ def test_rewrite_rejects_unsupported_shapes():
 
 def test_rewrite_rejects_query_already_grouped_by_label():
     assert rewrite_for_breakdown("sum by (service, pod) (errors_total)", "pod") is None
+
+
+def test_pod_that_came_up_just_before_the_change_point_still_counts_as_new():
+    # The change point often lands a scrape or two after a rollout's pods come up, leaving each new
+    # pod a couple of samples "before" the change: too few to be its normal level.
+    levels = {pod: (0.12, 0.12) for pod in PODS[:4]}
+    frame = _parts(levels)
+    early = [CHANGE - timedelta(minutes=2), CHANGE - timedelta(minutes=1)]
+    for pod in ("n1", "n2"):
+        rows = [{"part": pod, "timestamp": ts, "value": 0.60} for ts in early + [t for t in TIMESTAMPS if t >= CHANGE]]
+        frame = pd.concat([frame, pd.DataFrame(rows)], ignore_index=True)
+
+    result = compute_breakdown(frame, label="pod", window=WINDOW, mode="changed_parts")
+
+    assert result["new_parts"] == 2
+    assert result["direction"] == "up"
+    assert {part["value"] for part in result["top"] if part["moved"]} == {"n1", "n2"}
+    assert all(part["new"] for part in result["top"] if part["moved"])

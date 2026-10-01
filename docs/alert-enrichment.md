@@ -72,7 +72,10 @@ Each alert becomes one message with three sections (see the screenshot above):
 - **📈 What happened**: Ops Signals pulls the alerting series from Prometheus, runs the same
   analyzers used everywhere else, and reports the finding in plain language, e.g. "sustained
   baseline shift ~621 → ~425 ms, started around 23:59 UTC". If autonomous analysis already caught
-  the problem, it reuses that finding and says how much earlier it was detected.
+  the problem, it reuses that finding and says how much earlier it was detected. With
+  `OPS_SIGNALS_DRILLDOWN_ENABLED=true`, a **📍 Where** line says which pods the change came from,
+  e.g. "2 of 6 pods rose: checkout-5, checkout-6 … looks like a rollout in progress"
+  ([`finding-drilldown.md`](finding-drilldown.md)).
 - **🚀 What changed**: deploys and config changes for the same service shortly before the change,
   e.g. "started 7 min after deploy `v2.0.0`". Your CI sends these to `POST /api/events`. See
   [How changes are timed](#how-changes-are-timed) for how the start time is chosen.
@@ -226,7 +229,9 @@ pattern the analyzers found. Only a pattern with a real start can say "started N
 | Nothing usable (not analyzed, no significant change) | None | "No start time found in the metric", then nearby changes timed from when the alert fired |
 
 When both are present, a step change wins over a spike, and among spikes the latest one before
-the alert wins. Change events from a different environment than the alert are skipped: the alert's
+the alert wins. A change point counts as a step only if the metric stays shifted after it (its
+median afterwards is at least half way to its peak); change-point analyzers also mark a short
+spike that has already ended, and that is treated as a spike. Change events from a different environment than the alert are skipped: the alert's
 `env`, `environment` or `deployment_environment` label is compared with the event's `env`, and
 events that name no environment still match.
 

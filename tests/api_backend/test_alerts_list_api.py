@@ -183,3 +183,35 @@ def test_test_alert_is_not_a_public_receiver(monkeypatch: pytest.MonkeyPatch) ->
         assert client.post("/api/integrations/alertmanager/test").status_code == 401
         assert client.post("/api/integrations/alertmanager/test", headers={"Authorization": "Bearer receiver-secret"}).status_code == 401
         assert client.post("/api/integrations/alertmanager/test", headers={"Authorization": "Bearer api-secret"}).status_code == 202
+
+
+def test_each_alert_carries_its_deploy_timing_matched_changes_and_pod_breakdown(client: TestClient) -> None:
+    breakdown = {"status": "ok", "label": "pod", "spread": "partial", "parts_total": 6, "parts_changed": 2}
+    enrichment = {
+        "analysis": {
+            "status": "analyzed",
+            "timing": {"basis": "step_change", "time": "2026-10-01T21:32:00+00:00", "analyzer_id": "ruptures", "trend_direction": None},
+            "finding": {"id": 7, "title": "Latency shift", "breakdown": breakdown},
+        },
+        "changes": {
+            "service_has_any_events": True,
+            "window_before_minutes": 30,
+            "matches": [{"id": 3, "event_type": "deploy", "version": "v2.4.38", "author": "demo",
+                         "url": "https://example.com/r", "timestamp": "2026-10-01T21:31:00+00:00", "minutes_before_anchor": 1.0}],
+        },
+    }
+    with get_session_local()() as db:
+        db.add_all([
+            _alert("CheckoutLatencyHigh", minutes_ago=2, enrichment_json=enrichment),
+            _alert("NotEnrichedYet", minutes_ago=5),
+        ])
+        db.commit()
+
+    enriched, pending = client.get("/api/alerts").json()
+
+    assert enriched["timing"]["basis"] == "step_change"
+    assert [(change["version"], change["minutes_before_anchor"]) for change in enriched["changes"]] == [("v2.4.38", 1.0)]
+    assert (enriched["change_window_before_minutes"], enriched["service_has_change_events"]) == (30, True)
+    assert enriched["breakdown"] == breakdown
+    assert "message_json" not in enriched and "enrichment_json" not in enriched
+    assert (pending["timing"], pending["changes"], pending["service_has_change_events"], pending["breakdown"]) == (None, [], None, None)

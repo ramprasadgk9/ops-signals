@@ -333,6 +333,8 @@ def get_alert_enrichment_config() -> AlertEnrichmentConfig:
         config.lookback_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_LOOKBACK"])
     if _env("OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"):
         config.scrape_interval_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"])
+    if _env("OPS_SIGNALS_ALERT_MIN_STEP"):
+        config.min_step_seconds = max(1, parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_MIN_STEP"]))
     step_lookback = _env("OPS_SIGNALS_ALERT_STEP_LOOKBACK")
     if step_lookback:
         config.step_lookback_seconds = None if step_lookback.strip().lower() == "window" else parse_duration_seconds(step_lookback)

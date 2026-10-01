@@ -19,6 +19,9 @@ services:
     depends_on:
       - mock-metrics
       - alertmanager
+    # Reaches scripts/demo_live.py on the host; built in on Docker Desktop, needed on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   alertmanager:
     image: prom/alertmanager:v0.27.0

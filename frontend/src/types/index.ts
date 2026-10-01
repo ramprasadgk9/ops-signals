@@ -949,6 +949,32 @@ export type AlertItem = {
   notify_status: string | null;
   finding_id: number | null;
   case_id: number | null;
+  /** Where deploy matching started from (backend/app/alerts/timing.py); null until enriched. */
+  timing?: AlertTiming | null;
+  changes?: AlertChange[];
+  change_window_before_minutes?: number | null;
+  service_has_change_events?: boolean | null;
+  /** The finding's pod breakdown (see utils/findingBreakdown.ts). */
+  breakdown?: Record<string, unknown> | null;
+};
+
+export type AlertTiming = {
+  basis: 'step_change' | 'spike' | 'trend' | 'alert_time' | string;
+  time: string | null;
+  analyzer_id: string | null;
+  trend_direction: 'upward' | 'downward' | string | null;
+};
+
+export type AlertChange = {
+  id: number | null;
+  event_type: string | null;
+  version: string | null;
+  description: string | null;
+  author: string | null;
+  url: string | null;
+  timestamp: string | null;
+  /** Positive: the change came before the start time (or the alert, when there is no start time). */
+  minutes_before_anchor: number | null;
 };
 
 export type AlertReceipt = {

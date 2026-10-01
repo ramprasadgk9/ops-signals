@@ -317,3 +317,15 @@ def test_generic_endpoint_is_labelled_external(harness) -> None:
     text = _message_text(h.posted[0])
     assert "*External alert*" in text
     assert "could not derive a PromQL query" in text
+
+
+def test_an_earlier_alerts_finding_is_not_reused(harness) -> None:
+    # Reuse is for findings analysis produced on its own; an earlier alert's analysis isn't
+    # "detected before the alert", so a re-fire is analyzed afresh.
+    h = harness()
+    h.client.post("/api/integrations/alertmanager", json=_payload(fingerprint="fp-first"))
+    h.client.post("/api/integrations/alertmanager", json=_payload(fingerprint="fp-second"))
+
+    assert len(h.pipeline.calls) == 2
+    assert [row.analysis_status for row in _rows()] == ["analyzed", "analyzed"]
+    assert "detected this" not in _message_text(h.posted[1])

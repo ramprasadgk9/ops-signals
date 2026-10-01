@@ -14,12 +14,15 @@ same in each case, but the response differs:
 
 ![Finding drill-down: the error increase came from two new pods, pointing to a rollout](screenshots/images/web/10-finding-drilldown.png)
 
-Drill-down is **off by default** and currently works only for **autonomous Prometheus runs**.
+Drill-down is **off by default**. It runs for **autonomous Prometheus runs** and for
+**alert-triggered analysis** ([`alert-enrichment.md`](alert-enrichment.md)), using the alert's query.
 
 ## Where it shows
 
 - **Web UI**: a scope chip on finding cards ("1 of 6 pods"; hover for the pods, click for
   details) and a "Where the change came from" section in the finding details.
+- **Slack alert messages**: a "📍 Where" line in the "What happened" section, with the same
+  sentence and next step as the UI.
 - **Grafana plugin**, Autonomous Analysis: the same chip on Related Symptoms and in the findings
   lookup, and the same section in the finding's evidence panel.
 
@@ -64,7 +67,9 @@ share**. Pods carry different amounts of traffic. If every pod's errors double, 
 still holds the biggest share of the increase, and a share-based rule would wrongly call that
 "concentrated".
 
-A pod with no data before the change is marked **new**, for example a pod started by a rollout.
+A pod with no data before the change, or fewer than 3 points, is marked **new**, for example a pod
+started by a rollout. The "fewer than 3" part matters because a change point often lands a scrape
+or two after a rollout's new pods come up.
 
 ## When there is no breakdown
 

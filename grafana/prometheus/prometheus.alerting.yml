@@ -24,3 +24,11 @@ scrape_configs:
     static_configs:
       - targets:
           - mock-metrics:9101
+
+  # scripts/demo_live.py serves per-pod demo metrics here while it runs (down otherwise; no rule
+  # alerts on it). Scraped every 5s so the live demo needs minutes of history, not hours.
+  - job_name: ops-signals-live-demo
+    scrape_interval: 5s
+    static_configs:
+      - targets:
+          - host.docker.internal:9105

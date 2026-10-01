@@ -7,8 +7,9 @@ import { useState } from 'react';
 import { api } from '../api/queries';
 import { WorkspacePanel } from '../standalone/components';
 import { relativeTime, ui } from '../standalone/theme';
-import type { AlertItem } from '../types';
-import { AlertRow } from './AlertComponents';
+import type { AlertChange, AlertItem } from '../types';
+import { changeLabel, whatChanged } from '../utils/alertChanges';
+import { AlertInsight, AlertRow } from './AlertComponents';
 
 const WINDOW_HOURS = 24;
 const HOUR_MS = 3_600_000;
@@ -134,6 +135,7 @@ function TimelineBar({ alert, windowStart, now }: { alert: AlertItem; windowStar
   const width = Math.max(((end - start) / span) * 100, 0.6);
   const color = SEVERITY_STYLES[severityKey(alert.severity)].color;
   const link = linkFor(alert);
+  const changed = whatChanged(alert);
   const title = (
     <Box sx={{ fontSize: 12, lineHeight: 1.5 }}>
       <strong>{alert.alert_name}</strong>
@@ -143,6 +145,7 @@ function TimelineBar({ alert, windowStart, now }: { alert: AlertItem; windowStar
       <br />
       {formatTime(Date.parse(alert.starts_at))} → {firing ? 'now' : alert.ends_at ? formatTime(alert.ends_at) : 'unknown'} ({formatDuration(end - Date.parse(alert.starts_at))})
       {link ? <><br />Linked to {link.text}</> : null}
+      {changed ? <><br />{changed.lines[0]}</> : null}
     </Box>
   );
   return (
@@ -183,6 +186,35 @@ function TimelineBar({ alert, windowStart, now }: { alert: AlertItem; windowStar
   );
 }
 
+/** The change events matched to any of the group's alerts, once each. */
+export function groupChanges(group: AlertGroup): AlertChange[] {
+  const seen = new Map<string, AlertChange>();
+  for (const alert of group.occurrences) {
+    for (const change of alert.changes ?? []) {
+      const key = change.id !== null ? String(change.id) : `${change.version}|${change.timestamp}`;
+      if (change.timestamp && !seen.has(key)) seen.set(key, change);
+    }
+  }
+  return [...seen.values()];
+}
+
+function ChangeMarker({ change, windowStart, now }: { change: AlertChange; windowStart: number; now: number }) {
+  const at = Date.parse(change.timestamp ?? '');
+  if (Number.isNaN(at) || at < windowStart || at > now) return null;
+  const label = `${changeLabel(change)} · ${formatTime(at)}`;
+  return (
+    <Tooltip title={label} placement="top" arrow>
+      <Box
+        tabIndex={0}
+        aria-label={label}
+        sx={{ position: 'absolute', left: `calc(${((at - windowStart) / (now - windowStart)) * 100}% - 6px)`, top: -2, width: 12, height: 10, zIndex: 2, display: 'grid', placeItems: 'center', outline: 'none', '&:focus-visible': { boxShadow: `0 0 0 2px ${ui.blue}` } }}
+      >
+        <Box component="span" sx={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '7px solid #3730a3' }} />
+      </Box>
+    </Tooltip>
+  );
+}
+
 const TICKS = [0, 0.25, 0.5, 0.75, 1];
 
 function tickLabel(fraction: number) {
@@ -216,6 +248,9 @@ export function AlertTimeline({ groups, now, maxLanes = 8 }: { groups: AlertGrou
               {[...group.occurrences].reverse().map((alert) => (
                 <TimelineBar key={alert.id} alert={alert} windowStart={windowStart} now={now} />
               ))}
+              {groupChanges(group).map((change) => (
+                <ChangeMarker key={`${change.id}|${change.timestamp}`} change={change} windowStart={windowStart} now={now} />
+              ))}
             </Box>
           </Stack>
         ))}
@@ -245,6 +280,10 @@ export function AlertTimeline({ groups, now, maxLanes = 8 }: { groups: AlertGrou
         <Stack direction="row" alignItems="center" spacing={0.6}>
           <Box aria-hidden="true" sx={{ width: 8, height: 8, bgcolor: ui.blue, transform: 'rotate(45deg)' }} />
           <Typography sx={{ fontSize: 12, color: '#475569' }}>linked to a finding</Typography>
+        </Stack>
+        <Stack direction="row" alignItems="center" spacing={0.6}>
+          <Box aria-hidden="true" sx={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '7px solid #3730a3' }} />
+          <Typography sx={{ fontSize: 12, color: '#475569' }}>deploy or other change</Typography>
         </Stack>
       </Stack>
     </Box>
@@ -280,6 +319,7 @@ function GroupRow({ group }: { group: AlertGroup }) {
               <Typography component="span" sx={{ fontSize: 13, color: ui.muted }}>no matching finding yet</Typography>
             )}
           </Stack>
+          <AlertInsight alert={group.occurrences[0]} />
         </Box>
         {count > 1 ? (
           <Button

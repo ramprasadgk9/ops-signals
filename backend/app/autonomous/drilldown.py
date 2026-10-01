@@ -50,7 +50,7 @@ def drill_down_findings(
     for finding in _candidate_findings(result.findings, signals_by_id)[: config.max_findings_per_job]:
         signals = [signals_by_id[signal_id] for signal_id in finding.signal_ids if signal_id in signals_by_id]
         try:
-            breakdown = _breakdown(
+            breakdown = finding_breakdown(
                 prometheus=prometheus,
                 promql=promql,
                 step=step,
@@ -85,7 +85,7 @@ def _candidate_findings(findings: list[OperationalFinding], signals_by_id: dict)
     return sorted(candidates, key=lambda finding: finding.importance_score, reverse=True)
 
 
-def _breakdown(
+def finding_breakdown(
     *,
     prometheus: PrometheusQueryService,
     promql: str,
@@ -95,6 +95,8 @@ def _breakdown(
     series_end: datetime,
     labels: list[str],
 ) -> dict[str, object]:
+    """Split one finding's change by pod (or the next label that gives 2+ parts). Also used for
+    alert-triggered analysis (backend/app/alerts/enrichment.py)."""
     window = breakdown_window(signals, series_start, series_end)
     if window is None:
         return {"status": "skipped", "reason": "no_change_time"}
