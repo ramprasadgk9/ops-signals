@@ -197,6 +197,12 @@ class AlertEnrichmentConfig(BaseModel):
     dedupe_window_seconds: int = 6 * 3600
     correlation_before_seconds: int = 1800
     correlation_after_seconds: int = 300
+    # How far before the alert a step change / a spike can start and still count as its start time
+    # (backend/app/alerts/timing.py). None = anywhere in the analysed window.
+    step_lookback_seconds: int | None = None
+    spike_lookback_seconds: int = 3600
+    # Skip change events from a different environment than the alert, when both name one.
+    match_env: bool = True
     excluded_analyzers: list[str] = Field(default_factory=lambda: ["prophet"])
     ui_base_url: str = "http://localhost:3000"
     max_concurrent_analyses: int = 4
@@ -327,6 +333,16 @@ def get_alert_enrichment_config() -> AlertEnrichmentConfig:
         config.lookback_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_LOOKBACK"])
     if _env("OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"):
         config.scrape_interval_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"])
+    step_lookback = _env("OPS_SIGNALS_ALERT_STEP_LOOKBACK")
+    if step_lookback:
+        config.step_lookback_seconds = None if step_lookback.strip().lower() == "window" else parse_duration_seconds(step_lookback)
+    if _env("OPS_SIGNALS_ALERT_SPIKE_LOOKBACK"):
+        config.spike_lookback_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_SPIKE_LOOKBACK"])
+    if _env("OPS_SIGNALS_ALERT_CHANGE_WINDOW_BEFORE"):
+        config.correlation_before_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_CHANGE_WINDOW_BEFORE"])
+    if _env("OPS_SIGNALS_ALERT_CHANGE_WINDOW_AFTER"):
+        config.correlation_after_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_CHANGE_WINDOW_AFTER"])
+    config.match_env = _parse_bool(_env("OPS_SIGNALS_ALERT_MATCH_ENV"), True)
     return config
 
 

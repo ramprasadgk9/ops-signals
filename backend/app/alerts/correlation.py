@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.entities import ChangeEventEntity
@@ -52,7 +52,9 @@ def correlate_changes(
     before: timedelta,
     after: timedelta,
     limit: int = 3,
+    env: str | None = None,
 ) -> ChangeCorrelation:
+    """With `env`, events from another environment are skipped; events that name none still match."""
     anchor = as_utc(anchor)
     correlation = ChangeCorrelation(
         service=service,
@@ -69,13 +71,14 @@ def correlate_changes(
     if not correlation.service_has_any_events:
         return correlation
 
-    rows = db.execute(
-        select(ChangeEventEntity).where(
-            ChangeEventEntity.service == service,
-            ChangeEventEntity.timestamp >= anchor - before,
-            ChangeEventEntity.timestamp <= anchor + after,
-        )
-    ).scalars().all()
+    query = select(ChangeEventEntity).where(
+        ChangeEventEntity.service == service,
+        ChangeEventEntity.timestamp >= anchor - before,
+        ChangeEventEntity.timestamp <= anchor + after,
+    )
+    if env:
+        query = query.where(or_(ChangeEventEntity.env.is_(None), ChangeEventEntity.env == "", func.lower(ChangeEventEntity.env) == env.lower()))
+    rows = db.execute(query).scalars().all()
     matches = [
         ChangeMatch(
             id=row.id,

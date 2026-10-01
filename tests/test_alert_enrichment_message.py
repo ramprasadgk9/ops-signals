@@ -33,6 +33,7 @@ def _enrichment(**overrides) -> dict:
                 "importance_score": 0.82,
             },
             "change_point_time": "2026-09-23T14:08:00+00:00",
+            "timing": {"basis": "step_change", "time": "2026-09-23T14:08:00+00:00", "analyzer_id": "baseline_shift", "trend_direction": None},
         },
         "changes": {
             "service_has_any_events": True,
@@ -132,3 +133,53 @@ def test_resolved_message_names_the_alertmanager_alert_and_duration() -> None:
     text = _text(payload)
     assert payload["blocks"][0]["text"]["text"] == "✅ [RESOLVED] CheckoutHighLatency · checkout-api"
     assert "*Alertmanager alert* `CheckoutHighLatency` resolved after 22 min" in text
+
+
+def _what_changed_text(timing: dict | None, matches: list[dict] | None = None) -> str:
+    enrichment = _enrichment()
+    enrichment["analysis"]["timing"] = timing
+    if matches is not None:
+        enrichment["changes"]["matches"] = matches
+    payload = build_alert_enrichment_blocks(enrichment, UI)
+    return next(block["text"]["text"] for block in payload["blocks"] if "What changed" in block.get("text", {}).get("text", ""))
+
+
+DEPLOY = {"id": 1, "event_type": "deploy", "version": "v4.1", "author": "bob", "minutes_before_anchor": 2.0}
+
+
+def test_step_change_says_started_after_and_names_where_the_start_time_came_from() -> None:
+    text = _what_changed_text({"basis": "step_change", "time": "2026-09-23T14:08:00+00:00", "analyzer_id": "baseline_shift"})
+    assert "• Started *6 min after* <https://github.com/acme/checkout/pull/812|deploy `v2.3.1`> by alice" in text
+    assert "_Start time 14:08 UTC, from a step change (baseline shift)._" in text
+
+
+def test_spike_on_a_trend_times_the_spike_and_says_the_trend_is_separate() -> None:
+    text = _what_changed_text(
+        {"basis": "spike", "time": "2026-09-23T13:58:00+00:00", "analyzer_id": "anomaly_zscore", "trend_direction": "upward"},
+        [DEPLOY],
+    )
+    assert "• Spike started *2 min after* deploy `v4.1` by bob" in text
+    assert "from a spike (z-score). It sits on a gradual upward trend, which these changes may not explain." in text
+
+
+def test_trend_lists_changes_for_reference_without_claiming_a_start() -> None:
+    text = _what_changed_text({"basis": "trend", "time": None, "trend_direction": "upward"}, [{**DEPLOY, "minutes_before_anchor": 10.0}])
+    assert "Gradual upward trend with no clear start time. Changes near when the alert fired, for reference:" in text
+    assert "• deploy `v4.1` by bob, 10 min before the alert fired" in text
+    assert "rarely explained by a single change" in text
+    assert "Started" not in text
+
+
+def test_no_start_time_says_so_instead_of_implying_one() -> None:
+    for timing in ({"basis": "alert_time"}, None):
+        text = _what_changed_text(timing, [{**DEPLOY, "minutes_before_anchor": -3.0}])
+        assert "No start time found in the metric. Changes near when the alert fired, for reference:" in text
+        assert "• deploy `v4.1` by bob, 3 min after the alert fired" in text
+        assert "Started" not in text
+
+
+def test_no_matching_changes_names_the_window_it_searched() -> None:
+    step = _what_changed_text({"basis": "step_change", "time": "2026-09-23T14:08:00+00:00", "analyzer_id": "ruptures"}, [])
+    assert "No changes recorded for `checkout-api` in the 30 min before the step change at 14:08 UTC." in step
+    trend = _what_changed_text({"basis": "trend", "trend_direction": "downward"}, [])
+    assert trend.endswith("Gradual downward trend with no clear start time. No changes recorded for `checkout-api` in the 30 min before the alert fired.")
