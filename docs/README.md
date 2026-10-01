@@ -15,6 +15,8 @@ What the project is, and how to get it running.
   see it working before installing anything.
 - **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,
   open the UI. Start here to actually install it.
+- [`comparison.md`](comparison.md) - how Ops Signals relates to Robusta/HolmesGPT, Keep and
+  Grafana Sift, including where those tools are ahead.
 - [`security-model.md`](security-model.md) - what's open by default, the API token, the switches
   for the reset and file-writing endpoints, and CORS. Read it before exposing Ops Signals beyond
   your own machine.
