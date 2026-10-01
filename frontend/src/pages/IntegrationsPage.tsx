@@ -1,8 +1,7 @@
 import { Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import { AlertsOverviewPanel } from '../components/AlertTimeline';
-import { IntegrationTiles, SourceStatusStrip } from '../components/GetDataInPanel';
+import { IntegrationTiles, OneOffAnalysisLine, SourceStatusStrip } from '../components/GetDataInPanel';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { OtlpIngestionCard } from '../components/OtlpIngestionCard';
 import { PageHeader, WorkspacePanel } from '../standalone/components';
@@ -25,11 +24,12 @@ export function IntegrationsPage() {
           <Typography color="text.secondary">Could not load integration status. The endpoints below still accept data.</Typography>
         </WorkspacePanel>
       ) : null}
-      {status ? <IntegrationTiles status={status} /> : null}
+      {status ? <IntegrationTiles status={status} exploring={false} /> : null}
 
-      <AlertsOverviewPanel title="Alerts" />
+      {/* Without the tiles, this card is the one place left that shows the OTLP endpoint. */}
+      {statusQuery.isError ? <OtlpIngestionCard /> : null}
 
-      <OtlpIngestionCard showEndpoint={!status} />
+      <OneOffAnalysisLine />
     </Stack>
   );
 }

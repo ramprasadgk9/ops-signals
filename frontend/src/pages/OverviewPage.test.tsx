@@ -290,6 +290,8 @@ describe('OverviewPage integration resilience', () => {
       expect(screen.getByText(`${window.location.origin}/api/integrations/alertmanager`)).toBeInTheDocument();
       expect(screen.getByText('Waiting for data')).toBeInTheDocument();
       expect(screen.getByText('Disabled')).toBeInTheDocument();
+      // The one-off tile stays here, where a brand-new user needs it (Integrations only mentions it).
+      expect(screen.getByText('Just exploring?')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Load demo data' })).toBeInTheDocument();
       // Enrichment is off, so there is nothing to test yet.
       expect(screen.queryByRole('button', { name: 'Send test alert' })).not.toBeInTheDocument();
@@ -424,7 +426,7 @@ describe('OverviewPage integration resilience', () => {
       expect(await screen.findByText('Alert: HighLatency')).toBeInTheDocument();
       expect(screen.getByText('checkout-api / latency_p95')).toBeInTheDocument();
       expect(await screen.findByRole('region', { name: 'Incoming Alerts' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'All alerts →' })).toHaveAttribute('href', '/integrations');
+      expect(screen.getByRole('link', { name: 'All alerts →' })).toHaveAttribute('href', '/alerts');
     });
 
     it('adds nothing when no alerts have been received', async () => {

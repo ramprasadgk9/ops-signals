@@ -28,6 +28,7 @@ import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import { GlobalSearch } from './GlobalSearch';
@@ -50,6 +51,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: 'Overview', to: '/', icon: <HomeRoundedIcon />, match: (path) => path === '/' },
+  { label: 'Alerts', to: '/alerts', icon: <NotificationsActiveOutlinedIcon /> },
   { label: 'Integrations', to: '/integrations', icon: <InputRoundedIcon /> },
   { label: 'Autonomous Analysis Configure', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon /> },
   { label: 'Investigations', to: '/investigations', icon: <TravelExploreRoundedIcon /> },

@@ -50,7 +50,7 @@ describe('whatChanged', () => {
       .toEqual({ lines: ['No changes in the 30 min before the alert fired.'], note: 'Gradual downward trend with no clear start time.' });
   });
 
-  it('points to POST /api/events when the service never sent any', () => {
+  it('points to the Integrations tile when the service never sent any', () => {
     expect(whatChanged(alert({ service: 'mixed-lab', service_has_change_events: false }))?.lines).toEqual(['No deploys or other changes have been recorded for mixed-lab yet.']);
   });
 

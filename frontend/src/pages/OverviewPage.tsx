@@ -117,7 +117,7 @@ export function OverviewPage() {
         </Grid>
       </Grid>
 
-      <AlertsOverviewPanel title="Incoming Alerts" variant="compact" hideWhenEmpty viewAllTo="/integrations" />
+      <AlertsOverviewPanel title="Incoming Alerts" variant="compact" hideWhenEmpty viewAllTo="/alerts" />
     </Stack>
   );
 }

@@ -16,7 +16,9 @@ from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import AlertEnrichmentEntity, AnalysisRunEntity, OtlpPendingPointEntity
+from backend.app.api import ingestion_status
 from backend.app.otlp import metrics as otlp_metrics
+from backend.app.services.prometheus_service import PrometheusQueryService
 
 STATUS = "/api/ingestion/status"
 
@@ -30,6 +32,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED",
         "OPS_SIGNALS_ALERT_RECEIVER_TOKEN",
         "OPS_SIGNALS_API_TOKEN",
+        "OPS_SIGNALS_EVENTS_TOKEN",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -75,7 +78,20 @@ def test_fresh_install_reports_no_data_and_every_source_idle(client: TestClient)
         "last_received_at": None,
         "received_24h": 0,
     }
-    assert body["sources"]["prometheus"] == {"configured": False}
+    assert body["sources"]["prometheus"] == {
+        "configured": False,
+        "url": None,
+        "reachable": None,
+        "scheduled_policies": 0,
+        "alert_enrichment_enabled": False,
+    }
+    assert body["sources"]["events"] == {
+        "endpoint_path": "/api/events",
+        "token_required": False,
+        "last_received_at": None,
+        "received_24h": 0,
+        "last_event": None,
+    }
 
 
 def test_otlp_push_marks_otlp_as_receiving(client: TestClient) -> None:
@@ -187,3 +203,55 @@ def test_a_failed_run_alone_does_not_end_the_first_run_state(client: TestClient)
         db.commit()
 
     assert client.get(STATUS).json()["has_any_data"] is False
+
+
+def test_deploy_events_show_the_latest_and_the_24h_count(client: TestClient) -> None:
+    for version, minutes_ago in (("v2.4.70", 30), ("v2.4.71", 3)):
+        response = client.post("/api/events", json={
+            "service": "checkout", "type": "deploy", "version": version, "env": "prod",
+            "timestamp": (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat(),
+        })
+        assert response.status_code == 201
+
+    events = client.get(STATUS).json()["sources"]["events"]
+
+    assert events["received_24h"] == 2
+    assert events["last_received_at"] is not None
+    assert {key: events["last_event"][key] for key in ("service", "type", "version", "env")} == {
+        "service": "checkout", "type": "deploy", "version": "v2.4.71", "env": "prod",
+    }
+
+
+def test_events_token_is_reported_as_required(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPS_SIGNALS_EVENTS_TOKEN", "secret")
+    assert client.get(STATUS).json()["sources"]["events"]["token_required"] is True
+
+
+def test_prometheus_shows_its_url_without_credentials_and_whether_it_answers(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPS_SIGNALS_PROMETHEUS_URL", "https://reader:hunter2@prom.example.com:9090/prometheus")
+    monkeypatch.setattr(ingestion_status, "_prometheus_check", None)
+    calls = []
+    monkeypatch.setattr(PrometheusQueryService, "test_connection", lambda self: calls.append(self.config.timeout_seconds) or (True, "2.54.1", 12, "ok"))
+
+    prometheus = client.get(STATUS).json()["sources"]["prometheus"]
+    client.get(STATUS)
+
+    assert prometheus["url"] == "https://prom.example.com:9090/prometheus"
+    assert "hunter2" not in str(prometheus)
+    assert prometheus["reachable"] is True
+    assert calls == [ingestion_status.PROMETHEUS_CHECK_TIMEOUT_SECONDS]  # second read used the cached check
+
+
+def test_unreachable_prometheus_is_reported_not_raised(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPS_SIGNALS_PROMETHEUS_URL", "http://prometheus.invalid:9090")
+    monkeypatch.setattr(ingestion_status, "_prometheus_check", None)
+
+    def boom(self):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(PrometheusQueryService, "test_connection", boom)
+
+    response = client.get(STATUS)
+
+    assert response.status_code == 200
+    assert response.json()["sources"]["prometheus"]["reachable"] is False
