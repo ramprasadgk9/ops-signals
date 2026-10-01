@@ -101,3 +101,36 @@ describe('FindingsPage deep link', () => {
     expect(api.getFinding).not.toHaveBeenCalled();
   });
 });
+
+describe('FindingsPage category legend', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('explains each category in plain words', async () => {
+    vi.mocked(api.findings).mockResolvedValue([]);
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z',
+      window: '24h',
+      active_findings: 3,
+      open_cases: 0,
+      behavior_changes: 1,
+      impacted_services: 1,
+      memory_items: 0,
+      severity_trend: [],
+      category_breakdown: [
+        { category: 'data_quality', count: 679 },
+        { category: 'behavior_change', count: 168 },
+        { category: 'unusual_activity', count: 108 },
+      ],
+    });
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('Data Quality')).toBeInTheDocument();
+    expect(screen.getByText('The metric stopped reporting or froze at one value')).toBeInTheDocument();
+    expect(screen.getByText('The metric moved to a new normal level, or is steadily trending')).toBeInTheDocument();
+    expect(screen.getByText('Short spikes or dips that don’t fit the usual pattern')).toBeInTheDocument();
+  });
+});

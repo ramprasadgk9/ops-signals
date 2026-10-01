@@ -39,6 +39,14 @@ Findings show severity, confidence, evidence, affected services, timestamps, and
 
 ![Operational Findings](screenshots/images/web/04-findings.png)
 
+### Finding Drill-down
+
+With [drill-down](finding-drilldown.md) on, a finding from an autonomous Prometheus run shows which
+pods the change came from. Here the increase came entirely from two pods that first appeared after
+the change, which points to a rollout.
+
+![Finding drill-down: the error increase came from two new pods](screenshots/images/web/10-finding-drilldown.png)
+
 ### Case Investigation
 
 Findings can be promoted into cases where users capture investigation notes, root cause analysis, resolution, and reusable operational knowledge.
@@ -161,6 +169,11 @@ then drives each screen in a headless browser (`demo/screenshots/capture.cjs`). 
 screens also need the development stack's Grafana, Prometheus, and mock metrics
 (`docker compose up -d grafana prometheus mock-metrics`); set `SKIP_GRAFANA=1` to record only the
 web and Slack screens.
+
+The drill-down screen needs a finding with a per-pod breakdown, which the demo doesn't produce yet;
+it is skipped when there is none. To record it from the development stack, run
+`python dev/drilldown_scenario.py` and an autonomous run with `OPS_SIGNALS_DRILLDOWN_ENABLED=true`, then
+`DEMO_WEB_URL=http://localhost:5174 node demo/screenshots/capture.cjs docs/screenshots/images 10-finding-drilldown`.
 
 ## Learn More
 

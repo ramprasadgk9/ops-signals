@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { Finding, Signal } from '../types';
+import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
+import { categoryDetail, categoryLabel } from '../utils/findingCategories';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
 
 type Props = {
@@ -37,14 +39,6 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
     return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
   };
 
-  const getCategoryLabel = (category?: string): string => {
-    if (!category) return 'Insight';
-    return category
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  };
-
   const handleCreateCase = () => {
     if (finding.id) {
       createCaseMutation.mutate(finding.id);
@@ -57,12 +51,19 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
     .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
 
   const signalGroups = groupSignalsByAnalyzer(matchedSignals);
+  const breakdown = findingBreakdown(finding);
+  const scope = breakdownScopeLabel(breakdown);
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardContent sx={{ flexGrow: 1 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
-          <Typography variant="h6" sx={{ pr: 1 }}>{finding.title}</Typography>
+          <Stack sx={{ pr: 1, minWidth: 0 }}>
+            <Typography variant="h6">{finding.title}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+              {finding.service ? `${finding.service} · ${finding.metric_name}` : finding.metric_name}
+            </Typography>
+          </Stack>
           <Chip 
             label={getHealthLabel(finding.health_status)} 
             color={getHealthColor(finding.health_status)}
@@ -79,6 +80,19 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
             {finding.ai_summary ?? finding.summary}
           </Typography>
         </Stack>
+
+        {scope && breakdown && (
+          <Tooltip title={`${breakdownSentence(breakdown)} Click for the full breakdown.`} arrow>
+            <Chip
+              label={scope}
+              color={breakdownSpreadColor(breakdown)}
+              size="small"
+              variant="outlined"
+              onClick={onViewDetails ? () => onViewDetails(finding) : undefined}
+              sx={{ mb: 1 }}
+            />
+          </Tooltip>
+        )}
         
         <Stack spacing={1} sx={{ mt: 2 }}>
           <Stack direction="row" justifyContent="space-between">
@@ -90,7 +104,11 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
           
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="caption" color="text.secondary">Category</Typography>
-            <Typography variant="body2">{getCategoryLabel(finding.category)}</Typography>
+            <Tooltip title={categoryDetail(finding.category) ?? ''} arrow>
+              <Typography variant="body2" sx={{ cursor: categoryDetail(finding.category) ? 'help' : undefined }}>
+                {categoryLabel(finding.category)}
+              </Typography>
+            </Tooltip>
           </Stack>
           
           <Stack direction="row" justifyContent="space-between">

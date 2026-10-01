@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Chip, Grid2 as Grid, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Grid2 as Grid, Stack, Tooltip as MuiTooltip, Typography } from '@mui/material';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import CategoryRoundedIcon from '@mui/icons-material/CategoryRounded';
 import { useQuery } from '@tanstack/react-query';
@@ -10,8 +10,9 @@ import { FindingDetailsDrawer } from '../components/FindingDetailsDrawer';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { TopFindingsList } from '../components/TopFindingsList';
 import { WorkspacePanel } from '../standalone/components';
-import { titleCase, ui } from '../standalone/theme';
+import { ui } from '../standalone/theme';
 import type { Finding } from '../types';
+import { categoryDetail, categoryLabel, categoryShortDescription } from '../utils/findingCategories';
 
 type FindingsWindow = '24h' | '7d';
 
@@ -88,7 +89,7 @@ export function FindingsPage() {
 
   const findings = findingsQuery.data ?? [];
   const summary = summaryQuery.data;
-  const categoryCounts = (summary?.category_breakdown ?? []).map((item) => ({ name: titleCase(item.category), value: item.count }));
+  const categoryCounts = (summary?.category_breakdown ?? []).map((item) => ({ key: item.category, name: categoryLabel(item.category), value: item.count }));
   const trendData = (summary?.severity_trend ?? []).map((item) => ({
     time: new Date(item.timestamp).toLocaleString(undefined, window === '7d' ? { month: 'numeric', day: 'numeric' } : { hour: '2-digit', minute: '2-digit' }),
     Critical: item.critical,
@@ -172,7 +173,7 @@ export function FindingsPage() {
           </WorkspacePanel>
         </Grid>
         <Grid size={{ xs: 12, lg: 5 }}>
-          <WorkspacePanel sx={{ p: 2.5, height: 330 }}>
+          <WorkspacePanel sx={{ p: 2.5, minHeight: 330 }}>
             <Typography sx={{ fontSize: 18, fontWeight: 900, mb: 1.5 }}>Top Finding Categories</Typography>
             {categoryCounts.length ? (
               <Stack direction="row" alignItems="center" spacing={2}>
@@ -188,10 +189,19 @@ export function FindingsPage() {
                 </Box>
                 <Stack spacing={1.5} sx={{ flex: 1 }}>
                   {categoryCounts.slice(0, 6).map((item) => (
-                    <Stack key={item.name} direction="row" justifyContent="space-between">
-                      <Typography sx={{ fontWeight: 750 }}>{item.name}</Typography>
-                      <Typography sx={{ color: ui.muted }}>{item.value}</Typography>
-                    </Stack>
+                    <MuiTooltip key={item.key} title={categoryDetail(item.key) ?? ''} arrow placement="left">
+                      <Box>
+                        <Stack direction="row" justifyContent="space-between">
+                          <Typography sx={{ fontWeight: 750 }}>{item.name}</Typography>
+                          <Typography sx={{ color: ui.muted }}>{item.value}</Typography>
+                        </Stack>
+                        {categoryShortDescription(item.key) && (
+                          <Typography variant="caption" sx={{ color: ui.muted, display: 'block', lineHeight: 1.35 }}>
+                            {categoryShortDescription(item.key)}
+                          </Typography>
+                        )}
+                      </Box>
+                    </MuiTooltip>
                   ))}
                 </Stack>
               </Stack>

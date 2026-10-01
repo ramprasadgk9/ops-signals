@@ -110,6 +110,28 @@ const SHOTS = {
     await settle(page, 1500);
   },
 
+  // Needs a finding with a per-pod breakdown (drill-down on, per-pod data - see
+  // docs/finding-drilldown.md and dev/drilldown_scenario.py). Skipped when there is none.
+  async '10-finding-drilldown'(page) {
+    const response = await page.request.get(`${WEB}/api/findings?window=7d`);
+    const findings = response.ok() ? await response.json() : [];
+    const withBreakdown = findings.filter((finding) => finding.comparison_json?.breakdown?.status === 'ok');
+    // Prefer the rollout story (new pods), then one bad pod.
+    const rank = (finding) => {
+      const breakdown = finding.comparison_json.breakdown;
+      if (breakdown.new_parts > 0 && breakdown.parts_changed === breakdown.new_parts) return 0;
+      return breakdown.spread === 'concentrated' ? 1 : 2;
+    };
+    const chosen = withBreakdown.sort((a, b) => rank(a) - rank(b))[0];
+    if (!chosen) return { skip: 'no finding with a drill-down breakdown' };
+    await page.goto(`${WEB}/findings?finding=${chosen.id}`);
+    await page.getByText('Where the change came from', { exact: true }).waitFor({ timeout: 15000 });
+    await settle(page, 1200);
+    const drawer = await page.locator('.MuiDrawer-paper').first().boundingBox();
+    const section = await page.getByTestId('finding-breakdown').boundingBox();
+    return { clip: { x: drawer.x, y: drawer.y, width: drawer.width, height: section.y + section.height + 16 - drawer.y } };
+  },
+
   async '09-analyzer-recommendation'(page) {
     await page.goto(`${WEB}/analyzer-recommendation`);
     await settle(page);
@@ -254,9 +276,14 @@ async function main() {
     if (only.length && !only.includes(name)) continue;
     try {
       await page.setViewportSize(VIEWPORT);
-      await drive(page);
+      const result = await drive(page);
+      if (result?.skip) {
+        console.log(`skipped ${name}: ${result.skip}`);
+        continue;
+      }
       const file = path.join(outRoot, 'web', `${name}.png`);
-      await page.screenshot({ path: file });
+      if (result?.clip) await page.screenshot({ path: file, clip: result.clip });
+      else await page.screenshot({ path: file });
       console.log(`captured ${path.relative(ROOT, file)}`);
     } catch (error) {
       failures.push(name);

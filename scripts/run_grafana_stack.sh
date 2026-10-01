@@ -8,6 +8,16 @@ BACKEND_PORT="${BACKEND_PORT:-8002}"
 PLUGIN_BACKEND_URL="${PLUGIN_BACKEND_URL:-http://localhost:${BACKEND_PORT}}"
 OPS_SIGNALS_PROMETHEUS_URL="${OPS_SIGNALS_PROMETHEUS_URL:-http://localhost:9090}"
 
+# Same as run_all.sh, so feature flags and tokens in .env (e.g. OPS_SIGNALS_DRILLDOWN_ENABLED) reach
+# the backend the plugin talks to.
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  echo "Loading $ROOT_DIR/.env"
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   echo ".venv is missing. Run scripts/setup.sh first."
   exit 1
@@ -77,10 +87,26 @@ done
 
 api_log="${ROOT_DIR}/.tmp_ops_signals_api.log"
 
+# A backend left over from an earlier run would keep serving the plugin with old settings while the
+# new one fails to bind - stop here instead.
+if lsof -nP -iTCP:"$BACKEND_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port ${BACKEND_PORT} is already in use:"
+  lsof -nP -iTCP:"$BACKEND_PORT" -sTCP:LISTEN
+  echo "Stop that process (kill <PID>) or set BACKEND_PORT to another port, then run this again."
+  exit 1
+fi
+
 echo "Starting backend API on :${BACKEND_PORT}..."
 BACKEND_PORT="$BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" OPS_SIGNALS_ALLOW_FILE_WRITES="${OPS_SIGNALS_ALLOW_FILE_WRITES:-true}" OPS_SIGNALS_ENABLE_TESTING_API="${OPS_SIGNALS_ENABLE_TESTING_API:-true}" \
   "$VENV_DIR/bin/python" -m uvicorn backend.app.main:app --reload --reload-dir "$ROOT_DIR/backend" --port "$BACKEND_PORT" >"$api_log" 2>&1 &
 api_pid=$!
+
+sleep 3
+if ! kill -0 "$api_pid" >/dev/null 2>&1; then
+  echo "The backend exited during startup. Last lines of $api_log:"
+  tail -20 "$api_log"
+  exit 1
+fi
 
 cleanup() {
   kill "$api_pid" >/dev/null 2>&1 || true
