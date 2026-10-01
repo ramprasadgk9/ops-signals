@@ -74,7 +74,8 @@ Each alert becomes one message with three sections (see the screenshot above):
   baseline shift ~621 → ~425 ms, started around 23:59 UTC". If autonomous analysis already caught
   the problem, it reuses that finding and says how much earlier it was detected.
 - **🚀 What changed**: deploys and config changes for the same service shortly before the change,
-  e.g. "started 7 min after deploy `v2.0.0`". Your CI sends these to `POST /api/events`.
+  e.g. "started 7 min after deploy `v2.0.0`". Your CI sends these to `POST /api/events`. See
+  [How changes are timed](#how-changes-are-timed) for how the start time is chosen.
 - **🧠 Seen before**: the existing alert-context lookup. How often this alert fired before, how
   many times it was confirmed real or dismissed as noise, the most common root cause, and the most
   similar resolved case with its fix.
@@ -211,6 +212,33 @@ Enrichment and posting are separate. Every setting below still enriches and stor
 | annotation `ops_signals_notify: "false"` | Don't post this rule's alerts |
 
 All settings, with their defaults, are listed in `.env.example`.
+
+#### How changes are timed
+
+Change events are matched against the moment the problem started, and that moment comes from the
+pattern the analyzers found. Only a pattern with a real start can say "started N min after":
+
+| Pattern found | Start time used | "What changed" says |
+|---|---|---|
+| Step change (`baseline_shift`, `ruptures`) | The change point | "Started 6 min after deploy `v2.3.1`", plus where the start time came from |
+| Spike (`anomaly_zscore`, `pyod_outlier`, `stumpy`) | When the spike began | "Spike started 2 min after deploy `v4.1`". If the metric is also trending, it says the trend may have another cause |
+| Trend only | None | "Gradual upward trend with no clear start time", then nearby changes listed for reference, timed from when the alert fired |
+| Nothing usable (not analyzed, no significant change) | None | "No start time found in the metric", then nearby changes timed from when the alert fired |
+
+When both are present, a step change wins over a spike, and among spikes the latest one before
+the alert wins. Change events from a different environment than the alert are skipped: the alert's
+`env`, `environment` or `deployment_environment` label is compared with the event's `env`, and
+events that name no environment still match.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `OPS_SIGNALS_ALERT_STEP_LOOKBACK` | `window` | How far before the alert a step change still counts as its start. `window` means anywhere in the analysed range (`OPS_SIGNALS_ALERT_LOOKBACK`) |
+| `OPS_SIGNALS_ALERT_SPIKE_LOOKBACK` | `1h` | How far before the alert a spike still counts. Older spikes are treated as over |
+| `OPS_SIGNALS_ALERT_CHANGE_WINDOW_BEFORE` | `30m` | List change events up to this long before the start time |
+| `OPS_SIGNALS_ALERT_CHANGE_WINDOW_AFTER` | `5m` | List change events up to this long after the start time |
+| `OPS_SIGNALS_ALERT_MATCH_ENV` | `true` | Skip change events from another environment |
+
+The timing only says what happened when. It never says a change caused the problem.
 
 ### Troubleshooting
 

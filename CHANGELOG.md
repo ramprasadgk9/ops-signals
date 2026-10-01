@@ -2,6 +2,15 @@
 
 ## 0.3.0 - Unreleased
 
+- **Behavior change:** the alert message's "What changed" section now times change events from
+  the pattern the analyzers found. A step change or a spike gives a start time ("Spike started
+  2 min after deploy `v4.1`"). A slow trend, or no analysis, gives none: nearby changes are listed
+  for reference, timed from when the alert fired, with no "started after" claim. Previously a
+  slow trend was timed from the alert, so a deploy minutes before it read as if it started a
+  problem that had been building for hours. Change events from another environment than the alert
+  are now skipped. New settings: `OPS_SIGNALS_ALERT_STEP_LOOKBACK`, `OPS_SIGNALS_ALERT_SPIKE_LOOKBACK`,
+  `OPS_SIGNALS_ALERT_CHANGE_WINDOW_BEFORE`, `OPS_SIGNALS_ALERT_CHANGE_WINDOW_AFTER` and
+  `OPS_SIGNALS_ALERT_MATCH_ENV`. See [`docs/alert-enrichment.md`](docs/alert-enrichment.md#how-changes-are-timed).
 - **Behavior change:** a series with a timestamp gap over the provider's `max_gap_minutes` is no
   longer refused. It is analyzed, the gap becomes empty resampled buckets that `data_health`
   reports, and the message is logged and kept on the normalized frame. Real sensor and traffic

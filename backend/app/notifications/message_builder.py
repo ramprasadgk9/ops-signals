@@ -104,24 +104,68 @@ def _what_happened(analysis: dict) -> str:
     return "Not analyzed."
 
 
-def _what_changed(changes: dict | None, service: str | None) -> str:
+_ANALYZER_LABEL = {
+    "baseline_shift": "baseline shift",
+    "ruptures": "change-point detection",
+    "anomaly_zscore": "z-score",
+    "pyod_outlier": "outlier detection",
+    "stumpy": "pattern matching",
+}
+
+
+def _change_label(match: dict) -> str:
+    label = f"{match.get('event_type', 'change')} `{match.get('version') or match.get('description') or 'unversioned'}`"
+    who = f" by {match['author']}" if match.get("author") else ""
+    return f"{_link(match.get('url'), label)}{who}"
+
+
+def _what_changed(changes: dict | None, service: str | None, timing: dict | None = None) -> str:
+    """Wording follows where the start time came from (backend/app/alerts/timing.py): only a step
+    change or a spike gives a real start, so only those get "started N min after"."""
     if not service:
         return "No service label on this alert, so change events can't be matched."
     if changes is None:
         return "Change-event lookup unavailable."
-    matches = changes.get("matches") or []
     if not changes.get("service_has_any_events"):
         return f"No change events have ever been recorded for `{service}` - send deploys to `POST /api/events` to see them here."
+    timing = timing or {}
+    basis = timing.get("basis") or "alert_time"
+    matches = changes.get("matches") or []
+    window = changes.get("window_before_minutes", 30)
+    trend = timing.get("trend_direction")
+
+    if basis in {"step_change", "spike"}:
+        kind = "step change" if basis == "step_change" else "spike"
+        source = _ANALYZER_LABEL.get(timing.get("analyzer_id"), timing.get("analyzer_id") or "analysis")
+        note = f"_Start time {_hhmm(timing.get('time'))}, from a {kind} ({source})."
+        if trend:
+            note += f" It sits on a gradual {trend} trend, which these changes may not explain."
+        note += "_"
+        if not matches:
+            return f"No changes recorded for `{service}` in the {window} min before the {kind} at {_hhmm(timing.get('time'))}.\n{note}"
+        verb = "Started" if basis == "step_change" else "Spike started"
+        lines = []
+        for match in matches:
+            # minutes_before_anchor > 0: the change event came first, so the problem started *after* it.
+            when = match.get("minutes_before_anchor", 0.0)
+            relation = f"{_minutes(when)} after" if when >= 0 else f"{_minutes(when)} before"
+            lines.append(f"• {verb} *{relation}* {_change_label(match)}")
+        return "\n".join([*lines, note])
+
+    # No real start time: list changes relative to when the alert fired, and claim nothing.
+    if basis == "trend":
+        intro = f"Gradual {trend} trend with no clear start time."
+    else:
+        intro = "No start time found in the metric."
     if not matches:
-        return f"No changes recorded for `{service}` in the {changes.get('window_before_minutes', 30)} min before the change."
-    lines = []
+        return f"{intro} No changes recorded for `{service}` in the {window} min before the alert fired."
+    lines = [f"{intro} Changes near when the alert fired, for reference:"]
     for match in matches:
-        label = f"{match.get('event_type', 'change')} `{match.get('version') or match.get('description') or 'unversioned'}`"
-        # minutes_before_anchor > 0: the change event came first, so the problem started *after* it.
         when = match.get("minutes_before_anchor", 0.0)
-        relation = f"{_minutes(when)} after" if when >= 0 else f"{_minutes(when)} before"
-        who = f" by {match['author']}" if match.get("author") else ""
-        lines.append(f"• Started *{relation}* {_link(match.get('url'), label)}{who}")
+        relation = f"{_minutes(when)} before" if when >= 0 else f"{_minutes(when)} after"
+        lines.append(f"• {_change_label(match)}, {relation} the alert fired")
+    if basis == "trend":
+        lines.append("_A slow trend is rarely explained by a single change._")
     return "\n".join(lines)
 
 
@@ -179,7 +223,7 @@ def build_alert_enrichment_blocks(enrichment: dict, ui_base_url: str) -> dict:
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip(f"*Alert:* {alert.get('summary') or alert.get('name')}")}},
         {"type": "divider"},
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*📈 What happened*\n" + _what_happened(analysis))}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🚀 What changed*\n" + _what_changed(enrichment.get("changes"), service))}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🚀 What changed*\n" + _what_changed(enrichment.get("changes"), service, analysis.get("timing")))}},
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🧠 Seen before*\n" + _seen_before(enrichment.get("context"), ui_base_url))}},
     ]
     links = [_link(f"{ui_base_url}/findings", "Open findings"), _link(f"{ui_base_url}/cases", "Create a case")]

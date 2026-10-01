@@ -21,6 +21,7 @@ from backend.app.alerts.classifier import REASON_TEXT, AnalysisDecision, classif
 from backend.app.alerts.correlation import ChangeCorrelation, as_utc, correlate_changes
 from backend.app.alerts.query_builder import QueryWindow, query_window
 from backend.app.alerts.schemas import AlertReceiptOut, NormalizedAlert
+from backend.app.alerts.timing import ALERT_TIME, STEP_ANALYZERS, StartTime, choose_start_time
 from backend.app.config import AlertEnrichmentConfig, PrometheusConnectionConfig
 from backend.app.memory.alert_context import build_alert_context
 from backend.app.memory.schemas import AlertContextResponse
@@ -39,8 +40,8 @@ from intelligence.storage.postgres_store import suppress_findings_hook
 
 logger = logging.getLogger(__name__)
 
-# Analyzers whose evidence carries `change_point_time`, most specific first.
-_CHANGE_POINT_ANALYZERS = ("baseline_shift", "ruptures")
+# Alert labels that name the environment, first match wins; matched against change events' `env`.
+_ENV_LABELS = ("env", "environment", "deployment_environment")
 
 
 class PipelineRunner(Protocol):
@@ -199,8 +200,9 @@ class AlertEnrichmentService:
                 # which would otherwise show up in the lookup as "seen before".
                 context, context_error = self._context(db, metric_key, alert)
                 analysis = self._analysis(db, alert, decision, metric_key)
-                anchor = _parse_iso(analysis.get("change_point_time")) or alert.starts_at
-                changes = self._changes(db, alert.service, anchor)
+                timing = analysis.setdefault("timing", StartTime(ALERT_TIME).to_dict())
+                anchor = _parse_iso(timing.get("time")) or alert.starts_at
+                changes = self._changes(db, alert, anchor)
 
                 enrichment.update(
                     alert=_alert_dict(alert, metric_key),
@@ -248,17 +250,18 @@ class AlertEnrichmentService:
             db.rollback()
             return None, str(exc)
 
-    def _changes(self, db: Session, service: str | None, anchor: datetime) -> ChangeCorrelation | None:
+    def _changes(self, db: Session, alert: NormalizedAlert, anchor: datetime) -> ChangeCorrelation | None:
         try:
             return correlate_changes(
                 db,
-                service,
+                alert.service,
                 anchor,
                 before=timedelta(seconds=self.config.correlation_before_seconds),
                 after=timedelta(seconds=self.config.correlation_after_seconds),
+                env=_alert_env(alert.labels) if self.config.match_env else None,
             )
         except Exception as exc:
-            logger.warning("Change correlation failed for %s: %s", service, exc)
+            logger.warning("Change correlation failed for %s: %s", alert.service, exc)
             db.rollback()
             return None
 
@@ -307,15 +310,17 @@ class AlertEnrichmentService:
         ).scalars().first()
         if finding is None:
             return None
-        change_point = None
+        signals: list[SignalEntity] = []
         if finding.analysis_run_id:
+            # One autonomous run covers many series; only this one's signals describe the alert.
             signals = db.execute(
                 select(SignalEntity).where(
                     SignalEntity.analysis_run_id == finding.analysis_run_id,
-                    SignalEntity.analyzer_id.in_(_CHANGE_POINT_ANALYZERS),
+                    SignalEntity.service == alert.service,
+                    SignalEntity.metric_name == metric_key,
                 )
             ).scalars().all()
-            change_point = _change_point_from_evidence([(s.analyzer_id, s.evidence_json or {}) for s in signals])
+        change_point = _change_point_from_evidence([(s.analyzer_id, s.evidence_json or {}) for s in signals])
         # "Detected N min before the alert" means when Ops Signals produced the finding, not when
         # the change itself started (that's change_point_time, shown separately).
         detected_before = None
@@ -326,6 +331,7 @@ class AlertEnrichmentService:
             "finding": _finding_dict(finding),
             "analysis_run_id": finding.analysis_run_id,
             "change_point_time": change_point,
+            "timing": self._start_time(signals, alert).to_dict(),
             "detected_before_alert_minutes": detected_before,
         }
 
@@ -424,7 +430,18 @@ class AlertEnrichmentService:
         headline = max(significant, key=lambda f: f.importance_score)
         finding = _finding_dict(headline)
         finding["id"] = self._stored_finding_id(result.analysis_run_id, headline.title)
-        return {"status": "analyzed", "finding": finding, "change_point_time": change_point, **common}
+        timing = self._start_time(getattr(result, "signals", []), alert).to_dict()
+        return {"status": "analyzed", "finding": finding, "change_point_time": change_point, "timing": timing, **common}
+
+    def _start_time(self, signals: list[Any], alert: NormalizedAlert) -> StartTime:
+        step = self.config.step_lookback_seconds
+        return choose_start_time(
+            signals,
+            alert.starts_at,
+            step_lookback=timedelta(seconds=step) if step is not None else None,
+            spike_lookback=timedelta(seconds=self.config.spike_lookback_seconds),
+            after=timedelta(seconds=self.config.correlation_after_seconds),
+        )
 
     def _stored_finding_id(self, analysis_run_id: str, title: str) -> int | None:
         try:
@@ -519,8 +536,15 @@ def _skipped(reason: str, detail: str | None = None, status: str = "skipped") ->
     }
 
 
+def _alert_env(labels: dict[str, str]) -> str | None:
+    for key in _ENV_LABELS:
+        if (labels.get(key) or "").strip():
+            return labels[key].strip()
+    return None
+
+
 def _change_point_from_evidence(items: list[tuple[str | None, dict]]) -> str | None:
-    for analyzer_id in _CHANGE_POINT_ANALYZERS:
+    for analyzer_id in STEP_ANALYZERS:
         for item_analyzer, evidence in items:
             if item_analyzer == analyzer_id and evidence.get("change_point_time"):
                 return str(evidence["change_point_time"])
