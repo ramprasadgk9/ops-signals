@@ -9,10 +9,11 @@ import pandas as pd
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from backend.app.autonomous.drilldown import drill_down_findings
 from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
 from backend.app.autonomous.repository import AutonomousJobRepository, AutonomousPolicyRunRepository, utc_now
 from backend.app.autonomous.schemas import AutonomousJobRunResult, AutonomousPreviewResponse, AutonomousRunResponse, MetricPlanItem
-from backend.app.config import PrometheusConnectionConfig
+from backend.app.config import DrillDownConfig, PrometheusConnectionConfig, get_drilldown_config
 from backend.app.models.entities import AutonomousMetricJobEntity
 from backend.app.services.prometheus_service import PrometheusQueryService, configured_connection
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
@@ -29,7 +30,9 @@ def execute_autonomous_plan_once(
     dry_run: bool = False,
     policy_id: str | None = None,
     trigger: str | None = None,
+    drilldown: DrillDownConfig | None = None,
 ) -> AutonomousRunResponse:
+    drilldown = drilldown if drilldown is not None else get_drilldown_config()
     end = datetime.now(timezone.utc)
     start = end - _parse_duration(analysis_window)
     planned_items = [item for item in preview.items if item.planned]
@@ -151,6 +154,7 @@ def execute_autonomous_plan_once(
             start=start,
             end=end,
             step=step,
+            drilldown=drilldown,
         )
         for item in planned_items
     ]
@@ -212,6 +216,7 @@ def _execute_plan_item(
     start: datetime,
     end: datetime,
     step: str,
+    drilldown: DrillDownConfig | None = None,
 ) -> AutonomousJobRunResult:
     if not item.promql:
         return _failed(item, "Planned job did not include PromQL.", job=job, job_repo=job_repo, error_type="invalid_query_plan")
@@ -274,6 +279,8 @@ def _execute_plan_item(
             },
             db=db,
         )
+        if drilldown is not None and drilldown.enabled:
+            drill_down_findings(db=db, prometheus=prometheus, promql=item.promql, step=step, result=result, config=drilldown)
         duration_ms = _duration_ms(started)
         job_repo.mark_completed(job.id, analysis_run_id=result.analysis_run_id, duration_ms=duration_ms)
         return AutonomousJobRunResult(

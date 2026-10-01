@@ -236,6 +236,9 @@ Historical similarity does not prove two cases share the same root cause.
   similar resolved cases, and raw recurrence before it acts, not just a human browsing after the fact
 - Autonomous Prometheus monitoring - configure scope and policy, run once or on a recurring
   schedule, see results inline
+- Finding drill-down (opt-in) - for autonomous Prometheus findings, shows which pods the change
+  came from and whether it's one pod, a few, or all of them - see
+  [`docs/finding-drilldown.md`](docs/finding-drilldown.md)
 - A benchmark suite validating router accuracy, detection accuracy, false-positive behavior, and Behavior Intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
 - Alert enrichment - when a Prometheus alert fires, Alertmanager sends it to Ops Signals, which runs
   the analyzers on the alerting series, matches recent deploys, looks up past cases, and posts one
@@ -266,6 +269,14 @@ below is how to actually work with each piece.
 #### Analyze Prometheus Data Directly
 
 ![Direct Prometheus Analysis](docs/screenshots/images/web/03-new-analysis-prometheus.png)
+
+#### See Which Pods a Change Came From
+
+A service-level finding says *what* changed. With [drill-down](docs/finding-drilldown.md) on, it
+also says *where*: one bad pod, a few, every pod, or new pods from a rollout. Each of those calls
+for a different next step.
+
+![Finding drill-down: the error increase came from two new pods, pointing to a rollout](docs/screenshots/images/web/10-finding-drilldown.png)
 
 #### Investigate and Preserve Operational Knowledge
 

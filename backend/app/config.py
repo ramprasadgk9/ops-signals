@@ -210,6 +210,28 @@ class AlertEnrichmentConfig(BaseModel):
         return value
 
 
+class DrillDownConfig(BaseModel):
+    """Finding drill-down (intelligence/drilldown.py): after an autonomous Prometheus run creates a
+    finding, re-query the same metric grouped by pod (or the next label in `labels`) and record which
+    parts the change came from in the finding's comparison_json["breakdown"].
+
+    Disabled by default: until OPS_SIGNALS_DRILLDOWN_ENABLED=true, runs and findings are exactly as
+    before. Each drill-down is one or two extra range queries, capped per job by max_findings_per_job
+    and by the connection's max_series / max_total_samples limits.
+    """
+
+    enabled: bool = False
+    labels: list[str] = Field(default_factory=lambda: ["pod", "instance"])
+    max_findings_per_job: int = 3
+
+    @field_validator("max_findings_per_job")
+    @classmethod
+    def max_findings_valid(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("max_findings_per_job must be at least 1")
+        return value
+
+
 def _parse_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
@@ -305,6 +327,16 @@ def get_alert_enrichment_config() -> AlertEnrichmentConfig:
         config.lookback_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_LOOKBACK"])
     if _env("OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"):
         config.scrape_interval_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_SCRAPE_INTERVAL"])
+    return config
+
+
+def get_drilldown_config() -> DrillDownConfig:
+    config = DrillDownConfig(enabled=_parse_bool(_env("OPS_SIGNALS_DRILLDOWN_ENABLED"), False))
+    labels = _parse_list(_env("OPS_SIGNALS_DRILLDOWN_LABELS"))
+    if labels:
+        config.labels = labels
+    if _env("OPS_SIGNALS_DRILLDOWN_MAX_FINDINGS"):
+        config.max_findings_per_job = max(1, int(os.environ["OPS_SIGNALS_DRILLDOWN_MAX_FINDINGS"]))
     return config
 
 

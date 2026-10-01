@@ -12,6 +12,8 @@ import {
 } from './grafanaPrometheus';
 import { PanelPreview } from './PanelPreview';
 import { Card, Field, styles } from './plainUi';
+import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
+import { findingBreakdown } from '../utils/findingBreakdown';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
 import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, GrafanaAnalysisResult, GrafanaCase, GrafanaCaseCreateResponse, GrafanaQueryTarget, MonitoringCategory } from './contracts';
@@ -1802,7 +1804,11 @@ function GrafanaAutonomousOverview({
                     <span style={{ display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: 999, background: index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e', color: '#fff', fontWeight: 800 }}>{index + 1}</span>
                     <div>
                       <strong>{finding.metric}</strong>
-                      <div style={styles.row}><BehaviorPill label={finding.behavior} />{finding.observedChange ? <span style={styles.helperText}>{finding.observedChange}</span> : null}</div>
+                      <div style={styles.row}>
+                        <BehaviorPill label={finding.behavior} />
+                        <SymptomScopeChip finding={matchingFinding(findings, finding)} onOpen={(raw) => onOpenInvestigation(raw, 'evidence')} />
+                        {finding.observedChange ? <span style={styles.helperText}>{finding.observedChange}</span> : null}
+                      </div>
                     </div>
                     <strong style={{ color: index === 0 ? '#b877d9' : '#5794f2' }}>{finding.importance.toFixed(2)}</strong>
                     <MiniSparkline tone={index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e'} />
@@ -2142,17 +2148,23 @@ function GrafanaFindingsLookupPanel({ lookupState }: { lookupState: AutonomousFi
       <div style={{ ...styles.stack, marginTop: 12 }}>
         {lookupState.findings.length ? lookupState.findings.map((finding) => (
           <div key={finding.id} style={styles.rowBetween}>
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <strong>{finding.service} / {finding.metric_name}</strong>
               <div style={styles.helperText}>{finding.title}</div>
               <div style={styles.helperText}>Importance {finding.importance_score.toFixed(2)} · {humanize(finding.category)} · {formatCompactDate(finding.created_at)}</div>
+              <PluginBreakdownDisclosure finding={finding} />
             </div>
-            <button type="button" style={styles.tableRowButton} onClick={() => lookupState.askAboutFinding(finding)}>Ask</button>
+            <button type="button" style={{ ...styles.tableRowButton, alignSelf: 'flex-start' }} onClick={() => lookupState.askAboutFinding(finding)}>Ask</button>
           </div>
         )) : <p style={styles.muted}>No findings matched the selected filters.</p>}
       </div>
     </CollapsibleInsightPanel>
   );
+}
+
+function SymptomScopeChip({ finding, onOpen }: { finding: Finding | null; onOpen: (finding: Finding) => void }) {
+  if (!finding) return null;
+  return <PluginScopeChip finding={finding} onClick={() => onOpen(finding)} />;
 }
 
 function matchingFinding(findings: Finding[], row: AutonomousDashboardData['topFindings'][number] | null | undefined) {
@@ -2187,7 +2199,10 @@ function AutonomousInvestigationPanel({
   onCreateCase: () => void;
   onClose: () => void;
 }) {
-  const comparisonEntries = Object.entries(finding.comparison_json ?? {}).filter(([, value]) => value !== null && value !== undefined);
+  const breakdown = findingBreakdown(finding);
+  // The breakdown has its own section; the raw comparison view shows the rest.
+  const { breakdown: _breakdown, ...comparison } = finding.comparison_json ?? {};
+  const comparisonEntries = Object.entries(comparison).filter(([, value]) => value !== null && value !== undefined);
   return (
     <div id="autonomous-investigation" style={panelStyle(mode === 'evidence' ? '#5794f2' : '#b877d9')}>
       <div style={styles.rowBetween}>
@@ -2244,12 +2259,13 @@ function AutonomousInvestigationPanel({
             <div>
               <div style={styles.helperText}>Comparison data</div>
               <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', border: '1px solid rgba(204, 204, 220, 0.12)', borderRadius: 8, padding: 12, overflow: 'auto', maxHeight: 220 }}>
-                {JSON.stringify(finding.comparison_json, null, 2)}
+                {JSON.stringify(comparison, null, 2)}
               </pre>
             </div>
           ) : <p style={styles.muted}>No comparison details were returned for this finding.</p>}
         </div>
       </div>
+      {breakdown ? <div style={{ marginTop: 12 }}><PluginBreakdownSection breakdown={breakdown} /></div> : null}
     </div>
   );
 }

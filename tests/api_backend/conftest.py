@@ -17,6 +17,7 @@ def api_security_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv('OPS_SIGNALS_ALLOW_FILE_WRITES', 'true')
     monkeypatch.delenv('OPS_SIGNALS_API_TOKEN', raising=False)
     monkeypatch.delenv('OPS_SIGNALS_ENABLE_TESTING_API', raising=False)
+    monkeypatch.delenv('OPS_SIGNALS_DRILLDOWN_ENABLED', raising=False)
 
 
 @pytest.fixture()
