@@ -105,3 +105,42 @@ describe('FindingDetailsDrawer ingested data section', () => {
     expect(await screen.findByText('No raw points found for this analysis run.')).toBeInTheDocument();
   });
 });
+
+describe('FindingDetailsDrawer drill-down breakdown', () => {
+  const breakdown = {
+    status: 'ok',
+    label: 'pod',
+    mode: 'share',
+    spread: 'concentrated',
+    direction: 'up',
+    parts_total: 6,
+    parts_changed: 1,
+    top: [
+      { value: 'checkout-x2', before: 0.2, after: 3.57, change: 3.37, relative_change: 16.85, share: 0.91, moved: true, new: false, gone: false },
+      { value: 'checkout-a1', before: 0.2, after: 0.21, change: 0.01, relative_change: 0.05, share: 0.09, moved: false, new: false, gone: false },
+    ],
+    others: null,
+  };
+
+  it('shows where the change came from when the finding has a breakdown', () => {
+    renderDrawer({ ...otlpFinding, analysis_run_id: undefined, comparison_json: { breakdown } });
+
+    expect(screen.getByText('Where the change came from')).toBeInTheDocument();
+    expect(screen.getAllByText('1 of 6 pods').length).toBeGreaterThan(0);
+    expect(screen.getByText('91% of the increase comes from pod checkout-x2, 1 of 6 pods.')).toBeInTheDocument();
+  });
+
+  it('leaves the breakdown out of the raw comparison view', () => {
+    renderDrawer({ ...otlpFinding, analysis_run_id: undefined, comparison_json: { change_percent: 308, breakdown } });
+
+    const raw = screen.getByText(/"change_percent": 308/);
+    expect(raw.textContent).not.toContain('checkout-x2');
+  });
+
+  it('shows nothing new for a finding without a breakdown', () => {
+    renderDrawer({ ...otlpFinding, analysis_run_id: undefined });
+
+    expect(screen.queryByText('Where the change came from')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Breakdown by pod not available/)).not.toBeInTheDocument();
+  });
+});
