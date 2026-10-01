@@ -107,6 +107,7 @@ def test_skipped_analysis_and_empty_history_still_produce_a_useful_message() -> 
     text = _text(build_alert_enrichment_blocks(enrichment, UI))
     assert "Not analyzed: status/health alert." in text
     assert "No change events have ever been recorded for `checkout-api`" in text
+    assert f"<{UI}/integrations|Integrations → Send deploy events>" in text
     assert "First time Ops Signals has seen this alert." in text
 
 

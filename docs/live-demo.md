@@ -65,7 +65,7 @@ scenario runs once per start of the script, because the pods it changes stay cha
 script to run them again: each run uses its own series (a `demo_run` label) and its own deploy
 versions (the `x` in `v2.4.x`), so it never mixes with the last run.
 
-The same results appear in the web UI (http://localhost:5174). On **Integrations** (and the
+The same results appear in the web UI (http://localhost:5174). On **Alerts** (and the
 Overview's alerts panel), each alert row shows a **Where** and **What changed** box, and the
 timeline lane marks each deploy with ▼ (hover for the version). **Findings** shows the finding with
 the same pod breakdown.

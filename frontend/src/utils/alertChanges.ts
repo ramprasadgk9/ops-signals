@@ -41,7 +41,7 @@ export function changeLabel(change: AlertChange): string {
 export function whatChanged(alert: AlertItem): WhatChanged | null {
   if (!alert.service || alert.service_has_change_events == null) return null;
   if (!alert.service_has_change_events) {
-    return { lines: [`No deploys or other changes have been recorded for ${alert.service} yet.`], note: 'Send them to POST /api/events to see them here.' };
+    return { lines: [`No deploys or other changes have been recorded for ${alert.service} yet.`], note: 'Send them from your CI to see them here: Integrations → Send deploy events.' };
   }
   const timing = alert.timing ?? { basis: 'alert_time', time: null, analyzer_id: null, trend_direction: null };
   const changes = alert.changes ?? [];

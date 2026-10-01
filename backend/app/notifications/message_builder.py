@@ -192,7 +192,7 @@ def _change_label(match: dict) -> str:
     return f"{_link(match.get('url'), label)}{who}"
 
 
-def _what_changed(changes: dict | None, service: str | None, timing: dict | None = None) -> str:
+def _what_changed(changes: dict | None, service: str | None, timing: dict | None = None, ui_base_url: str | None = None) -> str:
     """Wording follows where the start time came from (backend/app/alerts/timing.py): only a step
     change or a spike gives a real start, so only those get "started N min after"."""
     if not service:
@@ -200,7 +200,8 @@ def _what_changed(changes: dict | None, service: str | None, timing: dict | None
     if changes is None:
         return "Change-event lookup unavailable."
     if not changes.get("service_has_any_events"):
-        return f"No change events have ever been recorded for `{service}` - send deploys to `POST /api/events` to see them here."
+        where = _link(f"{ui_base_url}/integrations", "Integrations → Send deploy events") if ui_base_url else "Integrations → Send deploy events"
+        return f"No change events have ever been recorded for `{service}`. Send deploys from your CI to see them here: {where}."
     timing = timing or {}
     basis = timing.get("basis") or "alert_time"
     matches = changes.get("matches") or []
@@ -298,7 +299,7 @@ def build_alert_enrichment_blocks(enrichment: dict, ui_base_url: str) -> dict:
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip(f"*Alert:* {alert.get('summary') or alert.get('name')}")}},
         {"type": "divider"},
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*📈 What happened*\n" + _what_happened(analysis))}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🚀 What changed*\n" + _what_changed(enrichment.get("changes"), service, analysis.get("timing")))}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🚀 What changed*\n" + _what_changed(enrichment.get("changes"), service, analysis.get("timing"), ui_base_url))}},
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🧠 Seen before*\n" + _seen_before(enrichment.get("context"), ui_base_url))}},
     ]
     links = [_link(f"{ui_base_url}/findings", "Open findings"), _link(f"{ui_base_url}/cases", "Create a case")]

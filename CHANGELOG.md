@@ -15,7 +15,17 @@
 - Drill-down: a pod with fewer than 3 points before the change counts as new. Before, a pod that
   came up a scrape or two before the detected change point was compared with its own couple of
   post-rollout points and reported as unchanged.
-- The alerts panel (Integrations and Overview) shows each alert's "Where" (pods) and "What changed"
+- New **Alerts** page (`/alerts`, after Overview in the menu) for received alerts; the Overview's
+  "All alerts" link goes there. **Integrations** is now only about connecting sources: a new **Send
+  deploy events** tile (URL, a ready-made `curl` step for CI, the last deploy received), and the
+  Prometheus tile shows its URL (without credentials), whether it answers, and what uses it
+  (autonomous analysis policies, alert enrichment). OTLP activity (points received, awaiting
+  analysis, rejections) moved into the OTLP tile and shows once points arrive, instead of a
+  separate card of zeros. "Just exploring?" stays on the Overview's first-run panel; Integrations
+  mentions it in one line. `GET /api/ingestion/status` returns the new
+  `events` source and the Prometheus details. `.env.example` explains deploy events in a section of
+  their own.
+- The alerts panel (Alerts and Overview) shows each alert's "Where" (pods) and "What changed"
   (deploys, worded like the Slack message) and marks deploys on the timeline. `GET /api/alerts`
   returns `timing`, `changes`, `change_window_before_minutes`, `service_has_change_events` and
   `breakdown` for this.

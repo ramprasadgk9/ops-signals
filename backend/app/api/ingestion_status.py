@@ -8,7 +8,9 @@ than failing the request, so the Overview never breaks because of this card.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -20,11 +22,14 @@ from backend.app.models.db import get_db
 from backend.app.models.entities import (
     AlertEnrichmentEntity,
     AnalysisRunEntity,
+    AutonomousPolicyEntity,
+    ChangeEventEntity,
     FindingEntity,
     OtlpPendingPointEntity,
 )
 from backend.app.otlp.metrics import last_received_at as otlp_last_received_at
 from backend.app.security import receiver_token_or_api_token
+from backend.app.services.prometheus_service import PrometheusQueryService
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +37,11 @@ router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
 
 OTLP_ENDPOINT_PATH = "/api/otlp/v1/metrics"
 ALERTMANAGER_ENDPOINT_PATH = "/api/integrations/alertmanager"
+EVENTS_ENDPOINT_PATH = "/api/events"
+# The page polls this every 15s; a Prometheus reachability check is cached so it isn't hit that often.
+PROMETHEUS_CHECK_TTL_SECONDS = 30.0
+PROMETHEUS_CHECK_TIMEOUT_SECONDS = 3.0
+_prometheus_check: tuple[float, str, bool] | None = None
 # analysis_runs.source_type the OTLP backlog cycle writes (backend/app/autonomous/scheduler.py).
 OTLP_RUN_SOURCE_TYPE = "otel"
 
@@ -51,12 +61,35 @@ class AlertmanagerSourceStatus(BaseModel):
 
 class PrometheusSourceStatus(BaseModel):
     configured: bool
+    url: str | None = None  # without any user:password@ part
+    reachable: bool | None = None  # None when not configured
+    scheduled_policies: int = 0  # enabled autonomous analysis policies
+    alert_enrichment_enabled: bool = False
+
+
+class LastChangeEvent(BaseModel):
+    service: str
+    type: str
+    version: str | None = None
+    env: str | None = None
+    timestamp: datetime
+
+
+class EventsSourceStatus(BaseModel):
+    """Deploy and other change events sent to POST /api/events (by CI, or later by GitHub)."""
+
+    endpoint_path: str
+    token_required: bool
+    last_received_at: datetime | None
+    received_24h: int
+    last_event: LastChangeEvent | None = None
 
 
 class IngestionSources(BaseModel):
     otlp: OtlpSourceStatus
     alertmanager: AlertmanagerSourceStatus
     prometheus: PrometheusSourceStatus
+    events: EventsSourceStatus
 
 
 class IngestionStatusOut(BaseModel):
@@ -87,6 +120,36 @@ def _scalar(db: Session, statement, label: str):
 
 def _exists(db: Session, entity, label: str) -> bool:
     return _scalar(db, select(entity.id).limit(1), label) is not None
+
+
+def _display_url(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(netloc=parts.hostname + (f":{parts.port}" if parts.port else ""))) if parts.hostname else url
+
+
+def _prometheus_reachable() -> bool | None:
+    global _prometheus_check
+    config = get_prometheus_config()
+    if not config.base_url:
+        return None
+    now = time.monotonic()
+    if _prometheus_check and _prometheus_check[1] == config.base_url and now - _prometheus_check[0] < PROMETHEUS_CHECK_TTL_SECONDS:
+        return _prometheus_check[2]
+    try:
+        reachable = PrometheusQueryService(config.model_copy(update={"timeout_seconds": PROMETHEUS_CHECK_TIMEOUT_SECONDS})).test_connection()[0]
+    except Exception:  # noqa: BLE001 - a status read never fails because Prometheus is down
+        reachable = False
+    _prometheus_check = (now, config.base_url, reachable)
+    return reachable
+
+
+def _last_change_event(db: Session) -> ChangeEventEntity | None:
+    try:
+        return db.execute(select(ChangeEventEntity).order_by(ChangeEventEntity.received_at.desc(), ChangeEventEntity.id.desc()).limit(1)).scalars().first()
+    except Exception:  # noqa: BLE001
+        logger.warning("Ingestion status: change events lookup failed", exc_info=True)
+        db.rollback()
+        return None
 
 
 @router.get("/status", response_model=IngestionStatusOut)
@@ -125,6 +188,19 @@ def get_ingestion_status(db: Session = Depends(get_db)) -> IngestionStatusOut:
         or _exists(db, FindingEntity, "findings")
     )
 
+    prometheus_config = get_prometheus_config()
+    last_event = _last_change_event(db)
+    events_24h = _scalar(
+        db,
+        select(func.count()).select_from(ChangeEventEntity).where(ChangeEventEntity.received_at >= now - timedelta(hours=24)),
+        "change events 24h",
+    )
+    scheduled_policies = _scalar(
+        db,
+        select(func.count()).select_from(AutonomousPolicyEntity).where(AutonomousPolicyEntity.enabled.is_(True)),
+        "autonomous policies",
+    )
+
     return IngestionStatusOut(
         generated_at=now,
         has_any_data=has_any_data,
@@ -137,6 +213,25 @@ def get_ingestion_status(db: Session = Depends(get_db)) -> IngestionStatusOut:
                 last_received_at=alerts_last,
                 received_24h=int(alerts_24h or 0),
             ),
-            prometheus=PrometheusSourceStatus(configured=bool(get_prometheus_config().base_url)),
+            prometheus=PrometheusSourceStatus(
+                configured=bool(prometheus_config.base_url),
+                url=_display_url(prometheus_config.base_url) if prometheus_config.base_url else None,
+                reachable=_prometheus_reachable(),
+                scheduled_policies=int(scheduled_policies or 0),
+                alert_enrichment_enabled=alert_config.enabled,
+            ),
+            events=EventsSourceStatus(
+                endpoint_path=EVENTS_ENDPOINT_PATH,
+                token_required=bool(receiver_token_or_api_token(alert_config.events_token)),
+                last_received_at=_as_utc(last_event.received_at) if last_event else None,
+                received_24h=int(events_24h or 0),
+                last_event=LastChangeEvent(
+                    service=last_event.service,
+                    type=last_event.event_type,
+                    version=last_event.version,
+                    env=last_event.env,
+                    timestamp=_as_utc(last_event.timestamp),
+                ) if last_event else None,
+            ),
         ),
     )

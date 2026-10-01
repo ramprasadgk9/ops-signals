@@ -459,12 +459,13 @@ the first data arrives, the Overview shows a **Get data in** panel with every wa
 - **Alertmanager** - the webhook URL and a `receivers:` snippet; **Send test alert** proves the
   whole path once alert enrichment is on (see [Alert Enrichment](#95-alert-enrichment-alertmanager-to-slack)).
 - **Prometheus** - pulled on a schedule once `OPS_SIGNALS_PROMETHEUS_URL` is set (see [Prometheus](#811-prometheus)).
+- **Deploy events** - the URL and a `curl` step for your CI pipeline, so alerts can say which deploy came just before them.
 - **Load demo data** - analyzes a bundled checkout series in seconds, or upload your own CSV from
   **New Analysis** (see [CSV Input](#812-csv-input)).
 
-The same sources, with whether each is receiving and the most recent alerts, live on the
-**Integrations** page (`/integrations`) afterwards. The API behind it is
-`GET /api/ingestion/status`; received alerts are listed by `GET /api/alerts`.
+The same sources, with whether each is receiving, live on the **Integrations** page
+(`/integrations`) afterwards; received alerts are on the **Alerts** page (`/alerts`). The APIs behind
+them are `GET /api/ingestion/status` and `GET /api/alerts`.
 
 ### 6.7 Optional: Enable Local AI
 

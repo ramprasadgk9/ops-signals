@@ -27,6 +27,7 @@ import { ZScoreAnomalyLabPage } from '../pages/analyzer-labs/ZScoreAnomalyLabPag
 import { CasesPage } from '../pages/CasesPage';
 import { InvestigationsPage } from '../pages/InvestigationsPage';
 import { IntegrationsPage } from '../pages/IntegrationsPage';
+import { AlertsPage } from '../pages/AlertsPage';
 import { SystemPage } from '../pages/SystemPage';
 
 export function AppRoutes() {
@@ -59,6 +60,7 @@ export function AppRoutes() {
       <Route path="/memory-chat" element={<MemoryChatPage />} />
       <Route path="/findings" element={<FindingsPage />} />
       <Route path="/integrations" element={<IntegrationsPage />} />
+      <Route path="/alerts" element={<AlertsPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/system" element={<SystemPage />} />
       <Route path="/signals/:signalId" element={<SignalDetailPage />} />

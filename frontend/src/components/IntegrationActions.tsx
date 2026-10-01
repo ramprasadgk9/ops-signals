@@ -44,7 +44,7 @@ export function SendTestAlertButton() {
       {mutation.isError ? <ResultText tone="error">Could not send the test alert: {mutation.error.message}</ResultText> : null}
       {receipt?.disabled ? <ResultText tone="warn">Alert enrichment is off, so the test alert was not stored.</ResultText> : null}
       {receipt && !receipt.disabled ? (
-        <ResultText tone="ok">Test alert sent. It appears under Recent alerts in a few seconds, and in Slack if notifications are set up.</ResultText>
+        <ResultText tone="ok">Test alert sent. It appears on the Alerts page in a few seconds, and in Slack if notifications are set up.</ResultText>
       ) : null}
     </Stack>
   );
@@ -62,7 +62,9 @@ async function loadDemoData() {
   return api.runCsvUpload(form);
 }
 
-export function LoadDemoDataButton() {
+/** `links`: quiet text buttons, for a one-line mention rather than a tile. */
+export function LoadDemoDataButton({ variant = 'buttons' }: { variant?: 'buttons' | 'links' } = {}) {
+  const links = variant === 'links';
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: loadDemoData,
@@ -72,10 +74,10 @@ export function LoadDemoDataButton() {
   return (
     <Stack spacing={1}>
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-        <Button variant="contained" size="small" onClick={() => mutation.mutate()} disabled={mutation.isPending} sx={{ textTransform: 'none', fontWeight: 750, bgcolor: ui.blue }}>
+        <Button variant={links ? 'text' : 'contained'} size="small" onClick={() => mutation.mutate()} disabled={mutation.isPending} sx={{ textTransform: 'none', fontWeight: 750, ...(links ? {} : { bgcolor: ui.blue }) }}>
           {mutation.isPending ? 'Analyzing demo data…' : 'Load demo data'}
         </Button>
-        <Button component={RouterLink} to="/validate-data" variant="outlined" size="small" sx={{ textTransform: 'none', fontWeight: 750 }}>
+        <Button component={RouterLink} to="/validate-data" variant={links ? 'text' : 'outlined'} size="small" sx={{ textTransform: 'none', fontWeight: 750 }}>
           Analyze your own CSV
         </Button>
       </Stack>

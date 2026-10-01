@@ -247,9 +247,9 @@ The timing only says what happened when. It never says a change caused the probl
 
 ### Troubleshooting
 
-The **Integrations** page (`/integrations`) lists recent alerts with the finding or case each was
-linked to, and its **Send test alert** button pushes one synthetic alert through the whole path
-(receive, enrich, Slack). The same list is available from the API:
+The **Alerts** page (`/alerts`) lists recent alerts with the finding or case each was linked to,
+what changed and where. **Send test alert** on the **Integrations** page pushes one synthetic alert
+through the whole path (receive, enrich, Slack). The same list is available from the API:
 
 ```bash
 curl -s "http://localhost:8001/api/alerts?limit=10"

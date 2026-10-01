@@ -12,6 +12,8 @@ automatically exist in the other.
 | Tab | Route | What it's for |
 | --- | --- | --- |
 | **Overview** | `/` | The landing dashboard — recent findings, case activity, and a summary of what the autonomous scheduler has found. Start here. |
+| **Alerts** | `/alerts` | Alerts received from Alertmanager and other sources: a 24-hour timeline with deploys marked, and per alert where the change came from (pods), what changed just before (deploys) and the finding or case it was linked to. |
+| **Integrations** | `/integrations` | Setup for every way data gets in: OTLP push, Prometheus (URL, reachable, what uses it), the Alertmanager webhook, and deploy events from CI, each with its URL, a snippet and whether data is arriving. |
 | **Autonomous Analysis Configure** | `/autonomous-monitoring` | Configure which services/metrics to watch and which monitoring categories to enable, preview the resulting plan, run it once, or save it as a recurring schedule. See [`docs/autonomous-analysis-preview.md`](autonomous-analysis-preview.md). |
 | **Investigations** | `/investigations` | Ad-hoc investigation view for digging into a specific metric or service outside the autonomous flow. |
 | **Findings** | `/findings` | Every single-metric Finding the system has produced, searchable and filterable. Each finding's detail view names which ingestion path produced it (CSV, Prometheus, Datadog, or OTLP) and charts the raw points behind it, for tracing a finding back to what was actually ingested. See [`docs/06-operational-findings.md`](06-operational-findings.md). |
@@ -39,7 +41,7 @@ A grouping inside **Experiments**, not a separate top-level tab:
 
 Alert enrichment and finding notifications have no tab: their output is a Slack message. Each
 enriched alert's analysis still produces an ordinary finding, so it appears under **Findings**. The
-alerts panel on **Integrations** and the Overview lists received alerts with the same "Where" and
+**Alerts** page and the Overview's alerts panel list received alerts with the same "Where" and
 "What changed" as the message, and marks deploys on its timeline; all change events are available at
 `GET /api/events`. See
 [`docs/alert-enrichment.md`](alert-enrichment.md), or run [`docs/demo.md`](demo.md) to see one.

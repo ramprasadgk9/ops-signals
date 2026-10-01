@@ -1005,7 +1005,23 @@ export type IngestionStatus = {
       last_received_at: string | null;
       received_24h: number;
     };
-    prometheus: { configured: boolean };
+    prometheus: {
+      configured: boolean;
+      /** Without any user:password@ part. */
+      url?: string | null;
+      /** null when not configured. */
+      reachable?: boolean | null;
+      scheduled_policies?: number;
+      alert_enrichment_enabled?: boolean;
+    };
+    /** Deploys and other change events sent to POST /api/events. */
+    events?: {
+      endpoint_path: string;
+      token_required: boolean;
+      last_received_at: string | null;
+      received_24h: number;
+      last_event: { service: string; type: string; version: string | null; env: string | null; timestamp: string } | null;
+    };
   };
 };
 
