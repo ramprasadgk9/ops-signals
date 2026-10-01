@@ -184,6 +184,12 @@ Ops Signals adds structure around that data by turning canonical CSV inputs into
 - It keeps PostgreSQL as the system of record and Qdrant as a semantic retrieval index - never the other way around
 - It shows which analyzers and signals contributed to each result, not just a final score
 
+**How it compares.** Robusta/HolmesGPT add Kubernetes context and LLM investigation to alerts,
+Keep deduplicates and routes alerts across tools, and Grafana Sift runs ML checks in Grafana Cloud.
+Ops Signals needs no Kubernetes and no LLM: it explains the alerting metric itself and links it to
+past resolved cases. It can run alongside any of them. See [`docs/comparison.md`](docs/comparison.md),
+including where those tools are ahead.
+
 ### 3.2 How It Works
 
 ```text
