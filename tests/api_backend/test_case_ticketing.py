@@ -428,3 +428,241 @@ def test_fastapi_ticketing_endpoints(client):
     events_res = client.get(f"/api/cases/{case_id}/ticket/events")
     assert events_res.status_code == 200
     assert isinstance(events_res.json(), list)
+
+
+def test_promote_comment_event_to_case_note():
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        ev_comment = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="comm_001",
+            event_type="comment_added",
+            occurred_at=now,
+            created_at=now,
+            author="Alice Smith",
+            summary="Investigated latency: found connection pool saturation in RDS.",
+            payload={"raw": "test"},
+        )
+        ev_status = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="stat_001",
+            event_type="status_changed",
+            occurred_at=now,
+            created_at=now,
+            author="Bob Jones",
+            summary="Status changed to In Progress",
+            payload={},
+        )
+        db.add_all([ev_comment, ev_status])
+        db.commit()
+        db.refresh(ev_comment)
+        db.refresh(ev_status)
+        comment_id = ev_comment.id
+        status_id = ev_status.id
+
+    with session_local() as db:
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        case.memory_status = "indexed"
+        db.commit()
+
+    service = CaseTicketing(session_factory=lambda: get_session_local()(), config=TicketingConfig())
+
+    events = service.list_ticket_events(case_id)
+    comment_event = next(e for e in events if e.id == comment_id)
+    status_event = next(e for e in events if e.id == status_id)
+
+    assert comment_event.promoted_to_note is False
+
+    # 1. Non-comment event promotion must fail
+    with pytest.raises(Exception) as exc_info:
+        service.promote_event_to_case_note(case_id, status_event.id)
+    assert "not a comment" in str(exc_info.value)
+
+    # 2. Promoting comment event succeeds
+    result = service.promote_event_to_case_note(case_id, comment_event.id)
+    assert result.success is True
+    assert result.already_promoted is False
+    assert "[JIRA note from Alice Smith]: Investigated latency" in result.note
+    assert result.investigation_status == "in_progress"
+
+    # Verify case notes, memory staleness flag, and event state
+    events_after = service.list_ticket_events(case_id)
+    comment_after = next(e for e in events_after if e.id == comment_event.id)
+    assert comment_after.promoted_to_note is True
+
+    with session_local() as db:
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        assert len(case.investigation_notes) == 1
+        assert case.investigation_notes[0]["note"] == result.note
+        assert case.investigation_notes[0]["source"] == "ticketing"
+        assert case.investigation_status == "in_progress"
+        assert case.memory_status == "stale"
+
+    # 3. Idempotent re-promotion
+    result2 = service.promote_event_to_case_note(case_id, comment_event.id)
+    assert result2.success is True
+    assert result2.already_promoted is True
+
+    with session_local() as db:
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        assert len(case.investigation_notes) == 1  # Note count must NOT increase
+
+
+def test_get_external_comments_for_analysis_unpromoted_filtering():
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        ev1 = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="c_1",
+            event_type="comment_added",
+            occurred_at=now - timedelta(minutes=5),
+            created_at=now - timedelta(minutes=5),
+            author="Dev 1",
+            summary="First comment: checking redis cache",
+        )
+        ev2 = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="c_2",
+            event_type="comment_added",
+            occurred_at=now,
+            created_at=now,
+            author="Dev 2",
+            summary="Second comment: restarting pod cluster",
+        )
+        db.add_all([ev1, ev2])
+        db.commit()
+        db.refresh(ev1)
+        c1_id = ev1.id
+
+    service = CaseTicketing(session_factory=lambda: get_session_local()(), config=TicketingConfig())
+
+    # Initially both comments are unpromoted
+    comments = service.get_external_comments_for_analysis(case_id, unpromoted_only=True)
+    assert len(comments) == 2
+    assert any("First comment" in c for c in comments)
+    assert any("Second comment" in c for c in comments)
+
+    # Promote the first comment
+    service.promote_event_to_case_note(case_id, c1_id)
+
+    # With unpromoted_only=True (default), first comment is omitted to prevent AI prompt duplication
+    unpromoted_comments = service.get_external_comments_for_analysis(case_id, unpromoted_only=True)
+    assert len(unpromoted_comments) == 1
+    assert "Second comment" in unpromoted_comments[0]
+
+    # With unpromoted_only=False, both comments are returned
+    all_comments = service.get_external_comments_for_analysis(case_id, unpromoted_only=False)
+    assert len(all_comments) == 2
+
+
+def test_get_external_comments_no_starvation():
+    """Verify that when 10 older comments are already promoted, newer unpromoted comments are not starved."""
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        events = []
+        for i in range(12):
+            ev = CaseTicketEventEntity(
+                case_id=case_id,
+                provider="jira",
+                remote_event_id=f"comm_starv_{i}",
+                event_type="comment_added",
+                occurred_at=now + timedelta(minutes=i),
+                created_at=now + timedelta(minutes=i),
+                author=f"Author {i}",
+                summary=f"Comment content {i}",
+                payload={"promoted_at": now.isoformat()} if i < 10 else {},
+            )
+            events.append(ev)
+        db.add_all(events)
+        db.commit()
+
+    service = CaseTicketing(session_factory=lambda: get_session_local()(), config=TicketingConfig())
+
+    # The 2 newest unpromoted comments (10 and 11) must not be starved by the 10 promoted ones
+    comments = service.get_external_comments_for_analysis(case_id, limit=5, unpromoted_only=True)
+    assert len(comments) == 2
+    assert "Comment content 10" in comments[0]
+    assert "Comment content 11" in comments[1]
+
+
+def test_promote_comment_api_endpoint(client):
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        ev = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="api_comm_1",
+            event_type="comment_added",
+            occurred_at=now,
+            created_at=now,
+            author="SRE Team",
+            summary="Scaled replica count to 10 to absorb traffic spike.",
+        )
+        db.add(ev)
+        db.commit()
+        db.refresh(ev)
+        event_id = ev.id
+
+    # POST /api/cases/{case_id}/ticket/events/{event_id}/promote-to-note
+    res = client.post(f"/api/cases/{case_id}/ticket/events/{event_id}/promote-to-note")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["case_id"] == case_id
+    assert data["event_id"] == event_id
+    assert "Scaled replica count to 10" in data["note"]
+    assert data["already_promoted"] is False
+
+    # Second call returns already_promoted = True
+    res2 = client.post(f"/api/cases/{case_id}/ticket/events/{event_id}/promote-to-note")
+    assert res2.status_code == 200
+    assert res2.json()["already_promoted"] is True
+
+
+def test_promote_event_wrong_case_fails(client):
+    """Verify attempting to promote an event with mismatched case_id raises 404."""
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        ev = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="comm_mismatch_1",
+            event_type="comment_added",
+            occurred_at=now,
+            created_at=now,
+            author="Dev",
+            summary="Comment for case",
+        )
+        db.add(ev)
+        db.commit()
+        db.refresh(ev)
+        event_id = ev.id
+
+    from backend.app.integrations.ticketing.protocols import TicketNotFoundError
+
+    service = CaseTicketing(session_factory=lambda: get_session_local()(), config=TicketingConfig())
+    wrong_case_id = case_id + 9999
+
+    with pytest.raises(TicketNotFoundError) as exc_info:
+        service.promote_event_to_case_note(wrong_case_id, event_id)
+    assert f"not found for case #{wrong_case_id}" in str(exc_info.value)
+
+    res = client.post(f"/api/cases/{wrong_case_id}/ticket/events/{event_id}/promote-to-note")
+    assert res.status_code == 404
+    assert "not found" in res.json()["detail"].lower()
+
+

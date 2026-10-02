@@ -46,6 +46,7 @@ import type {
   CaseTicketLink,
   CaseTicketOperation,
   CaseTicketEvent,
+  CaseNotePromoteResult,
   AmbiguousResolutionPayload,
   IngestionStatus,
   OtlpStatus,
@@ -240,6 +241,11 @@ export const api = {
   resolveAmbiguousTicket: (caseId: number, payload: AmbiguousResolutionPayload) =>
     postJson<AmbiguousResolutionPayload, any>(`/api/cases/${caseId}/ticket/resolve-ambiguity`, payload),
   getCaseTicketEvents: (caseId: number) => getJson<CaseTicketEvent[]>(`/api/cases/${caseId}/ticket/events`),
+  promoteTicketCommentToNote: (caseId: number, eventId: number) =>
+    postJson<Record<string, never>, CaseNotePromoteResult>(
+      `/api/cases/${caseId}/ticket/events/${eventId}/promote-to-note`,
+      {}
+    ),
   getCaseTicketOperation: (caseId: number, operationId: string) =>
     getJson<CaseTicketOperation>(`/api/cases/${caseId}/ticket/operations/${encodeURIComponent(operationId)}`),
 

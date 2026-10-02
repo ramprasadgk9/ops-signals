@@ -12,6 +12,7 @@ from backend.app.config import TicketingConfig
 from backend.app.integrations.ticketing.jira.adapter import JiraTicketProvider
 from backend.app.integrations.ticketing.models import (
     AmbiguousResolutionRequest,
+    CaseNotePromoteResult,
     RemoteEventDraft,
     TicketCreationResult,
     TicketDraft,
@@ -23,6 +24,7 @@ from backend.app.integrations.ticketing.protocols import (
     AmbiguousOutcomeError,
     LeaseLostError,
     ProviderNotConfiguredError,
+    TicketNotFoundError,
     TicketingError,
 )
 from backend.app.models.entities import (
@@ -383,9 +385,122 @@ class CaseTicketing:
                     summary=e.summary,
                     occurred_at=e.occurred_at,
                     created_at=e.created_at,
+                    promoted_to_note=bool(e.payload and e.payload.get("promoted_at")),
                 )
                 for e in events
             ]
+
+    def promote_event_to_case_note(self, case_id: int, event_id: int) -> CaseNotePromoteResult:
+        """Promotes an external ticket event (comment) into an operational investigation note.
+
+        Invariants enforced:
+        - Event must exist and belong to case_id.
+        - Event must be a comment event (event_type in ('comment_added', 'comment')).
+        - Idempotent: If already promoted, returns success without duplicating notes.
+        - Advances case.investigation_status from 'not_started' to 'in_progress'.
+        - Updates case.updated_at.
+        - Marks event.payload['promoted_at'] with ISO timestamp.
+        """
+        now = datetime.now(timezone.utc)
+        with self._session_factory() as session:
+            event = (
+                session.query(CaseTicketEventEntity)
+                .filter_by(id=event_id, case_id=case_id)
+                .first()
+            )
+            if not event:
+                raise TicketNotFoundError(f"Ticket event #{event_id} not found for case #{case_id}")
+
+            if event.event_type not in ("comment_added", "comment"):
+                raise TicketingError(f"Event #{event_id} of type '{event.event_type}' is not a comment and cannot be promoted to a note")
+
+            case = session.query(OperationalCaseEntity).filter_by(id=case_id).first()
+            if not case:
+                raise TicketNotFoundError(f"Case #{case_id} not found")
+
+            payload = dict(event.payload or {})
+            if payload.get("promoted_at"):
+                # Idempotent: already promoted
+                formatted_note = payload.get("promoted_note") or f"[{event.provider.upper()} note from {event.author or 'Team'}]: {event.summary}"
+                return CaseNotePromoteResult(
+                    success=True,
+                    case_id=case_id,
+                    event_id=event_id,
+                    note=formatted_note,
+                    investigation_status=case.investigation_status,
+                    already_promoted=True,
+                )
+
+            # Format the note with clear provenance
+            formatted_note = f"[{event.provider.upper()} note from {event.author or 'Team'}]: {event.summary}"
+            notes = list(case.investigation_notes or [])
+            notes.append({
+                "timestamp": now.isoformat(),
+                "note": formatted_note,
+                "source": "ticketing",
+                "provider": event.provider,
+                "author": event.author,
+            })
+            case.investigation_notes = notes
+
+            if case.investigation_status == "not_started":
+                case.investigation_status = "in_progress"
+
+            # If case was already indexed in operational memory, mark it stale so vector search refreshes
+            if case.memory_status == "indexed":
+                case.memory_status = "stale"
+
+            case.updated_at = now
+
+            payload["promoted_at"] = now.isoformat()
+            payload["promoted_note"] = formatted_note
+            event.payload = payload
+
+            session.commit()
+
+            return CaseNotePromoteResult(
+                success=True,
+                case_id=case_id,
+                event_id=event_id,
+                note=formatted_note,
+                investigation_status=case.investigation_status,
+                already_promoted=False,
+            )
+
+    def get_external_comments_for_analysis(
+        self, case_id: int, limit: int = 10, unpromoted_only: bool = True
+    ) -> list[str]:
+        """Returns condensed external team comments for an operational case, suitable for LLM analysis.
+
+        If unpromoted_only is True (default), comments that have already been promoted into
+        case.investigation_notes are omitted to prevent redundant prompt duplication.
+        Fetches the most recent comments and orders them chronologically to avoid starvation.
+        """
+        with self._session_factory() as session:
+            candidate_limit = max(limit * 5, 50)
+            events = (
+                session.query(CaseTicketEventEntity)
+                .filter(
+                    CaseTicketEventEntity.case_id == case_id,
+                    CaseTicketEventEntity.event_type.in_(["comment_added", "comment"]),
+                )
+                .order_by(CaseTicketEventEntity.occurred_at.desc())
+                .limit(candidate_limit)
+                .all()
+            )
+            snippets: list[str] = []
+            for ev in events:
+                if unpromoted_only and ev.payload and ev.payload.get("promoted_at"):
+                    continue
+                summary = (ev.summary or "").strip()
+                if summary:
+                    author = ev.author or "Team member"
+                    snippets.append(f"- [{author}]: {summary}")
+                if len(snippets) >= limit:
+                    break
+
+            snippets.reverse()
+            return snippets
 
     def sweep_expired_creates(self) -> int:
         """Sweeps in-flight create operations with expired leases directly to ambiguous_outcome."""

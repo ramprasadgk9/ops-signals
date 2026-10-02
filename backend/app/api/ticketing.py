@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from backend.app.config import TicketingConfig, get_ticketing_config
 from backend.app.integrations.ticketing.models import (
     AmbiguousResolutionRequest,
+    CaseNotePromoteResult,
     TicketEventView,
     TicketOperationView,
     TicketView,
@@ -16,6 +17,7 @@ from backend.app.integrations.ticketing.models import (
 from backend.app.integrations.ticketing.protocols import (
     AmbiguousOutcomeError,
     ProviderNotConfiguredError,
+    TicketNotFoundError,
     TicketingError,
 )
 from backend.app.integrations.ticketing.service import CaseTicketing
@@ -189,6 +191,24 @@ def list_case_ticket_events(
     service: CaseTicketing = Depends(get_ticketing_service),
 ) -> list[TicketEventView]:
     return service.list_ticket_events(case_id, limit=limit)
+
+
+@router.post(
+    "/api/cases/{case_id}/ticket/events/{event_id}/promote-to-note",
+    status_code=status.HTTP_200_OK,
+    response_model=CaseNotePromoteResult,
+)
+def promote_ticket_event_to_note(
+    case_id: int,
+    event_id: int,
+    service: CaseTicketing = Depends(get_ticketing_service),
+) -> CaseNotePromoteResult:
+    try:
+        return service.promote_event_to_case_note(case_id, event_id)
+    except TicketNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TicketingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get(

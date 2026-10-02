@@ -25,6 +25,8 @@ import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import ConfirmationNumberRoundedIcon from '@mui/icons-material/ConfirmationNumberRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { AmbiguousResolutionPayload, CaseTicketOperation } from '../types';
@@ -127,6 +129,18 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
     },
     onError: (err: any) => {
       setErrorMessage(err.message || 'Failed to resolve ambiguity');
+    },
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: (eventId: number) => api.promoteTicketCommentToNote(caseId, eventId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case'] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+    },
+    onError: (err: any) => {
+      setErrorMessage(err.message || 'Failed to promote comment to note');
     },
   });
 
@@ -279,9 +293,46 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
                           </Typography>
                         )}
                       </Stack>
-                      <Typography variant="caption" color="text.secondary">
-                        {new Date(evt.occurred_at).toLocaleTimeString()}
-                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {(evt.event_type === 'comment_added' || evt.event_type === 'comment') && (
+                          evt.promoted_to_note ? (
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              color="success"
+                              icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                              label="Added to notes"
+                              sx={{ height: 22, fontSize: '0.7rem' }}
+                            />
+                          ) : (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={
+                                promoteMutation.isPending && promoteMutation.variables === evt.id ? (
+                                  <CircularProgress size={12} color="inherit" />
+                                ) : (
+                                  <NoteAddRoundedIcon sx={{ fontSize: '14px !important' }} />
+                                )
+                              }
+                              disabled={promoteMutation.isPending}
+                              onClick={() => promoteMutation.mutate(evt.id)}
+                              sx={{
+                                height: 22,
+                                fontSize: '0.7rem',
+                                py: 0,
+                                px: 1,
+                                textTransform: 'none',
+                              }}
+                            >
+                              + Add to Notes
+                            </Button>
+                          )
+                        )}
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(evt.occurred_at).toLocaleTimeString()}
+                        </Typography>
+                      </Stack>
                     </Stack>
                     <Typography variant="body2" sx={{ mt: 1 }}>
                       {evt.summary}

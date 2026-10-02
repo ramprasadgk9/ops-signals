@@ -1069,6 +1069,16 @@ export type CaseTicketEvent = {
   summary: string;
   occurred_at: string;
   created_at: string;
+  promoted_to_note?: boolean;
+};
+
+export type CaseNotePromoteResult = {
+  success: boolean;
+  case_id: number;
+  event_id: number;
+  note: string;
+  investigation_status: string;
+  already_promoted: boolean;
 };
 
 export type AmbiguousResolutionPayload = {

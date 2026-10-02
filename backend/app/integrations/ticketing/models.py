@@ -87,6 +87,17 @@ class TicketEventView(BaseModel):
     summary: str
     occurred_at: datetime
     created_at: datetime
+    promoted_to_note: bool = False
+
+
+class CaseNotePromoteResult(BaseModel):
+    """Result of promoting an external ticket event into an investigation note."""
+    success: bool
+    case_id: int
+    event_id: int
+    note: str
+    investigation_status: str
+    already_promoted: bool = False
 
 
 class AmbiguousResolutionRequest(BaseModel):

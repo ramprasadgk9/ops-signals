@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.api.assistant import get_assistant
 from backend.app.api.memory import get_memory_config, get_memory_indexer, get_similarity_service
+from backend.app.api.ticketing import get_ticketing_service
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import MemoryConfig
+from backend.app.integrations.ticketing.service import CaseTicketing
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.models.api_schema import (
@@ -384,12 +386,31 @@ def update_root_cause_analysis(
     return _to_case_out(case)
 
 
+def _append_external_comments(
+    evidence_lines: list[str],
+    case_id: int,
+    ticketing_service: CaseTicketing | None,
+) -> None:
+    """Appends external team comments from ticketing to the AI analysis evidence lines if available."""
+    if not ticketing_service:
+        return
+    try:
+        external_comments = ticketing_service.get_external_comments_for_analysis(case_id)
+        if external_comments:
+            evidence_lines.append(
+                "External team notes from Jira/ticketing:\n" + "\n".join(external_comments)
+            )
+    except Exception as exc:
+        logger.warning("Failed to fetch external comments for case %s: %s", case_id, exc)
+
+
 @router.post("/{case_id}/rca/suggest", response_model=RCADraftOut)
 def suggest_root_cause_analysis(
     case_id: int,
     db: Session = Depends(get_db),
     assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
     similarity_service: SimilarityService | None = Depends(get_similarity_service),
+    ticketing_service: CaseTicketing | None = Depends(get_ticketing_service),
 ) -> RCADraftOut:
     """Draft-only RCA hypothesis from this case's own evidence plus similar past cases' resolutions.
     Never writes anything - PATCH /rca is still the only way to actually save an RCA. Returns
@@ -412,6 +433,8 @@ def suggest_root_cause_analysis(
     if case.investigation_notes:
         notes_text = "; ".join(note.get("note", "") for note in case.investigation_notes)
         evidence_lines.append(f"Investigation notes so far: {notes_text}")
+
+    _append_external_comments(evidence_lines, case_id, ticketing_service)
 
     similar_case_ids: list[int] = []
     if similarity_service:
@@ -454,6 +477,7 @@ def suggest_resolution_summary(
     case_id: int,
     db: Session = Depends(get_db),
     assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+    ticketing_service: CaseTicketing | None = Depends(get_ticketing_service),
 ) -> ResolutionDraftOut:
     """Draft-only resolution summary reformatting the case's own investigation notes, RCA, and
     corrective action. Never writes anything - PATCH /resolution is still the only way to actually
@@ -473,6 +497,8 @@ def suggest_resolution_summary(
         evidence_lines.append(f"Root cause: {case.root_cause_summary}")
     if case.corrective_action:
         evidence_lines.append(f"Corrective action taken: {case.corrective_action}")
+
+    _append_external_comments(evidence_lines, case_id, ticketing_service)
 
     if len(evidence_lines) == 1:
         return ResolutionDraftOut(available=False, reason="No investigation notes, root cause, or corrective action recorded yet")

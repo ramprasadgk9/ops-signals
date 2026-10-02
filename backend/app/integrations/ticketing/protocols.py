@@ -20,6 +20,11 @@ class AmbiguousOutcomeError(TicketingError):
     pass
 
 
+class TicketNotFoundError(TicketingError):
+    """Raised when a referenced ticket, event, or case cannot be found."""
+    pass
+
+
 class ProviderNotConfiguredError(TicketingError):
     """Raised when an operation is attempted against a disabled or incompletely configured provider."""
     pass
