@@ -44,6 +44,8 @@ MIN_MATERIAL_LEVEL = 0.05  # of the typical part's normal level
 # Parts listed individually; the rest are summed into "others".
 TOP_PARTS = 5
 MIN_BASELINE_POINTS = 3
+# New parts whose first report time is kept, for matching them to a deploy at read time.
+MAX_FIRST_SEEN_PARTS = 50
 
 _LOCALIZED_SIGNAL_TYPES = {"anomaly", "spike", "outlier"}
 _AGGREGATIONS = {"sum", "count", "avg", "max", "min"}
@@ -239,6 +241,8 @@ def compute_breakdown(
         if mode == "share":
             summary_of_others["share"] = round(sum(row["share"] for row in others), 4)
 
+    first_seen = frame.groupby("part")["timestamp"].min()
+    new_names = [row["value"] for row in ordered if row["new"]][:MAX_FIRST_SEEN_PARTS]
     return {
         **base,
         "status": "ok",
@@ -251,6 +255,9 @@ def compute_breakdown(
         **({"total_change": round(total, 6)} if mode == "share" else {}),
         "top": [_public(row) for row in ordered[:TOP_PARTS]],
         "others": summary_of_others,
+        # When each new part first reported (it had no normal level before the change), so a
+        # reader can tell whether it started with a deploy. Missing on findings stored earlier.
+        "new_parts_first_seen": {name: first_seen[name].isoformat() for name in new_names if name in first_seen.index},
     }
 
 

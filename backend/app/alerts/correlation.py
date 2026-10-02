@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -45,6 +46,15 @@ def as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
+def service_names(service: str, aliases: list[list[str]] | None = None) -> list[str]:
+    """The service plus every name an alias group gives it, compared case-insensitively."""
+    names = [service]
+    for group in aliases or []:
+        if any(name.lower() == service.lower() for name in group):
+            names.extend(name for name in group if name not in names)
+    return names
+
+
 def correlate_changes(
     db: Session,
     service: str | None,
@@ -53,8 +63,10 @@ def correlate_changes(
     after: timedelta,
     limit: int = 3,
     env: str | None = None,
+    aliases: list[list[str]] | None = None,
 ) -> ChangeCorrelation:
-    """With `env`, events from another environment are skipped; events that name none still match."""
+    """With `env`, events from another environment are skipped; events that name none still match.
+    `aliases` lists names that mean the same service (AlertEnrichmentConfig.service_aliases)."""
     anchor = as_utc(anchor)
     correlation = ChangeCorrelation(
         service=service,
@@ -65,14 +77,15 @@ def correlate_changes(
     if not service:
         return correlation
 
+    names = service_names(service, aliases)
     correlation.service_has_any_events = bool(
-        db.execute(select(func.count(ChangeEventEntity.id)).where(ChangeEventEntity.service == service)).scalar()
+        db.execute(select(func.count(ChangeEventEntity.id)).where(ChangeEventEntity.service.in_(names))).scalar()
     )
     if not correlation.service_has_any_events:
         return correlation
 
     query = select(ChangeEventEntity).where(
-        ChangeEventEntity.service == service,
+        ChangeEventEntity.service.in_(names),
         ChangeEventEntity.timestamp >= anchor - before,
         ChangeEventEntity.timestamp <= anchor + after,
     )
@@ -95,3 +108,28 @@ def correlate_changes(
     matches.sort(key=lambda match: abs(match.minutes_before_anchor))
     correlation.matches = matches[:limit]
     return correlation
+
+
+def changes_to_dict(changes: ChangeCorrelation | None) -> dict[str, Any] | None:
+    """The stored / API form, shared by alerts and findings."""
+    if changes is None:
+        return None
+    return {
+        "anchor": changes.anchor.isoformat(),
+        "window_before_minutes": changes.window_before_minutes,
+        "window_after_minutes": changes.window_after_minutes,
+        "service_has_any_events": changes.service_has_any_events,
+        "matches": [
+            {
+                "id": match.id,
+                "event_type": match.event_type,
+                "timestamp": match.timestamp.isoformat(),
+                "version": match.version,
+                "author": match.author,
+                "url": match.url,
+                "description": match.description,
+                "minutes_before_anchor": round(match.minutes_before_anchor, 1),
+            }
+            for match in changes.matches
+        ],
+    }

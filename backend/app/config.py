@@ -203,6 +203,11 @@ class AlertEnrichmentConfig(BaseModel):
     spike_lookback_seconds: int = 3600
     # Skip change events from a different environment than the alert, when both name one.
     match_env: bool = True
+    # Names that mean the same service, e.g. [["cart", "cart-service"]] when CI sends "cart" and
+    # the metrics say "cart-service". Used wherever change events are matched to a service.
+    service_aliases: list[list[str]] = Field(default_factory=list)
+    # A new pod that first reported up to this long after a deploy counts as started by it.
+    deploy_rollout_seconds: int = 900
     excluded_analyzers: list[str] = Field(default_factory=lambda: ["prophet"])
     ui_base_url: str = "http://localhost:3000"
     max_concurrent_analyses: int = 4
@@ -345,7 +350,19 @@ def get_alert_enrichment_config() -> AlertEnrichmentConfig:
     if _env("OPS_SIGNALS_ALERT_CHANGE_WINDOW_AFTER"):
         config.correlation_after_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_ALERT_CHANGE_WINDOW_AFTER"])
     config.match_env = _parse_bool(_env("OPS_SIGNALS_ALERT_MATCH_ENV"), True)
+    config.service_aliases = parse_service_aliases(_env("OPS_SIGNALS_SERVICE_ALIASES"))
+    if _env("OPS_SIGNALS_DEPLOY_ROLLOUT_WINDOW"):
+        config.deploy_rollout_seconds = parse_duration_seconds(os.environ["OPS_SIGNALS_DEPLOY_ROLLOUT_WINDOW"])
     return config
+
+
+def parse_service_aliases(value: str | None) -> list[list[str]]:
+    """'cart,cart-service;checkout,checkout-api' -> groups of names for the same service.
+    A group with fewer than two names says nothing and is dropped."""
+    if not value:
+        return []
+    groups = [[name.strip() for name in group.split(",") if name.strip()] for group in value.split(";")]
+    return [group for group in groups if len(group) >= 2]
 
 
 def get_drilldown_config() -> DrillDownConfig:

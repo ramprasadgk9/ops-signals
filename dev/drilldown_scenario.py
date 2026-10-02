@@ -16,6 +16,11 @@ shares of the increase); latency is a gauge (`avg by (service) (...)`, so it sho
 
     python dev/drilldown_scenario.py            # backfill into the docker-compose Prometheus (:9090)
     python dev/drilldown_scenario.py --dry-run  # only write the OpenMetrics file
+    python dev/drilldown_scenario.py --deploys  # only record the deploys (backend must be running)
+
+The cart story's new pods come from a deploy: after a backfill (or with --deploys, for history
+loaded earlier) the script records deploy DEPLOY_VERSION for cart a minute before those pods first
+reported, read from Prometheus. The finding then shows "These 2 new pods started with deploy ...".
 
 Then start the app with OPS_SIGNALS_DRILLDOWN_ENABLED=true and run Autonomous Analysis with the
 availability and performance categories, a 24h window and a 10m interval.
@@ -34,14 +39,22 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+import os
+from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 JOB = "drilldown-scenario"
 ENV = "local"
 STEP_SECONDS = 30
 HISTORY_HOURS = 24
 CHANGE_HOURS_AGO = 4
+# The cart story's new pods are started by this deploy, recorded this long before they first report.
+DEPLOY_POD_PREFIX = "cart-8c2-"
+DEPLOY_VERSION = "v1.4.2"
+DEPLOY_LEAD_SECONDS = 60
+EVENT_SOURCE = "drilldown_scenario.py"
 
 
 def _rng(*key: object) -> random.Random:
@@ -156,6 +169,89 @@ def backfill(path: Path, *, volume: str, container: str, image: str) -> None:
     subprocess.run(["docker", "restart", container], check=True, stdout=subprocess.DEVNULL)
 
 
+def _prometheus_query(prometheus_url: str, query: str) -> list[dict]:
+    with urlopen(f"{prometheus_url}/api/v1/query?{urlencode({'query': query})}", timeout=30) as response:
+        return json.load(response).get("data", {}).get("result", [])
+
+
+def find_new_pod_deploys(prometheus_url: str) -> list[dict]:
+    """One deploy per (service, env) whose pods match DEPLOY_POD_PREFIX, timed a minute before the
+    first of those pods reported. Works for history loaded by any earlier version of this script."""
+    selector = f'{{__name__="http_errors_total",pod=~"{DEPLOY_POD_PREFIX}.+"}}'
+    lookback = f"{HISTORY_HOURS + 6}h"
+    rows = _prometheus_query(prometheus_url, f"min by (service, env) (min_over_time(timestamp({selector})[{lookback}:{STEP_SECONDS}s]))")
+    deploys = []
+    for row in rows:
+        labels = row.get("metric", {})
+        if not labels.get("service"):
+            continue
+        first_seen = float(row["value"][1])
+        deploys.append(
+            {
+                "service": labels["service"],
+                "env": labels.get("env"),
+                "type": "deploy",
+                "version": DEPLOY_VERSION,
+                "timestamp": datetime.fromtimestamp(first_seen - DEPLOY_LEAD_SECONDS, tz=timezone.utc).isoformat(),
+                "author": "drilldown-scenario",
+                "source": EVENT_SOURCE,
+                "description": f"Rollout that starts the {DEPLOY_POD_PREFIX}* pods",
+            }
+        )
+    return deploys
+
+
+def _backend_request(method: str, url: str, token: str | None, payload: object | None = None) -> object:
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    data = json.dumps(payload).encode() if payload is not None else None
+    with urlopen(Request(url, data=data, headers=headers, method=method), timeout=10) as response:
+        return json.load(response)
+
+
+def _wait_for_prometheus(prometheus_url: str, seconds: int = 60) -> None:
+    # It was just restarted to load the new blocks.
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        try:
+            with urlopen(f"{prometheus_url}/-/ready", timeout=5):
+                return
+        except OSError:
+            time.sleep(2)
+
+
+def record_deploys(prometheus_url: str, backend_url: str, token: str | None) -> int:
+    """Record the scenario's deploys once. Never fails the backfill: on any problem, say what to do."""
+    try:
+        deploys = find_new_pod_deploys(prometheus_url)
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"Could not read the new pods' start time from Prometheus ({exc}); no deploy recorded.")
+        return 1
+    if not deploys:
+        print(f"No {DEPLOY_POD_PREFIX}* pods in Prometheus yet, so there is no deploy to record. Backfill first.")
+        return 1
+
+    status = 0
+    for deploy in deploys:
+        what = f"deploy {deploy['version']} for {deploy['service']} at {deploy['timestamp']}"
+        try:
+            existing = _backend_request("GET", f"{backend_url}/api/events?{urlencode({'service': deploy['service'], 'type': 'deploy', 'limit': 500})}", token)
+            if any(event.get("source") == EVENT_SOURCE and event.get("version") == deploy["version"] for event in existing):
+                print(f"Already recorded: {what}")
+                continue
+            _backend_request("POST", f"{backend_url}/api/events", token, deploy)
+            print(f"Recorded {what}")
+        except HTTPError as exc:
+            hint = " Set OPS_SIGNALS_EVENTS_TOKEN (or pass --events-token)." if exc.code == 401 else ""
+            print(f"The backend refused {what}: HTTP {exc.code}.{hint}")
+            status = 1
+        except (URLError, OSError, ValueError) as exc:
+            print(f"Could not reach Ops Signals at {backend_url} ({exc}). Start it, then run: python dev/drilldown_scenario.py --deploys")
+            return 1
+    return status
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Backfill per-pod drill-down scenarios into the local Prometheus")
     parser.add_argument("--prometheus-url", default="http://localhost:9090")
@@ -164,7 +260,14 @@ def main() -> int:
     parser.add_argument("--image", default="prom/prometheus:v2.54.1")
     parser.add_argument("--dry-run", action="store_true", help="write the OpenMetrics file and stop")
     parser.add_argument("--force", action="store_true", help="backfill even if the scenario is already in Prometheus")
+    parser.add_argument("--deploys", action="store_true", help="only record the deploys for history already in Prometheus")
+    parser.add_argument("--backend-url", default=f"http://localhost:{os.getenv('BACKEND_PORT', '8001')}")
+    parser.add_argument("--events-token", default=os.getenv("OPS_SIGNALS_EVENTS_TOKEN") or os.getenv("OPS_SIGNALS_API_TOKEN"))
     args = parser.parse_args()
+    backend_url = args.backend_url.rstrip("/")
+
+    if args.deploys:
+        return record_deploys(args.prometheus_url, backend_url, args.events_token)
 
     end = int(time.time()) - 60
     text = build_openmetrics(end)
@@ -188,6 +291,8 @@ def main() -> int:
     path.chmod(0o644)
     backfill(path, volume=args.volume, container=args.container, image=args.image)
     print(f"Backfilled {HISTORY_HOURS}h of history (change {CHANGE_HOURS_AGO}h ago) and restarted {args.container}.")
+    _wait_for_prometheus(args.prometheus_url)
+    record_deploys(args.prometheus_url, backend_url, args.events_token)
     print("Next: OPS_SIGNALS_DRILLDOWN_ENABLED=true, then Autonomous Analysis -> availability + performance, 24h window, 10m interval.")
     return 0
 

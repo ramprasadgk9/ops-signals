@@ -293,3 +293,15 @@ def test_pod_that_came_up_just_before_the_change_point_still_counts_as_new():
     assert result["direction"] == "up"
     assert {part["value"] for part in result["top"] if part["moved"]} == {"n1", "n2"}
     assert all(part["new"] for part in result["top"] if part["moved"])
+
+
+def test_new_pods_record_when_they_first_reported_and_old_pods_do_not():
+    levels = {pod: (0.12, 0.12) for pod in PODS[:4]}
+    frame = _parts(levels)
+    early = CHANGE - timedelta(minutes=2)
+    rows = [{"part": "n1", "timestamp": ts, "value": 0.6} for ts in [early] + [t for t in TIMESTAMPS if t >= CHANGE]]
+    frame = pd.concat([frame, pd.DataFrame(rows)], ignore_index=True)
+
+    result = compute_breakdown(frame, label="pod", window=WINDOW, mode="share")
+
+    assert result["new_parts_first_seen"] == {"n1": early.isoformat()}

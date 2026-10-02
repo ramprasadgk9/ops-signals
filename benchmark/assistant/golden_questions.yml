@@ -320,6 +320,87 @@ questions:
       - {source: docs/security-model.md, section: "What's open by default"}
       - {source: docs/grafana-plugin-local-setup.md, section: "Clear DB For Testing"}
 
+  # --- Finding chips and deploys ----------------------------------------------------------------
+  - id: chip-new-pods
+    category: docs
+    question: What does the 2 new pods chip on a finding mean?
+    contains: ["fewer than 3 points before"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "What does the \"2 new pods\" chip mean?"}
+
+  - id: chip-after-deploy
+    category: docs
+    question: What does the After deploy v1.4.2 chip mean?
+    contains: ["timing match"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "What does the \"After deploy v1.4.2\" chip mean?"}
+
+  - id: chip-deploy-cause
+    category: docs
+    question: Does the After deploy chip mean the deploy caused the change?
+    contains: ["only says a deploy came shortly before the change"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "Do the two chips mean the deploy caused the change?"}
+
+  - id: deploy-pod-matching
+    category: docs
+    question: How is a new pod matched to a deploy?
+    contains: ["OPS_SIGNALS_DEPLOY_ROLLOUT_WINDOW"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "How is a new pod matched to a deploy?"}
+
+  - id: deploy-service-alias
+    category: docs
+    question: CI sends cart but my metrics say cart-service, how do I link deploys?
+    contains: ["OPS_SIGNALS_SERVICE_ALIASES"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "What if CI uses a different service name?"}
+      - {source: docs/alert-enrichment.md, section: "Connect your real Alertmanager"}
+
+  - id: deploy-data-missing
+    category: docs
+    question: What does a finding show when no deploys are recorded?
+    contains: ["No deploys"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "What if deploy data is missing?"}
+
+  - id: deploy-webhook-json
+    category: docs
+    question: What JSON does CI send to the deploy webhook?
+    contains: ["POST /api/events"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "How is deploy data received from CI"}
+
+  - id: deploy-join
+    category: docs
+    question: How are deploys joined to a finding?
+    contains: ["service, environment and time"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
+
+  - id: deploy-env-staging
+    category: docs
+    question: Are staging deploys matched to prod findings?
+    contains: ["staging"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
+
+  # The product name in the question pulls documentation search toward overview docs (README intro,
+  # comparison) even though routing strips it.
+  - id: deploy-data-into-product
+    category: known_gap
+    question: How does deploy data get into Ops Signals?
+    contains: ["POST /api/events"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "How is deploy data received from CI"}
+
+  - id: deploy-match-metrics-product
+    category: known_gap
+    question: How does Ops Signals match deploy events with metrics?
+    contains: ["service, environment and time"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
+
   # --- Not answerable from the corpus -----------------------------------------------------------
   - id: oos-kafka
     category: out_of_scope

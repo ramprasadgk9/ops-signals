@@ -189,6 +189,9 @@ Design details, decision tables and trade-offs: [`design/alert-enrichment-plan.m
      -d '{"service":"checkout-api","type":"deploy","version":"'"$GIT_SHA"'","url":"'"$RUN_URL"'"}'
    ```
    `type` is one of `deploy`, `config`, `feature_flag`, `scale`, `rollback`, `other`.
+   If CI can't use the same name, list the names that mean the same service in
+   `OPS_SIGNALS_SERVICE_ALIASES` (e.g. `cart,cart-service;checkout,checkout-api`). Findings use
+   these events too: see [finding-drilldown.md](finding-drilldown.md#which-deploy-started-the-new-pods).
 5. **Set the tokens** for any non-local deployment (`OPS_SIGNALS_ALERT_RECEIVER_TOKEN`,
    `OPS_SIGNALS_EVENTS_TOKEN`). A receiver without its own token uses `OPS_SIGNALS_API_TOKEN`
    instead, and is open only when neither is set. See [security-model.md](security-model.md).
