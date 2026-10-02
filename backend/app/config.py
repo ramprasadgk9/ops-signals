@@ -9,6 +9,15 @@ from pydantic import BaseModel, Field, field_validator
 
 from intelligence.storage.database_url import database_url_from_env
 
+try:
+    from dotenv import load_dotenv
+
+    _ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
+    if _ROOT_ENV.is_file():
+        load_dotenv(_ROOT_ENV, override=True)
+except ImportError:
+    pass
+
 _PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 

@@ -25,6 +25,7 @@ import { ErrorState } from '../components/ErrorState';
 import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
 import { filterCaseRows, toCaseRows } from '../standalone/casesService';
+import { CaseTicketCard } from '../components/CaseTicketCard';
 
 export function CasesPage() {
   const casesQuery = useQuery({ queryKey: ['cases'], queryFn: () => api.cases(200) });
@@ -105,6 +106,7 @@ export function CasesPage() {
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Outcome</Typography><Pill label={selected.outcome} /></Stack>
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Resolved At</Typography><Typography>{selected.resolvedAt ? formatDateTime(selected.resolvedAt) : 'Not resolved'}</Typography></Stack>
                 <Button component={RouterLink} to={`/cases/${selected.id}`} endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ borderColor: ui.border, color: '#334155', textTransform: 'none', fontWeight: 850 }}>View Case Details</Button>
+                <CaseTicketCard caseId={selected.id} />
               </Stack>
             ) : <Typography color="text.secondary">No cases returned yet.</Typography>}
           </WorkspacePanel>
