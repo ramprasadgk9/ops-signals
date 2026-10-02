@@ -25,6 +25,36 @@ Base config
   never goes through `CSVAdapter`, so it isn't (and shouldn't be) selectable in the upload form.
   See [`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md).
 
+## Operational Memory and Output
+
+Operational memory (the Qdrant index and the embedding model) and what each run saves are set in the
+root `config.yaml`:
+
+```yaml
+output:
+  save_normalized_data: true
+  save_signals: true
+  save_question_answers: true
+  save_embeddings: true
+
+memory:
+  enabled: true
+  vector_store:
+    provider: qdrant
+    url: http://localhost:6333
+    collection_name: operational_cases
+  embedding:
+    provider: sentence_transformers
+    model: sentence-transformers/all-MiniLM-L6-v2
+    dimension: 384
+    normalize_embeddings: true
+  indexing:
+    automatic_on_case_creation: true
+```
+
+`OPS_SIGNALS_QDRANT_URL` and `OPS_SIGNALS_QDRANT_API_KEY` override the vector store's `url` and
+`api_key`.
+
 ## Backward Compatibility
 
 Legacy flat configs still work.

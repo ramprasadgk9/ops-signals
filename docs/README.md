@@ -15,7 +15,7 @@ What the project is, and how to get it running.
   see it working before installing anything.
 - [`live-demo.md`](live-demo.md) - a live, menu-driven demo next to `run_all.sh`: rollouts, slow
   rises, spikes and staging deploys, with real alerts and pod breakdowns.
-- **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,
+- **[Quick Start](../README.md#6-quick-start)** (root `README.md`) - clone, setup script, run script,
   open the UI. Start here to actually install it.
 - [`comparison.md`](comparison.md) - how Ops Signals relates to Robusta/HolmesGPT, Keep and
   Grafana Sift, including where those tools are ahead.
@@ -46,6 +46,8 @@ How the pieces fit together, what talks to what, and why the two storage layers 
   Alertmanager alerts analyzed on arrival and posted to Slack with what happened, what changed, and
   similar past cases. Why it matters, how it fits the pipeline, and setup. Design details:
   [`design/alert-enrichment-plan.md`](design/alert-enrichment-plan.md).
+- [`mcp-server.md`](mcp-server.md) - the MCP server over stdio: read-only and write modes, the
+  tools each exposes, testing it, and client configuration.
 
 **External integration**: if you're plugging Ops Signals into your own alerting or automation, the
 consumer surface is `POST /api/integrations/alertmanager` (enrich alerts as they fire - see

@@ -13,6 +13,14 @@ stateDiagram-v2
   resolved --> closed
 ```
 
+## Example Lifecycle
+
+1. A finding (or a behavior finding) is promoted into a case.
+2. Investigation notes are added during review.
+3. RCA fields are filled in when a cause is known.
+4. Corrective action and outcome are recorded.
+5. The case is indexed into Qdrant for future retrieval.
+
 ## Case Fields
 
 - investigation status
