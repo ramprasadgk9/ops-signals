@@ -78,3 +78,7 @@ publication/
 
 # Local marketing/positioning drafts - not meant to be committed to the shared repo.
 market/
+
+# Local tools and reports
+.aider*
+docs/smoke-test-report.html

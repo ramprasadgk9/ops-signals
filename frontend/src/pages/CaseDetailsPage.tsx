@@ -39,6 +39,7 @@ import { LinkedAlerts } from '../components/AlertComponents';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+import { CaseTicketCard } from '../components/CaseTicketCard';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -532,6 +533,7 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
+              <CaseTicketCard caseId={caseData.id} />
             </Grid>
           </Grid>
         </TabPanel>

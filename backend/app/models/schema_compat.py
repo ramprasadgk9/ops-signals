@@ -106,3 +106,30 @@ def ensure_case_behavior_link_schema(engine: Engine) -> None:
         if dialect == "postgresql":
             connection.execute(text("ALTER TABLE ops_operational_cases ALTER COLUMN finding_id DROP NOT NULL"))
 
+
+def ensure_ticketing_schema(engine: Engine) -> None:
+    """Ensures the 4 ticketing integration tables and their indexes exist in the target database.
+    Called on app startup so existing deployed databases receive the schema without requiring
+    manual migration execution."""
+    from backend.app.models.entities import (
+        Base,
+        CaseTicketEventEntity,
+        CaseTicketLinkEntity,
+        TicketOperationEntity,
+        TicketWebhookDeliveryEntity,
+    )
+
+    ticketing_tables = [
+        TicketOperationEntity.__table__,
+        CaseTicketLinkEntity.__table__,
+        CaseTicketEventEntity.__table__,
+        TicketWebhookDeliveryEntity.__table__,
+    ]
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    missing = [t for t in ticketing_tables if t.name not in existing_tables]
+    if missing:
+        Base.metadata.create_all(bind=engine, tables=missing)
+
+

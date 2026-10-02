@@ -43,6 +43,10 @@ import type {
   AlertItem,
   AlertListParams,
   AlertReceipt,
+  CaseTicketLink,
+  CaseTicketOperation,
+  CaseTicketEvent,
+  AmbiguousResolutionPayload,
   IngestionStatus,
   OtlpStatus,
   ValidationResult,
@@ -222,6 +226,23 @@ export const api = {
     caseId: number,
     payload: { outcome_status: string; outcome_summary?: string; corrective_action?: string; learning_outcome_status?: string }
   ) => patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/resolution`, payload),
+  
+  // Ticketing API calls
+  getCaseTicket: (caseId: number) => getJson<CaseTicketLink | null>(`/api/cases/${caseId}/ticket`),
+  createCaseTicket: (caseId: number, provider?: string) =>
+    postJson<{ provider?: string }, CaseTicketOperation>(`/api/cases/${caseId}/ticket/create`, { provider }),
+  syncCaseTicket: (caseId: number, provider?: string) =>
+    postJson<{ provider?: string }, CaseTicketOperation>(`/api/cases/${caseId}/ticket/sync`, { provider }),
+  retryCaseTicketOperation: (caseId: number, operationId: string) =>
+    postJson<{ operation_id: string }, CaseTicketOperation>(`/api/cases/${caseId}/ticket/retry`, { operation_id: operationId }),
+  linkExistingTicket: (caseId: number, displayKey: string, provider?: string) =>
+    postJson<{ display_key: string; provider?: string }, CaseTicketLink>(`/api/cases/${caseId}/ticket/link`, { display_key: displayKey, provider }),
+  resolveAmbiguousTicket: (caseId: number, payload: AmbiguousResolutionPayload) =>
+    postJson<AmbiguousResolutionPayload, any>(`/api/cases/${caseId}/ticket/resolve-ambiguity`, payload),
+  getCaseTicketEvents: (caseId: number) => getJson<CaseTicketEvent[]>(`/api/cases/${caseId}/ticket/events`),
+  getCaseTicketOperation: (caseId: number, operationId: string) =>
+    getJson<CaseTicketOperation>(`/api/cases/${caseId}/ticket/operations/${encodeURIComponent(operationId)}`),
+
   
   // Memory API calls
   indexCaseMemory: (caseId: number) =>

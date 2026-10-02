@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, getApiToken, getCase, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -16,7 +16,7 @@ import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } fr
 import { findingBreakdown } from '../utils/findingBreakdown';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
-import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, GrafanaAnalysisResult, GrafanaCase, GrafanaCaseCreateResponse, GrafanaQueryTarget, MonitoringCategory } from './contracts';
+import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, CaseTicketLink, CaseTicketOperation, GrafanaAnalysisResult, GrafanaCase, GrafanaCaseCreateResponse, GrafanaQueryTarget, MonitoringCategory } from './contracts';
 import type { AnalysisRun, BehaviorFinding, Finding } from '../types';
 import { buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
 import { buildAutonomousDashboardData, formatMatchedRule, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
@@ -1552,6 +1552,7 @@ function AutonomousAnalysisView({
 
       {['overview_loading', 'overview_ready', 'overview_empty', 'overview_error'].includes(uiStage) ? (
         <GrafanaAutonomousOverview
+          backendUrl={backendUrl}
           data={dashboardData}
           findings={findings}
           state={dashboardState}
@@ -1609,6 +1610,7 @@ function DashboardKpi({ label, value, detail, tone = '#d8d9da' }: { label: strin
 }
 
 function GrafanaAutonomousOverview({
+  backendUrl,
   data,
   findings,
   state,
@@ -1632,6 +1634,7 @@ function GrafanaAutonomousOverview({
   isPreviewingNow,
   previewNowError,
 }: {
+  backendUrl?: string;
   data: AutonomousDashboardData;
   findings: Finding[];
   state: 'loading' | 'error' | 'ready';
@@ -1857,6 +1860,7 @@ function GrafanaAutonomousOverview({
           isCreatingCase={isCreatingCase}
           onCreateCase={() => onCreateCase(investigationFinding)}
           onClose={onCloseInvestigation}
+          backendUrl={backendUrl}
         />
       ) : null}
     </div>
@@ -2189,6 +2193,7 @@ function AutonomousInvestigationPanel({
   isCreatingCase,
   onCreateCase,
   onClose,
+  backendUrl,
 }: {
   finding: Finding;
   mode: 'investigate' | 'evidence';
@@ -2198,11 +2203,75 @@ function AutonomousInvestigationPanel({
   isCreatingCase: boolean;
   onCreateCase: () => void;
   onClose: () => void;
+  backendUrl?: string;
 }) {
   const breakdown = findingBreakdown(finding);
   // The breakdown has its own section; the raw comparison view shows the rest.
   const { breakdown: _breakdown, ...comparison } = finding.comparison_json ?? {};
   const comparisonEntries = Object.entries(comparison).filter(([, value]) => value !== null && value !== undefined);
+  const activeCaseId = caseDetails?.id ?? caseResult?.case_id;
+  const [ticket, setTicket] = useState<CaseTicketLink | null>(null);
+  const [isTicketLoading, setIsTicketLoading] = useState(false);
+  const [ticketOperation, setTicketOperation] = useState<CaseTicketOperation | null>(null);
+  const [ticketError, setTicketError] = useState('');
+
+  useEffect(() => {
+    if (!activeCaseId || !backendUrl) {
+      setTicket(null);
+      setTicketOperation(null);
+      setTicketError('');
+      return;
+    }
+    let isMounted = true;
+    setIsTicketLoading(true);
+    getCaseTicket(backendUrl, activeCaseId)
+      .then((link) => {
+        if (isMounted) setTicket(link);
+      })
+      .catch(() => {
+        if (isMounted) setTicket(null);
+      })
+      .finally(() => {
+        if (isMounted) setIsTicketLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [activeCaseId, backendUrl]);
+
+  const handleCreateTicket = async () => {
+    if (!activeCaseId || !backendUrl) return;
+    setIsTicketLoading(true);
+    setTicketError('');
+    try {
+      const op = await createCaseTicket(backendUrl, activeCaseId, 'jira');
+      setTicketOperation(op);
+      if (op.status === 'completed') {
+        const link = await getCaseTicket(backendUrl, activeCaseId);
+        setTicket(link);
+      }
+    } catch (err: any) {
+      setTicketError(err?.message || 'Failed to queue Jira ticket creation');
+    } finally {
+      setIsTicketLoading(false);
+    }
+  };
+
+  const handleSyncTicket = async () => {
+    if (!activeCaseId || !backendUrl) return;
+    setIsTicketLoading(true);
+    setTicketError('');
+    try {
+      const op = await syncCaseTicket(backendUrl, activeCaseId, 'jira');
+      setTicketOperation(op);
+      const link = await getCaseTicket(backendUrl, activeCaseId);
+      setTicket(link);
+    } catch (err: any) {
+      setTicketError(err?.message || 'Failed to sync Jira ticket');
+    } finally {
+      setIsTicketLoading(false);
+    }
+  };
   return (
     <div id="autonomous-investigation" style={panelStyle(mode === 'evidence' ? '#5794f2' : '#b877d9')}>
       <div style={styles.rowBetween}>
@@ -2243,6 +2312,63 @@ function AutonomousInvestigationPanel({
                 <StatusBadge status={caseDetails.investigation_status} />
               </div>
               <p style={{ ...styles.muted, margin: '6px 0 0' }}>Continue investigation, RCA, resolution, and knowledge publishing in the existing case flow.</p>
+            </div>
+          ) : null}
+          {activeCaseId ? (
+            <div style={{ borderTop: '1px solid rgba(204, 204, 220, 0.12)', paddingTop: 10, marginTop: 10 }}>
+              <div style={styles.helperText}>External Ticketing</div>
+              {ticket ? (
+                <div style={{ ...styles.stack, marginTop: 4, gap: 6 }}>
+                  <div style={styles.row}>
+                    <span style={{ ...styles.chip, background: '#0052cc', color: '#fff', fontWeight: 600 }}>Jira</span>
+                    <a
+                      href={ticket.ticket_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: '#5794f2', fontWeight: 700, textDecoration: 'underline' }}
+                    >
+                      {ticket.display_key}
+                    </a>
+                    <span style={styles.chip}>{ticket.observed_remote_status || 'Linked'}</span>
+                  </div>
+                  <div style={styles.row}>
+                    <button
+                      type="button"
+                      style={{ ...styles.button, padding: '4px 10px', fontSize: 12, background: 'rgba(204, 204, 220, 0.08)' }}
+                      disabled={isTicketLoading}
+                      onClick={handleSyncTicket}
+                    >
+                      {isTicketLoading ? 'Syncing...' : 'Sync Ticket'}
+                    </button>
+                    {ticket.last_synced_at ? (
+                      <span style={{ ...styles.helperText, margin: 0 }}>
+                        Synced {new Date(ticket.last_synced_at).toLocaleTimeString()}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : ticketOperation && (ticketOperation.status === 'pending' || ticketOperation.status === 'processing') ? (
+                <div style={{ ...styles.helperText, color: '#e5a000', marginTop: 4 }}>
+                  Ticket operation {ticketOperation.operation_type} is {ticketOperation.status}...
+                </div>
+              ) : ticketOperation && ticketOperation.status === 'ambiguous_outcome' ? (
+                <div style={{ ...styles.helperText, color: '#ff7381', marginTop: 4 }}>
+                  Ticket creation ambiguous: check Jira before retrying. Resolve in Standalone App Case Details.
+                </div>
+              ) : (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    style={{ ...styles.button, background: '#0052cc', color: '#fff', fontSize: 12, padding: '4px 12px' }}
+                    disabled={isTicketLoading}
+                    onClick={handleCreateTicket}
+                    title="Create Jira issue for this case"
+                  >
+                    {isTicketLoading ? 'Queueing...' : 'Create Jira Ticket'}
+                  </button>
+                </div>
+              )}
+              {ticketError ? <div style={{ ...styles.helperText, color: '#ff7381', marginTop: 4 }}>{ticketError}</div> : null}
             </div>
           ) : null}
         </div>

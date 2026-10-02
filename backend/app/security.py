@@ -20,16 +20,26 @@ PUBLIC_ROUTES = frozenset(
 )
 
 
+def is_public_route(method: str, path: str) -> bool:
+    normalized = path.rstrip("/")
+    if (method, normalized) in PUBLIC_ROUTES:
+        return True
+    if method == "POST" and normalized.startswith("/api/integrations/ticketing/") and normalized.endswith("/webhook"):
+        return True
+    return False
+
+
 def require_api_token(
     request: Request,
     authorization: str | None = Header(default=None),
     config: SecurityConfig = Depends(get_security_config),
 ) -> None:
     """App-wide dependency: a no-op until OPS_SIGNALS_API_TOKEN is set, then every route outside
-    PUBLIC_ROUTES needs `Authorization: Bearer <token>`."""
-    if (request.method, request.url.path.rstrip("/")) in PUBLIC_ROUTES:
+    public routes needs `Authorization: Bearer <token>`."""
+    if is_public_route(request.method, request.url.path):
         return
     check_bearer_token(authorization, config.api_token)
+
 
 
 def receiver_token_or_api_token(receiver_token: str | None) -> str | None:

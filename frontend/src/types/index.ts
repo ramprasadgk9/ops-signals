@@ -1035,3 +1035,44 @@ export type OtlpStatus = {
   last_analysis_cycle_duration_seconds: number;
   last_analysis_cycle_groups_processed: number;
 };
+
+export type CaseTicketLink = {
+  case_id: number;
+  provider: string;
+  remote_id: string;
+  display_key: string;
+  ticket_url: string;
+  observed_remote_status?: string | null;
+  last_synced_at?: string | null;
+  sync_status: string;
+};
+
+export type CaseTicketOperation = {
+  operation_id: string;
+  case_id: number;
+  provider: string;
+  operation_type: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'ambiguous_outcome' | 'superseded';
+  attempts: number;
+  last_error?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CaseTicketEvent = {
+  id: number;
+  case_id: number;
+  provider: string;
+  remote_event_id: string;
+  event_type: string;
+  author?: string | null;
+  summary: string;
+  occurred_at: string;
+  created_at: string;
+};
+
+export type AmbiguousResolutionPayload = {
+  action: 'check_again' | 'link_existing' | 'force_create_new';
+  remote_key?: string;
+};
+

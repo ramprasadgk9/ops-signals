@@ -57,12 +57,15 @@ from backend.app.memory.qdrant_initializer import QdrantInitializer
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import QdrantVectorStore, VectorStore
 from backend.app.models.db import get_engine, get_session_local, init_engine, get_db
+from backend.app.api.ticketing import router as ticketing_router, get_ticketing_service
+from backend.app.integrations.ticketing.worker import run_ticketing_worker_loop
 from backend.app.models.entities import Base
 from backend.app.models.schema_compat import (
     ensure_ai_narrative_schema,
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
     ensure_learning_schema,
+    ensure_ticketing_schema,
 )
 from backend.app.security import require_api_token
 from backend.app.storage.bootstrap import seed_reference_data
@@ -229,6 +232,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_ai_narrative_schema(get_engine())
         ensure_case_behavior_link_schema(get_engine())
         ensure_autonomous_policy_scheduling_schema(get_engine())
+        ensure_ticketing_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
@@ -282,7 +286,20 @@ def create_app(database_url: str | None = None) -> FastAPI:
         else:
             logger.info("Autonomous policy scheduler disabled via OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED")
 
+        ticketing_task: asyncio.Task | None = None
+        if os.getenv("OPS_SIGNALS_TICKETING_WORKER_ENABLED", "true").lower() != "false":
+            ticketing_service = get_ticketing_service()
+            poll_interval = int(os.getenv("OPS_SIGNALS_TICKETING_WORKER_POLL_INTERVAL_SECONDS", "5"))
+            ticketing_task = asyncio.create_task(run_ticketing_worker_loop(ticketing_service, poll_interval))
+        else:
+            logger.info("Ticketing outbox worker disabled via OPS_SIGNALS_TICKETING_WORKER_ENABLED")
+
         yield
+
+        if ticketing_task is not None:
+            ticketing_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticketing_task
 
         if scheduler_task is not None:
             scheduler_task.cancel()
@@ -323,6 +340,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(signals_router)
     app.include_router(findings_router)
     app.include_router(cases_router)
+    app.include_router(ticketing_router)
     app.include_router(timeseries_router)
     app.include_router(metric_analyzer_recommendations_router)
     app.include_router(analyzer_router)

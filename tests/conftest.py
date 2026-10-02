@@ -18,3 +18,4 @@ if str(PROJECT_ROOT) not in sys.path:
 # exercise the background loop itself (test_autonomous_policies.py calls the tick function
 # directly and synchronously), so disabling it here removes the race with no loss of coverage.
 os.environ.setdefault("OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED", "false")
+os.environ.setdefault("OPS_SIGNALS_TICKETING_WORKER_ENABLED", "false")
