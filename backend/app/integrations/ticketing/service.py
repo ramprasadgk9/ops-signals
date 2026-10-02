@@ -96,6 +96,18 @@ class CaseTicketing:
                 .first()
             )
             if existing_op:
+                # If a previous attempt explicitly failed, allow the operator to re-trigger it
+                if existing_op.status == "failed":
+                    now = datetime.now(timezone.utc)
+                    existing_op.status = "pending"
+                    existing_op.attempts = 0
+                    existing_op.available_at = now
+                    existing_op.error_message = None
+                    existing_op.lease_token = None
+                    existing_op.lease_expires_at = None
+                    existing_op.updated_at = now
+                    session.commit()
+                    session.refresh(existing_op)
                 return self._to_operation_view(existing_op)
 
             now = datetime.now(timezone.utc)

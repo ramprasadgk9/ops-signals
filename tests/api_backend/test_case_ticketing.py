@@ -178,6 +178,28 @@ def test_outbox_create_and_process_lifecycle(db_session):
     assert second_op.status == "completed"
 
 
+def test_failed_create_operation_is_reopened_on_subsequent_request(db_session):
+    case_id = _setup_test_case(db_session)
+    provider = DummyJiraProvider()
+    config = TicketingConfig(enabled=True)
+    service = CaseTicketing(session_factory=lambda: db_session, config=config, providers={"jira": provider})
+
+    op_view = service.request_create(case_id)
+    with db_session.begin_nested():
+        row = db_session.query(TicketOperationEntity).filter_by(id=op_view.operation_id).first()
+        row.status = "failed"
+        row.error_message = "Temporary failure"
+        db_session.commit()
+
+    assert service.get_operation_view(op_view.operation_id).status == "failed"
+
+    # User requests ticket creation again on the failed operation
+    retried_op = service.request_create(case_id)
+    assert retried_op.status == "pending"
+    assert retried_op.last_error is None
+    assert retried_op.operation_id == op_view.operation_id
+
+
 def test_sweeper_transitions_expired_creates_to_ambiguous_outcome(db_session):
     case_id = _setup_test_case(db_session)
     provider = DummyJiraProvider()
