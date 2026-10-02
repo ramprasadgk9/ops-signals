@@ -263,10 +263,30 @@ class CaseTicketing:
             op_id = ambiguous_op.id
 
         if request.action == "check_again":
-            # Reconcile via provider
+            # Strictly read-only search: do NOT create an issue if not found!
             provider_obj = self._get_provider(provider_name)
-            case_draft = self._build_ticket_draft(case_id)
-            result = provider_obj.reconcile_or_create(case_draft, op_id)
+            if hasattr(provider_obj, "reconcile_only"):
+                result = provider_obj.reconcile_only(op_id, case_id)
+            else:
+                case_draft = self._build_ticket_draft(case_id)
+                result = provider_obj.reconcile_or_create(case_draft, op_id)
+
+            if not result:
+                with self._session_factory() as session:
+                    op = session.query(TicketOperationEntity).filter_by(id=op_id).first()
+                    if op:
+                        op.error_message = (
+                            "Reconciliation did not find a matching Jira issue for this operation. "
+                            "Wait a moment for Jira indexing or choose Force Create New."
+                        )
+                        op.updated_at = datetime.now(timezone.utc)
+                        session.commit()
+                return {
+                    "status": "not_found",
+                    "operation_id": op_id,
+                    "message": "No matching Jira issue found yet. The issue may still be indexing, or you can force-create a new ticket.",
+                }
+
             with self._session_factory() as session:
                 now = datetime.now(timezone.utc)
                 # Atomically complete operation and store link
@@ -446,7 +466,7 @@ class CaseTicketing:
         if op_type == "create_ticket":
             self._execute_create_operation(op_id, lease_token, case_id, provider)
         elif op_type == "sync_ticket":
-            self._execute_sync_operation(op_id, lease_token, case_id, provider)
+            self._execute_sync_operation(op_id, lease_token, case_id, provider_name, provider)
 
     def _execute_create_operation(
         self, op_id: str, lease_token: str, case_id: int, provider: Any
@@ -458,10 +478,15 @@ class CaseTicketing:
             # Single atomic completion transaction
             with self._session_factory() as session:
                 now = datetime.now(timezone.utc)
-                # Verify lease ownership
+                # Verify lease ownership, active processing status, and valid expiration
                 op = (
                     session.query(TicketOperationEntity)
-                    .filter_by(id=op_id, lease_token=lease_token)
+                    .filter(
+                        TicketOperationEntity.id == op_id,
+                        TicketOperationEntity.lease_token == lease_token,
+                        TicketOperationEntity.status == "processing",
+                        TicketOperationEntity.lease_expires_at > now,
+                    )
                     .first()
                 )
                 if not op:
@@ -519,11 +544,20 @@ class CaseTicketing:
         except AmbiguousOutcomeError as e:
             logger.warning("Operation %s encountered ambiguous outcome: %s", op_id, e)
             with self._session_factory() as session:
-                op = session.query(TicketOperationEntity).filter_by(id=op_id, lease_token=lease_token).first()
+                op = (
+                    session.query(TicketOperationEntity)
+                    .filter(
+                        TicketOperationEntity.id == op_id,
+                        TicketOperationEntity.lease_token == lease_token,
+                        TicketOperationEntity.status == "processing",
+                    )
+                    .first()
+                )
                 if op:
                     op.status = "ambiguous_outcome"
                     op.error_message = str(e)
                     op.lease_token = None
+                    op.lease_expires_at = None
                     op.updated_at = datetime.now(timezone.utc)
                     session.commit()
         except LeaseLostError:
@@ -533,13 +567,13 @@ class CaseTicketing:
             self._fail_operation(op_id, lease_token, str(e))
 
     def _execute_sync_operation(
-        self, op_id: str, lease_token: str, case_id: int, provider: Any
+        self, op_id: str, lease_token: str, case_id: int, provider_name: str, provider: Any
     ) -> None:
         try:
             with self._session_factory() as session:
                 link = (
                     session.query(CaseTicketLinkEntity)
-                    .filter_by(case_id=case_id, provider=provider.config.project_key and "jira")
+                    .filter_by(case_id=case_id, provider=provider_name)
                     .first()
                 )
                 if not link:
@@ -553,7 +587,16 @@ class CaseTicketing:
 
             with self._session_factory() as session:
                 now = datetime.now(timezone.utc)
-                op = session.query(TicketOperationEntity).filter_by(id=op_id, lease_token=lease_token).first()
+                op = (
+                    session.query(TicketOperationEntity)
+                    .filter(
+                        TicketOperationEntity.id == op_id,
+                        TicketOperationEntity.lease_token == lease_token,
+                        TicketOperationEntity.status == "processing",
+                        TicketOperationEntity.lease_expires_at > now,
+                    )
+                    .first()
+                )
                 if not op:
                     session.rollback()
                     raise LeaseLostError(f"Lease lost for sync op {op_id}")
@@ -563,7 +606,7 @@ class CaseTicketing:
                 op.lease_expires_at = None
                 op.updated_at = now
 
-                link = session.query(CaseTicketLinkEntity).filter_by(case_id=case_id, provider=op.provider).first()
+                link = session.query(CaseTicketLinkEntity).filter_by(case_id=case_id, provider=provider_name).first()
                 if link:
                     link.observed_remote_status = snapshot.remote_status
                     link.sync_cursor = snapshot.cursor
@@ -573,12 +616,12 @@ class CaseTicketing:
                 # Ingest comments as events
                 for c in snapshot.comments:
                     ev_id = f"comment_{c.get('id')}"
-                    exists = session.query(CaseTicketEventEntity).filter_by(provider=op.provider, remote_event_id=ev_id).first()
+                    exists = session.query(CaseTicketEventEntity).filter_by(provider=provider_name, remote_event_id=ev_id).first()
                     if not exists:
                         session.add(
                             CaseTicketEventEntity(
                                 case_id=case_id,
-                                provider=op.provider,
+                                provider=provider_name,
                                 remote_event_id=ev_id,
                                 event_type="comment_added",
                                 author=c.get("author"),
@@ -598,7 +641,15 @@ class CaseTicketing:
 
     def _fail_operation(self, op_id: str, lease_token: str, error_message: str) -> None:
         with self._session_factory() as session:
-            op = session.query(TicketOperationEntity).filter_by(id=op_id, lease_token=lease_token).first()
+            op = (
+                session.query(TicketOperationEntity)
+                .filter(
+                    TicketOperationEntity.id == op_id,
+                    TicketOperationEntity.lease_token == lease_token,
+                    TicketOperationEntity.status == "processing",
+                )
+                .first()
+            )
             if op:
                 now = datetime.now(timezone.utc)
                 op.status = "failed"

@@ -120,3 +120,21 @@ ai:
   ollama:
     base_url: http://localhost:11434
     model: llama3.2:latest
+
+# Pluggable ticketing integration (Jira, etc.)
+# ticketing:
+#   enabled: false
+#   active_provider: jira
+#   worker_poll_interval_seconds: 5.0
+#   sweeper_interval_seconds: 30.0
+#   lease_timeout_seconds: 60.0
+#   outbox_max_attempts: 5
+#   jira:
+#     base_url: https://your-domain.atlassian.net
+#     email: your-service-account@example.com
+#     api_token: your-jira-api-token
+#     project_key: OPS
+#     issue_type: Task
+#     webhook_secret: your-webhook-secret
+#     request_timeout_seconds: 10.0
+

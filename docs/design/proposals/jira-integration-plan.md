@@ -1,6 +1,6 @@
 # Pluggable Case Ticketing Architecture Plan (Jira Cloud Reference Implementation)
 
-**Status:** Proposed (Technical Design Document)  
+**Status:** Implemented  
 **Extends:** [`docs/07-operational-cases.md`](../../07-operational-cases.md) (operational case lifecycle),  
 [`ADR-004`](../../adr/ADR-004-postgresql-system-of-record.md) (PostgreSQL as system of record),  
 [`ADR-005`](../../adr/ADR-005-qdrant-retrieval-index.md) (Qdrant as derived retrieval index),  

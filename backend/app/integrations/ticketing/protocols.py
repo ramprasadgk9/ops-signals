@@ -36,6 +36,9 @@ class TicketCreator(Protocol):
     def reconcile_or_create(self, draft: TicketDraft, operation_id: str) -> TicketCreationResult:
         ...
 
+    def reconcile_only(self, operation_id: str, case_id: int | None = None) -> TicketCreationResult | None:
+        ...
+
 
 @runtime_checkable
 class TicketSynchronizer(Protocol):

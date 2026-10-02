@@ -58,14 +58,10 @@ class JiraTicketProvider:
             timeout=httpx.Timeout(self.config.request_timeout_seconds),
         )
 
-    def reconcile_or_create(self, draft: TicketDraft, operation_id: str) -> TicketCreationResult:
-        """Attempts safe pre-retry reconciliation via JQL label search before creating an issue."""
+    def reconcile_only(self, operation_id: str, case_id: int | None = None) -> TicketCreationResult | None:
+        """Searches Jira Cloud for an existing issue matching the operation correlation label without creating a new one."""
         self._ensure_configured()
         op_label = f"ops-signals-op-{operation_id}"
-        case_label = f"ops-signals-case-{draft.case_id}"
-        global_label = "ops-signals"
-
-        # 1. Pre-reconciliation search by unique operation label
         jql = f'labels = "{op_label}"'
         search_url = f"{self.base_url}/rest/api/3/search"
         try:
@@ -91,8 +87,21 @@ class JiraTicketProvider:
                             ticket_url=ticket_url,
                             initial_status=status,
                         )
+                    return None
+                raise TicketingError(f"Jira search returned HTTP {search_res.status_code}: {search_res.text}")
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             raise AmbiguousOutcomeError(f"Network error searching Jira during pre-reconciliation: {e}") from e
+
+    def reconcile_or_create(self, draft: TicketDraft, operation_id: str) -> TicketCreationResult:
+        """Attempts safe pre-retry reconciliation via JQL label search before creating an issue."""
+        self._ensure_configured()
+        existing = self.reconcile_only(operation_id, draft.case_id)
+        if existing:
+            return existing
+
+        case_label = f"ops-signals-case-{draft.case_id}"
+        global_label = "ops-signals"
+        op_label = f"ops-signals-op-{operation_id}"
 
         # 2. Outbound creation via POST /rest/api/3/issue
         create_url = f"{self.base_url}/rest/api/3/issue"
@@ -250,16 +259,19 @@ class JiraTicketProvider:
                     occurred_at=occurred_at,
                 )
 
+        delivery_id = self.extract_delivery_id(headers)
+
         # 2. Status / changelog events
         changelog = data.get("changelog", {})
         changelog_id = str(changelog.get("id") or "")
         for item in changelog.get("items", []):
             if item.get("field") == "status":
                 new_status = item.get("toString") or ""
+                event_key = changelog_id or (f"{new_status}_{delivery_id}" if delivery_id else f"{new_status}_{data.get('timestamp') or 'latest'}")
                 return RemoteEventDraft(
                     remote_id=remote_id,
                     display_key=display_key,
-                    remote_event_id=f"jira_status_{changelog_id or occurred_at.timestamp()}",
+                    remote_event_id=f"jira_status_{event_key}",
                     event_type="status_changed",
                     author=data.get("user", {}).get("displayName"),
                     summary=f"Remote Jira status changed to {new_status}",
@@ -270,10 +282,11 @@ class JiraTicketProvider:
 
         # 3. Generic issue update fallback
         if observed_remote_status:
+            update_key = data.get("timestamp") or delivery_id or "latest"
             return RemoteEventDraft(
                 remote_id=remote_id,
                 display_key=display_key,
-                remote_event_id=f"jira_update_{data.get('timestamp') or occurred_at.timestamp()}",
+                remote_event_id=f"jira_update_{update_key}",
                 event_type="issue_updated",
                 author=data.get("user", {}).get("displayName"),
                 summary=f"Jira issue updated (Status: {observed_remote_status})",

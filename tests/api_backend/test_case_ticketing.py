@@ -90,14 +90,17 @@ class DummyJiraProvider:
         self.base_url = "https://example.atlassian.net"
         self.reconcile_or_create_calls = []
 
-    def reconcile_or_create(self, draft: TicketDraft, operation_id: str) -> TicketCreationResult:
-        self.reconcile_or_create_calls.append((draft, operation_id))
+    def reconcile_only(self, operation_id: str, case_id: int | None = None) -> TicketCreationResult | None:
         return TicketCreationResult(
             remote_id="10101",
             display_key="OPS-101",
             ticket_url="https://example.atlassian.net/browse/OPS-101",
             initial_status="open",
         )
+
+    def reconcile_or_create(self, draft: TicketDraft, operation_id: str) -> TicketCreationResult:
+        self.reconcile_or_create_calls.append((draft, operation_id))
+        return self.reconcile_only(operation_id, draft.case_id)
 
     def pull_remote_ticket(self, remote_id: str, display_key: str, cursor: str | None) -> RemoteTicketSnapshot:
         return RemoteTicketSnapshot(
@@ -230,8 +233,16 @@ def test_ambiguous_outcome_circuit_and_three_way_resolution(db_session):
     service.process_pending_operations(limit=10)
     assert service.get_operation_view(op_1.operation_id).status == "ambiguous_outcome"
 
-    mock_provider.reconcile_or_create.side_effect = None
-    mock_provider.reconcile_or_create.return_value = TicketCreationResult(
+    # 1a. If reconcile_only finds nothing, operation stays ambiguous and returns not_found
+    mock_provider.reconcile_only.side_effect = None
+    mock_provider.reconcile_only.return_value = None
+    not_found_res = service.resolve_ambiguity(case_1, AmbiguousResolutionRequest(action="check_again"))
+    assert not_found_res["status"] == "not_found"
+    assert service.get_operation_view(op_1.operation_id).status == "ambiguous_outcome"
+    assert service.get_ticket_view(case_1) is None
+
+    # 1b. When reconcile_only finds the issue, operation completes and link is created
+    mock_provider.reconcile_only.return_value = TicketCreationResult(
         remote_id="20202", display_key="OPS-202", ticket_url="https://example/OPS-202", initial_status="open"
     )
     res_1 = service.resolve_ambiguity(case_1, AmbiguousResolutionRequest(action="check_again"))

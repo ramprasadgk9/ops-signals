@@ -648,6 +648,7 @@ export function CaseDetailsPage() {
                   )}
                 </CardContent>
               </Card>
+              <CaseTicketCard caseId={caseData.id} />
             </Grid>
           </Grid>
         </TabPanel>
