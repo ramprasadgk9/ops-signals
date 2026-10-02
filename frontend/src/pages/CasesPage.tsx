@@ -32,12 +32,19 @@ export function CasesPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [severity, setSeverity] = useState('all');
+  const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
   const cases = casesQuery.data ?? [];
   const rows = toCaseRows(cases);
   const filtered = useMemo(() => {
     return filterCaseRows(rows, { search, status, severity });
   }, [rows, search, severity, status]);
-  const selected = filtered[0] ?? rows[0];
+  const selected = useMemo(() => {
+    if (selectedCaseId != null) {
+      const match = filtered.find((item) => item.id === selectedCaseId);
+      if (match) return match;
+    }
+    return filtered[0] ?? rows[0];
+  }, [filtered, rows, selectedCaseId]);
 
   if (casesQuery.isLoading) return <LoadingSkeleton />;
   if (casesQuery.error) return <ErrorState message="Failed to load cases" onRetry={() => void casesQuery.refetch()} />;
@@ -78,18 +85,43 @@ export function CasesPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filtered.map((item) => (
-                  <TableRow key={item.id} hover sx={{ '& td': { py: 2, borderColor: '#f1f5f9' } }}>
-                    <TableCell sx={{ fontWeight: 850 }}>{item.caseId}</TableCell>
-                    <TableCell><Button component={RouterLink} to={`/cases/${item.id}`} sx={{ p: 0, color: ui.text, textTransform: 'none', fontWeight: 850 }}>{item.title}</Button></TableCell>
-                    <TableCell><Pill label={item.severity} tone="severity" /></TableCell>
-                    <TableCell><Pill label={item.status} /></TableCell>
-                    <TableCell sx={{ color: ui.muted }}>Assignment not supported</TableCell>
-                    <TableCell>{formatDateTime(item.createdAt)}</TableCell>
-                    <TableCell>{relativeTime(item.updatedAt)}</TableCell>
-                    <TableCell>{item.outcome === 'resolved' ? <Pill label="verified" /> : '--'}</TableCell>
-                  </TableRow>
-                ))}
+                {filtered.map((item) => {
+                  const isSelected = selected?.id === item.id;
+                  return (
+                    <TableRow
+                      key={item.id}
+                      hover
+                      selected={isSelected}
+                      onClick={() => setSelectedCaseId(item.id)}
+                      sx={{
+                        cursor: 'pointer',
+                        bgcolor: isSelected ? 'rgba(79, 70, 229, 0.05)' : 'inherit',
+                        '& td': { py: 2, borderColor: '#f1f5f9' },
+                      }}
+                    >
+                      <TableCell sx={{ fontWeight: 850 }}>{item.caseId}</TableCell>
+                      <TableCell>
+                        <Button
+                          component={RouterLink}
+                          to={`/cases/${item.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedCaseId(item.id);
+                          }}
+                          sx={{ p: 0, color: ui.text, textTransform: 'none', fontWeight: 850, textAlign: 'left' }}
+                        >
+                          {item.title}
+                        </Button>
+                      </TableCell>
+                      <TableCell><Pill label={item.severity} tone="severity" /></TableCell>
+                      <TableCell><Pill label={item.status} /></TableCell>
+                      <TableCell sx={{ color: ui.muted }}>Assignment not supported</TableCell>
+                      <TableCell>{formatDateTime(item.createdAt)}</TableCell>
+                      <TableCell>{relativeTime(item.updatedAt)}</TableCell>
+                      <TableCell>{item.outcome === 'resolved' ? <Pill label="verified" /> : '--'}</TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
             <Typography sx={{ p: 2.2, color: ui.muted, fontWeight: 650 }}>Showing {filtered.length} of {cases.length} cases</Typography>
