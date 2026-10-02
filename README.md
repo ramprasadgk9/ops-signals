@@ -367,7 +367,7 @@ Where to find each capability once the app is running.
 | **Analyzer workbench**: run any analyzer on sample data (**Labs**), register a new one (**Add Analyzer**), preview router scores (**Recommendations**) | **Experiments** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md#analyzer-workbench-ui) |
 | **Findings**: drill-down by pod, the deploy before a change | **Findings** | [`docs/operational-findings.md`](docs/operational-findings.md), [`docs/finding-drilldown.md`](docs/finding-drilldown.md) |
 | **Investigations and cases**: ad-hoc digging into one metric or service; every case with its lifecycle (`open -> investigating -> rca_in_progress -> resolved -> closed`), RCA and outcome | **Investigations**, **Cases** | [`docs/operational-cases.md`](docs/operational-cases.md) |
-| **Historical analysis**: semantic search over past cases and findings, and the alert-context preview an external alert manager would see | **Operational Memory** | [`docs/operational-memory.md`](docs/operational-memory.md) |
+| **Historical analysis**: semantic search over past cases and findings, the alert-context preview an external alert manager would see, and importing past postmortems so it works on day one | **Operational Memory** | [`docs/operational-memory.md`](docs/operational-memory.md), [`docs/importing-incident-history.md`](docs/importing-incident-history.md) |
 | **Autonomous analysis**: what to watch, run once or on a schedule | **Autonomous Analysis Configure**; Grafana **Autonomous Analysis** | [Autonomous Analysis](#autonomous-analysis) |
 
 ### Operational Intelligence Assistant

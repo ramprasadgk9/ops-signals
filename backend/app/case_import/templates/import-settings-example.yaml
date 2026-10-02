@@ -1,0 +1,22 @@
+# Optional: place this file as ops-signals-import.yaml in the folder you import, or paste the
+# same settings into the import wizard. Every key is optional.
+
+# Force a profile instead of detecting it from the CSV headers:
+# markdown, generic-csv, jira-csv or pagerduty-csv.
+profile: jira-csv
+
+# Label stored on every imported case. Defaults to the profile's source (jira, pagerduty, csv,
+# markdown). Two imports with the same source and record ID update the same case.
+source: jira
+
+# Point a case field at a column the profile does not know about. Field names:
+# source_id, title, service, started_at, resolved_at, severity, symptom, root_cause,
+# corrective_action, outcome, notes, source_url, tags.
+column_map:
+  root_cause: "Custom field (Why it happened)"
+  corrective_action: "Custom field (How we fixed it)"
+
+# Rename services so they match the service label in your metrics.
+service_aliases:
+  Checkout: checkout-api
+  Payments: payments-worker

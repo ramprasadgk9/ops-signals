@@ -185,7 +185,7 @@ export type OperationalCase = {
   case_status: string;
   finding_snapshot: Finding;
   investigation_status: string;
-  investigation_notes: Array<{ timestamp?: string; note: string }>;
+  investigation_notes: Array<{ timestamp?: string; note: string; source?: string }>;
   root_cause_status: string;
   root_cause_summary?: string;
   root_cause_confidence?: number;
@@ -197,6 +197,111 @@ export type OperationalCase = {
   created_at: string;
   updated_at: string;
   resolved_at?: string;
+  /** "detected" for cases Ops Signals opened; otherwise the tool an imported case came from. */
+  source?: string;
+  source_id?: string | null;
+  source_url?: string | null;
+  import_batch_id?: string | null;
+};
+
+/** A past case that resembles something current: a finding ("Seen before?") or a case (Similar Cases). */
+export type PastCaseMatch = {
+  case_id: number;
+  title: string;
+  similarity_score: number;
+  strength?: 'strong' | 'possible' | string;
+  same_service?: boolean;
+  service?: string | null;
+  metric_name?: string | null;
+  origin?: 'detected' | 'imported' | string;
+  source?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
+  case_status?: string;
+  root_cause_summary?: string | null;
+  corrective_action?: string | null;
+  outcome_summary?: string | null;
+};
+
+export type SeenBeforeResponse = {
+  finding_id: number;
+  available: boolean;
+  reason?: string | null;
+  service?: string | null;
+  matches: PastCaseMatch[];
+};
+
+export type SimilarCasesResponse = {
+  source_case_id: number;
+  matches: PastCaseMatch[];
+};
+
+export type CaseImportProfile = {
+  id: string;
+  label: string;
+  kind: 'csv' | 'markdown';
+  default_source: string;
+  checklist: string[];
+};
+
+export type CaseImportProfiles = {
+  profiles: CaseImportProfile[];
+  fields: string[];
+  required_fields: string[];
+  templates: string[];
+};
+
+export type CaseImportSettings = {
+  profile?: string;
+  source?: string;
+  column_map?: Record<string, string>;
+  service_aliases?: Record<string, string>;
+};
+
+export type CaseImportCounts = {
+  new: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  duplicate_rows: number;
+};
+
+export type CaseImportRecord = {
+  ref: string;
+  source: string;
+  source_id: string | null;
+  title: string;
+  service: string;
+  started_at: string | null;
+  action: 'new' | 'updated' | 'unchanged' | 'skipped' | 'duplicate';
+  problems: string[];
+  redactions: number;
+  case_id: number | null;
+};
+
+export type CaseImportPreview = {
+  file_profiles: Record<string, string>;
+  warnings: string[];
+  counts: CaseImportCounts;
+  redactions: number;
+  records: CaseImportRecord[];
+};
+
+export type CaseImportResult = CaseImportPreview & {
+  batch_id: string;
+  indexed: number;
+  index_failed: number;
+};
+
+export type CaseImportBatch = {
+  id: string;
+  sources: string[];
+  file_profiles: Record<string, string>;
+  counts: Partial<CaseImportCounts>;
+  indexed: number;
+  status: 'running' | 'completed' | 'undone';
+  created_at: string;
+  undone_at: string | null;
 };
 
 export type SeverityTrendPoint = {
@@ -742,7 +847,11 @@ export type AlertContextSimilarCase = {
   case_status: string;
   outcome_status?: string | null;
   root_cause_summary?: string | null;
+  corrective_action?: string | null;
   outcome_summary?: string | null;
+  origin?: 'detected' | 'imported' | string;
+  source?: string | null;
+  source_id?: string | null;
   reference: string;
 };
 

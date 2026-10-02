@@ -57,3 +57,23 @@ describe('cases service', () => {
     expect(groups.all).toHaveLength(2);
   });
 });
+
+describe('imported cases', () => {
+  const imported = makeCase({ id: 8, finding_id: null, source: 'pagerduty', source_id: 'Q1ABC23', case_status: 'resolved', root_cause_status: 'confirmed' });
+  const detected = makeCase();
+
+  it('marks imported rows and never flags them as needing attention', () => {
+    const row = toCaseRow(imported);
+    expect(row.imported).toBe(true);
+    expect(row.source).toBe('pagerduty');
+    expect(row.needsAttention).toBe(false);
+    expect(toCaseRow(detected).imported).toBe(false);
+  });
+
+  it('filters by origin and finds imported cases by their source ID', () => {
+    const rows = [toCaseRow(imported), toCaseRow(detected)];
+    expect(filterCaseRows(rows, { search: '', status: 'all', severity: 'all', origin: 'imported' }).map((row) => row.id)).toEqual([8]);
+    expect(filterCaseRows(rows, { search: '', status: 'all', severity: 'all', origin: 'detected' }).map((row) => row.id)).toEqual([7]);
+    expect(filterCaseRows(rows, { search: 'q1abc23', status: 'all', severity: 'all' }).map((row) => row.id)).toEqual([8]);
+  });
+});

@@ -201,6 +201,8 @@ class CaseMemoryIndexer:
             "rca_verified": case.root_cause_verified,
             "outcome_status": case.outcome_status,
             "title": case.case_title,
+            "origin": "imported" if finding.get("source_type") == "imported" else "detected",
+            "source": case.source or "detected",
             "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
             "content_version": CaseDocumentBuilder.get_content_version(),
             "created_at": case.created_at.isoformat() if case.created_at else None,

@@ -25,10 +25,12 @@ from backend.app.memory.schemas import (
     SimilarCasesResponse,
 )
 from backend.app.memory.alert_context import build_alert_context
+from backend.app.memory.schemas import SeenBeforeResponse
+from backend.app.memory.seen_before import find_seen_before
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
-from backend.app.models.entities import OperationalCaseEntity
+from backend.app.models.entities import FindingEntity, OperationalCaseEntity
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.document_builder import CaseDocumentBuilder
 
@@ -196,6 +198,29 @@ async def get_case_memory_status(
         memory_content_version=case.memory_content_version,
         memory_error=case.memory_error,
     )
+
+
+@router.get("/findings/{finding_id}/seen-before", response_model=SeenBeforeResponse)
+def finding_seen_before(
+    finding_id: int,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> SeenBeforeResponse:
+    """Past cases (detected or imported) that look like this finding, ranked same service first.
+    Works before any case is opened for the finding."""
+    finding = db.get(FindingEntity, finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    enabled = bool(config and config.enabled)
+    try:
+        return find_seen_before(db, finding, service if enabled else None, embedder if enabled else None)
+    except Exception as e:
+        logger.warning(f"Seen-before search failed for finding {finding_id}: {e}")
+        return SeenBeforeResponse(
+            finding_id=finding_id, available=False, reason="Past cases could not be searched right now.", service=finding.service
+        )
 
 
 @router.get("/cases/{case_id}/similar", response_model=SimilarCasesResponse)

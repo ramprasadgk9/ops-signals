@@ -250,7 +250,10 @@ def _seen_before(context: dict | None, ui_base_url: str) -> str:
         return "History lookup unavailable."
     history = context.get("history") or {}
     total = history.get("total_prior_occurrences") or 0
+    similar = context.get("similar_cases") or []
     verdict = _VERDICT_TEXT.get(context.get("recommendation"), context.get("recommendation") or "unknown")
+    if context.get("recommendation") == "insufficient_history" and not total and similar:
+        verdict = "seen before, no verdict yet"
     lines = [f"Verdict: *{verdict}*"]
     if total:
         lines.append(
@@ -258,13 +261,18 @@ def _seen_before(context: dict | None, ui_base_url: str) -> str:
         )
         if history.get("most_common_root_cause"):
             lines.append(f"Most common cause: _{history['most_common_root_cause']}_")
-    similar = context.get("similar_cases") or []
     if similar:
         top = similar[0]
         title = _link(f"{ui_base_url}/cases/{top['case_id']}", f"#{top['case_id']} {top.get('title', '')}".strip())
-        lines.append(f"Most similar case: {title} ({round(top.get('similarity_score', 0) * 100)}% match)")
-        if top.get("outcome_summary"):
-            lines.append(f"↳ Fix: {top['outcome_summary']}")
+        origin = ""
+        if top.get("origin") == "imported":
+            origin = f", imported from {top.get('source')}" + (f" {top['source_id']}" if top.get("source_id") and not top["source_id"].startswith("fp-") else "")
+        lines.append(f"Most similar case: {title} ({round(top.get('similarity_score', 0) * 100)}% match{origin})")
+        if top.get("root_cause_summary") and top.get("origin") == "imported":
+            lines.append(f"↳ Cause: {top['root_cause_summary']}")
+        fix = top.get("corrective_action") or top.get("outcome_summary")
+        if fix:
+            lines.append(f"↳ Fix: {fix}")
     raw = context.get("raw_activity") or {}
     if not total and not similar:
         if raw.get("total_occurrences"):

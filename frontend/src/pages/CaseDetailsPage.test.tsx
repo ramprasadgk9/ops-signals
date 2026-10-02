@@ -144,3 +144,59 @@ describe('CaseDetailsPage resolution tab', () => {
     expect(await screen.findByText('learning_outcome_status is required when resolving or closing a case')).toBeInTheDocument();
   });
 });
+
+describe('CaseDetailsPage for an imported case', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const importedCase = () =>
+    baseCase({
+      finding_id: null,
+      analysis_run_id: 'import:batch1',
+      case_status: 'resolved',
+      outcome_status: 'resolved',
+      root_cause_status: 'confirmed',
+      root_cause_summary: 'Connection pool exhausted',
+      source: 'jira',
+      source_id: 'OPS-412',
+      source_url: 'https://jira.example.com/browse/OPS-412',
+      finding_snapshot: {
+        source_type: 'imported',
+        service: 'checkout-api',
+        metric_name: null,
+        title: 'Checkout 500s after deploy',
+        summary: 'Checkout returned 500 for 12% of requests.',
+        category: 'imported_incident',
+        health_status: 'High',
+        importance_score: 0,
+      } as unknown as OperationalCase['finding_snapshot'],
+    });
+
+  it('shows where the case was imported from and does not load signals', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(importedCase());
+
+    renderPage();
+
+    const origin = await screen.findByTestId('imported-case-origin');
+    expect(within(origin).getByText('Imported · jira OPS-412')).toBeInTheDocument();
+    expect(within(origin).getByRole('link')).toHaveAttribute('href', 'https://jira.example.com/browse/OPS-412');
+    expect(api.signals).not.toHaveBeenCalled();
+  });
+
+  it('saves a resolution without asking for a learning outcome', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(importedCase());
+    vi.mocked(api.updateResolution).mockResolvedValue(importedCase());
+
+    renderPage();
+    const panel = await openResolutionPanel();
+    await pickResolvedOutcome(panel);
+
+    expect(within(panel).getAllByRole('combobox')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /Save Resolution/i }));
+
+    await vi.waitFor(() => {
+      expect(api.updateResolution).toHaveBeenCalledWith(1, expect.objectContaining({ learning_outcome_status: undefined }));
+    });
+  });
+});

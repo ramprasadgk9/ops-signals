@@ -19,6 +19,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("mcp", help="Run the Ops Signals MCP server over stdio in read-only mode")
     subparsers.add_parser("mcp-write", help="Run the Ops Signals MCP server over stdio with write tools enabled")
 
+    from backend.app.case_import.cli import add_parser as add_import_cases_parser
+
+    add_import_cases_parser(subparsers)
+
     return parser
 
 
@@ -66,6 +70,11 @@ def main() -> None:
 
         run_mcp_server(read_only_only=False)
         return
+
+    if args.command == "import-cases":
+        from backend.app.case_import.cli import run as run_import_cases
+
+        raise SystemExit(run_import_cases(args))
 
 
 if __name__ == "__main__":

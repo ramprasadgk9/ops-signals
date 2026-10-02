@@ -106,3 +106,56 @@ def ensure_case_behavior_link_schema(engine: Engine) -> None:
         if dialect == "postgresql":
             connection.execute(text("ALTER TABLE ops_operational_cases ALTER COLUMN finding_id DROP NOT NULL"))
 
+
+
+CASE_IMPORT_COLUMN_SQL = {
+    "source": "VARCHAR(32) NOT NULL DEFAULT 'detected'",
+    "source_id": "TEXT",
+    "source_url": "TEXT",
+    "import_batch_id": "VARCHAR(32)",
+    "content_hash": "VARCHAR(64)",
+}
+
+
+def ensure_case_import_schema(engine: Engine) -> None:
+    """Lets a case be imported from an incident tool instead of opened from a finding
+    (docs/importing-incident-history.md). Adds the provenance columns and the unique
+    (source, source_id) index that makes re-imports update rather than duplicate, and on
+    Postgres swaps the old exactly-one-finding check for one that also admits imported cases.
+    The new check is added NOT VALID: it guards every new or updated row without rescanning
+    existing ones, which predate it and were all written by the detected-case path.
+
+    SQLite can't swap a CHECK constraint in place. SQLite databases here are created fresh from
+    the current model, so only an old on-disk SQLite file keeps the stricter check - imports into
+    it fail on insert and need a new database."""
+    inspector = inspect(engine)
+    if "ops_operational_cases" not in inspector.get_table_names():
+        return
+    from backend.app.models.entities import CASE_SOURCE_LINK_CHECK
+
+    existing = {column["name"] for column in inspector.get_columns("ops_operational_cases")}
+    dialect = engine.dialect.name
+    with engine.begin() as connection:
+        for name, ddl in CASE_IMPORT_COLUMN_SQL.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE ops_operational_cases ADD COLUMN {name} {ddl}"))
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_case_source_record "
+                "ON ops_operational_cases (source, source_id)"
+            )
+        )
+        if dialect == "postgresql":
+            connection.execute(
+                text("ALTER TABLE ops_operational_cases DROP CONSTRAINT IF EXISTS ck_case_exactly_one_source")
+            )
+            has_new_check = connection.execute(
+                text("SELECT 1 FROM pg_constraint WHERE conname = 'ck_case_source_link'")
+            ).first()
+            if not has_new_check:
+                connection.execute(
+                    text(
+                        "ALTER TABLE ops_operational_cases ADD CONSTRAINT ck_case_source_link "
+                        f"CHECK ({CASE_SOURCE_LINK_CHECK}) NOT VALID"
+                    )
+                )

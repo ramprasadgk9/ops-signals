@@ -24,6 +24,11 @@ export type CaseRow = {
   isOpen: boolean;
   needsAttention: boolean;
   isOnHold: boolean;
+  /** Imported from an incident tool or postmortem rather than opened from a finding. */
+  imported: boolean;
+  source: string;
+  sourceId: string | null;
+  sourceUrl: string | null;
 };
 
 export function isClosedCaseStatus(status?: string | null) {
@@ -56,22 +61,35 @@ export function toCaseRow(item: OperationalCase): CaseRow {
     notes: item.investigation_notes ?? [],
     priority,
     isOpen: !isClosedCaseStatus(item.case_status),
-    needsAttention: severity === 'critical' || item.root_cause_status === 'unknown',
+    needsAttention: !isImportedCase(item) && (severity === 'critical' || item.root_cause_status === 'unknown'),
     isOnHold,
+    imported: isImportedCase(item),
+    source: item.source ?? 'detected',
+    sourceId: item.source_id ?? null,
+    sourceUrl: item.source_url ?? null,
   };
+}
+
+export function isImportedCase(item: Pick<OperationalCase, 'source'>) {
+  return Boolean(item.source && item.source !== 'detected');
 }
 
 export function toCaseRows(cases: OperationalCase[]) {
   return cases.map(toCaseRow);
 }
 
-export function filterCaseRows(rows: CaseRow[], filters: { search: string; status: string; severity: string }) {
+export function filterCaseRows(
+  rows: CaseRow[],
+  filters: { search: string; status: string; severity: string; origin?: 'all' | 'detected' | 'imported' }
+) {
   const term = filters.search.trim().toLowerCase();
+  const origin = filters.origin ?? 'all';
   return rows.filter((row) => {
-    const matchesSearch = !term || [row.caseId, row.title, row.summary, row.service].some((value) => value.toLowerCase().includes(term));
+    const matchesSearch = !term || [row.caseId, row.title, row.summary, row.service, row.sourceId ?? ''].some((value) => value.toLowerCase().includes(term));
     const matchesStatus = filters.status === 'all' || row.status === filters.status || row.investigationStatus === filters.status;
     const matchesSeverity = filters.severity === 'all' || row.severity.toLowerCase() === filters.severity;
-    return matchesSearch && matchesStatus && matchesSeverity;
+    const matchesOrigin = origin === 'all' || (origin === 'imported') === row.imported;
+    return matchesSearch && matchesStatus && matchesSeverity && matchesOrigin;
   });
 }
 

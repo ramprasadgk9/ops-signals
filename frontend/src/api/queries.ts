@@ -58,6 +58,12 @@ import type {
   DocQuestionEvaluation,
   NewDocTest,
   SaveDocTestsResult,
+  CaseImportBatch,
+  CaseImportPreview,
+  CaseImportProfiles,
+  CaseImportResult,
+  SeenBeforeResponse,
+  SimilarCasesResponse,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -233,8 +239,9 @@ export const api = {
     getJson<{ case_id: number; memory_status: string; memory_indexed_at?: string; memory_error?: string }>(
       `/api/cases/${caseId}/memory/status`
     ),
+  findingSeenBefore: (findingId: number) => getJson<SeenBeforeResponse>(`/api/findings/${findingId}/seen-before`),
   getSimilarCases: (caseId: number, topK?: number, minimumScore?: number) =>
-    getJson<any>(
+    getJson<SimilarCasesResponse>(
       `/api/cases/${caseId}/similar?top_k=${topK ?? 5}&minimum_score=${minimumScore ?? 0.7}`
     ),
   deleteMemory: (caseId: number) =>
@@ -246,6 +253,12 @@ export const api = {
       '/api/memory/health'
     ),
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
+  caseImportProfiles: () => getJson<CaseImportProfiles>('/api/case-imports/profiles'),
+  caseImportTemplateUrl: (name: string) => `${import.meta.env.VITE_API_BASE ?? ''}/api/case-imports/templates/${encodeURIComponent(name)}`,
+  previewCaseImport: (payload: FormData) => postForm<CaseImportPreview>('/api/case-imports/preview', payload),
+  runCaseImport: (payload: FormData) => postForm<CaseImportResult>('/api/case-imports', payload),
+  caseImports: () => getJson<CaseImportBatch[]>('/api/case-imports'),
+  undoCaseImport: (batchId: string) => deleteJson<{ batch_id: string; deleted_cases: number }>(`/api/case-imports/${batchId}`),
   alertContext: (metricName: string, service?: string, message?: string) => {
     const params = new URLSearchParams({ metric_name: metricName });
     if (service) params.append('service', service);

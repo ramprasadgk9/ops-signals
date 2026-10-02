@@ -36,6 +36,9 @@ import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
+import { CaseOriginBadge } from '../components/CaseOriginBadge';
+import { PastCaseMatches } from '../components/PastCaseMatches';
+import { isImportedCase } from '../standalone/casesService';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
@@ -103,6 +106,10 @@ export function CaseDetailsPage() {
     enabled: Boolean(caseId),
   });
 
+  // Imported cases come from a postmortem, not a detection: no analysis run, signals, alerts or
+  // analyzer to record a learning outcome for.
+  const isImported = caseQuery.data ? isImportedCase(caseQuery.data) : false;
+
   const caseSignalsQuery = useQuery({
     queryKey: [
       'case-signals',
@@ -117,7 +124,8 @@ export function CaseDetailsPage() {
         caseQuery.data!.analysis_run_id
       ),
     enabled: Boolean(
-      caseQuery.data?.analysis_run_id &&
+      !isImported &&
+        caseQuery.data?.analysis_run_id &&
         caseQuery.data?.finding_snapshot.metric_name &&
         caseQuery.data?.finding_snapshot.service
     ),
@@ -161,7 +169,7 @@ export function CaseDetailsPage() {
     },
   });
 
-  const resolutionRequiresLearningOutcome = outcomeStatus === 'resolved';
+  const resolutionRequiresLearningOutcome = !isImported && outcomeStatus === 'resolved';
   const canSaveResolution = !resolutionRequiresLearningOutcome || Boolean(learningOutcomeStatus);
 
   const updateResolutionMutation = useMutation({
@@ -170,7 +178,7 @@ export function CaseDetailsPage() {
         outcome_status: outcomeStatus,
         outcome_summary: outcomeSummary || undefined,
         corrective_action: correctiveAction || undefined,
-        learning_outcome_status: learningOutcomeStatus || undefined,
+        learning_outcome_status: isImported ? undefined : learningOutcomeStatus || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
@@ -235,13 +243,13 @@ export function CaseDetailsPage() {
 
   const summaryCards = [
     { label: 'Severity', value: statusLabel(finding.health_status), color: getHealthColor(finding.health_status) },
-    { label: 'Importance', value: `${(finding.importance_score * 100).toFixed(0)}%` },
+    { label: 'Importance', value: isImported ? 'n/a' : `${(finding.importance_score * 100).toFixed(0)}%` },
     { label: 'Category', value: categoryLabel },
     { label: 'Service', value: finding.service ?? 'n/a' },
   ];
   const workflowItems = [
     workflowState('Finding reviewed', true, tabValue === 0),
-    workflowState('Evidence checked', matchedSignals.length > 0 || signalIds.length > 0, tabValue === 1),
+    workflowState('Evidence checked', isImported || matchedSignals.length > 0 || signalIds.length > 0, tabValue === 1),
     workflowState('Investigation notes', caseData.investigation_notes.length > 0 || caseData.investigation_status === 'completed', tabValue === 2),
     workflowState('Root cause saved', Boolean(caseData.root_cause_summary) || ['identified', 'confirmed'].includes(caseData.root_cause_status), tabValue === 3),
     workflowState('Resolution recorded', Boolean(caseData.outcome_summary || caseData.corrective_action) || caseData.outcome_status === 'resolved', tabValue === 4),
@@ -290,7 +298,16 @@ export function CaseDetailsPage() {
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                 {finding.summary}
               </Typography>
-              <LinkedAlerts findingId={caseData.finding_id} />
+              {isImported ? (
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1, flexWrap: 'wrap' }} data-testid="imported-case-origin">
+                  <CaseOriginBadge source={caseData.source} sourceId={caseData.source_id} sourceUrl={caseData.source_url} />
+                  <Typography variant="body2" color="text.secondary">
+                    Imported from a past incident record, so it has no metric signals or linked alerts.
+                  </Typography>
+                </Stack>
+              ) : (
+                <LinkedAlerts findingId={caseData.finding_id} />
+              )}
             </Box>
 
             <Stack direction="row" spacing={1} alignItems="center">
@@ -905,7 +922,7 @@ export function CaseDetailsPage() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={6}>
-          <SimilarCasesList caseId={parseInt(caseId || '0')} />
+          <SimilarCasesList caseId={parseInt(caseId || '0')} service={finding.service} />
         </TabPanel>
 
         {caseData.memory_status === 'failed' ? <Alert severity="warning">Memory indexing failed for this case. You can retry from the header.</Alert> : null}
@@ -914,50 +931,23 @@ export function CaseDetailsPage() {
   );
 }
 
-function SimilarCasesList({ caseId }: { caseId: number }) {
+function SimilarCasesList({ caseId, service }: { caseId: number; service?: string | null }) {
+  // 0.40 keeps "possible" matches: a detected case and a written postmortem about the same problem
+  // score around 0.4-0.6, so the old 0.70 cut-off hid every imported incident.
   const { data: similarCases, isLoading, error } = useQuery({
     queryKey: ['similarCases', caseId],
-    queryFn: () => api.getSimilarCases(caseId, 5, 0.7),
+    queryFn: () => api.getSimilarCases(caseId, 10, 0.4),
   });
 
   if (isLoading) return <CircularProgress />;
   if (error) return <Alert severity="error">Failed to load similar cases</Alert>;
 
-  if (!similarCases?.matches || similarCases.matches.length === 0) {
-    return <Alert severity="info">No similar cases found</Alert>;
-  }
-
   return (
-    <Stack spacing={2}>
-      {similarCases.matches.map((match: any) => (
-        <Card key={match.case_id} variant="outlined">
-          <CardContent>
-            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2}>
-              <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                  {match.title}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {match.service} · {match.metric_name} · {statusLabel(match.case_status)}
-                </Typography>
-                {match.root_cause_summary ? (
-                  <Typography variant="body2" sx={{ mt: 1 }}>
-                    RCA: {match.root_cause_summary}
-                  </Typography>
-                ) : null}
-              </Box>
-              <Stack alignItems="flex-end" spacing={1}>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: 'primary.main' }}>
-                  {(match.similarity_score * 100).toFixed(0)}%
-                </Typography>
-                <Button size="small" variant="text" onClick={() => (window.location.href = `/cases/${match.case_id}`)}>
-                  Open Case
-                </Button>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
-      ))}
+    <Stack spacing={1.5}>
+      <Typography variant="body2" color="text.secondary">
+        Strong matches score 70% or more. Possible matches (40-70%) are often the same problem described differently, for example a postmortem written by a person.
+      </Typography>
+      <PastCaseMatches matches={similarCases?.matches ?? []} service={service} emptyText="No similar cases found." />
     </Stack>
   );
 }

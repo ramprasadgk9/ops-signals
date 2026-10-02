@@ -13,11 +13,11 @@ vi.mock('../api/queries', () => ({
   },
 }));
 
-function renderPage() {
+function renderPage(path = '/operational-memory') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <OperationalMemoryPage />
       </MemoryRouter>
     </QueryClientProvider>
@@ -85,6 +85,38 @@ describe('OperationalMemoryPage', () => {
     expect(screen.getByText('CPU usage behavior changed')).toBeInTheDocument();
     expect(screen.queryByText('Disk saturation')).not.toBeInTheDocument();
     expect(api.cases).toHaveBeenCalledWith(200);
+  });
+
+  it('offers to import past incidents when memory has no cases', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue({ ...memoryStats, indexed_cases: 0, total_cases: 0 });
+    vi.mocked(api.cases).mockResolvedValue([]);
+
+    renderPage();
+
+    expect(await screen.findByText(/Memory is empty/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Import past incidents/ })).toHaveLength(2);
+  });
+
+  it('labels imported cases with their source instead of a metric', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([
+      { ...baseCase, id: 12, finding_id: null, case_title: 'Checkout 500s after deploy', source: 'jira', source_id: 'OPS-412', memory_status: 'indexed' },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText('Imported · jira OPS-412')).toBeInTheDocument();
+  });
+
+  it('fills the alert preview from the import wizard link', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([baseCase]);
+
+    renderPage('/operational-memory?service=checkout&message=Checkout%20CPU%20pinned');
+
+    expect(await screen.findByText(/Filled in from your import/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('checkout')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Checkout CPU pinned')).toBeInTheDocument();
   });
 
   it('does not convert unavailable memory stats into zero counts', async () => {
@@ -195,5 +227,41 @@ describe('OperationalMemoryPage', () => {
     expect(await screen.findByText('This service has repeatedly shown CPU anomalies, but none were ever confirmed or resolved.')).toBeInTheDocument();
     expect(screen.queryByText(/This exact service\/metric occurred/)).not.toBeInTheDocument();
     expect(screen.getByText('AI')).toBeInTheDocument();
+  });
+});
+
+describe('OperationalMemoryPage alert preview with only similar cases', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('says "Seen before" instead of insufficient history and shows the imported fix', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([]);
+    vi.mocked(api.alertContext).mockResolvedValue({
+      service: 'checkout',
+      metric_name: 'cpu_usage',
+      history: { total_prior_occurrences: 0, confirmed: 0, partially_confirmed: 0, rejected: 0, inconclusive: 0, confirmed_rate: null, most_common_root_cause: null, last_seen_at: null },
+      exact_match_outcomes: [],
+      similar_cases: [
+        {
+          case_id: 25, similarity_score: 0.58, title: 'Checkout CPU pinned at 95% after release 4.2', case_status: 'resolved',
+          root_cause_summary: 'Schema validation on every call', corrective_action: 'Cached the compiled schema',
+          origin: 'imported', source: 'jira', source_id: 'OPS-101', reference: '/cases/25',
+        },
+      ],
+      raw_activity: { finding_count: 0, behavior_count: 0, total_occurrences: 0, most_recent_at: null, recent_titles: [] },
+      recommendation: 'insufficient_history',
+      recommendation_basis: 'Seen before: 1 similar past incident imported from incident records, no real-vs-noise verdict yet.',
+    } as never);
+
+    renderPage();
+    fireEvent.change(await screen.findByLabelText(/Alert message/), { target: { value: 'checkout CPU high' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check Alert Context' }));
+
+    expect(await screen.findByText('Seen before')).toBeInTheDocument();
+    expect(screen.queryByText('Insufficient history')).not.toBeInTheDocument();
+    expect(screen.getByText('Imported · jira OPS-101')).toBeInTheDocument();
+    expect(screen.getByText('Cached the compiled schema')).toBeInTheDocument();
   });
 });
