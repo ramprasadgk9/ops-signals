@@ -101,9 +101,9 @@ def test_jira_pre_reconciliation_adopts_existing_issue(monkeypatch):
     provider = JiraTicketProvider(config)
     assert provider.is_configured
 
-    def mock_get(self, url, params=None, **kwargs):
-        if "/rest/api/3/search" in url:
-            assert 'labels = "ops-signals-op-op_test"' in params["jql"]
+    def mock_post(self, url, json=None, **kwargs):
+        if "/rest/api/3/search/jql" in url:
+            assert 'labels = "ops-signals-op-op_test"' in json["jql"]
             return httpx.Response(
                 200,
                 json={
@@ -119,7 +119,7 @@ def test_jira_pre_reconciliation_adopts_existing_issue(monkeypatch):
             )
         return httpx.Response(404)
 
-    monkeypatch.setattr(httpx.Client, "get", mock_get)
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
 
     draft = _make_sample_draft()
     result = provider.reconcile_or_create(draft, "op_test")
@@ -127,6 +127,47 @@ def test_jira_pre_reconciliation_adopts_existing_issue(monkeypatch):
     assert result.display_key == "OPS-50"
     assert result.initial_status == "In Progress"
     assert "OPS-50" in result.ticket_url
+
+
+def test_jira_pre_reconciliation_fallback_to_legacy_search(monkeypatch):
+    config = JiraConfig(
+        base_url="https://example.atlassian.net",
+        email="eng@example.com",
+        api_token="secret",
+        project_key="OPS",
+        issue_type="Task",
+    )
+    provider = JiraTicketProvider(config)
+
+    def mock_post(self, url, json=None, **kwargs):
+        if "/rest/api/3/search/jql" in url:
+            return httpx.Response(404, text="Not Found")
+        return httpx.Response(404)
+
+    def mock_get(self, url, params=None, **kwargs):
+        if "/rest/api/3/search" in url:
+            return httpx.Response(
+                200,
+                json={
+                    "total": 1,
+                    "issues": [
+                        {
+                            "id": "10050",
+                            "key": "OPS-50",
+                            "fields": {"status": {"name": "In Progress"}},
+                        }
+                    ],
+                },
+            )
+        return httpx.Response(404)
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+    monkeypatch.setattr(httpx.Client, "get", mock_get)
+
+    draft = _make_sample_draft()
+    result = provider.reconcile_or_create(draft, "op_test")
+    assert result.remote_id == "10050"
+    assert result.display_key == "OPS-50"
 
 
 def test_jira_create_issue_success(monkeypatch):
@@ -139,11 +180,10 @@ def test_jira_create_issue_success(monkeypatch):
     )
     provider = JiraTicketProvider(config)
 
-    def mock_get(self, url, params=None, **kwargs):
-        # Pre-reconciliation search finds nothing
-        return httpx.Response(200, json={"total": 0, "issues": []})
-
     def mock_post(self, url, json=None, **kwargs):
+        if "/rest/api/3/search/jql" in url:
+            # Pre-reconciliation search finds nothing
+            return httpx.Response(200, json={"total": 0, "issues": []})
         assert "/rest/api/3/issue" in url
         labels = json["fields"]["labels"]
         assert "ops-signals" in labels
@@ -151,7 +191,6 @@ def test_jira_create_issue_success(monkeypatch):
         assert "ops-signals-op-op_create" in labels
         return httpx.Response(201, json={"id": "10099", "key": "OPS-99"})
 
-    monkeypatch.setattr(httpx.Client, "get", mock_get)
     monkeypatch.setattr(httpx.Client, "post", mock_post)
 
     draft = _make_sample_draft()
@@ -171,12 +210,12 @@ def test_jira_create_issue_uncertain_status_raises_ambiguous_outcome(monkeypatch
     )
     provider = JiraTicketProvider(config)
 
-    monkeypatch.setattr(
-        httpx.Client, "get", lambda *a, **kw: httpx.Response(200, json={"total": 0, "issues": []})
-    )
-    monkeypatch.setattr(
-        httpx.Client, "post", lambda *a, **kw: httpx.Response(status_code, text="Gateway error")
-    )
+    def mock_post(self, url, json=None, **kwargs):
+        if "/rest/api/3/search/jql" in url:
+            return httpx.Response(200, json={"total": 0, "issues": []})
+        return httpx.Response(status_code, text="Gateway error")
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
 
     draft = _make_sample_draft()
     with pytest.raises(AmbiguousOutcomeError) as exc_info:

@@ -63,10 +63,25 @@ class JiraTicketProvider:
         self._ensure_configured()
         op_label = f"ops-signals-op-{operation_id}"
         jql = f'labels = "{op_label}"'
-        search_url = f"{self.base_url}/rest/api/3/search"
+        search_url = f"{self.base_url}/rest/api/3/search/jql"
         try:
             with self._get_client() as client:
-                search_res = client.get(search_url, params={"jql": jql, "maxResults": 1})
+                # 1. Primary standard Jira Cloud endpoint: POST /rest/api/3/search/jql (CHANGE-2046)
+                search_res = client.post(
+                    search_url,
+                    json={
+                        "jql": jql,
+                        "maxResults": 1,
+                        "fields": ["summary", "status"],
+                    },
+                )
+                # Fallback to legacy GET /rest/api/3/search if search/jql returns 404/405 (e.g. older on-prem Jira Server/DC)
+                if search_res.status_code in (404, 405):
+                    search_res = client.get(
+                        f"{self.base_url}/rest/api/3/search",
+                        params={"jql": jql, "maxResults": 1, "fields": "summary,status"},
+                    )
+
                 if search_res.status_code in (500, 502, 503, 504):
                     raise AmbiguousOutcomeError(
                         f"Jira search returned HTTP {search_res.status_code} during pre-reconciliation"
