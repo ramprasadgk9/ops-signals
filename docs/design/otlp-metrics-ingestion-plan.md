@@ -207,12 +207,12 @@ they already have. A custom JSON shape would need its own glue on their end for 
 
 - `docs/02-architecture.md` — moved OpenTelemetry out of the Roadmap (Not Yet Implemented) list;
   noted logs/traces remain future work.
-- `README.md` §9.3 (new) — endpoint URL, the `/api/otlp` path caveat, a copy-pasteable Collector
+- `README.md` "OTLP Metrics Ingestion" (new) — endpoint URL, the `/api/otlp` path caveat, a copy-pasteable Collector
   config snippet, the four env vars, and a pointer to this document for the full design and the
-  `/api/metrics` self-observability endpoint. §12 (Current Limitations) — added the
+  `/api/metrics` self-observability endpoint. "Current Limitations" — added the
   single-instance/HTTP-only/metrics-only line, pointing at §10 below.
 - A dedicated `docs/28-otlp-ingestion.md` was **not** created separately — this document already
-  serves as the single source of truth (design + "why" + scaling notes) and README §9.3 is the
+  serves as the single source of truth (design + "why" + scaling notes) and README's "OTLP Metrics Ingestion" section is the
   short, task-oriented pointer into it. Splitting them would just create two documents to keep in
   sync for no reader benefit.
 
