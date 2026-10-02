@@ -27,13 +27,13 @@ reason.
   `strict_precision` check catches unexpected extra analyzers also getting recommended.
 - **Behavior Intelligence** - every other scenario analyzes one metric in isolation; behavior
   scenarios use multiple correlated metrics to validate the cross-metric reasoning layer described
-  in [Behavior Intelligence](14-behavior-intelligence.md).
+  in [Behavior Intelligence](behavior-intelligence.md).
 - **Performance/scale** - report-only timing of normalization and analyzer execution as data
   volume grows (24h/7d/30d), not a pass/fail gate (wall-clock time isn't comparable across
   machines).
 - **Ask Ops Signals documentation answers** - known-answer questions checking that the assistant
   cites the right file and section and that its answer contains the passage that answers the
-  question. See [Ask Ops Signals: Assistant Architecture](23-ask-ops-signals-assistant.md#quality-benchmarking).
+  question. See [Ask Ops Signals: Assistant Architecture](ask-ops-signals-assistant.md#quality-benchmarking).
 
 ## What's Not Covered Yet
 

@@ -52,7 +52,7 @@ questions:
     contains: ["--profile ai"]
     expect:
       - {source: README.md, section: "Optional: Enable Local AI"}
-      - {source: docs/23-ask-ops-signals-assistant.md, section: "Enabling Local AI"}
+      - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
 
   - id: default-ollama-model
     category: docs
@@ -66,7 +66,7 @@ questions:
     question: Does Ask Ops Signals need an API key or cloud LLM?
     contains: ["no api key"]
     expect:
-      - {source: docs/23-ask-ops-signals-assistant.md, section: "Enabling Local AI"}
+      - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
       - {source: README.md, section: "Optional: Enable Local AI"}
       - {source: README.md, section: "Operational Intelligence Assistant"}
 
@@ -115,21 +115,21 @@ questions:
     question: In what order are configuration files merged?
     contains: ["Provider overrides"]
     expect:
-      - {source: docs/15-configuration.md, section: "Merge Order"}
+      - {source: docs/configuration.md, section: "Merge Order"}
 
   - id: csv-upload-providers
     category: docs
     question: Which providers can I pick when uploading a CSV?
     contains: ["datadog"]
     expect:
-      - {source: docs/15-configuration.md, section: "Files"}
+      - {source: docs/configuration.md, section: "Files"}
 
   - id: behavior-definition-config
     category: docs
     question: How do I configure a behavior definition?
     contains: ["behavior_definitions.d"]
     expect:
-      - {source: docs/14-behavior-intelligence.md, section: "Configuring a Behavior Definition"}
+      - {source: docs/behavior-intelligence.md, section: "Configuring a Behavior Definition"}
 
   # --- Ingestion and integrations ---------------------------------------------------------------
   - id: otlp-endpoint
@@ -195,7 +195,7 @@ questions:
     question: What does the benchmark suite measure?
     contains: ["Router accuracy"]
     expect:
-      - {source: docs/24-benchmark-suite.md, section: "What's Covered"}
+      - {source: docs/benchmark-suite.md, section: "What's Covered"}
 
   - id: discovery-cap-vs-budget
     category: docs
@@ -216,7 +216,7 @@ questions:
     question: Are the analyzer router suitability scores validated?
     contains: ["heuristic"]
     expect:
-      - {source: docs/26-analyzer-methodology.md, section: "suitability scores"}
+      - {source: docs/analyzer-methodology.md, section: "suitability scores"}
 
   # --- Grafana plugin and release ---------------------------------------------------------------
   - id: plugin-missing
@@ -238,7 +238,7 @@ questions:
     question: How do I deploy Ops Signals to Kubernetes?
     contains: ["helm"]
     expect:
-      - {source: docs/22-release-packaging.md, section: "Kubernetes Deployment"}
+      - {source: docs/release-packaging.md, section: "Kubernetes Deployment"}
 
   # --- Analyzers (generated knowledge documents) ------------------------------------------------
   - id: data-health-gaps
@@ -276,7 +276,7 @@ questions:
     question: How does Behavior Intelligence work?
     contains: ["behavior definitions"]
     expect:
-      - {source: docs/14-behavior-intelligence.md}
+      - {source: docs/behavior-intelligence.md}
 
   - id: starter-analyzer-catalog
     category: analyzers

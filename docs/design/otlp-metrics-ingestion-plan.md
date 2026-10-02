@@ -7,7 +7,7 @@ and a manual end-to-end run against a live Postgres instance (real OTLP protobuf
 written below, both discovered while wiring the scheduler step against the actual codebase — see
 "Implementation notes" immediately below §5.
 
-**Extends:** [`docs/02-architecture.md`](../02-architecture.md) (roadmap item: "OpenTelemetry
+**Extends:** [`docs/architecture.md`](../architecture.md) (roadmap item: "OpenTelemetry
 Collector ingestion", currently listed under Not Yet Implemented), [`README.md`](../../README.md)
 §12 (Current Limitations).
 
@@ -205,7 +205,7 @@ they already have. A custom JSON shape would need its own glue on their end for 
 
 ## 8. Docs updates (done)
 
-- `docs/02-architecture.md` — moved OpenTelemetry out of the Roadmap (Not Yet Implemented) list;
+- `docs/architecture.md` — moved OpenTelemetry out of the Roadmap (Not Yet Implemented) list;
   noted logs/traces remain future work.
 - `README.md` "OTLP Metrics Ingestion" (new) — endpoint URL, the `/api/otlp` path caveat, a copy-pasteable Collector
   config snippet, the four env vars, and a pointer to this document for the full design and the

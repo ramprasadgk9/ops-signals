@@ -24,7 +24,7 @@ This is the single reference for how that works. It replaces five previously-sca
 
 > **Important:** recommendation scores are suitability scores used for routing, not probabilities
 > or statistical confidence values. A score of `0.86` does not mean the analyzer has an 86% chance
-> of being correct. See [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md) for how
+> of being correct. See [`docs/analyzer-methodology.md`](analyzer-methodology.md) for how
 > honest that distinction currently is - the scoring *weights* themselves are hand-authored
 > heuristics, not yet validated against real outcomes.
 
@@ -199,7 +199,7 @@ estimated. Precision on that series is the open question - see "Known gaps".
 
 **Where the weights come from:** they're expert-defined heuristics, hand-chosen when the registry
 was written - not fit against outcome data, not benchmarked against a calibration methodology. See
-[`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md) for the full honest accounting of
+[`docs/analyzer-methodology.md`](analyzer-methodology.md) for the full honest accounting of
 this, the infrastructure built to validate it, and how to contribute to calibrating it.
 
 ## Series profile features
@@ -325,7 +325,7 @@ The prompt/response contract lives in
 [`backend/app/metric_analyzer_recommendations/gemma_advisor.py`](../backend/app/metric_analyzer_recommendations/gemma_advisor.py).
 Every AI-vs-router evaluation is now logged (`AnalyzerDivergenceEntity`,
 `GET /api/metric-analyzer-recommendations/divergences`) for later correlation against real
-confirmed/rejected outcomes - see [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md).
+confirmed/rejected outcomes - see [`docs/analyzer-methodology.md`](analyzer-methodology.md).
 
 ## Selection modes
 
@@ -400,7 +400,7 @@ Four contracts: a registry entry (router scoring rules), any new profile feature
 router-to-pipeline execution mapping, and a result compatible with the normalized signal/finding
 models. The fastest path is the **Add Analyzer** wizard in the web UI. Full contributor guide,
 the two-registry model, and current extensibility limitations:
-[`docs/04-analyzer-plugin-framework.md`](04-analyzer-plugin-framework.md).
+[`docs/analyzer-plugin-framework.md`](analyzer-plugin-framework.md).
 
 ## Tuning existing recommendation logic
 
@@ -432,7 +432,7 @@ Verified current, as of this doc:
 - **Fixed this cycle:** the Analyzer Recommendation workbench used to feed the router a fake
   `shift_index` (variance/mean) and a hardcoded `spikiness = 0.0` for every series, instead of the
   real per-split calculation the production pipeline uses - see
-  [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md).
+  [`docs/analyzer-methodology.md`](analyzer-methodology.md).
 - **Fixed this cycle:** `spikiness`/`shift_index` were computed against the series' *raw* values,
   not a de-seasonalized residual - on a strongly seasonal real series with genuine anomalies riding
   on top (`nab_nyc_taxi`, five labeled demand shocks), the
@@ -576,7 +576,7 @@ coverage pick for a detected problem shape that no higher-rated runnable analyze
 alongside it as a second opinion (see above), never replacing it.
 
 **Are the YAML rules learned automatically?** No - hand-configured today.
-[`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md) covers what's being built to
+[`docs/analyzer-methodology.md`](analyzer-methodology.md) covers what's being built to
 change that.
 
 ## Document history
@@ -584,6 +584,6 @@ change that.
 This consolidates what were previously five separate, overlapping docs:
 `recommended-only-selection-mode.md` (the most complete prior version - this doc's backbone),
 `20-analyzer-library-routing-matrix.md`, `21-gemma-analyzer-recommendation.md`, and this file's own
-prior thin/stale version. `04-analyzer-plugin-framework.md` (adding a new analyzer) and
-`26-analyzer-methodology.md` (citations and scoring-weight honesty) remain separate, linked docs -
+prior thin/stale version. `analyzer-plugin-framework.md` (adding a new analyzer) and
+`analyzer-methodology.md` (citations and scoring-weight honesty) remain separate, linked docs -
 different audiences, not folded in here.

@@ -6,8 +6,8 @@ name: Images
 #   manual run on main      -> :latest and :sha-<short sha>
 #
 # Only on release tags and manual runs, not every push to main: the arm64 build runs under QEMU
-# emulation and was the largest use of Actions minutes (about 700 a month on this private repo,
-# including one hung job that ran 6 hours). To refresh :latest between releases, run it by hand:
+# emulation and takes 10-25 minutes (one hung job once ran 6 hours), and :latest should point at a
+# release rather than whatever was last merged. To refresh :latest between releases, run it by hand:
 #   gh workflow run images.yml --ref main
 
 on:

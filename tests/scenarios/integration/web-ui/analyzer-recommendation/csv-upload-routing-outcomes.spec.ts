@@ -62,7 +62,7 @@ test('CSV upload with a router-recommended but runtime-unmapped custom analyzer 
       'analyzer_routing at all (not even as excluded/rejected), even after a fresh backend restart to rule out ' +
       'stale in-memory registry state. So there is nothing to assert "unavailable" on with the current backend ' +
       'behavior — either custom analyzers are excluded earlier in the CSV-validate flow for a reason not yet ' +
-      'traced, or the "unavailable" execution-status concept (docs/16-analyzer-recommendation.md) applies to a different ' +
+      'traced, or the "unavailable" execution-status concept (docs/analyzer-recommendation.md) applies to a different ' +
       'flow than csv-validate. Needs product/eng input before this can be written meaningfully.'
   );
 

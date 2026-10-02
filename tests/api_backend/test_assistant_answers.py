@@ -77,7 +77,7 @@ def test_a_concept_question_about_findings_still_reaches_the_docs() -> None:
 
 
 def test_analyzer_and_docs_routes_search_the_docs_once() -> None:
-    assistant = _assistant(doc_rows=[_doc("docs/04-analyzer-plugin-framework.md", "Registry Model", 0.6)])
+    assistant = _assistant(doc_rows=[_doc("docs/analyzer-plugin-framework.md", "Registry Model", 0.6)])
 
     response = assistant.chat(AssistantChatRequest(message="How does the stumpy analyzer work in the docs?"), db=_Db())
 

@@ -42,7 +42,7 @@ PROFILE_MISMATCH_CAP = 0.54
 # a seasonal-contradiction detector that genuinely needs shape, mislabeled by a naming gap. So
 # irregularity-only status also requires the analyzer's own scoring rules to never test a shape
 # metric - letting its own declared evidence, not just its profile label, decide. See
-# docs/16-analyzer-recommendation.md, "Shape vs. irregularity profile matching".
+# docs/analyzer-recommendation.md, "Shape vs. irregularity profile matching".
 IRREGULARITY_PROFILES = {"anomaly", "outlier", "spike", "baseline_shift", "regime_change"}
 SHAPE_METRICS = {
     "seasonality_strength",

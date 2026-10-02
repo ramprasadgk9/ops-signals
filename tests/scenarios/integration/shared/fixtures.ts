@@ -31,7 +31,7 @@ export type AnalyzerFixture = {
 };
 
 // analyzer_id values below match experiments/analyzer_router/analyzer_registry.yaml exactly
-// (the router's ids, not the narrower set of runtime-executable ids — see docs/16-analyzer-recommendation.md
+// (the router's ids, not the narrower set of runtime-executable ids — see docs/analyzer-recommendation.md
 // "Router-to-pipeline mapping", e.g. "trend_regression" routes to but is distinct from executable "trend").
 export const analyzerFixtures: Record<string, AnalyzerFixture> = {
   ruptures: {

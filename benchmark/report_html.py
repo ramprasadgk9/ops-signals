@@ -26,7 +26,7 @@ STATUS_META = {
 }
 
 # The published method behind each analyzer that actually executes - mirrors
-# docs/26-analyzer-methodology.md, which is the source of truth for these citations.
+# docs/analyzer-methodology.md, which is the source of truth for these citations.
 ANALYZER_METHODS = [
     ("ruptures / baseline_shift", "Regime changes, sustained level shifts", "Offline change-point detection (binary segmentation)", "Truong, Oudre & Vayatis (2020), Signal Processing 167"),
     ("stumpy", "Repeating patterns, motifs", "Matrix Profile", "Yeh et al. (2016), IEEE ICDM; Law (2019), JOSS 4(39)"),
@@ -1922,7 +1922,7 @@ def _method_section() -> str:
   <p class="section-lede">Each analyzer applies an established, published method; none of the detection statistics
   were invented for this project. What is hand-authored is the router's suitability scoring (a base score plus
   additive threshold rules over series features), which decides which analyzers run. Full detail:
-  <span class="mono">docs/26-analyzer-methodology.md</span>.</p>
+  <span class="mono">docs/analyzer-methodology.md</span>.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Analyzer</th><th>Detects</th><th>Method</th><th>Reference</th></tr></thead>
     <tbody>{rows}</tbody>
