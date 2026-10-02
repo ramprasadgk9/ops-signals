@@ -1,7 +1,7 @@
 # Development Guide
 
 For a first-time clone - prerequisites, `./scripts/setup.sh`, `./scripts/run_all.sh` - see the
-[README Quick Start](../README.md#quick-start). This guide assumes that's already done and covers
+[README Quick Start](../README.md#6-quick-start). This guide assumes that's already done and covers
 running individual pieces by hand (e.g. the backend without the frontend, or vice versa).
 
 ## Backend

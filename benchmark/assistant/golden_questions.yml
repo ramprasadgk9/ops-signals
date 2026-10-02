@@ -68,7 +68,7 @@ questions:
     expect:
       - {source: docs/23-ask-ops-signals-assistant.md, section: "Enabling Local AI"}
       - {source: README.md, section: "6.7 Optional: Enable Local AI"}
-      - {source: README.md, section: "7.7 Operational Intelligence Assistant"}
+      - {source: README.md, section: "7.2 Operational Intelligence Assistant"}
 
   - id: test-mcp
     category: docs

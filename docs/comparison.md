@@ -75,4 +75,4 @@ Kubernetes or Loki, and keeps resolved cases as memory for future alerts. Ops Si
 Ops Signals fits teams that run Prometheus, with or without Kubernetes, and want each alert to say
 what the metric did, what changed and whether it has happened before, with results that are
 explainable and don't depend on an LLM. Its current gaps compared with the tools above are listed
-in [Current Limitations](../README.md#12-current-limitations).
+in [Current Limitations](../README.md#11-current-limitations).

@@ -161,6 +161,14 @@ Setting `max_metrics_per_run = 5,000` almost never actually binds in this scenar
 
 For local mock Prometheus data, prefer `All environments`, service `ruptures-lab`, category `Capacity`, and a `6h` analysis window. A `24h` window can include sparse sample gaps and may be rejected by the existing time-series validator.
 
+## Scheduling
+
+A policy can run once on demand or be saved as a recurring schedule (a `Run once` / `Scheduled`
+toggle, plus a `Run every` interval) backed by an in-process scheduler. Each policy tracks
+`schedule_minutes`, `next_run_at`, `last_run_status`, and `consecutive_failures`, so a failing
+schedule surfaces instead of silently going quiet. A saved schedule is what makes analysis
+continuous rather than one-off.
+
 ## Results Dashboard
 
 The web UI's Autonomous Analysis Configure page renders results inline, in place, right after a
