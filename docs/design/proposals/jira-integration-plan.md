@@ -15,10 +15,10 @@ Ops Signals analyzes telemetry anomalies, generates findings, and drives operati
 ### The Vision: Plug-and-Play Ticketing Architecture
 Instead of coupling Ops Signals to a bespoke, one-off Jira script that mixes delivery state into case models and breaks when another tool is introduced, Ops Signals establishes a **pluggable ticketing architecture**:
 1. **Strict Single-Authority Model:** PostgreSQL remains the immutable system of record. Case lifecycle status is derived exclusively from internal case domain milestones (investigation, RCA verification, corrective action). External ticket updates are captured as non-destructive link metadata and external timeline events—never modifying internal case status or notes.
-2. **Durable Transactional Outbox with Ambiguous-Outcome Reconciliation (`ticket_operations`):** Outbound operations return `202 Accepted` immediately and process reliably through a durable outbox table with idempotency keys, explicit retry backoff (`available_at`), and lease locking. If an external API call times out or crashes midway, provider reconciliation queries prevent duplicate ticket creation upon retry.
-3. **Normalized Link & Event Entities (`case_ticket_links`, `case_ticket_events`):** Case identity, remote ticket identity, and incoming remote activity are strictly segregated. The `ops_operational_cases` table remains pristine.
+2. **Durable Transactional Outbox with Distributed Reconciliation (`ticket_operations`):** Outbound operations return `202 Accepted` immediately and process reliably through a durable outbox table with idempotency keys, explicit retry backoff (`available_at`), and per-claim random lease tokens with active renewal. Distributed reconciliation via native Jira labels and ambiguous-outcome circuits eliminates duplicate tickets after worker crashes or network timeouts.
+3. **Normalized Link & Event Entities (`case_ticket_links`, `case_ticket_events`):** Case identity, remote ticket identity, and incoming remote activity are strictly segregated. Deduplication keys are concretely defined using Jira's `X-Atlassian-Webhook-Identifier` for webhooks and stable comment/changelog IDs for polling. The `ops_operational_cases` table remains pristine.
 4. **Deep Module Façade (`CaseTicketing`) & Role Protocols:** Granular role protocols (`TicketCreator`, `TicketSynchronizer`, `WebhookVerifier`, `WebhookParser`) operate on pure value models (`TicketDraft`, `TicketView`, `TicketOperationView`, `TicketEventView`), hiding persistence and ORM entities from providers and callers.
-5. **Jira Cloud v3 Reference Adapter:** Phase 1 delivers an end-to-end Jira Cloud adapter using Atlassian Document Format (ADF), REST API v3, and issue property tracking for distributed idempotency, secured with authentic HMAC-SHA256 webhook signatures integrated into Ops Signals' app-wide security model.
+5. **Jira Cloud v3 Reference Adapter:** Phase 1 delivers an end-to-end Jira Cloud adapter using Atlassian Document Format (ADF), REST API v3, and native label indexing for distributed idempotency, secured with authentic HMAC-SHA256 webhook signatures integrated via a provider-agnostic dynamic security exemption.
 
 ---
 
@@ -51,16 +51,16 @@ The semantic memory pipeline (`CaseMemoryIndexer` $\rightarrow$ Qdrant `operatio
 ```mermaid
 flowchart TB
   subgraph ClientUI["Client Surfaces (Grafana Plugin / Web UI)"]
-    CaseView["Case Details View\n- Ticket Pill (display_key, observed_status)\n- Action Button (Create / Sync / Retry)\n- External Activity Feed"]
+    CaseView["Case Details View\n- Ticket Pill (display_key, observed_status)\n- Action Button (Create / Sync / Retry)\n- Ambiguous Outcome Resolver\n- External Activity Feed"]
   end
 
   subgraph API["FastAPI Layer"]
-    CaseEndpoints["POST /api/cases/{id}/ticket/create\nPOST /api/cases/{id}/ticket/sync\nPOST /api/cases/{id}/ticket/retry\nGET /api/cases/{id}/ticket"]
-    WebhookEndpoint["POST /api/integrations/ticketing/{provider}/webhook\n(Public route, HMAC-SHA256 verified)"]
+    CaseEndpoints["POST /api/cases/{id}/ticket/create\nPOST /api/cases/{id}/ticket/sync\nPOST /api/cases/{id}/ticket/retry\nPOST /api/cases/{id}/ticket/link\nGET /api/cases/{id}/ticket"]
+    WebhookEndpoint["POST /api/integrations/ticketing/{provider}/webhook\n(Dynamic security exemption, HMAC-SHA256 verified)"]
   end
 
   subgraph CoreModule["Deep Module Boundary: CaseTicketing"]
-    Façade["CaseTicketing Façade\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
+    Façade["CaseTicketing Façade\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- link_existing_ticket(case_id, display_key)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
     
     subgraph RoleProtocols["Role Protocols (Pure Data Contracts)"]
       Creator["TicketCreator (Protocol)"]
@@ -74,7 +74,7 @@ flowchart TB
 
   subgraph OutboxEngine["Durable Transactional Outbox"]
     OutboxTable[("ticket_operations\n(PostgreSQL)\nstatus, available_at, lease_token, lease_expires_at")]
-    Worker["Outbox Worker / Background Task\n(Lease lock, retry, backoff)"]
+    Worker["Outbox Worker / Background Task\n(Per-claim lease token, heartbeat renewal, backoff)"]
     OutboxTable -.->|"Claim leased operation"| Worker
   end
 
@@ -85,7 +85,7 @@ flowchart TB
   end
 
   subgraph Adapters["Provider Implementations"]
-    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via issue.property\n- Builds ADF JSON\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier"]
+    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via native JQL labels\n- Builds ADF JSON\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier\n- X-Atlassian-Webhook-Identifier Parser"]
     ServiceNowAdapter["ServiceNowTicketProvider (Future)"]
     GitHubAdapter["GitHubIssuesTicketProvider (Future)"]
     
@@ -104,8 +104,8 @@ flowchart TB
   Façade -->|"Writes operation (atomic)"| OutboxTable
   Façade -->|"Returns 202 Accepted"| CaseEndpoints
   Worker --> JiraAdapter
-  JiraAdapter -->|"1. Reconcile origin marker"| JiraAPI
-  JiraAdapter -->|"2. HTTPS POST (ADF + properties)"| JiraAPI
+  JiraAdapter -->|"1. Reconcile via JQL labels"| JiraAPI
+  JiraAdapter -->|"2. HTTPS POST (ADF + labels)"| JiraAPI
   Worker -->|"Saves remote_id & display_key"| LinksTable
   
   JiraWebhooks -->|"POST X-Hub-Signature"| WebhookEndpoint
@@ -126,11 +126,11 @@ CREATE TABLE ticket_operations (
     provider VARCHAR(32) NOT NULL,              -- 'jira', 'servicenow', etc.
     operation_type VARCHAR(32) NOT NULL,        -- 'create_ticket', 'sync_ticket'
     idempotency_key VARCHAR(128) NOT NULL,      -- Unique per logical operation
-    status VARCHAR(32) NOT NULL DEFAULT 'pending', -- pending, processing, completed, failed, dead_letter
+    status VARCHAR(32) NOT NULL DEFAULT 'pending', -- pending, processing, ambiguous_outcome, completed, failed, dead_letter
     attempts INTEGER NOT NULL DEFAULT 0,
     max_attempts INTEGER NOT NULL DEFAULT 5,
     available_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), -- Retry timing backoff
-    lease_token VARCHAR(64),                    -- Worker instance identifier
+    lease_token VARCHAR(64),                    -- Cryptographically random UUID per claim
     lease_expires_at TIMESTAMP WITH TIME ZONE,  -- Worker lease timeout
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     error_message TEXT,
@@ -144,11 +144,11 @@ CREATE INDEX idx_ticket_ops_case_id ON ticket_operations(case_id);
 ```
 
 ### B. Correct Lease Claim & Recovery Predicate (P0)
-To guarantee that worker crashes are reclaimed, the query must explicitly select **both** pending/failed rows past their backoff **and** processing rows with expired leases:
+To guarantee that crashed workers are safely reclaimed without leaving tasks stuck in `'processing'`, the claim query selects **both** pending/failed rows past their backoff **and** processing rows whose leases have expired:
 ```sql
 UPDATE ticket_operations
 SET status = 'processing',
-    lease_token = :worker_id,
+    lease_token = :random_claim_uuid,           -- Fresh UUID per claim (uuid.uuid4())
     lease_expires_at = NOW() + INTERVAL '60 seconds',
     attempts = attempts + 1,
     updated_at = NOW()
@@ -166,53 +166,77 @@ WHERE id = (
 RETURNING *;
 ```
 
-### C. Lease Ownership Verification on Completion (P0)
-When an operation finishes or fails, the worker must verify ownership before committing state:
-```sql
--- Completion
-UPDATE ticket_operations
-SET status = 'completed',
-    lease_token = NULL,
-    lease_expires_at = NULL,
-    updated_at = NOW()
-WHERE id = :operation_id
-  AND lease_token = :worker_id
-  AND status = 'processing';
-```
-If 0 rows are updated, the worker knows its lease expired and was claimed by another worker; it aborts without clobbering subsequent state.
+### C. Active Lease Renewal & Pre-Persistence Ownership Check (P1)
+External HTTP calls (e.g. Jira API requests under rate limits or HTTP 429 backoff) may exceed a default 60-second lease window.
 
-### D. Distributed Idempotency & Ambiguous-Outcome Reconciliation (P0)
-If the worker calls Jira `POST /rest/api/3/issue`, Jira creates the ticket, but the worker crashes or the connection drops before `case_ticket_links` is stored, a naive retry creates a duplicate ticket.
+1. **Heartbeat Lease Renewal:**
+   While the adapter executes an external call, an async heartbeat task extends the lease periodically:
+   ```sql
+   UPDATE ticket_operations
+   SET lease_expires_at = NOW() + INTERVAL '60 seconds',
+       updated_at = NOW()
+   WHERE id = :operation_id
+     AND lease_token = :random_claim_uuid
+     AND status = 'processing';
+   ```
+2. **Pre-Persistence Ownership Verification:**
+   Before persisting `case_ticket_links` and updating the outbox to `status = 'completed'`, the worker performs an atomic ownership check:
+   ```sql
+   UPDATE ticket_operations
+   SET status = 'completed',
+       lease_token = NULL,
+       lease_expires_at = NULL,
+       updated_at = NOW()
+   WHERE id = :operation_id
+     AND lease_token = :random_claim_uuid
+     AND lease_expires_at > NOW()
+     AND status = 'processing';
+   ```
+   If 0 rows are updated, the worker knows its lease expired and was claimed by another worker; it aborts immediately and does **not** commit `case_ticket_links`, preventing split-brain concurrent writes.
 
-**Reconciliation Protocol:**
-1. **Origin Property Attachment:** During creation, Jira issues are tagged with an Atlassian issue property:
+### D. Distributed Idempotency via Native Jira Labels (P0)
+
+#### The Limitation of Jira Entity Properties
+In Jira Cloud, arbitrary entity properties set via REST API (`issue.property[...]`) **cannot be searched via JQL** unless a custom Atlassian Connect or Forge app module explicitly registers an indexed property extraction descriptor. Because Ops Signals connects directly via standalone API Token / Basic Auth without requiring customers to install a marketplace app, searching entity properties via JQL returns an invalid JQL error or zero results.
+
+#### The Solution: Native Searchable Labels + Ambiguous Outcome Protection
+1. **Searchable Origin Labels:**
+   All standard Jira Cloud instances natively index the `labels` field for instant JQL search without requiring any app installation or custom field configuration.
+   When creating an issue, `JiraTicketProvider` tags the issue with deterministic labels:
    ```json
    {
-     "fields": { ... },
-     "properties": [
-       {
-         "key": "ops_signals_origin",
-         "value": {
-           "case_id": 14,
-           "operation_id": "op_9f8d1c7e2b"
-         }
-       }
-     ]
+     "fields": {
+       "project": {"key": "OPS"},
+       "summary": "[Ops Signals] Telemetry Anomaly in checkout-service",
+       "issuetype": {"name": "Task"},
+       "labels": [
+         "ops-signals",
+         "ops-signals-case-14",
+         "ops-signals-op-op_9f8d1c7e2b"
+       ],
+       "description": { ... }
+     }
    }
    ```
-2. **Pre-Retry Reconciliation Check:** On any attempt where `attempts > 1` (or after claiming an expired lease), `JiraTicketProvider` first performs a reconciliation query before making a POST call:
+2. **Pre-Retry Reconciliation Query:**
+   On any attempt where `attempts > 1` (or after reclaiming an expired lease), `JiraTicketProvider` queries Jira using native JQL:
    ```
-   GET /rest/api/3/search?jql=issue.property[ops_signals_origin].operation_id = "op_9f8d1c7e2b"
+   GET /rest/api/3/search?jql=project = "OPS" AND labels = "ops-signals-op-op_9f8d1c7e2b"
    ```
    - **Found:** An issue was already created in Jira during a prior attempt. The adapter adopts the existing issue (`remote_id`, `display_key`, `ticket_url`), stores the link, and completes the operation without calling create.
-   - **Not Found:** The prior attempt failed before reaching Jira. The adapter proceeds to call `POST /rest/api/3/issue`.
+   - **Not Found:** The prior attempt failed before reaching Jira. The adapter proceeds with create.
+3. **Ambiguous-Outcome Circuit Breaker:**
+   If a network connection drops or times out mid-request during `POST /rest/api/3/issue`, and subsequent reconciliation search is inconclusive (e.g. Jira search indexing lag or continuous network errors), the operation transitions to `status = 'ambiguous_outcome'`.
+   The worker ceases automatic blind retries, and the UI presents an operator resolution modal:
+   - **Option A:** Re-run reconciliation check.
+   - **Option B:** Manually link existing Jira issue (e.g. typing `OPS-143`).
+   - **Option C:** Confirm no ticket exists and force fresh create.
 
 ### E. Explicit Retry Timing & Key Lifecycle (P1)
 - **Exponential Backoff:** On transient failure, `available_at` is scheduled with jittered exponential backoff:
   $$\text{available\_at} = \text{NOW}() + (2^{\text{attempts}} \times 2\text{ seconds}) \pm \text{jitter}$$
 - **Terminal Failure:** If `attempts >= max_attempts`, `status` transitions to `'dead_letter'`.
 - **Manual Retry Action:** The UI offers a **"Retry"** button when status is `failed` or `dead_letter`.
-  To prevent unique index conflicts on `idempotency_key = f"{case_id}:create"`:
   Calling `retry_operation(operation_id)` explicitly **reopens** the existing record:
   ```sql
   UPDATE ticket_operations
@@ -226,7 +250,7 @@ If the worker calls Jira `POST /rest/api/3/issue`, Jira creates the ticket, but 
   WHERE id = :operation_id
     AND status IN ('failed', 'dead_letter');
   ```
-  This preserves the single logical operation per case lifecycle and avoids key collisions.
+  This preserves the single logical operation per case lifecycle and avoids unique index collisions on `uq_ticket_ops_idempotency`.
 
 ---
 
@@ -252,13 +276,13 @@ CREATE TABLE case_ticket_links (
 CREATE INDEX idx_case_ticket_links_remote ON case_ticket_links(provider, remote_id);
 ```
 
-### Table 2: `case_ticket_events` (Immutable External Timeline Events) (P0)
+### Table 2: `case_ticket_events` (Immutable External Timeline Events) (P0 & P1)
 ```sql
 CREATE TABLE case_ticket_events (
     id SERIAL PRIMARY KEY,
     case_id INTEGER NOT NULL REFERENCES ops_operational_cases(id) ON DELETE CASCADE,
     provider VARCHAR(32) NOT NULL,
-    remote_event_id VARCHAR(128) NOT NULL,      -- Provider comment or event ID
+    remote_event_id VARCHAR(128) NOT NULL,      -- Concrete deduplication ID
     event_type VARCHAR(32) NOT NULL,            -- 'comment_created', 'status_changed', 'issue_updated'
     author VARCHAR(255),                        -- Remote author name / email
     summary TEXT NOT NULL,                      -- Comment text or change summary
@@ -271,19 +295,22 @@ CREATE TABLE case_ticket_events (
 CREATE INDEX idx_ticket_events_case_timeline ON case_ticket_events(case_id, occurred_at DESC);
 ```
 
-### Strict Separation of Concerns
-| Entity | Purpose | Mutability |
-|---|---|---|
-| `ops_operational_cases` | Authoritative internal incident lifecycle, RCA, outcome | Authoritative (System of Record) |
-| `ticket_operations` | Outbox delivery state machine, retries, and leases | Transient / Operational |
-| `case_ticket_links` | Remote ticket identity, URLs, and latest observed status | Synchronized projection |
-| `case_ticket_events` | Immutable external activity and comments | Append-only, deduplicated timeline |
+### Concrete Deduplication Identity Contract (P1)
+To ensure the `(provider, remote_event_id)` uniqueness constraint functions deterministically without ambiguity across ingestion methods:
+1. **Inbound Webhooks:**
+   Jira Cloud attaches the `X-Atlassian-Webhook-Identifier` header to every webhook request. This header contains a persistent UUID uniquely identifying the webhook event across Atlassian's automatic retries.
+   - `remote_event_id = headers["X-Atlassian-Webhook-Identifier"]`
+   - *Fallback (if header missing):* `f"webhook_{event['timestamp']}_{event['issue']['id']}"`
+2. **Inbound Polling (`pull_remote_ticket`):**
+   When pulling incremental changes via REST API:
+   - For comments: `remote_event_id = f"jira_comment_{comment['id']}"`
+   - For changelog/status transitions: `remote_event_id = f"jira_changelog_{changelog_item['id']}"`
 
 ---
 
 ## 6. Deep Module Boundary: `CaseTicketing` Façade (P1)
 
-To decouple callers and adapters from database schema and ORM models, all module boundaries use **pure value models** (Pydantic / dataclasses).
+All module boundaries use **pure value models** (Pydantic / dataclasses) to isolate external callers and adapters from database models and transaction sessions.
 
 ### Pure Value Models (`backend/app/integrations/ticketing/models.py`)
 ```python
@@ -312,8 +339,8 @@ class RemoteTicketSnapshot(BaseModel):
     sync_cursor: str | None = None
 
 class RemoteEventDraft(BaseModel):
-    remote_event_id: str
-    event_type: str
+    remote_event_id: str                    # Concrete ID (Webhook UUID or comment ID)
+    event_type: str                         # "comment_created", "status_changed"
     author: str | None = None
     summary: str
     occurred_at: datetime
@@ -333,7 +360,7 @@ class TicketOperationView(BaseModel):
     case_id: int
     provider: str
     operation_type: str
-    status: str
+    status: str                             # pending, processing, ambiguous_outcome, completed, failed, dead_letter
     attempts: int
     available_at: datetime
     error_message: str | None = None
@@ -350,7 +377,6 @@ class TicketEventView(BaseModel):
 ```
 
 ### Granular Role Protocols (`backend/app/integrations/ticketing/protocols.py`)
-Adapters implement only the protocols they support, operating on pure value models:
 ```python
 from typing import Mapping, Protocol, runtime_checkable
 
@@ -394,6 +420,9 @@ class CaseTicketing:
     def retry_operation(self, operation_id: str) -> TicketOperationView:
         """Reopens a failed or dead-letter outbox operation for immediate retry."""
 
+    def link_existing_ticket(self, case_id: int, provider: str, display_key: str) -> TicketView:
+        """Operator resolution: manually links an existing remote ticket."""
+
     def get_ticket_view(self, case_id: int) -> TicketView | None:
         """Fetches active ticket link projection for a case."""
 
@@ -404,7 +433,7 @@ class CaseTicketing:
         """Fetches immutable external timeline events for a case."""
 
     def process_pending_operations(self, limit: int = 10) -> int:
-        """Outbox worker step: claims jobs with lease locking and executes them."""
+        """Outbox worker step: claims jobs with lease locking, heartbeats, and executes them."""
 
     def accept_webhook(self, provider_name: str, raw_body: bytes, headers: Mapping[str, str]) -> bool:
         """Verifies signature, records remote status updates, and appends timeline events."""
@@ -412,37 +441,34 @@ class CaseTicketing:
 
 ---
 
-## 7. Jira Cloud Reference Adapter Details (P1 & P2)
+## 7. Jira Cloud Reference Adapter Details (P0, P1 & P2)
 
 ### A. Jira Cloud REST API v3 Only (P2)
 Ops Signals targets **Jira Cloud REST API v3** exclusively. All rich-text descriptions are generated in Atlassian Document Format (ADF) via `backend/app/integrations/ticketing/jira/adf.py`.
 
-### B. Pre-Retry Reconciliation & Issue Creation
+### B. Pre-Retry Reconciliation via JQL Labels (P0)
 ```python
 class JiraTicketProvider:
     def reconcile_or_create(self, draft: TicketDraft, operation_id: str) -> TicketCreationResult:
-        # Step 1: Pre-retry reconciliation via JQL on issue property
-        existing = self._find_issue_by_operation_marker(operation_id, draft.case_id)
+        # Step 1: Pre-retry reconciliation via natively-indexed labels
+        op_label = f"ops-signals-op-{operation_id}"
+        existing = self._find_issue_by_label(op_label)
         if existing:
             return existing
 
-        # Step 2: Fresh issue creation with ADF description and origin property
+        # Step 2: Fresh issue creation with ADF description and labels
         payload = {
             "fields": {
                 "project": {"key": self.config.project_key},
                 "summary": f"[Ops Signals] {draft.case_title}",
                 "issuetype": {"name": self.config.issue_type},
+                "labels": [
+                    "ops-signals",
+                    f"ops-signals-case-{draft.case_id}",
+                    op_label,
+                ],
                 "description": build_case_adf_description(draft),
-            },
-            "properties": [
-                {
-                    "key": "ops_signals_origin",
-                    "value": {
-                        "case_id": draft.case_id,
-                        "operation_id": operation_id,
-                    }
-                }
-            ]
+            }
         }
         res = self._post("/rest/api/3/issue", payload)
         return TicketCreationResult(
@@ -451,35 +477,57 @@ class JiraTicketProvider:
             ticket_url=f"{self.config.base_url.rstrip('/')}/browse/{res['key']}",
             observed_remote_status="To Do"
         )
+
+    def _find_issue_by_label(self, label: str) -> TicketCreationResult | None:
+        jql = f'project = "{self.config.project_key}" AND labels = "{label}"'
+        data = self._get("/rest/api/3/search", params={"jql": jql, "maxResults": 1})
+        issues = data.get("issues", [])
+        if not issues:
+            return None
+        issue = issues[0]
+        return TicketCreationResult(
+            remote_id=issue["id"],
+            display_key=issue["key"],
+            ticket_url=f"{self.config.base_url.rstrip('/')}/browse/{issue['key']}",
+            observed_remote_status=issue.get("fields", {}).get("status", {}).get("name"),
+        )
 ```
 
-### C. Webhook Authentication & App Security Integration (P1)
+### C. Provider-Agnostic Dynamic Webhook Security Exemption (P1)
 In Ops Signals, [`backend/app/security.py`](../../../backend/app/security.py) protects all API routes with a global bearer token check (`require_api_token`).
 
-**Integration Requirements:**
-1. **Public Route Registration:**
-   The webhook endpoint is added to `PUBLIC_ROUTES` in `backend/app/security.py`:
-   ```python
-   PUBLIC_ROUTES = frozenset({
-       ("GET", "/api/health"),
-       ("POST", "/api/integrations/alertmanager"),
-       ("POST", "/api/alerts"),
-       ("POST", "/api/events"),
-       ("POST", "/api/integrations/ticketing/jira/webhook"),
-   })
-   ```
-2. **Cryptographic HMAC-SHA256 Verification:**
-   The route is authenticated exclusively via Jira's `X-Hub-Signature` header computed over the raw binary request payload (`await request.body()`):
-   ```python
-   class JiraTicketProvider:
-       def verify_signature(self, raw_body: bytes, headers: Mapping[str, str], secret: str) -> bool:
-           sig = headers.get("X-Hub-Signature") or headers.get("x-hub-signature")
-           if not sig or not secret:
-               return False
-           expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-           return hmac.compare_digest(expected, sig)
-   ```
-   If the signature is invalid or secret is unconfigured, the endpoint immediately returns `401 Unauthorized`.
+Instead of hardcoding Jira-specific URLs into static sets (which would force modifying core security files whenever ServiceNow or GitHub is added in Phase 4), `backend/app/security.py` defines a narrow **dynamic public route exemption**:
+```python
+def is_public_route(method: str, path: str) -> bool:
+    if (method, path) in PUBLIC_ROUTES:
+        return True
+    # Dynamic exemption: Inbound ticketing webhooks are exempt from bearer auth;
+    # authentication is delegated entirely to the provider's cryptographic verifier.
+    if method == "POST" and path.startswith("/api/integrations/ticketing/") and path.endswith("/webhook"):
+        return True
+    return False
+
+def require_api_token(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    config: SecurityConfig = Depends(get_security_config),
+) -> None:
+    if is_public_route(request.method, request.url.path.rstrip("/")):
+        return
+    check_bearer_token(authorization, config.api_token)
+```
+
+The webhook endpoint itself enforces authentication via `WebhookVerifier.verify_signature`:
+```python
+class JiraTicketProvider:
+    def verify_signature(self, raw_body: bytes, headers: Mapping[str, str], secret: str) -> bool:
+        sig = headers.get("X-Hub-Signature") or headers.get("x-hub-signature")
+        if not sig or not secret:
+            return False
+        expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, sig)
+```
+If the provider is unconfigured, unknown, or the HMAC signature fails, the endpoint immediately returns `401 Unauthorized` (or `404 Not Found`).
 
 ---
 
@@ -541,6 +589,7 @@ def get_case_ticketing(
 | `POST /api/cases/{case_id}/ticket/create` | Bearer / `202 Accepted` | Idempotent trigger for ticket creation | Returns `{"status": "accepted", "operation_id": "...", "poll_url": "..."}` |
 | `POST /api/cases/{case_id}/ticket/sync` | Bearer / `202 Accepted` | Idempotent trigger for manual ticket sync | Enqueues sync outbox task. |
 | `POST /api/cases/{case_id}/ticket/retry` | Bearer / `202 Accepted` | Reopens failed/dead-letter outbox operation | Resets attempts and triggers immediate retry. |
+| `POST /api/cases/{case_id}/ticket/link` | Bearer / `200 OK` | Manually link existing external ticket | Body: `{"provider": "jira", "display_key": "OPS-143"}` |
 | `GET /api/cases/{case_id}/ticket` | Bearer / `200 OK` | Fetch ticket link, active operation & events | Returns `TicketView`, active `TicketOperationView`, and recent `TicketEventView` items. |
 | `GET /api/cases/{case_id}/ticket/operations/{operation_id}` | Bearer / `200 OK` | Check operation execution status | Returns `TicketOperationView`. |
 | `POST /api/integrations/ticketing/{provider}/webhook` | Public + `X-Hub-Signature` / `200 OK` | Inbound webhook receiver | Cryptographically verified on raw bytes; updates `observed_remote_status` and appends to `case_ticket_events`. |
@@ -558,7 +607,10 @@ The Case Details view features a dedicated **Ticketing Card**:
    - Status Chip: Displays `observed_remote_status` (e.g., `In Progress`, `Done`).
    - Refresh Action: `[Sync Now 🔄]` button.
    - **External Activity Feed:** Displays recent comments from `case_ticket_events` with remote author and timestamp, completely separate from the internal RCA notes.
-3. **Failed / Dead-Letter State:**
+3. **Ambiguous Outcome State:**
+   - Renders diagnostic banner: *"Ticket creation was interrupted by a network timeout. Ops Signals could not confirm whether Jira created the ticket."*
+   - Options: `[Check Jira Again]`, `[Link Manually]`, or `[Force Create New]`.
+4. **Failed / Dead-Letter State:**
    - Error banner with failure explanation and `[Retry Ticket Action]` button calling `POST /api/cases/{id}/ticket/retry`.
 
 ---
@@ -572,26 +624,26 @@ The Case Details view features a dedicated **Ticketing Card**:
   - Create `ticket_operations`.
 - **Core Engine:**
   - Value models (`models.py`), role protocols (`protocols.py`), and `CaseTicketing` façade (`service.py`).
-  - `JiraTicketProvider` with ADF generator and issue property reconciliation.
-  - Outbox worker loop with correct lease recovery predicate and ownership check.
+  - `JiraTicketProvider` with ADF generator and JQL label reconciliation.
+  - Outbox worker loop with per-claim UUID leases, heartbeat renewal, and ownership verification.
 - **Security & Routes:**
+  - Add dynamic webhook route exemption to `backend/app/security.py`.
   - Add `TicketingConfig` and `JiraConfig` to `config.py`.
   - Expose case ticket endpoints.
 - **UI:** Integrate ticketing widget into Grafana plugin and web UI.
 
 ### Phase 2: Inbound Poll & External Activity Feed
-- Implement `pull_remote_ticket` in `JiraTicketProvider`.
+- Implement `pull_remote_ticket` in `JiraTicketProvider` using `f"jira_comment_{id}"` / `f"jira_changelog_{id}"`.
 - Expose `POST /api/cases/{id}/ticket/sync`.
 - Ingest remote comments into `case_ticket_events` and update `observed_remote_status`.
 
 ### Phase 3: Real-Time Inbound Webhooks via HMAC-SHA256
-- Add webhook route to `PUBLIC_ROUTES` in `backend/app/security.py`.
 - Implement `verify_signature` using `X-Hub-Signature` and constant-time `hmac.compare_digest`.
-- Ingest webhook events directly into `case_ticket_events`.
+- Ingest webhook events directly into `case_ticket_events` using `X-Atlassian-Webhook-Identifier`.
 
 ### Phase 4: Additional Adapters (ServiceNow, GitHub, Linear)
 - Add `ServiceNowTicketProvider` and `GitHubIssuesTicketProvider`.
-- Zero schema migrations; purely additive provider classes implementing role protocols.
+- Zero schema migrations and zero core security edits; purely additive provider classes implementing role protocols.
 
 ---
 
@@ -599,7 +651,7 @@ The Case Details view features a dedicated **Ticketing Card**:
 
 1. **No Dual-Master Status Overwriting:** Ops Signals' computed `case_status` is never replaced by Jira status.
 2. **No Ingestion into `investigation_notes`:** Remote comments live in `case_ticket_events` to preserve case lifecycle rules.
-3. **No Blind External Retries:** Workers never retry ticket creation without pre-reconciliation of Jira issue properties.
+3. **No Blind External Retries:** Workers never retry ticket creation without pre-reconciliation of Jira labels and ambiguous-outcome circuits.
 4. **No Direct Qdrant Access:** External systems cannot query or index directly into Qdrant vector memory.
 5. **No Legacy Jira v2 Wiki Markup:** We do not support Jira Server or Jira Cloud REST v2 fallback.
 6. **No Insecure Query-String Webhook Secrets:** Webhooks require authentic HTTP header HMAC signatures.
