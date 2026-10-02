@@ -20,14 +20,14 @@ const ANALYZER_LABEL: Record<string, string> = {
   stumpy: 'pattern matching',
 };
 
-function minutes(value: number): string {
+export function minutes(value: number): string {
   const rounded = Math.round(Math.abs(value));
   if (rounded < 1) return '<1 min';
   if (rounded < 120) return `${rounded} min`;
   return `${(rounded / 60).toFixed(1)} h`;
 }
 
-function clock(iso: string | null): string {
+export function clock(iso: string | null): string {
   if (!iso) return 'an unknown time';
   return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }

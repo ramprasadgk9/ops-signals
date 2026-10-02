@@ -7,6 +7,7 @@ import { FindingBreakdown } from './FindingBreakdown';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
+import { changeChipLabel, findingChanges, findingWhatChanged } from '../utils/findingChanges';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 
 type Props = {
@@ -89,6 +90,9 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
 
   const signalGroups = groupSignalsByAnalyzer(matchedSignals);
   const breakdown = findingBreakdown(finding);
+  const changes = findingChanges(finding);
+  const changeChip = changeChipLabel(changes);
+  const whatChanged = changes ? findingWhatChanged(changes) : null;
   const scope = breakdownScopeLabel(breakdown);
   // The breakdown has its own section above; the raw view shows the rest of the comparison.
   const { breakdown: _breakdown, ...comparison } = finding.comparison_json;
@@ -109,6 +113,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
           <Chip label={`Importance: ${finding.importance_score.toFixed(2)}`} />
           <Chip label={`Priority: P${finding.investigation_priority}`} variant="outlined" />
           {scope && <Chip label={scope} color={breakdownSpreadColor(breakdown)} />}
+          {changeChip && <Chip label={changeChip} variant="outlined" />}
         </Stack>
 
         <LinkedAlerts findingId={finding.id} />
@@ -122,7 +127,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
           </Stack>
         </Box>
 
-        {breakdown && <FindingBreakdown breakdown={breakdown} />}
+        {breakdown && <FindingBreakdown breakdown={breakdown} changes={changes} />}
 
         <List dense>
           <ListItem>
@@ -131,6 +136,22 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
           {finding.service && (
             <ListItem>
               <ListItemText primary="Service" secondary={finding.service} />
+            </ListItem>
+          )}
+          {whatChanged && (
+            <ListItem data-testid="finding-what-changed">
+              <ListItemText
+                primary="What changed"
+                secondaryTypographyProps={{ component: 'div' }}
+                secondary={
+                  <Stack component="span" spacing={0.25} sx={{ mt: 0.5 }}>
+                    {whatChanged.lines.map((line) => (
+                      <Typography key={line} variant="body2" color="text.secondary">{line}</Typography>
+                    ))}
+                    {whatChanged.note && <Typography variant="caption" color="text.secondary">{whatChanged.note}</Typography>}
+                  </Stack>
+                }
+              />
             </ListItem>
           )}
           <ListItem>

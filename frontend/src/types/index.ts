@@ -172,6 +172,8 @@ export type Finding = {
   comparison_json: Record<string, unknown>;
   analysis_run_id?: string;
   created_at?: string;
+  /** Deploys and other change events near the finding's change; read with utils/findingChanges. */
+  changes?: unknown;
 };
 
 export type OperationalCase = {

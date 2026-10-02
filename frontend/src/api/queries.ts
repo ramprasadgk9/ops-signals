@@ -74,6 +74,8 @@ export type AutonomousQuestionAnswer = {
   evidence: Record<string, unknown>;
 };
 
+const SIGNAL_RUNS_PER_REQUEST = 100;
+
 export const api = {
   health: () => getJson<{ status: string }>('/api/health'),
   otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
@@ -144,9 +146,19 @@ export const api = {
     getJson<Signal[]>(`/api/signals?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
   signalDetail: (signalId: string) => getJson<Signal>(`/api/signals/${signalId}`),
   signalsByRunIds: async (analysisRunIds: string[]): Promise<Signal[]> => {
+    // Many runs per request (a 7-day findings list can span thousands of runs), in chunks that keep
+    // the URL short.
     const uniqueRunIds = Array.from(new Set(analysisRunIds));
+    const chunks: string[][] = [];
+    for (let index = 0; index < uniqueRunIds.length; index += SIGNAL_RUNS_PER_REQUEST) {
+      chunks.push(uniqueRunIds.slice(index, index + SIGNAL_RUNS_PER_REQUEST));
+    }
     const results = await Promise.all(
-      uniqueRunIds.map((runId) => getJson<Signal[]>(`/api/signals?analysis_run_id=${encodeURIComponent(runId)}`))
+      chunks.map((chunk) => {
+        const params = new URLSearchParams();
+        chunk.forEach((runId) => params.append('analysis_run_id', runId));
+        return getJson<Signal[]>(`/api/signals?${params.toString()}`);
+      })
     );
     return results.flat();
   },

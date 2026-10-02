@@ -9,9 +9,12 @@ import {
   type BreakdownPart,
   type FindingBreakdown as Breakdown,
 } from '../utils/findingBreakdown';
+import { deployNextStep, podLinkText, type FindingChanges } from '../utils/findingChanges';
 
 type Props = {
   breakdown: Breakdown;
+  /** Deploys near the change, when the backend sent them: links the new pods to a deploy. */
+  changes?: FindingChanges | null;
 };
 
 function barWidth(part: BreakdownPart, breakdown: Breakdown, largest: number): number {
@@ -28,7 +31,7 @@ function barValue(part: BreakdownPart, breakdown: Breakdown): string {
 }
 
 /** "Where the change came from": the finding's per-pod breakdown, or why there isn't one. */
-export function FindingBreakdown({ breakdown }: Props) {
+export function FindingBreakdown({ breakdown, changes = null }: Props) {
   if (breakdown.status !== 'ok') {
     return (
       <Box sx={{ mb: 3, p: 1.5, border: 1, borderColor: 'divider', borderStyle: 'dashed', borderRadius: 1 }}>
@@ -43,6 +46,7 @@ export function FindingBreakdown({ breakdown }: Props) {
   const largest = Math.max(0, ...parts.map((part) => Math.abs(part.relative_change ?? 0)));
   const scope = breakdownScopeLabel(breakdown);
   const label = breakdown.label ?? 'pod';
+  const podLink = podLinkText(changes);
 
   return (
     <Box sx={{ mb: 3, p: 2, borderRadius: 1, bgcolor: 'action.hover' }} data-testid="finding-breakdown">
@@ -50,7 +54,15 @@ export function FindingBreakdown({ breakdown }: Props) {
         <Typography variant="subtitle2">Where the change came from</Typography>
         {scope && <Chip size="small" label={scope} color={breakdownSpreadColor(breakdown)} />}
       </Stack>
-      <Typography variant="body2" sx={{ mb: 1.5 }}>{breakdownSentence(breakdown)}</Typography>
+      <Typography variant="body2" sx={{ mb: podLink ? 0.5 : 1.5 }}>{breakdownSentence(breakdown)}</Typography>
+      {podLink && (
+        <Box sx={{ mb: 1.5 }} data-testid="breakdown-deploy-link">
+          <Typography variant="body2">{podLink.sentence}</Typography>
+          {podLink.detail && (
+            <Typography variant="caption" color="text.secondary">{podLink.detail}</Typography>
+          )}
+        </Box>
+      )}
 
       <Stack spacing={0.75}>
         {parts.map((part) => (
@@ -95,7 +107,7 @@ export function FindingBreakdown({ breakdown }: Props) {
       </Typography>
 
       <Typography variant="body2" sx={{ mt: 1.5 }}>
-        <strong>Likely next step:</strong> {breakdownNextStep(breakdown)}
+        <strong>Likely next step:</strong> {breakdownNextStep(breakdown, deployNextStep(changes))}
       </Typography>
     </Box>
   );

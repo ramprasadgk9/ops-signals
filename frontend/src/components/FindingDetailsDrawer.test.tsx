@@ -193,3 +193,54 @@ describe('FindingDetailsDrawer evidence', () => {
     expect(screen.queryByText('No problem-signals matched.')).not.toBeInTheDocument();
   });
 });
+
+describe('FindingDetailsDrawer deploys', () => {
+  const breakdown = {
+    status: 'ok',
+    label: 'pod',
+    mode: 'share',
+    spread: 'partial',
+    direction: 'up',
+    parts_total: 6,
+    parts_changed: 2,
+    new_parts: 2,
+    top: [
+      { value: 'cart-8c2-q1', before: null, after: 1.4, change: 1.4, relative_change: 12, share: 0.52, moved: true, new: true, gone: false },
+      { value: 'cart-8c2-w7', before: null, after: 1.3, change: 1.3, relative_change: 11, share: 0.48, moved: true, new: true, gone: false },
+    ],
+    others: null,
+  };
+  const changes = {
+    status: 'matched',
+    service: 'cart',
+    anchor: '2026-10-01T14:10:00Z',
+    window_before_minutes: 30,
+    window_after_minutes: 5,
+    matches: [{ id: 7, event_type: 'deploy', version: 'v1.4.2', description: null, author: null, url: null, timestamp: '2026-10-01T14:06:00Z', minutes_before_anchor: 4 }],
+    pods: { status: 'linked', method: 'pod_start_time', event_id: 7, label: 'pod', parts: ['cart-8c2-q1', 'cart-8c2-w7'], new_parts: 2, old_parts_running: 4, old_parts_gone: 0, rollout_minutes: 15 },
+  };
+
+  it('shows the deploy chip, links the new pods to it and lists it under What changed', () => {
+    renderDrawer({ ...otlpFinding, service: 'cart', analysis_run_id: undefined, comparison_json: { breakdown }, changes });
+
+    expect(screen.getByText('After deploy v1.4.2')).toBeInTheDocument();
+    expect(screen.getByTestId('breakdown-deploy-link').textContent).toContain('These 2 new pods started with deploy v1.4.2');
+    expect(screen.getByText(/The change is on the pods from deploy v1.4.2/)).toBeInTheDocument();
+    expect(screen.getByTestId('finding-what-changed').textContent).toContain('Started 4 min after deploy v1.4.2');
+  });
+
+  it('says no deploys were recorded instead of showing nothing', () => {
+    renderDrawer({ ...otlpFinding, service: 'cart', analysis_run_id: undefined, comparison_json: { breakdown }, changes: { status: 'no_events_for_service', service: 'cart' } });
+
+    expect(screen.getByTestId('finding-what-changed').textContent).toContain('No deploys or other changes have been recorded for cart yet.');
+    expect(screen.queryByTestId('breakdown-deploy-link')).not.toBeInTheDocument();
+    expect(screen.getByText(/looks like a rollout in progress/)).toBeInTheDocument();
+  });
+
+  it('renders as before when the backend sends no changes', () => {
+    renderDrawer({ ...otlpFinding, analysis_run_id: undefined, comparison_json: { breakdown } });
+
+    expect(screen.queryByTestId('finding-what-changed')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^After /)).not.toBeInTheDocument();
+  });
+});

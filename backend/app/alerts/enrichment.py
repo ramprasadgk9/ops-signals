@@ -18,7 +18,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.alerts.classifier import REASON_TEXT, AnalysisDecision, classify
-from backend.app.alerts.correlation import ChangeCorrelation, as_utc, correlate_changes
+from backend.app.alerts.correlation import ChangeCorrelation, as_utc, changes_to_dict, correlate_changes
 from backend.app.alerts.query_builder import QueryWindow, query_window
 from backend.app.alerts.schemas import AlertReceiptOut, NormalizedAlert
 from backend.app.alerts.timing import ALERT_TIME, STEP_ANALYZERS, StartTime, choose_start_time
@@ -210,7 +210,7 @@ class AlertEnrichmentService:
                 enrichment.update(
                     alert=_alert_dict(alert, metric_key),
                     analysis=analysis,
-                    changes=_changes_dict(changes),
+                    changes=changes_to_dict(changes),
                     context=context.model_dump(mode="json") if context else None,
                     context_error=context_error,
                 )
@@ -262,6 +262,7 @@ class AlertEnrichmentService:
                 before=timedelta(seconds=self.config.correlation_before_seconds),
                 after=timedelta(seconds=self.config.correlation_after_seconds),
                 env=_alert_env(alert.labels) if self.config.match_env else None,
+                aliases=self.config.service_aliases,
             )
         except Exception as exc:
             logger.warning("Change correlation failed for %s: %s", alert.service, exc)
@@ -636,30 +637,6 @@ def _alert_dict(alert: NormalizedAlert, metric_key: str | None) -> dict[str, Any
         "generator_url": alert.generator_url,
         "external_url": alert.external_url,
         "metric_key": metric_key,
-    }
-
-
-def _changes_dict(changes: ChangeCorrelation | None) -> dict[str, Any] | None:
-    if changes is None:
-        return None
-    return {
-        "anchor": changes.anchor.isoformat(),
-        "window_before_minutes": changes.window_before_minutes,
-        "window_after_minutes": changes.window_after_minutes,
-        "service_has_any_events": changes.service_has_any_events,
-        "matches": [
-            {
-                "id": match.id,
-                "event_type": match.event_type,
-                "timestamp": match.timestamp.isoformat(),
-                "version": match.version,
-                "author": match.author,
-                "url": match.url,
-                "description": match.description,
-                "minutes_before_anchor": round(match.minutes_before_anchor, 1),
-            }
-            for match in changes.matches
-        ],
     }
 
 

@@ -2,6 +2,22 @@
 
 ## 0.3.0 - Unreleased
 
+- Findings show the deploy before their change. Deploy events from `POST /api/events` are looked up
+  when a finding is shown, so findings from scheduled runs (not only alerts) get an "After deploy
+  v1.4.2" chip and a **What changed** line. When the pod breakdown has new pods that first
+  reported within `OPS_SIGNALS_DEPLOY_ROLLOUT_WINDOW` (default 15m) after the deploy, it says "These
+  2 new pods started with deploy v1.4.2" and the next step points at that version. Every case
+  without data (no deploys recorded, none near the change, no start time, lookup failed) shows a
+  plain reason, and the finding itself is never affected. New `OPS_SIGNALS_SERVICE_ALIASES` joins a
+  CI service name to the metrics' service label, for findings and alerts. `GET /api/findings`,
+  `/api/findings/search` and `/api/findings/{id}` return a new `changes` field. See
+  [`docs/finding-drilldown.md`](docs/finding-drilldown.md#which-deploy-started-the-new-pods).
+- Fix: finding details showed "0 supporting signals" for a finding opened from a link (e.g. an
+  alert) when it was outside the Findings page's list, and counted diagnostic-only signals.
+- Fix: finding cards showed "0 supporting signals" on a long list (e.g. Last 7 days). The page
+  fetched signals with one request per analysis run (thousands for a week), and every card stayed
+  at 0 until all of them finished, or for good if one failed. `GET /api/signals` now takes
+  `analysis_run_id` repeated, and the page asks for 100 runs per request.
 - Alert messages say which pods a change came from. With `OPS_SIGNALS_DRILLDOWN_ENABLED=true`,
   alert-triggered analysis runs the same pod drill-down as autonomous runs and adds a "📍 Where"
   line, e.g. "2 of 6 pods rose: checkout-5, checkout-6 … looks like a rollout in progress". A

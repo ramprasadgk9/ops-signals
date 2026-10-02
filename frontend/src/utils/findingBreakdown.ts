@@ -99,13 +99,14 @@ export function breakdownSentence(breakdown: FindingBreakdown): string {
 }
 
 /** What the spread usually means for the next step. */
-export function breakdownNextStep(breakdown: FindingBreakdown): string {
+export function breakdownNextStep(breakdown: FindingBreakdown, deployStep: string | null = null): string {
   const label = breakdown.label ?? 'pod';
   const moved = movedParts(breakdown);
   if (breakdown.spread === 'widespread') {
     return `Not a single bad ${label}. Look at recent code or config changes, or a shared dependency (database, downstream API).`;
   }
   if (moved.length > 0 && moved.every((part) => part.new)) {
+    if (deployStep) return deployStep;
     return `These ${plural(label, moved.length)} first appeared after the change started, which looks like a rollout in progress. Compare the new version with the old one before it finishes.`;
   }
   if (breakdown.spread === 'concentrated' && moved[0]) {

@@ -35,7 +35,7 @@ def list_signals(
     metric_name: str | None = None,
     severity: str | None = None,
     signal_type: str | None = None,
-    analysis_run_id: str | None = Query(default=None),
+    analysis_run_id: list[str] | None = Query(default=None, description="Repeat to get several runs' signals in one request."),
     db: Session = Depends(get_db),
 ) -> list[SignalOut]:
     query = select(SignalEntity)
@@ -48,7 +48,7 @@ def list_signals(
     if signal_type:
         query = query.where(SignalEntity.signal_type == signal_type)
     if analysis_run_id:
-        query = query.where(SignalEntity.analysis_run_id == analysis_run_id)
+        query = query.where(SignalEntity.analysis_run_id.in_(analysis_run_id))
     rows = db.execute(query.order_by(SignalEntity.importance_score.desc())).scalars().all()
     return [_to_signal_out(row) for row in rows]
 

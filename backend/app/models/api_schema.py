@@ -178,6 +178,8 @@ class FindingOut(BaseModel):
     comparison_json: dict = Field(default_factory=dict)
     analysis_run_id: str | None = None
     created_at: datetime | None = None
+    # Deploys and other change events near the finding's change (services/finding_changes.py).
+    changes: dict | None = None
 
 
 class CaseCreateResponse(BaseModel):

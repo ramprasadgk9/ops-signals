@@ -5,6 +5,7 @@ import { api } from '../api/queries';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
+import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 
 type Props = {
@@ -49,6 +50,9 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
 
   const signalGroups = groupSignalsByAnalyzer(matchedSignals);
   const breakdown = findingBreakdown(finding);
+  const changes = findingChanges(finding);
+  const changeChip = changeChipLabel(changes);
+  const prior = priorChange(changes);
   const scope = breakdownScopeLabel(breakdown);
 
   return (
@@ -87,6 +91,17 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
               variant="outlined"
               onClick={onViewDetails ? () => onViewDetails(finding) : undefined}
               sx={{ mb: 1 }}
+            />
+          </Tooltip>
+        )}
+        {changeChip && prior && (
+          <Tooltip title={`The change started ${Math.round(prior.minutes_before_anchor ?? 0)} min after this ${prior.event_type ?? 'change'}. Click for details.`} arrow>
+            <Chip
+              label={changeChip}
+              size="small"
+              variant="outlined"
+              onClick={onViewDetails ? () => onViewDetails(finding) : undefined}
+              sx={{ mb: 1, ml: scope && breakdown ? 1 : 0 }}
             />
           </Tooltip>
         )}

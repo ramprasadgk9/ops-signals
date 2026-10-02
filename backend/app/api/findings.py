@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
+from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
 from backend.app.models.api_schema import FindingOut
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity
+from backend.app.services.finding_changes import finding_changes
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 Window = Literal["1h", "6h", "24h", "7d"]
@@ -29,7 +31,7 @@ def _window_start(window: Window) -> datetime:
     return now - timedelta(hours=24)
 
 
-def _to_finding_out(finding: FindingEntity) -> FindingOut:
+def _to_finding_out(finding: FindingEntity, changes: dict | None = None) -> FindingOut:
     return FindingOut(
         id=finding.id,
         service=finding.service,
@@ -45,7 +47,13 @@ def _to_finding_out(finding: FindingEntity) -> FindingOut:
         comparison_json=finding.comparison_json or {},
         analysis_run_id=finding.analysis_run_id,
         created_at=finding.created_at,
+        changes=changes,
     )
+
+
+def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmentConfig) -> list[FindingOut]:
+    changes = finding_changes(db, rows, config)
+    return [_to_finding_out(row, changes.get(row.id)) for row in rows]
 
 
 def _ensure_ai_summary(finding: FindingEntity, db: Session, assistant: OperationalIntelligenceAssistant | None) -> None:
@@ -92,6 +100,7 @@ def list_findings(
     analysis_run_id: str | None = Query(default=None),
     window: Window | None = Query(default=None),
     db: Session = Depends(get_db),
+    config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> list[FindingOut]:
     query = select(FindingEntity)
     if service:
@@ -107,7 +116,7 @@ def list_findings(
     if window:
         query = query.where(FindingEntity.created_at >= _window_start(window))
     rows = db.execute(query.order_by(FindingEntity.importance_score.desc())).scalars().all()
-    return [_to_finding_out(row) for row in rows]
+    return _with_changes(db, list(rows), config)
 
 
 @router.get("/search", response_model=list[FindingOut])
@@ -121,6 +130,7 @@ def search_findings(
     window: Window = Query(default="24h"),
     limit: int = Query(default=25, ge=1, le=200),
     db: Session = Depends(get_db),
+    config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> list[FindingOut]:
     query = select(FindingEntity).where(FindingEntity.created_at >= _window_start(window))
     if service:
@@ -145,7 +155,7 @@ def search_findings(
             )
         )
     rows = db.execute(query.order_by(FindingEntity.importance_score.desc(), FindingEntity.created_at.desc()).limit(limit)).scalars().all()
-    return [_to_finding_out(row) for row in rows]
+    return _with_changes(db, list(rows), config)
 
 
 @router.get("/{finding_id}", response_model=FindingOut)
@@ -153,9 +163,10 @@ def get_finding(
     finding_id: int,
     db: Session = Depends(get_db),
     assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+    config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> FindingOut:
     row = db.execute(select(FindingEntity).where(FindingEntity.id == finding_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="finding not found")
     _ensure_ai_summary(row, db, assistant)
-    return _to_finding_out(row)
+    return _with_changes(db, [row], config)[0]
