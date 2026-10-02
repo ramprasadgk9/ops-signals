@@ -27,6 +27,7 @@ import ConfirmationNumberRoundedIcon from '@mui/icons-material/ConfirmationNumbe
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { AmbiguousResolutionPayload, CaseTicketOperation } from '../types';
@@ -43,6 +44,7 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
   const [resolutionAction, setResolutionAction] = useState<'check_again' | 'link_existing' | 'force_create_new'>('check_again');
   const [remoteKeyInput, setRemoteKeyInput] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [triageFeedback, setTriageFeedback] = useState<string | null>(null);
 
   // 1. Fetch active ticket link
   const ticketQuery = useQuery({
@@ -144,6 +146,28 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
     },
   });
 
+  const triageMutation = useMutation({
+    mutationFn: () => api.triageCaseTicketComments(caseId),
+    onSuccess: (data) => {
+      setErrorMessage(null);
+      if (data.promoted_count > 0) {
+        setTriageFeedback(
+          `AI Triage complete: auto-promoted ${data.promoted_count} operational clue${data.promoted_count > 1 ? 's' : ''} into case notes.`
+        );
+      } else if (data.evaluated_count > 0) {
+        setTriageFeedback('AI Triage evaluated new comments, but no substantive operational clues were found.');
+      } else {
+        setTriageFeedback('No unpromoted comments to evaluate.');
+      }
+      queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['case'] });
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+    },
+    onError: (err: any) => {
+      setErrorMessage(err.message || 'Failed to triage comments with AI');
+    },
+  });
+
   const handleResolveSubmit = () => {
     resolveMutation.mutate({
       action: resolutionAction,
@@ -164,17 +188,43 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
               <Typography variant="h6">External Ticketing</Typography>
             </Stack>
             {ticket && (
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<SyncRoundedIcon />}
-                disabled={isOperating}
-                onClick={() => syncMutation.mutate()}
-              >
-                {syncMutation.isPending ? 'Syncing...' : 'Sync Now'}
-              </Button>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={
+                    triageMutation.isPending ? (
+                      <CircularProgress size={14} color="inherit" />
+                    ) : (
+                      <AutoAwesomeRoundedIcon sx={{ fontSize: '15px !important' }} />
+                    )
+                  }
+                  disabled={isOperating || triageMutation.isPending}
+                  onClick={() => triageMutation.mutate()}
+                  sx={{ textTransform: 'none' }}
+                >
+                  {triageMutation.isPending ? 'Triaging...' : '⚡ AI Triage'}
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<SyncRoundedIcon />}
+                  disabled={isOperating || triageMutation.isPending}
+                  onClick={() => syncMutation.mutate()}
+                  sx={{ textTransform: 'none' }}
+                >
+                  {syncMutation.isPending ? 'Syncing...' : 'Sync Now'}
+                </Button>
+              </Stack>
             )}
           </Stack>
+
+          {triageFeedback && (
+            <Alert severity="info" onClose={() => setTriageFeedback(null)}>
+              {triageFeedback}
+            </Alert>
+          )}
 
           {errorMessage && (
             <Alert severity="error" onClose={() => setErrorMessage(null)}>
@@ -299,9 +349,15 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
                             <Chip
                               size="small"
                               variant="outlined"
-                              color="success"
-                              icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
-                              label="Added to notes"
+                              color={evt.auto_promoted ? 'secondary' : 'success'}
+                              icon={
+                                evt.auto_promoted ? (
+                                  <AutoAwesomeRoundedIcon sx={{ fontSize: '14px !important' }} />
+                                ) : (
+                                  <CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />
+                                )
+                              }
+                              label={evt.auto_promoted ? 'AI Promoted ⚡' : 'Added to notes'}
                               sx={{ height: 22, fontSize: '0.7rem' }}
                             />
                           ) : (

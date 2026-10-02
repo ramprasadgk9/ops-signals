@@ -47,6 +47,7 @@ import type {
   CaseTicketOperation,
   CaseTicketEvent,
   CaseNotePromoteResult,
+  CommentTriageResult,
   AmbiguousResolutionPayload,
   IngestionStatus,
   OtlpStatus,
@@ -244,6 +245,11 @@ export const api = {
   promoteTicketCommentToNote: (caseId: number, eventId: number) =>
     postJson<Record<string, never>, CaseNotePromoteResult>(
       `/api/cases/${caseId}/ticket/events/${eventId}/promote-to-note`,
+      {}
+    ),
+  triageCaseTicketComments: (caseId: number) =>
+    postJson<Record<string, never>, CommentTriageResult>(
+      `/api/cases/${caseId}/ticket/triage-comments`,
       {}
     ),
   getCaseTicketOperation: (caseId: number, operationId: string) =>

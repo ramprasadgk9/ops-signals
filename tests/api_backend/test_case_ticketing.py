@@ -666,3 +666,174 @@ def test_promote_event_wrong_case_fails(client):
     assert "not found" in res.json()["detail"].lower()
 
 
+def test_triage_comments_promotes_relevant_clues():
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        # Event 1: relevant clue
+        ev1 = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="triage_ev_1",
+            event_type="comment_added",
+            occurred_at=now - timedelta(minutes=5),
+            created_at=now,
+            author="DBA",
+            summary="Identified query deadlock on orders table. Killed blocking session 904.",
+        )
+        # Event 2: noise
+        ev2 = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="triage_ev_2",
+            event_type="comment_added",
+            occurred_at=now - timedelta(minutes=2),
+            created_at=now,
+            author="PM",
+            summary="Adding this to the weekly incident review agenda.",
+        )
+        db.add_all([ev1, ev2])
+        db.commit()
+
+    from backend.app.ai.services.comment_triage_service import CommentTriageEvaluation
+
+    mock_triage_service = MagicMock()
+
+    def mock_eval(ai, *, case_context, author, comment_body, **kwargs):
+        if "deadlock" in comment_body:
+            return CommentTriageEvaluation(is_relevant_clue=True, confidence=0.9, reason="deadlock clue")
+        return CommentTriageEvaluation(is_relevant_clue=False, confidence=0.1, reason="meeting agenda")
+
+    mock_triage_service.evaluate.side_effect = mock_eval
+    mock_triage_service.is_promotable.side_effect = (
+        lambda eval_res: bool(eval_res and eval_res.is_relevant_clue and eval_res.confidence >= 0.75)
+    )
+
+    mock_ai = MagicMock()
+    service = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(),
+        ai_services=mock_ai,
+        triage_service=mock_triage_service,
+    )
+
+    result = service.triage_comments(case_id)
+    assert result.case_id == case_id
+    assert result.evaluated_count == 2
+    assert result.promoted_count == 1
+    assert len(result.promoted_notes) == 1
+    assert "deadlock" in result.promoted_notes[0].lower()
+    assert "(AI auto-promoted)" in result.promoted_notes[0]
+
+    # Verify event timeline status
+    events = service.list_ticket_events(case_id)
+    ev_map = {e.remote_event_id: e for e in events}
+    assert ev_map["triage_ev_1"].promoted_to_note is True
+    assert ev_map["triage_ev_1"].auto_promoted is True
+    assert ev_map["triage_ev_2"].promoted_to_note is False
+    assert ev_map["triage_ev_2"].auto_promoted is False
+
+    # Second triage run skips already promoted comment
+    result2 = service.triage_comments(case_id)
+    assert result2.evaluated_count == 1  # Only ev2 is unpromoted
+    assert result2.promoted_count == 0
+
+
+def test_triage_comments_api_endpoint(client):
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        ev = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="api_triage_ev_1",
+            event_type="comment_added",
+            occurred_at=now,
+            created_at=now,
+            author="DevOps",
+            summary="Restarted memory-leaking container worker-1.",
+        )
+        db.add(ev)
+        db.commit()
+
+    # Call POST /api/cases/{case_id}/ticket/triage-comments
+    res = client.post(f"/api/cases/{case_id}/ticket/triage-comments")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["case_id"] == case_id
+    assert "evaluated_count" in data
+    assert "promoted_count" in data
+    assert "promoted_notes" in data
+
+    # 404 for unknown case
+    res404 = client.post(f"/api/cases/{case_id + 99999}/ticket/triage-comments")
+    assert res404.status_code == 404
+
+
+def test_sync_operation_triggers_comment_triage():
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        link = CaseTicketLinkEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_id="12345",
+            display_key="OPS-12345",
+            ticket_url="https://jira.example.com/browse/OPS-12345",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(link)
+        db.commit()
+
+    mock_provider = MagicMock()
+    mock_provider.pull_remote_ticket.return_value = RemoteTicketSnapshot(
+        remote_id="12345",
+        display_key="OPS-12345",
+        remote_status="In Progress",
+        comments=[
+            {"id": "sync_c1", "author": "SRE", "body": "Cleared blocked queue; processing resumed."},
+        ],
+    )
+
+    from backend.app.ai.services.comment_triage_service import CommentTriageEvaluation
+
+    mock_triage_service = MagicMock()
+    mock_triage_service.evaluate.return_value = CommentTriageEvaluation(
+        is_relevant_clue=True,
+        confidence=0.88,
+        reason="Resolved queue blockage",
+    )
+    mock_triage_service.is_promotable.return_value = True
+
+    mock_ai = MagicMock()
+    service = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(),
+        providers={"jira": mock_provider},
+        ai_services=mock_ai,
+        triage_service=mock_triage_service,
+    )
+
+    sync_op = service.request_sync(case_id, provider="jira")
+    service.process_pending_operations(limit=5)
+    assert service.get_operation_view(sync_op.operation_id).status == "completed"
+
+    # Verify comment was ingested and auto-promoted
+    events = service.list_ticket_events(case_id)
+    assert len(events) == 1
+    assert events[0].promoted_to_note is True
+    assert events[0].auto_promoted is True
+
+    # Check case note
+    with get_session_local()() as db:
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        assert len(case.investigation_notes) == 1
+        assert "(AI auto-promoted)" in case.investigation_notes[0]["note"]
+        assert "Cleared blocked queue" in case.investigation_notes[0]["note"]
+
+

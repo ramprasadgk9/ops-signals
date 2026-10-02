@@ -6,10 +6,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 
+from backend.app.api.assistant import get_assistant
+from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import TicketingConfig, get_ticketing_config
 from backend.app.integrations.ticketing.models import (
     AmbiguousResolutionRequest,
     CaseNotePromoteResult,
+    CommentTriageResult,
     TicketEventView,
     TicketOperationView,
     TicketView,
@@ -39,6 +42,7 @@ def get_ticketing_service(
         _ticketing_service = CaseTicketing(
             session_factory=lambda: get_session_local()(),
             config=effective_config,
+            ai_services_supplier=lambda: (assistant.services.ai_services if (assistant := get_assistant()) else None),
         )
     return _ticketing_service
 
@@ -205,6 +209,27 @@ def promote_ticket_event_to_note(
 ) -> CaseNotePromoteResult:
     try:
         return service.promote_event_to_case_note(case_id, event_id)
+    except TicketNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TicketingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/api/cases/{case_id}/ticket/triage-comments",
+    status_code=status.HTTP_200_OK,
+    response_model=CommentTriageResult,
+)
+def triage_case_ticket_comments(
+    case_id: int,
+    service: CaseTicketing = Depends(get_ticketing_service),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> CommentTriageResult:
+    """Evaluates unpromoted external ticket comments against case telemetry using AI,
+    automatically promoting high-confidence operational clues into case notes."""
+    try:
+        ai_services = assistant.services.ai_services if assistant else None
+        return service.triage_comments(case_id, ai_services=ai_services)
     except TicketNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except TicketingError as exc:

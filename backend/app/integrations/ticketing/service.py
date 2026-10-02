@@ -8,11 +8,14 @@ from uuid import uuid4
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from backend.app.ai.factory import OptionalAIServices
+from backend.app.ai.services.comment_triage_service import CommentTriageService
 from backend.app.config import TicketingConfig
 from backend.app.integrations.ticketing.jira.adapter import JiraTicketProvider
 from backend.app.integrations.ticketing.models import (
     AmbiguousResolutionRequest,
     CaseNotePromoteResult,
+    CommentTriageResult,
     RemoteEventDraft,
     TicketCreationResult,
     TicketDraft,
@@ -47,15 +50,33 @@ class CaseTicketing:
         session_factory: Callable[[], Session],
         config: TicketingConfig,
         providers: dict[str, Any] | None = None,
+        ai_services: OptionalAIServices | None = None,
+        ai_services_supplier: Callable[[], OptionalAIServices | None] | None = None,
+        triage_service: CommentTriageService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self.config = config
+        self._ai_services = ai_services
+        self._ai_services_supplier = ai_services_supplier
+        self._triage_service = triage_service or CommentTriageService()
         if providers is not None:
             self.providers = providers
         else:
             self.providers = {
                 "jira": JiraTicketProvider(config.jira),
             }
+
+    def _get_ai_services(self, override: OptionalAIServices | None = None) -> OptionalAIServices | None:
+        if override is not None:
+            return override
+        if self._ai_services is not None:
+            return self._ai_services
+        if self._ai_services_supplier is not None:
+            try:
+                return self._ai_services_supplier()
+            except Exception as exc:
+                logger.warning("Failed to resolve ai_services from supplier: %s", exc)
+        return None
 
     def _get_provider(self, provider_name: str) -> Any:
         provider = self.providers.get(provider_name)
@@ -386,11 +407,17 @@ class CaseTicketing:
                     occurred_at=e.occurred_at,
                     created_at=e.created_at,
                     promoted_to_note=bool(e.payload and e.payload.get("promoted_at")),
+                    auto_promoted=bool(e.payload and e.payload.get("auto_promoted")),
                 )
                 for e in events
             ]
 
-    def promote_event_to_case_note(self, case_id: int, event_id: int) -> CaseNotePromoteResult:
+    def promote_event_to_case_note(
+        self,
+        case_id: int,
+        event_id: int,
+        auto_promoted: bool = False,
+    ) -> CaseNotePromoteResult:
         """Promotes an external ticket event (comment) into an operational investigation note.
 
         Invariants enforced:
@@ -400,6 +427,7 @@ class CaseTicketing:
         - Advances case.investigation_status from 'not_started' to 'in_progress'.
         - Updates case.updated_at.
         - Marks event.payload['promoted_at'] with ISO timestamp.
+        - Marks event.payload['auto_promoted'] = True if auto_promoted.
         """
         now = datetime.now(timezone.utc)
         with self._session_factory() as session:
@@ -421,7 +449,13 @@ class CaseTicketing:
             payload = dict(event.payload or {})
             if payload.get("promoted_at"):
                 # Idempotent: already promoted
-                formatted_note = payload.get("promoted_note") or f"[{event.provider.upper()} note from {event.author or 'Team'}]: {event.summary}"
+                is_auto = bool(payload.get("auto_promoted"))
+                default_note = (
+                    f"[{event.provider.upper()} clue from {event.author or 'Team'} (AI auto-promoted)]: {event.summary}"
+                    if is_auto
+                    else f"[{event.provider.upper()} note from {event.author or 'Team'}]: {event.summary}"
+                )
+                formatted_note = payload.get("promoted_note") or default_note
                 return CaseNotePromoteResult(
                     success=True,
                     case_id=case_id,
@@ -429,18 +463,26 @@ class CaseTicketing:
                     note=formatted_note,
                     investigation_status=case.investigation_status,
                     already_promoted=True,
+                    auto_promoted=is_auto,
                 )
 
             # Format the note with clear provenance
-            formatted_note = f"[{event.provider.upper()} note from {event.author or 'Team'}]: {event.summary}"
+            if auto_promoted:
+                formatted_note = f"[{event.provider.upper()} clue from {event.author or 'Team'} (AI auto-promoted)]: {event.summary}"
+            else:
+                formatted_note = f"[{event.provider.upper()} note from {event.author or 'Team'}]: {event.summary}"
+
             notes = list(case.investigation_notes or [])
-            notes.append({
+            note_entry = {
                 "timestamp": now.isoformat(),
                 "note": formatted_note,
                 "source": "ticketing",
                 "provider": event.provider,
                 "author": event.author,
-            })
+            }
+            if auto_promoted:
+                note_entry["auto_promoted"] = True
+            notes.append(note_entry)
             case.investigation_notes = notes
 
             if case.investigation_status == "not_started":
@@ -454,6 +496,8 @@ class CaseTicketing:
 
             payload["promoted_at"] = now.isoformat()
             payload["promoted_note"] = formatted_note
+            if auto_promoted:
+                payload["auto_promoted"] = True
             event.payload = payload
 
             session.commit()
@@ -465,7 +509,94 @@ class CaseTicketing:
                 note=formatted_note,
                 investigation_status=case.investigation_status,
                 already_promoted=False,
+                auto_promoted=auto_promoted,
             )
+
+    def triage_comments(
+        self,
+        case_id: int,
+        ai_services: OptionalAIServices | None = None,
+    ) -> CommentTriageResult:
+        """Evaluates unpromoted external ticket comments against case telemetry and automatically
+        promotes high-confidence operational clues into investigation notes.
+
+        Never crashes: if AI services are unavailable or errors occur, returns a graceful
+        CommentTriageResult with 0 promotions.
+        """
+        with self._session_factory() as session:
+            case = session.query(OperationalCaseEntity).filter_by(id=case_id).first()
+            if not case:
+                raise TicketNotFoundError(f"Case #{case_id} not found")
+
+            effective_ai = self._get_ai_services(ai_services)
+            if not effective_ai:
+                return CommentTriageResult(
+                    case_id=case_id,
+                    evaluated_count=0,
+                    promoted_count=0,
+                    promoted_notes=[],
+                )
+
+            snapshot = case.finding_snapshot or {}
+            case_context = {
+                "case_title": case.case_title,
+                "service": snapshot.get("service", "unknown"),
+                "metric_name": snapshot.get("metric_name", "unknown"),
+                "summary": snapshot.get("summary", ""),
+            }
+
+            # Fetch all comment events for this case in chronological order
+            events = (
+                session.query(CaseTicketEventEntity)
+                .filter(
+                    CaseTicketEventEntity.case_id == case_id,
+                    CaseTicketEventEntity.event_type.in_(["comment_added", "comment"]),
+                )
+                .order_by(CaseTicketEventEntity.occurred_at.asc())
+                .all()
+            )
+
+            # Filter to unpromoted comments
+            unpromoted_events = [
+                (e.id, e.author, e.summary)
+                for e in events
+                if not (e.payload and e.payload.get("promoted_at"))
+            ]
+
+        if not unpromoted_events:
+            return CommentTriageResult(
+                case_id=case_id,
+                evaluated_count=0,
+                promoted_count=0,
+                promoted_notes=[],
+            )
+
+        promoted_notes: list[str] = []
+        evaluated_count = 0
+        for event_id, author, summary in unpromoted_events:
+            if not summary or not summary.strip():
+                continue
+            evaluated_count += 1
+            evaluation = self._triage_service.evaluate(
+                effective_ai,
+                case_context=case_context,
+                author=author,
+                comment_body=summary,
+            )
+            if self._triage_service.is_promotable(evaluation):
+                res = self.promote_event_to_case_note(
+                    case_id=case_id,
+                    event_id=event_id,
+                    auto_promoted=True,
+                )
+                promoted_notes.append(res.note)
+
+        return CommentTriageResult(
+            case_id=case_id,
+            evaluated_count=evaluated_count,
+            promoted_count=len(promoted_notes),
+            promoted_notes=promoted_notes,
+        )
 
     def get_external_comments_for_analysis(
         self, case_id: int, limit: int = 10, unpromoted_only: bool = True
@@ -741,6 +872,7 @@ class CaseTicketing:
                     link.updated_at = now
 
                 # Ingest comments as events
+                new_comments_count = 0
                 for c in snapshot.comments:
                     ev_id = f"comment_{c.get('id')}"
                     exists = session.query(CaseTicketEventEntity).filter_by(provider=provider_name, remote_event_id=ev_id).first()
@@ -758,7 +890,18 @@ class CaseTicketing:
                                 created_at=now,
                             )
                         )
+                        new_comments_count += 1
                 session.commit()
+
+            if new_comments_count > 0:
+                try:
+                    self.triage_comments(case_id)
+                except Exception as triage_exc:
+                    logger.warning(
+                        "Automatic comment triage failed during sync for case %s: %s",
+                        case_id,
+                        triage_exc,
+                    )
         except AmbiguousOutcomeError as e:
             self._fail_operation(op_id, lease_token, str(e))
         except LeaseLostError:
@@ -839,6 +982,7 @@ class CaseTicketing:
                 session.commit()
                 return (200, {"status": "unlinked_ticket_acknowledged", "remote_id": event_draft.remote_id})
 
+            new_comment_added = False
             # Check if event already exists
             existing_event = (
                 session.query(CaseTicketEventEntity)
@@ -858,14 +1002,28 @@ class CaseTicketing:
                     created_at=now,
                 )
                 session.add(event)
+                if event_draft.event_type in ("comment", "comment_added"):
+                    new_comment_added = True
 
             if event_draft.observed_remote_status:
                 link.observed_remote_status = event_draft.observed_remote_status
                 link.last_synced_at = now
                 link.updated_at = now
 
+            case_id = link.case_id
             session.commit()
-            return (200, {"status": "processed", "case_id": link.case_id})
+
+            if new_comment_added:
+                try:
+                    self.triage_comments(case_id)
+                except Exception as triage_exc:
+                    logger.warning(
+                        "Automatic comment triage failed during webhook for case %s: %s",
+                        case_id,
+                        triage_exc,
+                    )
+
+            return (200, {"status": "processed", "case_id": case_id})
 
     def _build_ticket_draft(self, case_id: int) -> TicketDraft:
         with self._session_factory() as session:

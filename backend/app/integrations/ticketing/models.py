@@ -88,6 +88,7 @@ class TicketEventView(BaseModel):
     occurred_at: datetime
     created_at: datetime
     promoted_to_note: bool = False
+    auto_promoted: bool = False
 
 
 class CaseNotePromoteResult(BaseModel):
@@ -98,6 +99,15 @@ class CaseNotePromoteResult(BaseModel):
     note: str
     investigation_status: str
     already_promoted: bool = False
+    auto_promoted: bool = False
+
+
+class CommentTriageResult(BaseModel):
+    """Result of evaluating unpromoted ticket comments for automated promotion."""
+    case_id: int
+    evaluated_count: int
+    promoted_count: int
+    promoted_notes: list[str] = Field(default_factory=list)
 
 
 class AmbiguousResolutionRequest(BaseModel):
