@@ -3,12 +3,13 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FindingDetailsDrawer } from './FindingDetailsDrawer';
 import { api } from '../api/queries';
-import type { Finding } from '../types';
+import type { Finding, Signal } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
     analysisRun: vi.fn(),
     timeseries: vi.fn(),
+    signalsByRunIds: vi.fn(async () => []),
   },
 }));
 
@@ -142,5 +143,53 @@ describe('FindingDetailsDrawer drill-down breakdown', () => {
 
     expect(screen.queryByText('Where the change came from')).not.toBeInTheDocument();
     expect(screen.queryByText(/Breakdown by pod not available/)).not.toBeInTheDocument();
+  });
+});
+
+describe('FindingDetailsDrawer evidence', () => {
+  const signal = (id: string, analyzer: string, extra: Partial<Signal> = {}): Signal => ({
+    id,
+    signal_type: analyzer === 'pyod_outlier' ? 'anomaly' : analyzer,
+    analyzer_id: analyzer,
+    metric_name: 'http_errors_total',
+    service: 'cart',
+    severity: 'high',
+    importance_score: 0.85,
+    evidence: {},
+    analysis_run_id: 'run-cart-1',
+    ...extra,
+  } as Signal);
+
+  it("loads the finding's own run signals when the page passed none (finding opened from a link)", async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue({
+      id: 'run-cart-1',
+      source_type: 'prometheus',
+      provider: 'prometheus',
+      service: 'cart',
+      metric_name: 'http_errors_total',
+      start_time: '2026-09-30T00:00:00Z',
+      end_time: '2026-10-01T00:00:00Z',
+      sample_count: 288,
+      status: 'completed',
+      created_at: '2026-10-01T02:18:27Z',
+    });
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.signalsByRunIds).mockResolvedValue([
+      signal('s-ruptures', 'ruptures'),
+      signal('s-trend', 'trend', { importance_score: 0.98 }),
+      signal('s-pyod', 'pyod_outlier', { severity: 'medium', importance_score: 0.26, evidence: { finding_rule_matched: false } }),
+    ]);
+
+    renderDrawer({
+      ...otlpFinding,
+      service: 'cart',
+      metric_name: 'http_errors_total',
+      analysis_run_id: 'run-cart-1',
+      signal_ids: ['s-ruptures', 's-pyod', 's-trend'],
+    });
+
+    expect(await screen.findByText('2 supporting signals detected')).toBeInTheDocument();
+    expect(api.signalsByRunIds).toHaveBeenCalledWith(['run-cart-1']);
+    expect(screen.queryByText('No problem-signals matched.')).not.toBeInTheDocument();
   });
 });

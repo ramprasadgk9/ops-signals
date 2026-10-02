@@ -7,7 +7,7 @@ import { FindingBreakdown } from './FindingBreakdown';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
-import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
+import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 
 type Props = {
   open: boolean;
@@ -56,6 +56,14 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
     enabled: open && Boolean(analysisRunId),
   });
 
+  // The page's signals only cover the findings in its list; a finding opened from a link (e.g. an
+  // alert) can be outside it, so the drawer loads its own run's signals.
+  const runSignalsQuery = useQuery({
+    queryKey: ['finding-drawer-signals', analysisRunId],
+    queryFn: () => api.signalsByRunIds([analysisRunId!]),
+    enabled: open && Boolean(analysisRunId),
+  });
+
   const timeseriesQuery = useQuery({
     queryKey: ['finding-drawer-timeseries', finding?.service, finding?.metric_name, analysisRunId],
     queryFn: () => api.timeseries(finding!.service!, finding!.metric_name, analysisRunId!),
@@ -77,10 +85,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
     }
   };
 
-  const matchedSignals = finding.signal_ids
-    .map((signalId) => signals.find((signal) => signal.id === signalId))
-    .filter((signal): signal is Signal => Boolean(signal))
-    .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
+  const matchedSignals = supportingSignals(finding.signal_ids, runSignalsQuery.data ?? signals);
 
   const signalGroups = groupSignalsByAnalyzer(matchedSignals);
   const breakdown = findingBreakdown(finding);
@@ -138,6 +143,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
             <ListItem>
               <ListItemText 
                 primary="Signals used"
+                secondaryTypographyProps={{ component: 'div' }}
                 secondary={
                   <Stack component="span" spacing={0.75} sx={{ mt: 1, flexWrap: 'wrap' }}>
                     {signalGroups.length > 0

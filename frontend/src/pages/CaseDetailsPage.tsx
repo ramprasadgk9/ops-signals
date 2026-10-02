@@ -38,8 +38,7 @@ import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
-import type { Signal } from '../types';
-import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
+import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -211,12 +210,7 @@ export function CaseDetailsPage() {
   }, [caseData]);
 
   const matchedSignals = useMemo(() => {
-    const signals = caseSignalsQuery.data ?? [];
-    const signalIds = finding?.signal_ids ?? [];
-    return signalIds
-      .map((signalId) => signals.find((signal) => signal.id === signalId))
-      .filter((signal): signal is Signal => Boolean(signal))
-      .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
+    return supportingSignals(finding?.signal_ids ?? [], caseSignalsQuery.data ?? []);
   }, [caseSignalsQuery.data, finding?.signal_ids]);
 
   const signalGroups = useMemo(() => groupSignalsByAnalyzer(matchedSignals), [matchedSignals]);

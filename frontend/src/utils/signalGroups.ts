@@ -10,6 +10,20 @@ export type SignalGroup = {
 const MAX_TOOLTIP_SIGNALS = 3;
 
 /**
+ * The finding's signals that count as evidence, in signal_ids order. Skips low-severity signals and
+ * diagnostic ones: analyzers gated by a finding rule still emit a signal when the rule didn't match
+ * (evidence.finding_rule_matched === false), and that signal is not a detection.
+ */
+export function supportingSignals(signalIds: string[], signals: Signal[]): Signal[] {
+  const byId = new Map(signals.map((signal) => [signal.id, signal]));
+  return signalIds
+    .map((signalId) => byId.get(signalId))
+    .filter((signal): signal is Signal => Boolean(signal))
+    .filter((signal) => signal.evidence?.finding_rule_matched !== false)
+    .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
+}
+
+/**
  * Groups signals by analyzer (falling back to signal_type) so a finding with e.g. 30
  * pyod_outlier hits renders as one "pyod_outlier x30" chip instead of 30 identical ones.
  * Preserves first-seen order of each analyzer/signal_type across the input list.
