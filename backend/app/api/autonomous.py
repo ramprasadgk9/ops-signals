@@ -29,7 +29,7 @@ from backend.app.autonomous.schemas import (
     MonitoringSelection,
 )
 from backend.app.autonomous.services import MetricClassificationService, MetricDiscoveryService, MetricPlanBuilder
-from backend.app.config import PrometheusConnectionConfig, get_prometheus_config
+from backend.app.config import PrometheusConnectionConfig, get_prometheus_config, parse_duration_seconds
 from backend.app.models.db import get_db
 from backend.app.models.entities import AutonomousPolicyEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.prometheus_service import PrometheusQueryService
@@ -71,8 +71,10 @@ def preview_autonomous_plan(
         raise HTTPException(status_code=422, detail="At least one monitoring category is required.")
 
     try:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(seconds=parse_duration_seconds(payload.execution.analysis_window))
         discovery = MetricDiscoveryService(prometheus)
-        resolved_scope, discovered_metrics = discovery.discover(payload.scope)
+        resolved_scope, discovered_metrics = discovery.discover(payload.scope, start=start, end=end)
         classifier = MetricClassificationService()
         plan = MetricPlanBuilder().build(
             resolved_scope=resolved_scope,
@@ -323,12 +325,19 @@ def autonomous_scope_options(
     service_label: str = Query(default="service"),
     namespace_label: str = Query(default="namespace"),
     environment_label: str = Query(default="env"),
+    window: str = Query(default="24h", description="Only list values seen in this recent window, e.g. 24h or 7d."),
     prometheus: PrometheusQueryService = Depends(get_prometheus_query_service),
 ) -> dict[str, list[str]]:
+    try:
+        window_seconds = parse_duration_seconds(window)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="window must be a duration like 24h or 7d") from exc
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(seconds=window_seconds)
     return {
-        "services": prometheus.label_values(service_label),
-        "namespaces": prometheus.label_values(namespace_label),
-        "environments": prometheus.label_values(environment_label),
+        "services": prometheus.label_values(service_label, start=start, end=end),
+        "namespaces": prometheus.label_values(namespace_label, start=start, end=end),
+        "environments": prometheus.label_values(environment_label, start=start, end=end),
     }
 
 

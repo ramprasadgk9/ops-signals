@@ -2,6 +2,18 @@
 
 ## 0.3.0 - Unreleased
 
+- Prometheus-compatible backends (Thanos, Mimir, VictoriaMetrics, Grafana Cloud) work more reliably
+  ([#67](https://github.com/ramprasadgk9/ops-signals/issues/67)). Autonomous discovery now asks
+  only for series seen in the policy's analysis window instead of all history, so long-retention
+  backends answer quickly and old series no longer use up "Max metrics per run". The Configure
+  panel's Service/Namespace lists show values seen in the selected window
+  (`GET /api/autonomous/scope-options?window=24h`). Errors now include the backend's own message
+  (e.g. "Prometheus HTTP error: 422: the query exceeded the maximum number of series") instead of
+  only the status code. Warnings in a response, such as partial data from an unreachable Thanos
+  store, are shown on the preview, run and job instead of being dropped. The connection test no
+  longer fails on backends that don't serve `/api/v1/status/buildinfo`; it falls back to a trivial
+  query. Series and range queries longer than 2 KB are sent as a POST form so gateways don't reject
+  them with 414.
 - Import past incidents. A new install's memory is empty, so "have we seen this before?" found
   nothing for months. Postmortems and incidents can now be imported from Jira or PagerDuty CSV
   exports, any CSV, or Markdown postmortems (also as a `.zip`), as resolved cases that similar-case

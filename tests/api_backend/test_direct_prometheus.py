@@ -18,7 +18,7 @@ class FakePrometheusService:
     def test_connection(self):
         return True, "2.52.0", 7, "Connection successful"
 
-    def label_values(self, label: str):
+    def label_values(self, label: str, **kwargs):
         if label == "service":
             return ["drift-lab", "ruptures-lab", "trend-lab"]
         if label == "__name__":

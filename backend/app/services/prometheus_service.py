@@ -19,6 +19,15 @@ from backend.app.config import PrometheusConnectionConfig
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
 from intelligence.normalize.normalizer import CORE_COLUMNS
 
+# Endpoints the Prometheus HTTP API (and Thanos, Mimir, VictoriaMetrics) also accept as a POST form body.
+_POST_CAPABLE_PATHS = {"/api/v1/query", "/api/v1/query_range", "/api/v1/series", "/api/v1/labels"}
+# Proxies and gateways in front of large backends can reject long request lines with 414.
+_MAX_GET_URL_LENGTH = 2048
+_MAX_ERROR_MESSAGE_CHARS = 500
+# buildinfo is optional on some Prometheus-compatible backends and gateways; these statuses mean
+# "endpoint not served", not "connection broken".
+_BUILDINFO_UNSUPPORTED_STATUSES = {400, 404, 405, 501}
+
 
 @dataclass(frozen=True)
 class PrometheusConnectionProfile:
@@ -86,22 +95,38 @@ class PrometheusQueryService:
             latency_ms = int((time.perf_counter() - started) * 1000)
             return True, version, latency_ms, "Connection successful"
         except HTTPException as exc:
+            if exc.status_code not in _BUILDINFO_UNSUPPORTED_STATUSES:
+                return False, None, int((time.perf_counter() - started) * 1000), str(exc.detail)
+        try:
+            payload = self._get_json("/api/v1/query", {"query": "vector(1)"})
+        except HTTPException as exc:
             return False, None, int((time.perf_counter() - started) * 1000), str(exc.detail)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if payload.get("status") != "success":
+            return False, None, latency_ms, str(payload.get("error") or "Prometheus query API check failed")
+        return True, None, latency_ms, "Connection successful (server version unavailable)"
 
-    def label_values(self, label: str, matchers: list[str] | None = None) -> list[str]:
+    def label_values(
+        self,
+        label: str,
+        matchers: list[str] | None = None,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        warnings: list[str] | None = None,
+    ) -> list[str]:
         if not self.config.base_url:
             raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
         normalized = label.strip()
         if not normalized:
             raise HTTPException(status_code=400, detail="label is required")
-        query_string = ""
-        if matchers:
-            clean_matchers = [m for m in matchers if m and m != "{}"]
-            if clean_matchers:
-                query_string = "?" + "&".join(("match[]=" + quote(matcher, safe="")) for matcher in clean_matchers)
-        payload = self._get_json(f"/api/v1/label/{normalized}/values{query_string}", {})
+        params: list[tuple[str, object]] = [("match[]", m) for m in matchers or [] if m and m != "{}"]
+        params.extend(_time_range_params(start, end))
+        payload = self._get_json(f"/api/v1/label/{quote(normalized, safe='')}/values", params)
         if payload.get("status") != "success":
             raise HTTPException(status_code=502, detail=str(payload.get("error") or "Prometheus label lookup failed"))
+        if warnings is not None:
+            warnings.extend(_response_warnings(payload))
         values = payload.get("data")
         if not isinstance(values, list):
             raise HTTPException(status_code=502, detail="Prometheus label response is malformed")
@@ -149,11 +174,19 @@ class PrometheusQueryService:
             return [f'{{{inner},__name__="{name}"}}' for name in metric_names]
         return [f'{{__name__="{name}"}}' for name in metric_names]
 
-    def direct_scoped_series(self, scope_selector: str) -> list[dict[str, str]]:
+    def direct_scoped_series(
+        self,
+        scope_selector: str,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        warnings: list[str] | None = None,
+    ) -> list[dict[str, str]]:
         if not scope_selector or scope_selector == "{}":
             return []
-        query_string = "match[]=" + quote(scope_selector, safe="")
-        payload = self._get_json(f"/api/v1/series?{query_string}", {})
+        payload = self._get_json("/api/v1/series", [("match[]", scope_selector), *_time_range_params(start, end)])
+        if warnings is not None:
+            warnings.extend(_response_warnings(payload))
         data = payload.get("data")
         rows: list[dict[str, str]] = []
         if isinstance(data, list):
@@ -172,16 +205,19 @@ class PrometheusQueryService:
         limit: int = 5000,
         scope_selector: str = "",
         max_series_per_metric: int = 10,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> MetricDiscoveryResult:
         if not self.config.base_url:
             raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
 
         effective_limit = max(1, min(limit, 50000))
+        warnings: list[str] = []
 
         # 1. Fast Path for Scoped Policies (Single-Call Pushdown)
         if scope_selector and scope_selector != "{}":
             try:
-                direct_rows = self.direct_scoped_series(scope_selector)
+                direct_rows = self.direct_scoped_series(scope_selector, start=start, end=end, warnings=warnings)
             except HTTPException:
                 direct_rows = None
 
@@ -193,6 +229,7 @@ class PrometheusQueryService:
                         series_discovered=0,
                         truncated=False,
                         starved_metrics=[],
+                        warnings=_unique(warnings),
                     )
                 metric_names = sorted({row.get("__name__") for row in direct_rows if row.get("__name__")})
                 metadata_by_name = self.metric_metadata(metric_names)
@@ -214,13 +251,21 @@ class PrometheusQueryService:
                     series_discovered=len(filtered_rows),
                     truncated=truncated,
                     starved_metrics=starved_metrics,
+                    warnings=_unique(warnings),
                 )
 
         # 2. Breadth-First Dynamic Quota for Unscoped Policies (Cluster-Wide)
         matchers = [scope_selector] if scope_selector and scope_selector != "{}" else None
-        metric_names = self.label_values("__name__", matchers=matchers)
+        metric_names = self.label_values("__name__", matchers=matchers, start=start, end=end, warnings=warnings)
         if not metric_names:
-            return MetricDiscoveryResult(metrics=[], series_available=0, series_discovered=0, truncated=False, starved_metrics=[])
+            return MetricDiscoveryResult(
+                metrics=[],
+                series_available=0,
+                series_discovered=0,
+                truncated=False,
+                starved_metrics=[],
+                warnings=_unique(warnings),
+            )
 
         metadata_by_name = self.metric_metadata(metric_names)
         series_rows, starved_metrics, total_available = self.series_metadata(
@@ -228,6 +273,9 @@ class PrometheusQueryService:
             limit=effective_limit,
             scope_selector=scope_selector,
             max_series_per_metric=max_series_per_metric,
+            start=start,
+            end=end,
+            warnings=warnings,
         )
 
         if not series_rows:
@@ -247,6 +295,7 @@ class PrometheusQueryService:
                 series_discovered=len(fallback_metrics),
                 truncated=False,
                 starved_metrics=[],
+                warnings=_unique(warnings),
             )
 
         discovered = self._rows_to_discovered_metrics(
@@ -263,6 +312,7 @@ class PrometheusQueryService:
             series_discovered=len(series_rows),
             truncated=truncated,
             starved_metrics=starved_metrics,
+            warnings=_unique(warnings),
         )
 
     @classmethod
@@ -343,6 +393,10 @@ class PrometheusQueryService:
         limit: int = 5000,
         scope_selector: str = "",
         max_series_per_metric: int = 10,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        warnings: list[str] | None = None,
     ) -> tuple[list[dict[str, str]], list[str], int]:
         if not metric_names:
             return [], [], 0
@@ -351,11 +405,13 @@ class PrometheusQueryService:
         series_by_metric: dict[str, list[dict[str, str]]] = defaultdict(list)
         total_available = 0
 
-        for start in range(0, len(metric_names), chunk_size):
-            chunk = metric_names[start : start + chunk_size]
+        for offset in range(0, len(metric_names), chunk_size):
+            chunk = metric_names[offset : offset + chunk_size]
             matchers = self._build_metric_matchers(chunk, scope_selector=scope_selector)
-            query_string = "&".join(("match[]=" + quote(matcher, safe="")) for matcher in matchers)
-            payload = self._get_json(f"/api/v1/series?{query_string}", {})
+            params = [*(("match[]", matcher) for matcher in matchers), *_time_range_params(start, end)]
+            payload = self._get_json("/api/v1/series", params)
+            if warnings is not None:
+                warnings.extend(_response_warnings(payload))
             data = payload.get("data")
             if isinstance(data, list):
                 total_available += len(data)
@@ -403,7 +459,9 @@ class PrometheusQueryService:
         result = data.get("result")
         if not isinstance(result, list):
             raise HTTPException(status_code=502, detail="Prometheus response is malformed")
-        return self._parse_matrix(query, start, end, step, step_seconds, result)
+        parsed = self._parse_matrix(query, start, end, step, step_seconds, result)
+        parsed.warnings = [*_response_warnings(payload), *parsed.warnings]
+        return parsed
 
     def _parse_matrix(
         self,
@@ -460,18 +518,24 @@ class PrometheusQueryService:
             warnings=warnings,
         )
 
-    def _get_json(self, path: str, params: dict[str, object]) -> dict:
+    def _get_json(self, path: str, params: dict[str, object] | list[tuple[str, object]]) -> dict:
         assert self.config.base_url is not None
         url = f"{self.config.base_url}{path}"
-        if params:
-            url = f"{url}?{urlencode(params)}"
-        request = Request(url, headers=self._headers(), method="GET")
+        query = urlencode(params, doseq=True) if params else ""
+        headers = self._headers()
+        data = None
+        if query and path in _POST_CAPABLE_PATHS and len(url) + 1 + len(query) > _MAX_GET_URL_LENGTH:
+            data = query.encode("utf-8")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        elif query:
+            url = f"{url}?{query}"
+        request = Request(url, data=data, headers=headers, method="GET" if data is None else "POST")
         context = None if self.config.verify_tls else ssl._create_unverified_context()
         try:
             with urlopen(request, timeout=self.config.timeout_seconds, context=context) as response:
                 body = response.read().decode("utf-8")
         except HTTPError as exc:
-            raise HTTPException(status_code=exc.code, detail=f"Prometheus HTTP error: {exc.code}") from exc
+            raise HTTPException(status_code=exc.code, detail=_http_error_detail(exc)) from exc
         except TimeoutError as exc:
             raise HTTPException(status_code=504, detail="Prometheus request timed out") from exc
         except URLError as exc:
@@ -492,6 +556,47 @@ class PrometheusQueryService:
             raw = f"{self.config.username}:{self.config.password}".encode("utf-8")
             headers["Authorization"] = f"Basic {base64.b64encode(raw).decode('ascii')}"
         return headers
+
+
+def _unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def _http_error_detail(exc: HTTPError) -> str:
+    """Keep the backend's own explanation (e.g. a Mimir or Thanos series limit) instead of only the status code."""
+    detail = f"Prometheus HTTP error: {exc.code}"
+    try:
+        body = exc.read().decode("utf-8", errors="replace").strip() if exc.fp else ""
+    except OSError:
+        return detail
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict) and parsed.get("error"):
+        message = str(parsed["error"])
+    elif body and not body.startswith("<"):
+        message = body
+    else:
+        return detail
+    return f"{detail}: {message[:_MAX_ERROR_MESSAGE_CHARS]}"
+
+
+def _response_warnings(payload: dict) -> list[str]:
+    """Warnings a successful response carries, e.g. partial data when a Thanos store is unreachable."""
+    warnings = payload.get("warnings")
+    if not isinstance(warnings, list):
+        return []
+    return [f"Prometheus warning: {warning}" for warning in warnings if isinstance(warning, str) and warning]
+
+
+def _time_range_params(start: datetime | None, end: datetime | None) -> list[tuple[str, object]]:
+    params: list[tuple[str, object]] = []
+    if start is not None:
+        params.append(("start", _to_utc(start).timestamp()))
+    if end is not None:
+        params.append(("end", _to_utc(end).timestamp()))
+    return params
 
 
 def _to_utc(value: datetime) -> datetime:

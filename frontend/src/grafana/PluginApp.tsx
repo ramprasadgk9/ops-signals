@@ -275,7 +275,7 @@ export function PluginApp(_props: unknown) {
   useEffect(() => {
     let active = true;
     if (activeMode !== 'autonomous' || !backendUrl) return;
-    listAutonomousScopeOptions(backendUrl, { serviceLabel, namespaceLabel, environmentLabel })
+    listAutonomousScopeOptions(backendUrl, { serviceLabel, namespaceLabel, environmentLabel, window: analysisWindow })
       .then((options) => {
         if (!active) return;
         setServices(options.services);
@@ -287,7 +287,7 @@ export function PluginApp(_props: unknown) {
     return () => {
       active = false;
     };
-  }, [activeMode, backendUrl, serviceLabel, namespaceLabel, environmentLabel]);
+  }, [activeMode, backendUrl, serviceLabel, namespaceLabel, environmentLabel, analysisWindow]);
 
   const selectedDatasource = useMemo(
     () => prometheusDatasources.find((datasource) => datasource.uid === selectedPrometheusUid),

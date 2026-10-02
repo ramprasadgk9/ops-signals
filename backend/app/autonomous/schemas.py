@@ -201,6 +201,7 @@ class MetricDiscoveryResult(BaseModel):
     series_discovered: int = 0
     truncated: bool = False
     starved_metrics: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ResolvedAnalysisScope(BaseModel):

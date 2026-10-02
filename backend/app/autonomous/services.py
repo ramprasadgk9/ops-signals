@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import OrderedDict, defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -36,6 +37,8 @@ class MetricMetadataProvider(Protocol):
         limit: int,
         scope_selector: str = "",
         max_series_per_metric: int = 10,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> list[DiscoveredMetric] | MetricDiscoveryResult:
         ...
 
@@ -133,7 +136,15 @@ class MetricDiscoveryService:
         self.provider = provider
         self.metadata_limit = metadata_limit
 
-    def discover(self, scope: AnalysisScope) -> tuple[ResolvedAnalysisScope, list[DiscoveredMetric]]:
+    def discover(
+        self,
+        scope: AnalysisScope,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> tuple[ResolvedAnalysisScope, list[DiscoveredMetric]]:
+        """start/end bound the series and label lookups to the analysis window, so long-retention
+        backends (Thanos, Mimir) don't search all history and stale series don't use up the budget."""
         warnings: list[str] = []
         try:
             validate_label_name(scope.service_label, "service_label")
@@ -154,6 +165,8 @@ class MetricDiscoveryService:
                 limit=effective_limit,
                 scope_selector=scope_selector,
                 max_series_per_metric=max_series_per_metric,
+                start=start,
+                end=end,
             )
         except TypeError:
             discovery_output = self.provider.discover_metric_metadata(
@@ -169,6 +182,7 @@ class MetricDiscoveryService:
             series_available = discovery_output.series_available
             truncated = discovery_output.truncated
             starved_metrics = discovery_output.starved_metrics
+            warnings.extend(discovery_output.warnings)
         else:
             discovered = discovery_output
             series_discovered = len(discovered)
