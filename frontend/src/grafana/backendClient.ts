@@ -277,11 +277,13 @@ export async function listAutonomousScopeOptions(baseUrl: string, labels: {
   serviceLabel: string;
   namespaceLabel: string;
   environmentLabel: string;
+  window: string;
 }) {
   const params = new URLSearchParams({
     service_label: labels.serviceLabel,
     namespace_label: labels.namespaceLabel,
     environment_label: labels.environmentLabel,
+    window: labels.window,
   });
   return fetchJson<{ services: string[]; namespaces: string[]; environments: string[] }>(baseUrl, `/api/autonomous/scope-options?${params.toString()}`);
 }

@@ -190,11 +190,12 @@ export const api = {
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),
-  autonomousScopeOptions: (labels: { service_label?: string; namespace_label?: string; environment_label?: string } = {}) => {
+  autonomousScopeOptions: (labels: { service_label?: string; namespace_label?: string; environment_label?: string; window?: string } = {}) => {
     const params = new URLSearchParams();
     params.append('service_label', labels.service_label ?? 'service');
     params.append('namespace_label', labels.namespace_label ?? 'namespace');
     params.append('environment_label', labels.environment_label ?? 'env');
+    params.append('window', labels.window ?? '24h');
     return getJson<{ services: string[]; namespaces: string[]; environments: string[] }>(`/api/autonomous/scope-options?${params.toString()}`);
   },
   autonomousPreview: (payload: AutonomousPreviewRequest) =>

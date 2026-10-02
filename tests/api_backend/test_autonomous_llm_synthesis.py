@@ -21,7 +21,7 @@ class _FakeMetadataProvider:
     def discover_metric_metadata(self, **kwargs):
         return list(self.metrics)
 
-    def label_values(self, label: str):
+    def label_values(self, label: str, **kwargs):
         return sorted({metric.labels[label] for metric in self.metrics if label in metric.labels})
 
     def preview(self, query: str, start, end, step: str):

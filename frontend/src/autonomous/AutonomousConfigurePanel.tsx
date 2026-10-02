@@ -174,8 +174,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
   };
 
   const scopeQuery = useQuery({
-    queryKey: ['autonomous-scope-options', serviceLabel, namespaceLabel, environmentLabel],
-    queryFn: () => api.autonomousScopeOptions({ service_label: serviceLabel, namespace_label: namespaceLabel, environment_label: environmentLabel }),
+    queryKey: ['autonomous-scope-options', serviceLabel, namespaceLabel, environmentLabel, analysisWindow],
+    queryFn: () => api.autonomousScopeOptions({ service_label: serviceLabel, namespace_label: namespaceLabel, environment_label: environmentLabel, window: analysisWindow }),
     retry: false,
   });
 
