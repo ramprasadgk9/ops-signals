@@ -1,217 +1,269 @@
-# JIRA Integration Plan (Proposed — Not Implemented)
+# Pluggable Ticketing Integration Plan (JIRA Reference Implementation)
 
-**Status:** Proposed. No code from this document exists in the repository yet - this is a
-future-work plan only, written so the work can be picked up in one shot when there's real demand
-for it (see "Why this isn't built yet" below). Treat every endpoint, field name, and payload shape
-here as a design intent to be verified against a live JIRA instance at implementation time, not as
-already-tested fact.
-
-**Extends:** [`docs/07-operational-cases.md`](../../07-operational-cases.md) (current case lifecycle),
-[`ADR-004`](../../adr/ADR-004-postgresql-system-of-record.md) (Postgres as system of record),
-[`ADR-005`](../../adr/ADR-005-qdrant-retrieval-index.md) (Qdrant as a derived retrieval index).
+**Status:** Proposed (Technical Design Document)  
+**Extends:** [`docs/07-operational-cases.md`](../../07-operational-cases.md) (operational case lifecycle),  
+[`ADR-004`](../../adr/ADR-004-postgresql-system-of-record.md) (PostgreSQL as system of record),  
+[`ADR-005`](../../adr/ADR-005-qdrant-retrieval-index.md) (Qdrant as derived retrieval index).  
 
 ---
 
-## 1. Why this isn't built yet
+## 1. Executive Summary & Vision
 
-JIRA is close to universal for tracking ops/incident work in companies, so a case that only lives
-in this tool's own Postgres+Qdrant is a real adoption blocker for teams that already mandate JIRA
-for everything - the demand for this is real, not hypothetical. But as of this writing, no user has
-asked for it, and the project has higher-priority, unfinished work (Grafana marketplace publishing,
-core detection-accuracy fixes). Building the integration now would mean maintaining untested,
-unused code paths. This document exists so that the *next* time this is picked up, the design
-decisions are already made and reviewed - only the code is missing.
+Ops Signals cases currently live in PostgreSQL as the system of record and are indexed into Qdrant for semantic similarity retrieval. However, enterprise operations teams universally track incidents, investigations, and remediation workflows in external issue-tracking and ITSM platforms.
 
----
-
-## 2. Design principle: JIRA is a second Qdrant, not a second Postgres
-
-The case lifecycle already has a proven template for exactly this kind of integration:
-`CaseMemoryIndexer` (`backend/app/memory/indexer.py`) syncs a case into Qdrant, tracked by a
-`memory_status` state machine (`not_indexed` / `indexing` / `indexed` / `stale` / `failed`) on
-`OperationalCaseEntity`, triggered best-effort from `backend/app/api/cases.py` and **never** allowed
-to block or fail the case operation it's attached to.
-
-JIRA should be built as a sibling to that, not a replacement for anything:
-
-- **Postgres stays the system of record.** Every field a JIRA issue would show (title, status, RCA,
-  resolution) is derived *from* the case, never *the* case.
-- **Qdrant's pipeline doesn't change.** It keeps reading from Postgres exactly as it does today.
-- **JIRA is a second, independent derived integration**, with its own `jira_status` state machine,
-  same best-effort discipline as `memory_status`.
-
-This directly answers the "keep Qdrant for the knowledge base" part of the original ask: nothing
-about the retrieval/knowledge-base pipeline needs to touch JIRA at all.
+### The Vision: Plug-and-Play Ticketing
+Instead of hardcoding a bespoke, one-off JIRA integration that would require database migrations and code rewrites whenever a team uses **ServiceNow**, **GitHub Issues**, **Linear**, or **PagerDuty**, Ops Signals establishes a **pluggable `TicketProvider` architecture**:
+1. **Generic data model and API contracts:** All cases interact with a provider-agnostic ticketing interface (`external_ticket_*`).
+2. **JIRA as reference implementation #1:** The initial implementation delivers an end-to-end JIRA Cloud adapter to satisfy real-world demand immediately.
+3. **Zero schema rewrites for future providers:** Adding ServiceNow, GitHub Issues, or Linear in the future requires only implementing a new Python provider class and zero database migrations or frontend rewrites.
 
 ---
 
-## 3. Architecture
+## 2. Core Architectural Principles
+
+1. **PostgreSQL Remains the System of Record:**  
+   Every external ticket (summary, description, status, comments) is derived *from* the operational case. External systems never become the source of truth for Ops Signals cases.
+2. **Qdrant Pipeline Remains Isolated and Unchanged:**  
+   The semantic memory and case retrieval pipeline (`CaseMemoryIndexer` -> Qdrant `operational_cases`) continues reading directly from PostgreSQL as it does today. External ticketing does not touch Qdrant.
+3. **Ticketing as an Asynchronous Derived Sink:**  
+   External ticket creation and synchronization run asynchronously and best-effort. Outbound ticket operations are non-blocking and will **never** fail or roll back the case creation/update transaction.
+4. **Provider-Agnostic Seams, Provider-Specific Adapters:**  
+   Core case models and API endpoints use generic ticketing concepts (`ticket_id`, `ticket_url`, `ticket_status`). Provider-specific nuances (such as JIRA's Atlassian Document Format or ServiceNow's sys_id) are strictly encapsulated inside the provider adapter.
+
+---
+
+## 3. Architecture & Pluggable Provider Seam
 
 ```mermaid
 flowchart TB
-  subgraph Existing["Existing (unchanged)"]
-    Case[("OperationalCaseEntity\n(Postgres - system of record)")]
+  subgraph Existing["Existing System of Record & Memory (Unchanged)"]
+    Case[("OperationalCaseEntity\n(PostgreSQL - system of record)")]
     Indexer["CaseMemoryIndexer"]
     Qdrant[("Qdrant\noperational_cases collection")]
-    Case -- "best-effort, async" --> Indexer --> Qdrant
+    Case -- "async, best-effort" --> Indexer --> Qdrant
   end
 
-  subgraph New["New: outbound (case -> JIRA)"]
-    CreateBtn["Create Jira Issue\n(explicit user action, Phase 1)"]
-    JiraSync["JiraSyncService\n.create_issue() / .sync_to_jira()"]
-    JiraAPI["JIRA Cloud REST API\nPOST /rest/api/3/issue\nPOST /rest/api/3/issue/{key}/comment"]
-    CreateBtn --> JiraSync --> JiraAPI
-    Case -.->|"reads case fields to build\nsummary/description/comments"| JiraSync
-    JiraSync -.->|"writes jira_status,\njira_issue_key, jira_synced_at"| Case
+  subgraph ServiceLayer["Pluggable Ticketing Engine"]
+    TicketSvc["TicketService\n(orchestrates state transitions & provider dispatch)"]
+    ProviderInterface["TicketProvider (Protocol/ABC)\n.create_ticket(case) -> TicketResult\n.sync_ticket(case) -> TicketResult\n.verify_webhook(payload, headers) -> bool"]
+    TicketSvc --> ProviderInterface
   end
 
-  subgraph NewIn["New: inbound (JIRA -> case), Phase 3"]
-    JiraAdmin["JIRA admin manually configures\na webhook in JIRA's own UI\n(Project Settings -> WebHooks)\nno OAuth app required"]
-    Webhook["POST /api/integrations/jira/webhook\n(new endpoint, shared-secret validated)"]
-    JiraAdmin -.->|"JIRA POSTs on status\ntransition / comment added"| Webhook
-    Webhook -->|"maps JIRA status -> case_status,\nappends comment as investigation note"| Case
-    Case -.->|"case update triggers existing\n_refresh_case_memory()"| Indexer
+  subgraph Adapters["Provider Adapters (Plug-and-Play)"]
+    JiraAdapter["JiraTicketProvider\n(Phase 1 Reference Adapter)\nADF Builder + Basic Auth"]
+    SNowAdapter["ServiceNowTicketProvider\n(Future Adapter)"]
+    GHAdapter["GitHubIssuesTicketProvider\n(Future Adapter)"]
+    ProviderInterface -.-> JiraAdapter
+    ProviderInterface -.-> SNowAdapter
+    ProviderInterface -.-> GHAdapter
   end
 
-  JiraAPI -. "issue created/updated in JIRA" .-> JiraAdmin
+  subgraph ExternalPlatforms["External ITSM Platforms"]
+    JiraCloud["JIRA Cloud REST API\n/rest/api/3/issue\n/rest/api/3/issue/{key}/comment"]
+    ServiceNow["ServiceNow Table API"]
+    GitHub["GitHub REST API"]
+    JiraAdapter --> JiraCloud
+    SNowAdapter -.-> ServiceNow
+    GHAdapter -.-> GitHub
+  end
+
+  subgraph Inbound["Inbound Webhook Sync (Phase 3)"]
+    WebhookEndpoint["POST /api/integrations/ticketing/{provider}/webhook\n(Constant-time HMAC secret validation)"]
+    JiraAdmin["JIRA Project Webhook\n(Admin-configured in JIRA UI)"]
+    JiraAdmin -.->|"HTTP POST"| WebhookEndpoint
+    WebhookEndpoint --> TicketSvc
+    TicketSvc -->|"updates case_status &\nappends investigation notes"| Case
+    Case -.->|"triggers existing refresh"| Indexer
+  end
+
+  Case -.->|"reads case fields"| TicketSvc
+  TicketSvc -.->|"writes external_ticket_status,\nexternal_ticket_id, external_ticket_url"| Case
 ```
 
-Key point visible in the diagram: an inbound JIRA update lands on the **same** `OperationalCaseEntity`
-row the UI already edits directly, so it flows through the **existing** `_refresh_case_memory()` /
-Qdrant re-indexing path automatically - no new memory-sync code needed, only new *case-update*
-code that happens to originate from JIRA instead of the plugin UI.
+---
+
+## 4. Generic Data Model (`OperationalCaseEntity`)
+
+Rather than hardcoding JIRA-specific column names, `OperationalCaseEntity` in `backend/app/models/entities.py` gains generic ticketing columns:
+
+| Column | Type | Default | Description |
+|---|---|---|---|
+| `external_ticket_provider` | `String(32)` | `None` | Active provider identifier (e.g., `"jira"`, `"servicenow"`, `"github"`) |
+| `external_ticket_id` | `String(64)` | `None` | External issue/ticket identifier (e.g., `"OPS-142"`, `"INC0019283"`, `"#42"`) |
+| `external_ticket_url` | `Text` | `None` | Direct clickable web link to the ticket |
+| `external_ticket_status` | `String(32)` | `"not_created"` | State machine: `not_created`, `creating`, `created`, `syncing`, `stale`, `failed` |
+| `external_ticket_synced_at` | `DateTime(timezone=True)` | `None` | Timestamp of last successful sync with the external platform |
+| `external_ticket_error` | `Text` | `None` | Error details if ticket creation or sync failed |
+
+### State Machine Transitions
+```
+                ┌──────────────┐
+                │ not_created  │
+                └──────┬───────┘
+                       │ trigger create
+                       ▼
+                ┌──────────────┐
+         ┌─────►│   creating   │
+         │      └──────┬───────┘
+         │             │
+   retry │      ┌──────┴────────┐
+         │      │               │
+         │      ▼               ▼
+         │  ┌───────┐       ┌────────┐
+         └──┤ failed│       │created │◄─────────┐
+            └───┬───┘       └───┬────┘          │
+                ▲               │ trigger sync  │ sync ok
+                │               ▼               │
+                │         ┌───────────┐         │
+                └─────────┤  syncing  ├─────────┘
+                 sync fail└───────────┘
+```
 
 ---
 
-## 4. Data model changes
+## 5. Configuration Model (`config.py`)
 
-Add a `jira_*` field block to `OperationalCaseEntity`, mirroring the existing `memory_*` block
-exactly (`backend/app/models/entities.py`):
-
-| Field | Type | Mirrors |
-|---|---|---|
-| `jira_status` | `String(32)`, default `"not_created"` | `memory_status` |
-| `jira_issue_key` | `String(32)`, nullable | — (e.g. `"OPS-142"`) |
-| `jira_issue_url` | `Text`, nullable | — |
-| `jira_synced_at` | `DateTime(timezone=True)`, nullable | `memory_indexed_at` |
-| `jira_sync_error` | `Text`, nullable | `memory_error` |
-
-`jira_status` values: `not_created` -> `creating` -> `created` -> (`syncing` <-> `stale`) -> `failed`
-(retryable from any state).
-
----
-
-## 5. Config
-
-New `JiraConfig` in `backend/app/config.py`, same shape as `MemoryConfig`/`PrometheusConnectionConfig`:
+Configuration is structured with an active provider selector and provider-specific configuration blocks:
 
 ```python
-class JiraConfig(BaseModel):
-    enabled: bool = False
-    base_url: str | None = None          # https://yourorg.atlassian.net
+class JiraProviderConfig(BaseModel):
+    base_url: str | None = None          # e.g. "https://yourorg.atlassian.net"
     project_key: str | None = None       # e.g. "OPS"
-    issue_type: str = "Task"
-    automatic_on_case_creation: bool = False   # opt-in, see Section 8
-    status_mapping: dict[str, str] = Field(default_factory=dict)  # see Section 7
+    issue_type: str = "Task"             # e.g. "Task", "Incident", "Bug"
+    api_version: str = "3"               # "3" (ADF format) or "2" (plain text wiki markup)
+    status_mapping: dict[str, str] = Field(default_factory=lambda: {
+        "open": "To Do",
+        "investigating": "In Progress",
+        "rca_in_progress": "In Progress",
+        "resolved": "Done",
+        "closed": "Done",
+    })
+
+class TicketingConfig(BaseModel):
+    enabled: bool = False
+    active_provider: str = "jira"        # "jira" | "servicenow" | "github"
+    automatic_on_case_creation: bool = False  # opt-in; defaults to manual user trigger
+    jira: JiraProviderConfig = Field(default_factory=JiraProviderConfig)
 ```
 
-Credentials via env vars, same pattern as Prometheus's `OPS_SIGNALS_PROMETHEUS_BEARER_TOKEN`:
-
-- `OPS_SIGNALS_JIRA_EMAIL`
-- `OPS_SIGNALS_JIRA_API_TOKEN` (generated at `id.atlassian.com/manage/api-tokens`)
-- `OPS_SIGNALS_JIRA_WEBHOOK_SECRET` (shared secret for inbound webhook validation, Section 9)
+### Environment Variables & Credentials
+- `OPS_SIGNALS_TICKETING_ENABLED`: `true` / `false`
+- `OPS_SIGNALS_TICKETING_PROVIDER`: `jira`
+- `OPS_SIGNALS_JIRA_EMAIL`: Service account email
+- `OPS_SIGNALS_JIRA_API_TOKEN`: Atlassian API token (from `id.atlassian.com/manage/api-tokens`)
+- `OPS_SIGNALS_JIRA_WEBHOOK_SECRET`: Shared secret for inbound webhook validation
 
 ---
 
-## 6. New/changed endpoints
+## 6. JIRA Reference Implementation Details
 
-| Method & Path | Phase | Purpose |
+### A. Atlassian Document Format (ADF) Handling
+**Crucial API v3 Requirement:** JIRA Cloud REST API v3 (`/rest/api/3/issue`) **strictly rejects plain strings** for `description` and `comment` bodies. Sending a string results in `400 Bad Request: Operation value must be an Atlassian Document (ADF)`.
+
+The `JiraTicketProvider` encapsulates an ADF builder:
+```python
+def text_to_adf(text: str) -> dict:
+    """Converts multiline markdown/text into valid Atlassian Document Format (ADF)."""
+    paragraphs = []
+    for line in text.split("\n\n"):
+        clean = line.strip()
+        if clean:
+            paragraphs.append({
+                "type": "paragraph",
+                "content": [{"type": "text", "text": clean}]
+            })
+    return {
+        "type": "doc",
+        "version": 1,
+        "content": paragraphs or [{"type": "paragraph", "content": [{"type": "text", "text": "No details provided."}]}]
+    }
+```
+*Fallback:* If `api_version: "2"` is configured, plain string description is used against `/rest/api/2/issue`.
+
+### B. Authentication Protocol & Resilience
+- **Auth Header:** Standard HTTP Basic Auth:
+  `Authorization: Basic base64(f"{email}:{api_token}")`
+- **Timeouts:** 10-second request timeout to prevent hanging on unresponsive endpoints.
+- **Rate-Limiting (HTTP 429):** Respects `Retry-After` headers with exponential backoff up to 3 retries.
+
+### C. Inbound Webhook Cryptographic Verification
+- JIRA admin-configured webhooks pass a shared secret either via query string (`?secret=...`) or custom header (`X-Atlassian-Webhook-Secret`).
+- **Timing-Attack Protection:** The endpoint verifies the secret using constant-time comparison:
+  ```python
+  import hmac
+  if not hmac.compare_digest(provided_secret, config.jira_webhook_secret):
+      raise HTTPException(status_code=401, detail="Invalid webhook secret")
+  ```
+- **Idempotency:** Webhook requests store `(external_ticket_id, webhook_timestamp)` to prevent re-processing duplicated events.
+
+---
+
+## 7. REST Endpoints Contract
+
+| Method & Path | Phase | Description |
 |---|---|---|
-| `POST /api/cases/{case_id}/jira/create` | 1 | Explicit user action: build a JIRA issue from the case, store `jira_issue_key`. Mirrors the existing `POST /api/cases/{case_id}/memory/index`-style manual trigger already used for Qdrant. |
-| `POST /api/cases/{case_id}/jira/sync` | 2 | Manual pull: fetch the linked issue's current status/comments from JIRA and apply them to the case, same effect as the webhook path but user-triggered. Useful before the webhook exists, and as a fallback if a webhook delivery is missed. |
-| `POST /api/integrations/jira/webhook` | 3 | Inbound receiver for JIRA's admin-configured webhook. Validates a shared secret (Section 9), looks up the case by `jira_issue_key`, applies the update. |
+| `POST /api/cases/{case_id}/ticket/create` | 1 | Explicit user trigger: dispatches ticket creation to active provider (e.g. JIRA) and saves `external_ticket_id` & `url`. |
+| `POST /api/cases/{case_id}/ticket/sync` | 2 | Manual pull: pulls latest status and comments from external ticket into Ops Signals case. |
+| `POST /api/integrations/ticketing/{provider}/webhook` | 3 | Inbound receiver for external webhooks (e.g. JIRA status changes or new comments). Validates secret, updates case, and triggers Qdrant memory refresh. |
 
-`GET /api/cases/{case_id}` (existing) gains the five new `jira_*` fields in its response so the UI
-can show link/status - no new read endpoint needed.
-
----
-
-## 7. Field & status mapping
-
-**Outbound (case -> JIRA issue), built by `JiraSyncService._build_issue_payload()`:**
-
-| Case field(s) | JIRA field |
-|---|---|
-| `case_title` | `summary` |
-| `finding_snapshot` (service, metric, category, importance) + `root_cause_summary` + `corrective_action` + `outcome_summary`, formatted | `description` |
-| new `investigation_notes` entries (each append) | new comment via `POST /rest/api/3/issue/{key}/comment` |
-
-**Status (bidirectional) - must be a configurable mapping, not hardcoded**, because JIRA workflow
-status names are per-project custom text (`JiraConfig.status_mapping`). Example default:
-
-| Case `case_status` | JIRA status (example project) |
-|---|---|
-| `open` | `To Do` |
-| `investigating`, `rca_in_progress` | `In Progress` |
-| `resolved` | `Done` |
-| `closed` | `Done` |
-
-Inbound sync applies this table in reverse: an unrecognized JIRA status should leave `case_status`
-untouched and log a warning, not guess.
+`GET /api/cases/{case_id}` (existing) automatically includes the `external_ticket_*` fields.
 
 ---
 
-## 8. Two decisions carried over from discussion (recorded, not re-litigated)
+## 8. Frontend UI Contracts & User Experience
 
-- **Opt-in creation, not automatic.** `automatic_on_case_creation` defaults to `false`. Unlike
-  Qdrant indexing (which is invisible/internal), creating a JIRA issue is a visible action on
-  someone else's system - it should be an explicit "Create Jira Issue" button next to the existing
-  "Create Case"/"Investigate" actions in `PanelPreview.tsx`, not a side effect.
-- **Webhook is viable without building an OAuth app.** JIRA restricts *dynamic* webhook
-  registration (`POST /rest/api/3/webhook`) to Connect/OAuth 2.0 apps, but a JIRA admin can
-  configure a plain webhook by hand in JIRA's own UI (Project Settings -> WebHooks: URL + JQL
-  filter + events, no app required). Phase 3 only needs that one-time admin setup plus our inbound
-  endpoint - not a new Atlassian app.
+Both the Grafana plugin (`PanelPreview.tsx` / `PluginApp.tsx`) and Standalone Web UI (`CaseDetailsPage.tsx`) use a consistent ticketing component:
 
----
+### 1. Ticket Pill / Link
+When `external_ticket_id` is present and status is `created`:
+```tsx
+<a href={case.external_ticket_url} target="_blank" rel="noopener noreferrer" style={styles.ticketPill}>
+  <img src="/jira-icon.svg" width={14} height={14} />
+  <span>{case.external_ticket_provider.toUpperCase()}: {case.external_ticket_id} ↗</span>
+</a>
+```
 
-## 9. Security considerations
-
-- **API token**: env var only (`OPS_SIGNALS_JIRA_API_TOKEN`), never logged, never stored in
-  Postgres - same discipline as the Prometheus bearer token today.
-- **Webhook authenticity**: JIRA's admin-configured webhooks are **not** cryptographically signed
-  by default. The inbound endpoint must validate a shared secret the admin includes in the webhook
-  URL itself (e.g. `.../jira/webhook?secret=...`) or a custom header, checked against
-  `OPS_SIGNALS_JIRA_WEBHOOK_SECRET`, and reject anything else with 401 before touching any case.
-- **Payload shape is provisional.** Public examples show `webhookEvent`, `issue.key`,
-  `issue.fields.status.name`, `changelog.items[]`, and an optional `comment` block, but exact field
-  names must be confirmed against a real payload from a live JIRA instance before the parser is
-  written - don't trust this doc's field names as final.
-- **Idempotency**: webhook deliveries can repeat; `jira_issue_key` + the JIRA `timestamp` field
-  should be used to no-op a duplicate delivery rather than re-applying the same update.
+### 2. Action Button State Machine
+- `external_ticket_status == "not_created"`:
+  Button: **"Create Ticket (Jira)"** (or provider display name).
+- `external_ticket_status == "creating"`:
+  Button: **"Creating Ticket..."** (disabled, spinner).
+- `external_ticket_status == "created"`:
+  Button: **"Sync Ticket"** (manual pull refresh).
+- `external_ticket_status == "failed"`:
+  Renders alert banner showing `external_ticket_error` with a **"Retry Ticket Creation"** button.
 
 ---
 
-## 10. Implementation phases
+## 9. Implementation Phases
 
-1. **Phase 1 - Outbound create only.** `JiraConfig`, the five new `jira_*` columns (migration),
-   `JiraSyncService.create_issue()`, the "Create Jira Issue" button, `POST /cases/{id}/jira/create`.
-   No inbound sync at all yet. Smallest useful slice - a team can at least get findings into JIRA.
-2. **Phase 2 - Manual pull.** `JiraSyncService.sync_from_jira()`, `POST /cases/{id}/jira/sync`, a
-   "Refresh from Jira" button. Closes the loop without any new public endpoint or admin setup.
-3. **Phase 3 - Real-time inbound webhook.** `POST /api/integrations/jira/webhook`, secret
-   validation, status-mapping-driven case updates, comment ingestion as investigation notes. Needs
-   one-time JIRA admin webhook configuration (Section 8) but no new Atlassian app.
+### Phase 1: Outbound Ticket Creation (JIRA Reference Implementation)
+- **Database Migration:** `backend/migrations/004_add_external_ticket_case_fields.sql` adding `external_ticket_*` columns to `operational_cases`.
+- **Domain Layer:** Define `TicketProvider` protocol in `backend/app/integrations/ticketing/base.py`.
+- **JIRA Adapter:** Implement `JiraTicketProvider` in `backend/app/integrations/ticketing/jira.py` with ADF formatting and Basic Auth.
+- **API Endpoint:** `POST /api/cases/{case_id}/ticket/create`.
+- **UI Integration:** Add "Create Ticket" action and ticket badge to Case Details UI.
 
-Each phase is independently shippable and useful on its own - Phase 2 doesn't require Phase 3, and
-Phase 1 alone already solves "get this into JIRA" even if nothing ever syncs back.
+### Phase 2: Manual Pull & Bidirectional Synchronization
+- Implement `sync_ticket()` in `JiraTicketProvider` to fetch issue status and latest comments.
+- Endpoint: `POST /api/cases/{case_id}/ticket/sync`.
+- Ingest new JIRA comments as `investigation_notes` and update `case_status` based on configurable `status_mapping`.
+- Add "Sync Ticket" button in Case Details UI.
+
+### Phase 3: Real-Time Inbound Webhooks
+- Endpoint: `POST /api/integrations/ticketing/{provider}/webhook`.
+- Shared-secret authentication with `hmac.compare_digest`.
+- Case status update and investigation note ingestion automatically triggers existing `_refresh_case_memory()` to update Qdrant.
+
+### Phase 4: Additional Providers Extension
+- Add `ServiceNowTicketProvider` (`/api/now/table/incident`).
+- Add `GitHubIssuesTicketProvider` (`/repos/{owner}/{repo}/issues`).
+- Purely additive: zero changes to `operational_cases` table or core case API endpoints.
 
 ---
 
-## 11. Explicit non-goals
+## 10. Explicit Non-Goals
 
-- JIRA never becomes the system of record. If JIRA and Postgres ever disagree, Postgres wins;
-  JIRA-side edits only flow in through the sync paths above, never bypass them.
-- Qdrant's indexing pipeline is not touched by any phase of this plan.
-- No attempt to build a general-purpose bidirectional JIRA sync (custom fields, attachments,
-  sub-tasks) - scope is limited to the fields in Section 7.
+- **No Multi-Master Ownership:** JIRA and ServiceNow never become the system of record. PostgreSQL remains the authoritative store; external changes only flow in through explicit sync or validated webhooks.
+- **No Unbounded Two-Way Field Synchronization:** Ops Signals does not attempt to synchronize custom fields, attachments, time-tracking, or sub-task hierarchies. Scope is strictly focused on title, description, status, and investigation notes/comments.
+- **No Direct Qdrant Access from External Systems:** External tickets never interact directly with Qdrant. All memory indexing occurs exclusively via `CaseMemoryIndexer` through PostgreSQL.
