@@ -4,6 +4,7 @@
 **Extends:** [`docs/07-operational-cases.md`](../../07-operational-cases.md) (operational case lifecycle),  
 [`ADR-004`](../../adr/ADR-004-postgresql-system-of-record.md) (PostgreSQL as system of record),  
 [`ADR-005`](../../adr/ADR-005-qdrant-retrieval-index.md) (Qdrant as derived retrieval index),  
+[`backend/app/models/db.py`](../../../backend/app/models/db.py) (`get_session_local`),  
 [`backend/app/security.py`](../../../backend/app/security.py) (API token & public routes).  
 
 ---
@@ -21,7 +22,7 @@ Instead of coupling Ops Signals to a bespoke, one-off Jira script that mixes del
    - Outbox completion and `case_ticket_links` upserts commit in a single database transaction.
    - Webhook delivery receipts (`ticket_webhook_deliveries`), canonical event appends (`case_ticket_events`), and status updates commit in a single database transaction.
 5. **Successor Operations for Forced Creation:** Forcing ticket creation after an ambiguous outcome creates a distinct successor operation (`supersedes_operation_id`) with its own unique ID, idempotency key, and Jira tracking label, preserving complete audit trails without label collisions.
-6. **Deep Module Façade (`CaseTicketing`) & Role Protocols:** Granular role protocols (`TicketCreator`, `TicketSynchronizer`, `WebhookVerifier`, `WebhookParser`) operate on pure value models (`TicketDraft`, `TicketView`, `TicketOperationView`, `TicketEventView`), hiding persistence and ORM entities from providers and callers.
+6. **Deep Module Façade (`CaseTicketing`) & Role Protocols:** Granular role protocols (`TicketCreator`, `TicketSynchronizer`, `WebhookVerifier`, `WebhookParser`) operate on pure value models (`TicketDraft`, `TicketView`, `TicketOperationView`, `TicketEventView`, `RemoteEventDraft`), hiding persistence and ORM entities from providers and callers.
 7. **Jira Cloud v3 Reference Adapter:** Phase 1 delivers an end-to-end Jira Cloud adapter using Atlassian Document Format (ADF), REST API v3, and native label indexing for distributed idempotency, secured with authentic HMAC-SHA256 webhook signatures integrated via a provider-agnostic dynamic security exemption.
 
 ---
@@ -64,7 +65,7 @@ flowchart TB
   end
 
   subgraph CoreModule["Deep Module Boundary: CaseTicketing"]
-    Façade["CaseTicketing Façade\n- SessionFactory injection\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- force_create_ticket(case_id, op_id)\n- link_existing_ticket(case_id, display_key)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
+    Façade["CaseTicketing Façade\n- SessionFactory (get_session_local)\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- force_create_ticket(case_id, op_id)\n- link_existing_ticket(case_id, display_key)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
     
     subgraph RoleProtocols["Role Protocols (Pure Data Contracts)"]
       Creator["TicketCreator (Protocol)"]
@@ -94,7 +95,7 @@ flowchart TB
   end
 
   subgraph Adapters["Provider Implementations"]
-    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via native JQL labels\n- Catch 5xx & timeouts as AmbiguousOutcomeError\n- Builds ADF JSON\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier\n- Canonical event ID extraction"]
+    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via native JQL labels\n- Catch 5xx & timeouts as AmbiguousOutcomeError\n- Builds ADF JSON\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier\n- Canonical event ID & remote_id extraction"]
     ServiceNowAdapter["ServiceNowTicketProvider (Future)"]
     GitHubAdapter["GitHubIssuesTicketProvider (Future)"]
     
@@ -196,7 +197,7 @@ A worker crash during an in-flight `create_ticket` is inherently an uncertain ou
 In FastAPI / SQLAlchemy, a single request-scoped `Session` cannot be concurrently accessed by an async heartbeat task while the worker executes external HTTP calls.
 
 **Architecture:**
-- `CaseTicketing` is injected with a `session_factory: Callable[[], Session]`.
+- `CaseTicketing` is injected with `session_factory = get_session_local` from [`backend/app/models/db.py`](../../../backend/app/models/db.py).
 - The worker opens a short-lived session for claiming operations, and another short-lived session for final completion.
 - The heartbeat runs as an independent coroutine using its own short-lived session per pulse:
   ```python
@@ -383,8 +384,15 @@ CREATE TABLE ticket_webhook_deliveries (
 );
 ```
 
-### Atomic Webhook Processing: Receipt, Event & Link (P1)
-To prevent a crash from acknowledging a delivery without persisting its domain event, all webhook mutations commit in a **single database transaction**:
+### Atomic Webhook Resolution & Handling of Unlinked Tickets (P1)
+Because webhooks are sent to a single HTTP endpoint for the whole external project, Jira will dispatch webhooks for issues not created by Ops Signals.
+
+**Webhook Resolution Pipeline:**
+1. **Delivery Deduplication:** Check `ticket_webhook_deliveries(provider, delivery_id)`. If receipt exists, return HTTP `200 OK` immediately (idempotent receipt ack).
+2. **Event Parsing:** Parse raw body into `RemoteEventDraft`, extracting `remote_id` (e.g. `"10042"`), `display_key` (`"OPS-142"`), and canonical `remote_event_id` (`"jira_comment_501"`).
+3. **Link Resolution:** Query `case_ticket_links` by `(provider, remote_id)`.
+   - **Case A: Unlinked Ticket (Outcome: Acknowledge & Ignore):** If no matching link exists, the webhook belongs to an external issue not tracked by Ops Signals. Commit the delivery receipt to prevent redundant re-deliveries and return HTTP `200 OK`. Do not raise an error or insert orphan events.
+   - **Case B: Linked Case Found:** Execute atomic insert of delivery receipt, append canonical event to `case_ticket_events`, and update `observed_remote_status` on `case_ticket_links`:
 ```python
 with session_factory() as session:
     with session.begin():
@@ -399,35 +407,57 @@ with session_factory() as session:
             {"provider": provider_name, "delivery_id": delivery_id}
         )
         if res.rowcount == 0:
-            # Already processed in a prior attempt; return early (idempotent ack)
+            return True  # Already delivered; idempotent ack
+
+        # 2. Check for linked case
+        link = session.execute(
+            text("""
+                SELECT case_id FROM case_ticket_links
+                WHERE provider = :provider AND remote_id = :remote_id
+            """),
+            {"provider": provider_name, "remote_id": event_draft.remote_id}
+        ).fetchone()
+
+        if not link:
+            # Valid webhook for unlinked issue: acknowledge and ignore
             return True
 
-        # 2. In the EXACT SAME transaction, insert canonical domain event
-        if event_draft:
-            session.execute(
-                text("""
-                    INSERT INTO case_ticket_events (
-                        case_id, provider, remote_event_id, event_type,
-                        author, summary, payload, occurred_at, created_at
-                    )
-                    VALUES (
-                        :case_id, :provider, :remote_event_id, :event_type,
-                        :author, :summary, :payload, :occurred_at, NOW()
-                    )
-                    ON CONFLICT (provider, remote_event_id) DO NOTHING;
-                """),
-                { ... }
-            )
+        case_id = link.case_id
 
-        # 3. In the EXACT SAME transaction, update link observed_remote_status
-        if event_draft and event_draft.observed_remote_status:
+        # 3. In the EXACT SAME transaction, insert canonical domain event
+        session.execute(
+            text("""
+                INSERT INTO case_ticket_events (
+                    case_id, provider, remote_event_id, event_type,
+                    author, summary, payload, occurred_at, created_at
+                )
+                VALUES (
+                    :case_id, :provider, :remote_event_id, :event_type,
+                    :author, :summary, :payload, :occurred_at, NOW()
+                )
+                ON CONFLICT (provider, remote_event_id) DO NOTHING;
+            """),
+            {
+                "case_id": case_id,
+                "provider": provider_name,
+                "remote_event_id": event_draft.remote_event_id,
+                "event_type": event_draft.event_type,
+                "author": event_draft.author,
+                "summary": event_draft.summary,
+                "payload": json.dumps(event_draft.raw_payload),
+                "occurred_at": event_draft.occurred_at,
+            }
+        )
+
+        # 4. In the EXACT SAME transaction, update link observed_remote_status
+        if event_draft.observed_remote_status:
             session.execute(
                 text("""
                     UPDATE case_ticket_links
                     SET observed_remote_status = :status, updated_at = NOW()
                     WHERE case_id = :case_id AND provider = :provider;
                 """),
-                { ... }
+                {"case_id": case_id, "provider": provider_name, "status": event_draft.observed_remote_status}
             )
         # Commit guarantees receipt + event + link succeed or roll back together
 ```
@@ -465,7 +495,9 @@ class RemoteTicketSnapshot(BaseModel):
     sync_cursor: str | None = None
 
 class RemoteEventDraft(BaseModel):
-    remote_event_id: str                    # Canonical ID (e.g. 'jira_comment_10042')
+    remote_id: str                          # Canonical remote ticket ID (e.g. Jira issue ID '10042')
+    display_key: str | None = None          # Jira issue key (e.g. 'OPS-142')
+    remote_event_id: str                    # Canonical event ID (e.g. 'jira_comment_10042')
     event_type: str                         # "comment_created", "status_changed"
     author: str | None = None
     summary: str
@@ -574,7 +606,7 @@ class CaseTicketing:
         """Sweeper step: marks expired create_ticket tasks as ambiguous_outcome."""
 
     def accept_webhook(self, provider_name: str, raw_body: bytes, headers: Mapping[str, str]) -> bool:
-        """Verifies signature, records delivery receipt, updates status, and appends canonical event."""
+        """Verifies signature, records delivery receipt, resolves link, updates status, and appends event."""
 ```
 
 ---
@@ -680,6 +712,48 @@ class JiraTicketProvider:
 
     def extract_delivery_id(self, headers: Mapping[str, str]) -> str | None:
         return headers.get("X-Atlassian-Webhook-Identifier") or headers.get("x-atlassian-webhook-identifier")
+
+    def parse_webhook_event(self, raw_body: bytes, headers: Mapping[str, str]) -> RemoteEventDraft | None:
+        data = json.loads(raw_body.decode("utf-8"))
+        issue = data.get("issue")
+        if not issue:
+            return None
+
+        remote_id = issue["id"]
+        display_key = issue.get("key")
+        webhook_event = data.get("webhookEvent", "")
+        
+        # Parse comment events
+        if "comment" in data:
+            comment = data["comment"]
+            return RemoteEventDraft(
+                remote_id=remote_id,
+                display_key=display_key,
+                remote_event_id=f"jira_comment_{comment['id']}",
+                event_type="comment_created",
+                author=comment.get("author", {}).get("displayName"),
+                summary=comment.get("body", ""),
+                occurred_at=datetime.fromisoformat(comment.get("updated", datetime.utcnow().isoformat())),
+                raw_payload=data
+            )
+            
+        # Parse issue status transition events
+        if "changelog" in data:
+            changelog = data["changelog"]
+            for item in changelog.get("items", []):
+                if item.get("field") == "status":
+                    return RemoteEventDraft(
+                        remote_id=remote_id,
+                        display_key=display_key,
+                        remote_event_id=f"jira_changelog_{changelog['id']}",
+                        event_type="status_changed",
+                        author=data.get("user", {}).get("displayName"),
+                        summary=f"Status changed to {item.get('toString')}",
+                        observed_remote_status=item.get("toString"),
+                        occurred_at=datetime.utcnow(),
+                        raw_payload=data
+                    )
+        return None
 ```
 If the provider is unconfigured, unknown, or the HMAC signature fails, the endpoint immediately returns `401 Unauthorized` (or `404 Not Found`).
 
@@ -723,14 +797,17 @@ def get_ticketing_config() -> TicketingConfig:
 ```
 
 ### FastAPI Dependency Injection (`backend/app/api/ticketing.py`)
+Uses the existing session factory `get_session_local` exported directly by [`backend/app/models/db.py`](../../../backend/app/models/db.py):
 ```python
+from backend.app.models.db import get_session_local
+
 def get_case_ticketing(
     config: TicketingConfig = Depends(get_ticketing_config)
 ) -> CaseTicketing:
     providers = {}
     if config.jira.base_url and config.jira.api_token:
         providers["jira"] = JiraTicketProvider(config.jira)
-    return CaseTicketing(session_factory=get_db_sessionmaker(), config=config, providers=providers)
+    return CaseTicketing(session_factory=get_session_local, config=config, providers=providers)
 ```
 
 ---
@@ -746,7 +823,7 @@ def get_case_ticketing(
 | `POST /api/cases/{case_id}/ticket/force-create` | Bearer / `202 Accepted` | Operator forces fresh create after ambiguous outcome | Spawns successor operation with `supersedes_operation_id`. |
 | `GET /api/cases/{case_id}/ticket` | Bearer / `200 OK` | Fetch ticket link, active operation & events | Returns `TicketView`, active `TicketOperationView`, and recent `TicketEventView` items. |
 | `GET /api/cases/{case_id}/ticket/operations/{operation_id}` | Bearer / `200 OK` | Check operation execution status | Returns `TicketOperationView`. |
-| `POST /api/integrations/ticketing/{provider}/webhook` | Public + `X-Hub-Signature` / `200 OK` | Inbound webhook receiver | Cryptographically verified on raw bytes; atomic transaction persists receipt + event + link. |
+| `POST /api/integrations/ticketing/{provider}/webhook` | Public + `X-Hub-Signature` / `200 OK` | Inbound webhook receiver | Cryptographically verified on raw bytes; atomic transaction resolves link, ignores unlinked issues, and persists receipt + event. |
 
 ---
 
@@ -780,7 +857,7 @@ The Case Details view features a dedicated **Ticketing Card**:
 - **Core Engine:**
   - Value models (`models.py`), role protocols (`protocols.py`), and `CaseTicketing` façade (`service.py`).
   - `JiraTicketProvider` with ADF generator, JQL label reconciliation, and 5xx/timeout uncertain outcome handling.
-  - Outbox worker loop with per-claim UUID leases, independent session heartbeat, and sweeper routing crashed creates to `ambiguous_outcome`.
+  - Outbox worker loop with per-claim UUID leases, `get_session_local` heartbeat, and sweeper routing crashed creates to `ambiguous_outcome`.
   - Single atomic transaction for outbox completion and link persistence.
 - **Security & Routes:**
   - Add dynamic webhook route exemption to `backend/app/security.py`.
@@ -795,7 +872,7 @@ The Case Details view features a dedicated **Ticketing Card**:
 
 ### Phase 3: Real-Time Inbound Webhooks via HMAC-SHA256
 - Implement `verify_signature` using `X-Hub-Signature` and constant-time `hmac.compare_digest`.
-- Ingest delivery receipts into `ticket_webhook_deliveries` and canonical domain events into `case_ticket_events` in a single atomic transaction.
+- Ingest delivery receipts into `ticket_webhook_deliveries`, resolve `case_ticket_links` by `remote_id`, ignore unlinked issues with 200 OK, and append canonical domain events in a single atomic transaction.
 
 ### Phase 4: Additional Adapters (ServiceNow, GitHub, Linear)
 - Add `ServiceNowTicketProvider` and `GitHubIssuesTicketProvider`.
