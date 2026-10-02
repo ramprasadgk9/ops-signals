@@ -16,14 +16,14 @@ Ops Signals analyzes telemetry anomalies, generates findings, and drives operati
 ### The Vision: Plug-and-Play Ticketing Architecture
 Instead of coupling Ops Signals to a bespoke, one-off Jira script that mixes delivery state into case models and breaks when another tool is introduced, Ops Signals establishes a **pluggable ticketing architecture**:
 1. **Strict Single-Authority Model:** PostgreSQL remains the immutable system of record. Case lifecycle status is derived exclusively from internal case domain milestones (investigation, RCA verification, corrective action). External ticket updates are captured as non-destructive link metadata and external timeline events—never modifying internal case status or notes.
-2. **Durable Transactional Outbox with Ambiguous-Outcome Circuit Breakers (`ticket_operations`):** Outbound operations return `202 Accepted` immediately and process reliably through a durable outbox table with idempotency keys, explicit retry backoff (`available_at`), and per-claim random lease tokens with active heartbeat renewal via independent database sessions.
+2. **Durable Transactional Outbox with Ambiguous-Outcome Circuit Breakers (`ticket_operations`):** Outbound operations return `202 Accepted` immediately and process reliably through a durable outbox table with idempotency keys, explicit retry backoff (`available_at`), and per-claim random lease tokens with active heartbeat renewal via independent database sessions (`session_factory = lambda: get_session_local()()`).
 3. **Crashed & Uncertain Creates Never Auto-Retry (P0):** Expired leases for `create_ticket` operations and uncertain network/gateway responses (including HTTP 500, 502, 503, 504) transition directly to `ambiguous_outcome`. Negative JQL lookups are never treated as proof of absence, completely eliminating automated duplicate ticket creation.
 4. **Atomic Operations Everywhere:** 
    - Outbox completion and `case_ticket_links` upserts commit in a single database transaction.
    - Webhook delivery receipts (`ticket_webhook_deliveries`), canonical event appends (`case_ticket_events`), and status updates commit in a single database transaction.
 5. **Successor Operations for Forced Creation:** Forcing ticket creation after an ambiguous outcome creates a distinct successor operation (`supersedes_operation_id`) with its own unique ID, idempotency key, and Jira tracking label, preserving complete audit trails without label collisions.
 6. **Deep Module Façade (`CaseTicketing`) & Role Protocols:** Granular role protocols (`TicketCreator`, `TicketSynchronizer`, `WebhookVerifier`, `WebhookParser`) operate on pure value models (`TicketDraft`, `TicketView`, `TicketOperationView`, `TicketEventView`, `RemoteEventDraft`), hiding persistence and ORM entities from providers and callers.
-7. **Jira Cloud v3 Reference Adapter:** Phase 1 delivers an end-to-end Jira Cloud adapter using Atlassian Document Format (ADF), REST API v3, and native label indexing for distributed idempotency, secured with authentic HMAC-SHA256 webhook signatures integrated via a provider-agnostic dynamic security exemption.
+7. **Jira Cloud v3 Reference Adapter:** Phase 1 delivers an end-to-end Jira Cloud adapter using bidirectional Atlassian Document Format (ADF) handling (`build_case_adf_description` outbound and `adf_to_plain_text` inbound), REST API v3, and native label indexing for distributed idempotency, secured with authentic HMAC-SHA256 webhook signatures integrated via a provider-agnostic dynamic security exemption.
 
 ---
 
@@ -65,7 +65,7 @@ flowchart TB
   end
 
   subgraph CoreModule["Deep Module Boundary: CaseTicketing"]
-    Façade["CaseTicketing Façade\n- SessionFactory (get_session_local)\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- force_create_ticket(case_id, op_id)\n- link_existing_ticket(case_id, display_key)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
+    Façade["CaseTicketing Façade\n- SessionFactory (lambda: get_session_local()())\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- force_create_ticket(case_id, op_id)\n- link_existing_ticket(case_id, display_key)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
     
     subgraph RoleProtocols["Role Protocols (Pure Data Contracts)"]
       Creator["TicketCreator (Protocol)"]
@@ -95,7 +95,7 @@ flowchart TB
   end
 
   subgraph Adapters["Provider Implementations"]
-    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via native JQL labels\n- Catch 5xx & timeouts as AmbiguousOutcomeError\n- Builds ADF JSON\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier\n- Canonical event ID & remote_id extraction"]
+    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via native JQL labels\n- Catch 5xx & timeouts as AmbiguousOutcomeError\n- Bidirectional ADF (build & parse to plain text)\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier\n- Canonical event ID & remote_id extraction"]
     ServiceNowAdapter["ServiceNowTicketProvider (Future)"]
     GitHubAdapter["GitHubIssuesTicketProvider (Future)"]
     
@@ -197,11 +197,12 @@ A worker crash during an in-flight `create_ticket` is inherently an uncertain ou
 In FastAPI / SQLAlchemy, a single request-scoped `Session` cannot be concurrently accessed by an async heartbeat task while the worker executes external HTTP calls.
 
 **Architecture:**
-- `CaseTicketing` is injected with `session_factory = get_session_local` from [`backend/app/models/db.py`](../../../backend/app/models/db.py).
-- The worker opens a short-lived session for claiming operations, and another short-lived session for final completion.
+- In `backend/app/models/db.py`, `get_session_local()` returns a `sessionmaker` instance. Calling `get_session_local()()` constructs an active `Session`.
+- `CaseTicketing` is injected with `session_factory = lambda: get_session_local()()`.
+- The worker invokes `with self.session_factory() as session:` to obtain a short-lived `Session` for claiming operations, and another short-lived `Session` for final completion.
 - The heartbeat runs as an independent coroutine using its own short-lived session per pulse:
   ```python
-  async def _heartbeat_loop(session_factory, op_id: str, lease_token: str, stop_event: asyncio.Event):
+  async def _heartbeat_loop(session_factory: Callable[[], Session], op_id: str, lease_token: str, stop_event: asyncio.Event):
       while not stop_event.is_set():
           try:
               await asyncio.wait_for(stop_event.wait(), timeout=20.0)
@@ -363,7 +364,7 @@ CREATE TABLE case_ticket_events (
     remote_event_id VARCHAR(128) NOT NULL,      -- Canonical domain ID (e.g. 'jira_comment_10042')
     event_type VARCHAR(32) NOT NULL,            -- 'comment_created', 'status_changed', 'issue_updated'
     author VARCHAR(255),                        -- Remote author name / email
-    summary TEXT NOT NULL,                      -- Comment text or change summary
+    summary TEXT NOT NULL,                      -- Plain-text comment or change summary
     payload JSONB NOT NULL DEFAULT '{}'::jsonb, -- Raw provider payload
     occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -389,7 +390,7 @@ Because webhooks are sent to a single HTTP endpoint for the whole external proje
 
 **Webhook Resolution Pipeline:**
 1. **Delivery Deduplication:** Check `ticket_webhook_deliveries(provider, delivery_id)`. If receipt exists, return HTTP `200 OK` immediately (idempotent receipt ack).
-2. **Event Parsing:** Parse raw body into `RemoteEventDraft`, extracting `remote_id` (e.g. `"10042"`), `display_key` (`"OPS-142"`), and canonical `remote_event_id` (`"jira_comment_501"`).
+2. **Event Parsing:** Parse raw body into `RemoteEventDraft`, converting ADF comment bodies to readable plain text via `adf_to_plain_text`, and extracting `remote_id` (e.g. `"10042"`), `display_key` (`"OPS-142"`), and canonical `remote_event_id` (`"jira_comment_501"`).
 3. **Link Resolution:** Query `case_ticket_links` by `(provider, remote_id)`.
    - **Case A: Unlinked Ticket (Outcome: Acknowledge & Ignore):** If no matching link exists, the webhook belongs to an external issue not tracked by Ops Signals. Commit the delivery receipt to prevent redundant re-deliveries and return HTTP `200 OK`. Do not raise an error or insert orphan events.
    - **Case B: Linked Case Found:** Execute atomic insert of delivery receipt, append canonical event to `case_ticket_events`, and update `observed_remote_status` on `case_ticket_links`:
@@ -500,7 +501,7 @@ class RemoteEventDraft(BaseModel):
     remote_event_id: str                    # Canonical event ID (e.g. 'jira_comment_10042')
     event_type: str                         # "comment_created", "status_changed"
     author: str | None = None
-    summary: str
+    summary: str                            # Human-readable plain text string (converted from ADF)
     observed_remote_status: str | None = None
     occurred_at: datetime
     raw_payload: dict = Field(default_factory=dict)
@@ -613,8 +614,68 @@ class CaseTicketing:
 
 ## 7. Jira Cloud Reference Adapter Details (P0, P1 & P2)
 
-### A. Jira Cloud REST API v3 Only (P2)
-Ops Signals targets **Jira Cloud REST API v3** exclusively. All rich-text descriptions are generated in Atlassian Document Format (ADF) via `backend/app/integrations/ticketing/jira/adf.py`.
+### A. Jira Cloud REST API v3 & Bidirectional ADF Handling (P1 & P2)
+Ops Signals targets **Jira Cloud REST API v3** exclusively. Rich-text fields in Jira v3 (`description`, `comment`) are Atlassian Document Format (ADF) JSON structures rather than plain strings.
+
+Encapsulated in `backend/app/integrations/ticketing/jira/adf.py`:
+```python
+from typing import Any
+
+def build_case_adf_description(draft: TicketDraft) -> dict:
+    """Builds a compliant Atlassian Document Format (ADF) structure for outbound ticket creation."""
+    content = [
+        {
+            "type": "heading",
+            "attrs": {"level": 2},
+            "content": [{"type": "text", "text": "Ops Signals Incident Investigation"}]
+        },
+        {
+            "type": "paragraph",
+            "content": [
+                {"type": "text", "text": "Case Title: ", "marks": [{"type": "strong"}]},
+                {"type": "text", "text": draft.case_title}
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": [
+                {"type": "text", "text": "Analysis Run ID: ", "marks": [{"type": "strong"}]},
+                {"type": "text", "text": draft.analysis_run_id}
+            ]
+        }
+    ]
+    if draft.root_cause_summary:
+        content.extend([
+            {
+                "type": "heading",
+                "attrs": {"level": 3},
+                "content": [{"type": "text", "text": "Root Cause Analysis"}]
+            },
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": draft.root_cause_summary}]
+            }
+        ])
+    return {"type": "doc", "version": 1, "content": content}
+
+def adf_to_plain_text(node: Any) -> str:
+    """Recursively extracts readable plain text from Jira Cloud v3 ADF comment/description bodies."""
+    if not node:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, dict):
+        if node.get("type") == "text":
+            return node.get("text", "")
+        content = node.get("content", [])
+        rendered = "".join(adf_to_plain_text(c) for c in content)
+        if node.get("type") in ("paragraph", "heading"):
+            return rendered.strip() + "\n\n"
+        return rendered
+    if isinstance(node, list):
+        return "".join(adf_to_plain_text(item) for item in node)
+    return str(node)
+```
 
 ### B. Reconciliation & Comprehensive Uncertain Error Handling (P0)
 ```python
@@ -721,18 +782,19 @@ class JiraTicketProvider:
 
         remote_id = issue["id"]
         display_key = issue.get("key")
-        webhook_event = data.get("webhookEvent", "")
         
         # Parse comment events
         if "comment" in data:
             comment = data["comment"]
+            # Convert Jira v3 ADF dictionary to human-readable plain text
+            plain_summary = adf_to_plain_text(comment.get("body"))
             return RemoteEventDraft(
                 remote_id=remote_id,
                 display_key=display_key,
                 remote_event_id=f"jira_comment_{comment['id']}",
                 event_type="comment_created",
                 author=comment.get("author", {}).get("displayName"),
-                summary=comment.get("body", ""),
+                summary=plain_summary.strip(),
                 occurred_at=datetime.fromisoformat(comment.get("updated", datetime.utcnow().isoformat())),
                 raw_payload=data
             )
@@ -797,7 +859,7 @@ def get_ticketing_config() -> TicketingConfig:
 ```
 
 ### FastAPI Dependency Injection (`backend/app/api/ticketing.py`)
-Uses the existing session factory `get_session_local` exported directly by [`backend/app/models/db.py`](../../../backend/app/models/db.py):
+In [`backend/app/models/db.py`](../../../backend/app/models/db.py), `get_session_local()` returns the `sessionmaker` instance. Calling `get_session_local()()` constructs an active `Session`. We inject `lambda: get_session_local()()` so that `with self.session_factory() as session:` receives a live `Session`:
 ```python
 from backend.app.models.db import get_session_local
 
@@ -807,7 +869,11 @@ def get_case_ticketing(
     providers = {}
     if config.jira.base_url and config.jira.api_token:
         providers["jira"] = JiraTicketProvider(config.jira)
-    return CaseTicketing(session_factory=get_session_local, config=config, providers=providers)
+    return CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=config,
+        providers=providers
+    )
 ```
 
 ---
@@ -856,8 +922,8 @@ The Case Details view features a dedicated **Ticketing Card**:
   - Create `ticket_operations` with `supersedes_operation_id`.
 - **Core Engine:**
   - Value models (`models.py`), role protocols (`protocols.py`), and `CaseTicketing` façade (`service.py`).
-  - `JiraTicketProvider` with ADF generator, JQL label reconciliation, and 5xx/timeout uncertain outcome handling.
-  - Outbox worker loop with per-claim UUID leases, `get_session_local` heartbeat, and sweeper routing crashed creates to `ambiguous_outcome`.
+  - `JiraTicketProvider` with bidirectional ADF processing (`build_case_adf_description`, `adf_to_plain_text`), JQL label reconciliation, and 5xx/timeout uncertain outcome handling.
+  - Outbox worker loop with per-claim UUID leases, `lambda: get_session_local()()` heartbeat, and sweeper routing crashed creates to `ambiguous_outcome`.
   - Single atomic transaction for outbox completion and link persistence.
 - **Security & Routes:**
   - Add dynamic webhook route exemption to `backend/app/security.py`.
@@ -866,7 +932,7 @@ The Case Details view features a dedicated **Ticketing Card**:
 - **UI:** Integrate ticketing widget into Grafana plugin and web UI with ambiguous outcome resolver.
 
 ### Phase 2: Inbound Poll & External Activity Feed
-- Implement `pull_remote_ticket` in `JiraTicketProvider` using `f"jira_comment_{id}"` / `f"jira_changelog_{id}"`.
+- Implement `pull_remote_ticket` in `JiraTicketProvider` using `adf_to_plain_text` and `f"jira_comment_{id}"` / `f"jira_changelog_{id}"`.
 - Expose `POST /api/cases/{id}/ticket/sync`.
 - Ingest remote comments into `case_ticket_events` and update `observed_remote_status`.
 
