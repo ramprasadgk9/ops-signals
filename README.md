@@ -73,9 +73,9 @@ Ops Signals is built to close each of those gaps, one to one:
 5. **That golden data feeds back into the loop.** `GET /api/alert-context` lets an external
    system such as an alert manager ask "has this happened before, was it real, how was it resolved"
    *before* it pages anyone, instead of starting from zero every time - see
-   [`docs/02-architecture.md`](docs/02-architecture.md).
+   [`docs/architecture.md`](docs/architecture.md).
 
-See [`docs/01-vision.md`](docs/01-vision.md) for the fuller five-layer narrative behind this.
+See [`docs/vision.md`](docs/vision.md) for the fuller five-layer narrative behind this.
 
 ## What Ops Signals Does
 
@@ -110,7 +110,7 @@ See [`docs/01-vision.md`](docs/01-vision.md) for the fuller five-layer narrative
   behavior intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md).
 
 Every detection analyzer is a published, peer-reviewed method, not invented here - see
-[`docs/26-analyzer-methodology.md`](docs/26-analyzer-methodology.md) for citations. The router's
+[`docs/analyzer-methodology.md`](docs/analyzer-methodology.md) for citations. The router's
 suitability *scores* are heuristic and not yet validated against outcomes; that same document says
 so plainly and links to the tracking infrastructure built to close that gap.
 
@@ -327,7 +327,7 @@ message.
 Data goes through one pipeline: validation, normalization into PostgreSQL, router-selected
 analyzers, signals, then findings (and, separately, cross-metric behavior findings), which can be
 promoted to cases. The [diagram above](#how-it-works) shows the flow;
-[`docs/02-architecture.md`](docs/02-architecture.md) has the detailed version with per-stage code
+[`docs/architecture.md`](docs/architecture.md) has the detailed version with per-stage code
 references.
 
 Two pipelines run the same analyzers and routing: **Interactive Analysis** (`SignalPipeline`, used
@@ -341,15 +341,15 @@ in sync on case create and update; nothing is written to Qdrant that isn't in Po
 
 More detail:
 
-- [`docs/02-architecture.md`](docs/02-architecture.md) - the full pipeline, a diagram, and a "Why
+- [`docs/architecture.md`](docs/architecture.md) - the full pipeline, a diagram, and a "Why
   This Reduces MTTR" section connecting it to operational outcomes.
-- [`docs/03-core-domain-model.md`](docs/03-core-domain-model.md) - the data model: canonical
+- [`docs/core-domain-model.md`](docs/core-domain-model.md) - the data model: canonical
   points, signals, and the fields on each.
-- [`docs/09-design-decisions.md`](docs/09-design-decisions.md) - the "why," in short ADR-style
+- [`docs/design-decisions.md`](docs/design-decisions.md) - the "why," in short ADR-style
   writeups, including why PostgreSQL and Qdrant are split this way.
-- [`docs/17-standalone-overview-api.md`](docs/17-standalone-overview-api.md) - the Overview
+- [`docs/standalone-overview-api.md`](docs/standalone-overview-api.md) - the Overview
   summary and memory statistics endpoint contracts.
-- [`docs/18-standalone-prometheus-analysis.md`](docs/18-standalone-prometheus-analysis.md) - the
+- [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md) - the
   direct Prometheus query flow and how it differs from Grafana datasource-based analysis.
 
 ## Using Ops Signals
@@ -361,13 +361,13 @@ Where to find each capability once the app is running.
 | Feature | Where | Read more |
 | --- | --- | --- |
 | **UI tour**: every tab of the web UI (13) and both Grafana plugin modes, one line each | - | [`docs/ui-tour.md`](docs/ui-tour.md) |
-| **Interactive analysis**: one metric at a time, from a Prometheus query or a CSV, findings right away | **New Analysis**; Grafana **Interactive Analysis** | [`docs/18-standalone-prometheus-analysis.md`](docs/18-standalone-prometheus-analysis.md) |
-| **Analyzers**: 7 built in (Baseline Shift, Ruptures Change Point, Z-Score Anomaly, PyOD Outlier, Trend, STUMPY Motif, Prophet Forecast) plus Data Health, added through config; how the router picks and how far to trust it. Seasonal Anomaly is registered but the router doesn't pick it | **Experiments** → **Recommendations** | [`docs/04-analyzer-plugin-framework.md`](docs/04-analyzer-plugin-framework.md), [`docs/16-analyzer-recommendation.md`](docs/16-analyzer-recommendation.md) |
-| **Behavior intelligence**: rules across several metrics, with a worked memory-pressure example | **Behavior Intelligence**, **Behavior Lab** | [`docs/14-behavior-intelligence.md`](docs/14-behavior-intelligence.md) |
-| **Analyzer workbench**: run any analyzer on sample data (**Labs**), register a new one (**Add Analyzer**), preview router scores (**Recommendations**) | **Experiments** | [`docs/04-analyzer-plugin-framework.md`](docs/04-analyzer-plugin-framework.md#analyzer-workbench-ui) |
-| **Findings**: drill-down by pod, the deploy before a change | **Findings** | [`docs/06-operational-findings.md`](docs/06-operational-findings.md), [`docs/finding-drilldown.md`](docs/finding-drilldown.md) |
-| **Investigations and cases**: ad-hoc digging into one metric or service; every case with its lifecycle (`open -> investigating -> rca_in_progress -> resolved -> closed`), RCA and outcome | **Investigations**, **Cases** | [`docs/07-operational-cases.md`](docs/07-operational-cases.md) |
-| **Historical analysis**: semantic search over past cases and findings, and the alert-context preview an external alert manager would see | **Operational Memory** | [`docs/08-operational-memory.md`](docs/08-operational-memory.md) |
+| **Interactive analysis**: one metric at a time, from a Prometheus query or a CSV, findings right away | **New Analysis**; Grafana **Interactive Analysis** | [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md) |
+| **Analyzers**: 7 built in (Baseline Shift, Ruptures Change Point, Z-Score Anomaly, PyOD Outlier, Trend, STUMPY Motif, Prophet Forecast) plus Data Health, added through config; how the router picks and how far to trust it. Seasonal Anomaly is registered but the router doesn't pick it | **Experiments** → **Recommendations** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md), [`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md) |
+| **Behavior intelligence**: rules across several metrics, with a worked memory-pressure example | **Behavior Intelligence**, **Behavior Lab** | [`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) |
+| **Analyzer workbench**: run any analyzer on sample data (**Labs**), register a new one (**Add Analyzer**), preview router scores (**Recommendations**) | **Experiments** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md#analyzer-workbench-ui) |
+| **Findings**: drill-down by pod, the deploy before a change | **Findings** | [`docs/operational-findings.md`](docs/operational-findings.md), [`docs/finding-drilldown.md`](docs/finding-drilldown.md) |
+| **Investigations and cases**: ad-hoc digging into one metric or service; every case with its lifecycle (`open -> investigating -> rca_in_progress -> resolved -> closed`), RCA and outcome | **Investigations**, **Cases** | [`docs/operational-cases.md`](docs/operational-cases.md) |
+| **Historical analysis**: semantic search over past cases and findings, and the alert-context preview an external alert manager would see | **Operational Memory** | [`docs/operational-memory.md`](docs/operational-memory.md) |
 | **Autonomous analysis**: what to watch, run once or on a schedule | **Autonomous Analysis Configure**; Grafana **Autonomous Analysis** | [Autonomous Analysis](#autonomous-analysis) |
 
 ### Operational Intelligence Assistant
@@ -414,7 +414,7 @@ behavior config.
 #### Prometheus
 
 Connect Ops Signals to an existing Prometheus datasource for direct or autonomous analysis. See
-[`docs/18-standalone-prometheus-analysis.md`](docs/18-standalone-prometheus-analysis.md).
+[`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md).
 
 #### CSV Input
 
@@ -462,27 +462,27 @@ runs.
 
 Configuration is layered YAML: shared settings, analyzer defaults, then provider-specific input
 mapping. Operational memory (Qdrant and embeddings) is set in the root `config.yaml`. See
-[`docs/15-configuration.md`](docs/15-configuration.md) for the merge order, the files and an
+[`docs/configuration.md`](docs/configuration.md) for the merge order, the files and an
 example.
 
 #### Analyzer Configuration
 
 Shared analysis mode, window, and analyzer defaults live in `config/analyzers.yaml`;
 provider-specific input mapping lives in `config/providers/*.yaml`. See
-[`docs/15-configuration.md`](docs/15-configuration.md) for the merge order and file layout.
+[`docs/configuration.md`](docs/configuration.md) for the merge order and file layout.
 
 #### Behavior Rules
 
 Cross-metric behavior definitions live in `config/behavior_definitions.d/*.yml` - one file per
 behavior, evaluated as facts against analyzer output. See
-[`docs/14-behavior-intelligence.md`](docs/14-behavior-intelligence.md) for a full worked example.
+[`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) for a full worked example.
 
 #### Thresholds and Parameters
 
 Per-analyzer defaults (window size, sensitivity) are set in `config/analyzers.yaml`. The Universal
 Router's suitability-scoring weights are documented separately since they're heuristic, not a
 threshold you tune directly - see
-[`docs/16-analyzer-recommendation.md`](docs/16-analyzer-recommendation.md).
+[`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md).
 
 ## Integrations
 
@@ -632,8 +632,8 @@ and a deploy recorded (shortened):
 
 `category` is one of `behavior_change`, `unusual_activity`, `data_quality` or
 `operational_insight`; `health_status` is `critical`, `significant` or `normal`. See
-[`docs/06-operational-findings.md`](docs/06-operational-findings.md). How a finding becomes a
-case is in [`docs/07-operational-cases.md`](docs/07-operational-cases.md).
+[`docs/operational-findings.md`](docs/operational-findings.md). How a finding becomes a
+case is in [`docs/operational-cases.md`](docs/operational-cases.md).
 
 ## Current Limitations
 
@@ -661,7 +661,7 @@ case is in [`docs/07-operational-cases.md`](docs/07-operational-cases.md).
 - Document release and contribution workflows more fully
 - Kubernetes and cloud-provider ingestion; ITSM/automation and generic external-system consumers -
   see the explicitly-labeled roadmap section in
-  [`docs/02-architecture.md`](docs/02-architecture.md#roadmap-not-yet-implemented)
+  [`docs/architecture.md`](docs/architecture.md#roadmap-not-yet-implemented)
 
 ## Who's Using Ops Signals?
 

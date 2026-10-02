@@ -83,7 +83,7 @@
   the web UI (they sent a stricter `minimum_score`); and questions routed to cases or findings,
   or mentioning "Ops Signals", never searched documentation. New golden question benchmark:
   `python -m benchmark.assistant_benchmark`; see
-  [`docs/23-ask-ops-signals-assistant.md`](docs/23-ask-ops-signals-assistant.md#quality-benchmarking).
+  [`docs/ask-ops-signals-assistant.md`](docs/ask-ops-signals-assistant.md#quality-benchmarking).
 - New or edited docs can be picked up without a restart: **Reindex docs** on the Ask Ops Signals
   page (or `POST /api/assistant/knowledge/bootstrap`) re-embeds only documents that were added,
   changed or removed, and reports which. Startup does the same, so a restart with no doc changes

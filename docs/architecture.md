@@ -84,7 +84,7 @@ overrides the router's decision. This is deliberate: the AI is a second set of e
 - `backend/app/metric_analyzer_recommendations/gemma_advisor.py` (the AI second opinion)
 - `intelligence/analyzers/*` (the analyzer implementations)
 
-See [`docs/26-analyzer-methodology.md`](26-analyzer-methodology.md) for what each analyzer is
+See [`docs/analyzer-methodology.md`](analyzer-methodology.md) for what each analyzer is
 based on (all published methods, cited) versus the router's suitability scoring weights, which are
 heuristic and not yet validated against real outcomes - and the tracking infrastructure
 (`AnalyzerLearningOutcomeEntity`, `AnalyzerDivergenceEntity`) built to close that gap.
@@ -185,7 +185,7 @@ what the series did and when it started, which deploy landed just before, and wh
 before and how it was fixed — instead of an engineer spending the first 10-20 minutes working that out.
 An external alert manager can get the same history *before* it pages someone, via
 `GET /api/alert-context`, including a `likely_real` / `likely_noise` recommendation. Fewer noise pages,
-and faster real ones: that's the mean-time-to-resolution win. See [`docs/01-vision.md`](01-vision.md)
+and faster real ones: that's the mean-time-to-resolution win. See [`docs/vision.md`](vision.md)
 for the fuller narrative behind this goal.
 
 ## Roadmap (Not Yet Implemented)

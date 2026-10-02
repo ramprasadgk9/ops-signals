@@ -6,7 +6,7 @@ for it (see "Why this isn't built yet" below). Treat every endpoint, field name,
 here as a design intent to be verified against a live JIRA instance at implementation time, not as
 already-tested fact.
 
-**Extends:** [`docs/07-operational-cases.md`](../../07-operational-cases.md) (current case lifecycle),
+**Extends:** [`docs/operational-cases.md`](../../operational-cases.md) (current case lifecycle),
 [`ADR-004`](../../adr/ADR-004-postgresql-system-of-record.md) (Postgres as system of record),
 [`ADR-005`](../../adr/ADR-005-qdrant-retrieval-index.md) (Qdrant as a derived retrieval index).
 

@@ -9,7 +9,7 @@ const CUSTOM_ANALYZERS_PATH = path.resolve(__dirname, '../../../../config/custom
  * "not_implemented" in backend/app/api/admin_analyzers.py::AnalyzerConfigIn) and promotes it,
  * so the router can recommend it while the pipeline reports it as unavailable to execute.
  * This is the "unavailable" outcome in the recommendation matrix — see
- * docs/16-analyzer-recommendation.md, "Router-to-pipeline mapping".
+ * docs/analyzer-recommendation.md, "Router-to-pipeline mapping".
  */
 export async function seedUnmappedCustomAnalyzer(backendUrl: string, analyzerId: string): Promise<{ draftId: number }> {
   const config = {

@@ -130,7 +130,7 @@ assumed to be doing something.
 Two more (`missing_percentage`, `irregular_sampling_percentage`) are referenced, but only by
 `alibi_detect` and `river` - the two router-registered analyzers with no real execution
 implementation at all (see the routing matrix in
-[`docs/16-analyzer-recommendation.md`](16-analyzer-recommendation.md)). So for every analyzer that
+[`docs/analyzer-recommendation.md`](analyzer-recommendation.md)). So for every analyzer that
 actually runs in production today, these two features are effectively unused as well.
 
 ## How we're closing that gap

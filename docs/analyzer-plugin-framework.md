@@ -28,7 +28,7 @@ Analyzers are registered in two places, kept deliberately separate:
   (`supported_profiles`, `eligibility_rules`, `scoring_rules`). This is a superset of the pipeline
   registry - it also lists analyzers that are router-recommendable today but don't have a real,
   runnable implementation yet (`kats`, `darts`, `river`, `alibi_detect`, `adtk` - see
-  [Router-only analyzers](16-analyzer-recommendation.md#router-only-analyzers-what-each-one-needs)).
+  [Router-only analyzers](analyzer-recommendation.md#router-only-analyzers-what-each-one-needs)).
 
 These two registries are on a path to merge (`RouterSpec` in `intelligence/analyzer_registry.py`
 already mirrors the router registry's field shape) but are independent today - adding a pipeline
@@ -108,7 +108,7 @@ everything on this page in one place:
   does before deciding whether to route more traffic to it.
 - **Add Analyzer** - the wizard described above under [Extensibility Model](#extensibility-model).
 - **Recommendations** - the Universal Router's live scoring preview for a given series; see
-  [`docs/16-analyzer-recommendation.md`](16-analyzer-recommendation.md).
+  [`docs/analyzer-recommendation.md`](analyzer-recommendation.md).
 
 ## Current Limitations
 
@@ -116,6 +116,6 @@ everything on this page in one place:
   would call out to an external service isn't implemented (see `AnalyzerRegistrationError` in
   `intelligence/analyzer_registry.py`).
 - The pipeline and router registries haven't merged yet, so a handful of router-recommendable
-  analyzer ids have no real implementation behind them - [Router-only analyzers](16-analyzer-recommendation.md#router-only-analyzers-what-each-one-needs)
+  analyzer ids have no real implementation behind them - [Router-only analyzers](analyzer-recommendation.md#router-only-analyzers-what-each-one-needs)
   lists exactly which ones and why.
 - Not every question has historical similarity support yet.

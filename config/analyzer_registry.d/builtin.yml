@@ -1,7 +1,6 @@
 # Config-driven registrations for the 7 built-in analyzers, migrated from the old hardcoded
-# SignalPipeline._build_analyzers() if/elif chain in intelligence/pipeline.py (see
-# docs/19-analyzer-router-gap-work-items.md Work Item 1). runtime_params below are the exact
-# effective values config/analyzers.yaml + pipeline.py's old helper functions
+# SignalPipeline._build_analyzers() if/elif chain in intelligence/pipeline.py.
+# runtime_params below are the exact effective values config/analyzers.yaml + pipeline.py's old helper functions
 # (_baseline_shift_params, _analyzer_finding_rules, _analyzer_implementation) produced before
 # this migration - verified byte-identical via the full pytest suite and
 # tests/test_router_benchmark.py.

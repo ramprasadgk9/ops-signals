@@ -35,10 +35,10 @@ remediation, or LLM-driven investigation.
 
 - It doesn't need Kubernetes. It works against plain Prometheus.
 - It analyzes the alerting series itself with published detection methods (see
-  [`26-analyzer-methodology.md`](26-analyzer-methodology.md)) and states what happened, for example
+  [`analyzer-methodology.md`](analyzer-methodology.md)) and states what happened, for example
   "sustained baseline shift ~621 → ~425 ms". No LLM is involved by default.
 - It links the alert to past resolved cases, including their root cause and fix, and returns them
-  as "seen before" in the alert (see [`08-operational-memory.md`](08-operational-memory.md)).
+  as "seen before" in the alert (see [`operational-memory.md`](operational-memory.md)).
 
 **Where Robusta is ahead:** it discovers deploys and configuration changes on its own, attaches pod
 logs, and can remediate. Ops Signals needs your CI to send deploy events and doesn't remediate.
