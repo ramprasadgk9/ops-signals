@@ -15,10 +15,11 @@ Ops Signals analyzes telemetry anomalies, generates findings, and drives operati
 ### The Vision: Plug-and-Play Ticketing Architecture
 Instead of coupling Ops Signals to a bespoke, one-off Jira script that mixes delivery state into case models and breaks when another tool is introduced, Ops Signals establishes a **pluggable ticketing architecture**:
 1. **Strict Single-Authority Model:** PostgreSQL remains the immutable system of record. Case lifecycle status is derived exclusively from internal case domain milestones (investigation, RCA verification, corrective action). External ticket updates are captured as non-destructive link metadata and external timeline events—never modifying internal case status or notes.
-2. **Durable Transactional Outbox with Distributed Reconciliation (`ticket_operations`):** Outbound operations return `202 Accepted` immediately and process reliably through a durable outbox table with idempotency keys, explicit retry backoff (`available_at`), and per-claim random lease tokens with active renewal. Distributed reconciliation via native Jira labels and ambiguous-outcome circuits eliminates duplicate tickets after worker crashes or network timeouts.
-3. **Normalized Link & Event Entities (`case_ticket_links`, `case_ticket_events`):** Case identity, remote ticket identity, and incoming remote activity are strictly segregated. Deduplication keys are concretely defined using Jira's `X-Atlassian-Webhook-Identifier` for webhooks and stable comment/changelog IDs for polling. The `ops_operational_cases` table remains pristine.
-4. **Deep Module Façade (`CaseTicketing`) & Role Protocols:** Granular role protocols (`TicketCreator`, `TicketSynchronizer`, `WebhookVerifier`, `WebhookParser`) operate on pure value models (`TicketDraft`, `TicketView`, `TicketOperationView`, `TicketEventView`), hiding persistence and ORM entities from providers and callers.
-5. **Jira Cloud v3 Reference Adapter:** Phase 1 delivers an end-to-end Jira Cloud adapter using Atlassian Document Format (ADF), REST API v3, and native label indexing for distributed idempotency, secured with authentic HMAC-SHA256 webhook signatures integrated via a provider-agnostic dynamic security exemption.
+2. **Durable Transactional Outbox with Ambiguous-Outcome Circuit Breakers (`ticket_operations`):** Outbound operations return `202 Accepted` immediately and process reliably through a durable outbox table with idempotency keys, explicit retry backoff (`available_at`), and per-claim random lease tokens with active heartbeat renewal via independent database sessions. On any uncertain network outcome, operations transition to `ambiguous_outcome`; negative JQL lookups are never treated as proof of absence, completely preventing duplicate tickets.
+3. **Atomic Completion & Link Persistence:** Conditional lease ownership verification and `case_ticket_links` upserts are committed in a single database transaction, ensuring no operation can complete without its link record.
+4. **Normalized Link, Event & Delivery Entities (`case_ticket_links`, `case_ticket_events`, `ticket_webhook_deliveries`):** Webhook delivery IDs (`X-Atlassian-Webhook-Identifier`) are isolated to delivery receipts, while `case_ticket_events` uses canonical domain IDs (`jira_comment_{id}`) across both webhooks and periodic polling, eliminating duplicate timeline entries.
+5. **Deep Module Façade (`CaseTicketing`) & Role Protocols:** Granular role protocols (`TicketCreator`, `TicketSynchronizer`, `WebhookVerifier`, `WebhookParser`) operate on pure value models (`TicketDraft`, `TicketView`, `TicketOperationView`, `TicketEventView`), hiding persistence and ORM entities from providers and callers.
+6. **Jira Cloud v3 Reference Adapter:** Phase 1 delivers an end-to-end Jira Cloud adapter using Atlassian Document Format (ADF), REST API v3, and native label indexing for distributed idempotency, secured with authentic HMAC-SHA256 webhook signatures integrated via a provider-agnostic dynamic security exemption.
 
 ---
 
@@ -60,7 +61,7 @@ flowchart TB
   end
 
   subgraph CoreModule["Deep Module Boundary: CaseTicketing"]
-    Façade["CaseTicketing Façade\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- link_existing_ticket(case_id, display_key)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
+    Façade["CaseTicketing Façade\n- SessionFactory injection\n- Pure Value Models (TicketDraft, TicketView)\n- request_create(case_id)\n- request_sync(case_id)\n- retry_operation(operation_id)\n- link_existing_ticket(case_id, display_key)\n- process_pending_operations()\n- accept_webhook(provider, raw_body, headers)"]
     
     subgraph RoleProtocols["Role Protocols (Pure Data Contracts)"]
       Creator["TicketCreator (Protocol)"]
@@ -74,18 +75,21 @@ flowchart TB
 
   subgraph OutboxEngine["Durable Transactional Outbox"]
     OutboxTable[("ticket_operations\n(PostgreSQL)\nstatus, available_at, lease_token, lease_expires_at")]
-    Worker["Outbox Worker / Background Task\n(Per-claim lease token, heartbeat renewal, backoff)"]
-    OutboxTable -.->|"Claim leased operation"| Worker
+    Worker["Outbox Worker\n(Short-lived DB session per step)"]
+    Heartbeat["Heartbeat Task\n(Dedicated short-lived session per pulse)"]
+    Worker -.->|"Claim leased operation"| OutboxTable
+    Heartbeat -.->|"Renew lease_expires_at"| OutboxTable
   end
 
   subgraph DataLayer["Authoritative Storage (PostgreSQL)"]
     CasesTable[("ops_operational_cases\n(Domain system of record - UNCHANGED)")]
     LinksTable[("case_ticket_links\n(case_id, provider, remote_id, display_key,\nobserved_remote_status, sync_cursor)")]
     EventsTable[("case_ticket_events\n(case_id, provider, remote_event_id,\nevent_type, author, summary, occurred_at)")]
+    DeliveriesTable[("ticket_webhook_deliveries\n(provider, delivery_id, processed_at)")]
   end
 
   subgraph Adapters["Provider Implementations"]
-    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via native JQL labels\n- Builds ADF JSON\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier\n- X-Atlassian-Webhook-Identifier Parser"]
+    JiraAdapter["JiraTicketProvider (Cloud v3)\n- Reconcile via native JQL labels\n- Ambiguous-outcome protection\n- Builds ADF JSON\n- Basic Auth (Email + Token)\n- X-Hub-Signature HMAC Verifier\n- Canonical event ID extraction"]
     ServiceNowAdapter["ServiceNowTicketProvider (Future)"]
     GitHubAdapter["GitHubIssuesTicketProvider (Future)"]
     
@@ -104,14 +108,15 @@ flowchart TB
   Façade -->|"Writes operation (atomic)"| OutboxTable
   Façade -->|"Returns 202 Accepted"| CaseEndpoints
   Worker --> JiraAdapter
-  JiraAdapter -->|"1. Reconcile via JQL labels"| JiraAPI
+  JiraAdapter -->|"1. Pre-retry check (if attempts > 1)"| JiraAPI
   JiraAdapter -->|"2. HTTPS POST (ADF + labels)"| JiraAPI
-  Worker -->|"Saves remote_id & display_key"| LinksTable
+  Worker -->|"Atomic TX: mark completed + upsert link"| DataLayer
   
   JiraWebhooks -->|"POST X-Hub-Signature"| WebhookEndpoint
   WebhookEndpoint --> Façade
+  Façade -->|"Deduplicate delivery_id"| DeliveriesTable
   Façade -->|"Updates observed_remote_status"| LinksTable
-  Façade -->|"Appends immutable external event"| EventsTable
+  Façade -->|"Appends canonical domain event"| EventsTable
 ```
 
 ---
@@ -166,74 +171,125 @@ WHERE id = (
 RETURNING *;
 ```
 
-### C. Active Lease Renewal & Pre-Persistence Ownership Check (P1)
-External HTTP calls (e.g. Jira API requests under rate limits or HTTP 429 backoff) may exceed a default 60-second lease window.
+### C. Session Ownership & Heartbeat Lease Renewal (P1)
+In FastAPI / SQLAlchemy, a single request-scoped `Session` cannot be concurrently accessed by an async heartbeat task while the worker executes external HTTP calls.
 
-1. **Heartbeat Lease Renewal:**
-   While the adapter executes an external call, an async heartbeat task extends the lease periodically:
-   ```sql
-   UPDATE ticket_operations
-   SET lease_expires_at = NOW() + INTERVAL '60 seconds',
-       updated_at = NOW()
-   WHERE id = :operation_id
-     AND lease_token = :random_claim_uuid
-     AND status = 'processing';
-   ```
-2. **Pre-Persistence Ownership Verification:**
-   Before persisting `case_ticket_links` and updating the outbox to `status = 'completed'`, the worker performs an atomic ownership check:
-   ```sql
-   UPDATE ticket_operations
-   SET status = 'completed',
-       lease_token = NULL,
-       lease_expires_at = NULL,
-       updated_at = NOW()
-   WHERE id = :operation_id
-     AND lease_token = :random_claim_uuid
-     AND lease_expires_at > NOW()
-     AND status = 'processing';
-   ```
-   If 0 rows are updated, the worker knows its lease expired and was claimed by another worker; it aborts immediately and does **not** commit `case_ticket_links`, preventing split-brain concurrent writes.
+**Architecture:**
+- `CaseTicketing` is injected with a `session_factory: Callable[[], Session]`.
+- The worker opens a short-lived session for claiming operations, and another short-lived session for final completion.
+- The heartbeat runs as an independent coroutine using its own short-lived session per pulse:
+  ```python
+  async def _heartbeat_loop(session_factory, op_id: str, lease_token: str, stop_event: asyncio.Event):
+      while not stop_event.is_set():
+          try:
+              await asyncio.wait_for(stop_event.wait(), timeout=20.0)
+              break
+          except asyncio.TimeoutError:
+              with session_factory() as session:
+                  session.execute(
+                      text("""
+                          UPDATE ticket_operations
+                          SET lease_expires_at = NOW() + INTERVAL '60 seconds',
+                              updated_at = NOW()
+                          WHERE id = :op_id
+                            AND lease_token = :token
+                            AND status = 'processing'
+                      """),
+                      {"op_id": op_id, "token": lease_token}
+                  )
+                  session.commit()
+  ```
 
-### D. Distributed Idempotency via Native Jira Labels (P0)
+### D. Single Atomic Transaction: Completion & Link Persistence (P0)
+Marking an operation completed and inserting `case_ticket_links` must occur within a **single database transaction**. If completion is written first and the process crashes before writing the link, the system is left with a completed outbox row but no ticket link, permanently preventing reconciliation.
 
-#### The Limitation of Jira Entity Properties
-In Jira Cloud, arbitrary entity properties set via REST API (`issue.property[...]`) **cannot be searched via JQL** unless a custom Atlassian Connect or Forge app module explicitly registers an indexed property extraction descriptor. Because Ops Signals connects directly via standalone API Token / Basic Auth without requiring customers to install a marketplace app, searching entity properties via JQL returns an invalid JQL error or zero results.
+**Single Transaction Contract:**
+```python
+with session_factory() as session:
+    with session.begin():
+        # 1. Conditional lease ownership check and completion update
+        result = session.execute(
+            text("""
+                UPDATE ticket_operations
+                SET status = 'completed',
+                    lease_token = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = NOW()
+                WHERE id = :op_id
+                  AND lease_token = :lease_token
+                  AND lease_expires_at > NOW()
+                  AND status = 'processing'
+            """),
+            {"op_id": operation_id, "lease_token": claim_uuid}
+        )
+        if result.rowcount == 0:
+            # Lease expired or claimed by another worker; roll back immediately
+            raise LeaseLostError(f"Lease lost for operation {operation_id}; rolling back.")
 
-#### The Solution: Native Searchable Labels + Ambiguous Outcome Protection
-1. **Searchable Origin Labels:**
-   All standard Jira Cloud instances natively index the `labels` field for instant JQL search without requiring any app installation or custom field configuration.
-   When creating an issue, `JiraTicketProvider` tags the issue with deterministic labels:
-   ```json
-   {
-     "fields": {
-       "project": {"key": "OPS"},
-       "summary": "[Ops Signals] Telemetry Anomaly in checkout-service",
-       "issuetype": {"name": "Task"},
-       "labels": [
-         "ops-signals",
-         "ops-signals-case-14",
-         "ops-signals-op-op_9f8d1c7e2b"
-       ],
-       "description": { ... }
-     }
-   }
-   ```
-2. **Pre-Retry Reconciliation Query:**
-   On any attempt where `attempts > 1` (or after reclaiming an expired lease), `JiraTicketProvider` queries Jira using native JQL:
-   ```
-   GET /rest/api/3/search?jql=project = "OPS" AND labels = "ops-signals-op-op_9f8d1c7e2b"
-   ```
-   - **Found:** An issue was already created in Jira during a prior attempt. The adapter adopts the existing issue (`remote_id`, `display_key`, `ticket_url`), stores the link, and completes the operation without calling create.
-   - **Not Found:** The prior attempt failed before reaching Jira. The adapter proceeds with create.
-3. **Ambiguous-Outcome Circuit Breaker:**
-   If a network connection drops or times out mid-request during `POST /rest/api/3/issue`, and subsequent reconciliation search is inconclusive (e.g. Jira search indexing lag or continuous network errors), the operation transitions to `status = 'ambiguous_outcome'`.
-   The worker ceases automatic blind retries, and the UI presents an operator resolution modal:
-   - **Option A:** Re-run reconciliation check.
-   - **Option B:** Manually link existing Jira issue (e.g. typing `OPS-143`).
-   - **Option C:** Confirm no ticket exists and force fresh create.
+        # 2. Upsert ticket link in the EXACT SAME database transaction
+        session.execute(
+            text("""
+                INSERT INTO case_ticket_links (
+                    case_id, provider, remote_id, display_key, ticket_url,
+                    observed_remote_status, updated_at
+                )
+                VALUES (
+                    :case_id, :provider, :remote_id, :display_key, :ticket_url,
+                    :observed_status, NOW()
+                )
+                ON CONFLICT (case_id, provider) DO UPDATE SET
+                    remote_id = EXCLUDED.remote_id,
+                    display_key = EXCLUDED.display_key,
+                    ticket_url = EXCLUDED.ticket_url,
+                    observed_remote_status = EXCLUDED.observed_remote_status,
+                    updated_at = NOW()
+            """),
+            {
+                "case_id": draft.case_id,
+                "provider": "jira",
+                "remote_id": result_ticket.remote_id,
+                "display_key": result_ticket.display_key,
+                "ticket_url": result_ticket.ticket_url,
+                "observed_status": result_ticket.observed_remote_status or "To Do",
+            }
+        )
+        # Commit guarantees both succeed or both roll back together
+```
 
-### E. Explicit Retry Timing & Key Lifecycle (P1)
-- **Exponential Backoff:** On transient failure, `available_at` is scheduled with jittered exponential backoff:
+### E. Distributed Idempotency & Ambiguous-Outcome Circuit Breakers (P0)
+
+#### 1. Searchable Origin Labels
+Jira Cloud natively indexes the `labels` field for instant JQL search out of the box with zero app installation. When creating an issue, `JiraTicketProvider` tags the issue with deterministic labels:
+```json
+{
+  "fields": {
+    "project": {"key": "OPS"},
+    "summary": "[Ops Signals] Telemetry Anomaly in checkout-service",
+    "issuetype": {"name": "Task"},
+    "labels": [
+      "ops-signals",
+      "ops-signals-case-14",
+      "ops-signals-op-op_9f8d1c7e2b"
+    ],
+    "description": { ... }
+  }
+}
+```
+
+#### 2. Negative JQL Lookup is NOT Proof of Absence (P0)
+Jira search indexing operates asynchronously with variable latency (eventual consistency). During load spikes, an issue may take several seconds or minutes to be indexed and return in JQL search results.
+- **Rule:** A negative search result (`issues == []`) **never** authorizes an automated worker to retry a `POST /rest/api/3/issue` call after an uncertain outcome.
+- **Uncertain Outcomes:** Network timeout, connection drop/reset, HTTP 502/503/504 Bad Gateway, or worker crash during an in-flight POST.
+- **Circuit Breaker:** Whenever an uncertain outcome occurs:
+  1. The worker marks the operation as `status = 'ambiguous_outcome'`.
+  2. The automated worker **immediately stops** retrying.
+  3. The UI presents an operator resolution modal with explicit manual choices:
+     - **Check Jira Again:** Queries JQL search again after indexing has had time to catch up.
+     - **Link Manually:** Operator pastes the issue key (e.g. `OPS-143`) directly.
+     - **Force Create:** Operator confirms that no issue exists in Jira and explicitly forces a fresh create call.
+
+### F. Explicit Retry Timing & Key Lifecycle (P1)
+- **Exponential Backoff:** On deterministic transient failure (e.g. HTTP 429 rate limit or HTTP 500 error before request transmission), `available_at` is scheduled with jittered exponential backoff:
   $$\text{available\_at} = \text{NOW}() + (2^{\text{attempts}} \times 2\text{ seconds}) \pm \text{jitter}$$
 - **Terminal Failure:** If `attempts >= max_attempts`, `status` transitions to `'dead_letter'`.
 - **Manual Retry Action:** The UI offers a **"Retry"** button when status is `failed` or `dead_letter`.
@@ -254,7 +310,7 @@ In Jira Cloud, arbitrary entity properties set via REST API (`issue.property[...
 
 ---
 
-## 5. Normalized Link and Event Data Models (P0 & P1)
+## 5. Normalized Link, Event and Delivery Data Models (P0 & P1)
 
 ### Table 1: `case_ticket_links` (Active Ticket Association)
 ```sql
@@ -276,13 +332,13 @@ CREATE TABLE case_ticket_links (
 CREATE INDEX idx_case_ticket_links_remote ON case_ticket_links(provider, remote_id);
 ```
 
-### Table 2: `case_ticket_events` (Immutable External Timeline Events) (P0 & P1)
+### Table 2: `case_ticket_events` (Immutable Canonical Timeline Events) (P0 & P1)
 ```sql
 CREATE TABLE case_ticket_events (
     id SERIAL PRIMARY KEY,
     case_id INTEGER NOT NULL REFERENCES ops_operational_cases(id) ON DELETE CASCADE,
     provider VARCHAR(32) NOT NULL,
-    remote_event_id VARCHAR(128) NOT NULL,      -- Concrete deduplication ID
+    remote_event_id VARCHAR(128) NOT NULL,      -- Canonical domain ID (e.g. 'jira_comment_10042')
     event_type VARCHAR(32) NOT NULL,            -- 'comment_created', 'status_changed', 'issue_updated'
     author VARCHAR(255),                        -- Remote author name / email
     summary TEXT NOT NULL,                      -- Comment text or change summary
@@ -295,16 +351,27 @@ CREATE TABLE case_ticket_events (
 CREATE INDEX idx_ticket_events_case_timeline ON case_ticket_events(case_id, occurred_at DESC);
 ```
 
-### Concrete Deduplication Identity Contract (P1)
-To ensure the `(provider, remote_event_id)` uniqueness constraint functions deterministically without ambiguity across ingestion methods:
-1. **Inbound Webhooks:**
-   Jira Cloud attaches the `X-Atlassian-Webhook-Identifier` header to every webhook request. This header contains a persistent UUID uniquely identifying the webhook event across Atlassian's automatic retries.
-   - `remote_event_id = headers["X-Atlassian-Webhook-Identifier"]`
-   - *Fallback (if header missing):* `f"webhook_{event['timestamp']}_{event['issue']['id']}"`
-2. **Inbound Polling (`pull_remote_ticket`):**
-   When pulling incremental changes via REST API:
-   - For comments: `remote_event_id = f"jira_comment_{comment['id']}"`
-   - For changelog/status transitions: `remote_event_id = f"jira_changelog_{changelog_item['id']}"`
+### Table 3: `ticket_webhook_deliveries` (Webhook Delivery Receipts) (P1)
+```sql
+CREATE TABLE ticket_webhook_deliveries (
+    id SERIAL PRIMARY KEY,
+    provider VARCHAR(32) NOT NULL,
+    delivery_id VARCHAR(128) NOT NULL,          -- e.g. X-Atlassian-Webhook-Identifier header
+    processed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_webhook_delivery UNIQUE (provider, delivery_id)
+);
+```
+
+### Canonical Event Identity vs. Delivery Receipts (P1)
+Jira documentation specifies that `X-Atlassian-Webhook-Identifier` tracks the *HTTP delivery* across retry attempts, not the underlying domain entity. To prevent duplicate events between webhooks and polling:
+1. **Delivery Deduplication:**
+   When a webhook arrives, `accept_webhook` checks `ticket_webhook_deliveries(provider, delivery_id)`. If the receipt exists, it returns HTTP `200 OK` immediately (idempotent receipt acknowledgement) without re-processing.
+2. **Canonical Domain Event Identity:**
+   Both webhooks and polling (`pull_remote_ticket`) map domain events to identical canonical keys:
+   - **Comments:** `remote_event_id = f"jira_comment_{comment_id}"` (from `body["comment"]["id"]` or polling REST API).
+   - **Changelog / Transitions:** `remote_event_id = f"jira_changelog_{changelog_id}"` (from `body["changelog"]["id"]` or polling REST API).
+   
+Because `case_ticket_events` has a unique constraint on `(provider, remote_event_id)`, comments delivered via webhook and subsequently encountered during polling are deduplicated natively.
 
 ---
 
@@ -339,7 +406,7 @@ class RemoteTicketSnapshot(BaseModel):
     sync_cursor: str | None = None
 
 class RemoteEventDraft(BaseModel):
-    remote_event_id: str                    # Concrete ID (Webhook UUID or comment ID)
+    remote_event_id: str                    # Canonical ID (e.g. 'jira_comment_10042')
     event_type: str                         # "comment_created", "status_changed"
     author: str | None = None
     summary: str
@@ -397,17 +464,21 @@ class WebhookVerifier(Protocol):
 
 @runtime_checkable
 class WebhookParser(Protocol):
-    """Parsing inbound provider webhook payloads into normalized events."""
+    """Parsing inbound provider webhook payloads into canonical events and delivery receipt."""
+    def extract_delivery_id(self, headers: Mapping[str, str]) -> str | None: ...
     def parse_webhook_event(self, raw_body: bytes, headers: Mapping[str, str]) -> RemoteEventDraft | None: ...
 ```
 
 ### Deep Façade: `CaseTicketing` (`backend/app/integrations/ticketing/service.py`)
 ```python
+from typing import Callable
+from sqlalchemy.orm import Session
+
 class CaseTicketing:
     """Deep module façade orchestrating ticketing outbox, adapters, links, and events."""
 
-    def __init__(self, db: Session, config: TicketingConfig, providers: dict[str, Any]):
-        self.db = db
+    def __init__(self, session_factory: Callable[[], Session], config: TicketingConfig, providers: dict[str, Any]):
+        self.session_factory = session_factory
         self.config = config
         self.providers = providers
 
@@ -423,6 +494,9 @@ class CaseTicketing:
     def link_existing_ticket(self, case_id: int, provider: str, display_key: str) -> TicketView:
         """Operator resolution: manually links an existing remote ticket."""
 
+    def force_create_ticket(self, case_id: int, operation_id: str) -> TicketOperationView:
+        """Operator resolution: forces creation after an ambiguous outcome."""
+
     def get_ticket_view(self, case_id: int) -> TicketView | None:
         """Fetches active ticket link projection for a case."""
 
@@ -436,7 +510,7 @@ class CaseTicketing:
         """Outbox worker step: claims jobs with lease locking, heartbeats, and executes them."""
 
     def accept_webhook(self, provider_name: str, raw_body: bytes, headers: Mapping[str, str]) -> bool:
-        """Verifies signature, records remote status updates, and appends timeline events."""
+        """Verifies signature, records delivery receipt, updates status, and appends canonical event."""
 ```
 
 ---
@@ -446,12 +520,13 @@ class CaseTicketing:
 ### A. Jira Cloud REST API v3 Only (P2)
 Ops Signals targets **Jira Cloud REST API v3** exclusively. All rich-text descriptions are generated in Atlassian Document Format (ADF) via `backend/app/integrations/ticketing/jira/adf.py`.
 
-### B. Pre-Retry Reconciliation via JQL Labels (P0)
+### B. Reconciliation & Ambiguous Error Handling
 ```python
 class JiraTicketProvider:
     def reconcile_or_create(self, draft: TicketDraft, operation_id: str) -> TicketCreationResult:
-        # Step 1: Pre-retry reconciliation via natively-indexed labels
         op_label = f"ops-signals-op-{operation_id}"
+        
+        # Step 1: Pre-reconciliation search via native label
         existing = self._find_issue_by_label(op_label)
         if existing:
             return existing
@@ -470,13 +545,17 @@ class JiraTicketProvider:
                 "description": build_case_adf_description(draft),
             }
         }
-        res = self._post("/rest/api/3/issue", payload)
-        return TicketCreationResult(
-            remote_id=res["id"],
-            display_key=res["key"],
-            ticket_url=f"{self.config.base_url.rstrip('/')}/browse/{res['key']}",
-            observed_remote_status="To Do"
-        )
+        try:
+            res = self._post("/rest/api/3/issue", payload)
+            return TicketCreationResult(
+                remote_id=res["id"],
+                display_key=res["key"],
+                ticket_url=f"{self.config.base_url.rstrip('/')}/browse/{res['key']}",
+                observed_remote_status="To Do"
+            )
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            # Uncertain outcome: do NOT retry automatically; trigger ambiguous outcome state
+            raise AmbiguousOutcomeError(f"In-flight Jira create encountered {exc}; state unknown.") from exc
 
     def _find_issue_by_label(self, label: str) -> TicketCreationResult | None:
         jql = f'project = "{self.config.project_key}" AND labels = "{label}"'
@@ -526,6 +605,9 @@ class JiraTicketProvider:
             return False
         expected = "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, sig)
+
+    def extract_delivery_id(self, headers: Mapping[str, str]) -> str | None:
+        return headers.get("X-Atlassian-Webhook-Identifier") or headers.get("x-atlassian-webhook-identifier")
 ```
 If the provider is unconfigured, unknown, or the HMAC signature fails, the endpoint immediately returns `401 Unauthorized` (or `404 Not Found`).
 
@@ -571,13 +653,12 @@ def get_ticketing_config() -> TicketingConfig:
 ### FastAPI Dependency Injection (`backend/app/api/ticketing.py`)
 ```python
 def get_case_ticketing(
-    db: Session = Depends(get_db),
     config: TicketingConfig = Depends(get_ticketing_config)
 ) -> CaseTicketing:
     providers = {}
     if config.jira.base_url and config.jira.api_token:
         providers["jira"] = JiraTicketProvider(config.jira)
-    return CaseTicketing(db=db, config=config, providers=providers)
+    return CaseTicketing(session_factory=get_db_sessionmaker(), config=config, providers=providers)
 ```
 
 ---
@@ -590,9 +671,10 @@ def get_case_ticketing(
 | `POST /api/cases/{case_id}/ticket/sync` | Bearer / `202 Accepted` | Idempotent trigger for manual ticket sync | Enqueues sync outbox task. |
 | `POST /api/cases/{case_id}/ticket/retry` | Bearer / `202 Accepted` | Reopens failed/dead-letter outbox operation | Resets attempts and triggers immediate retry. |
 | `POST /api/cases/{case_id}/ticket/link` | Bearer / `200 OK` | Manually link existing external ticket | Body: `{"provider": "jira", "display_key": "OPS-143"}` |
+| `POST /api/cases/{case_id}/ticket/force-create` | Bearer / `202 Accepted` | Operator forces fresh create after ambiguous outcome | Bypasses ambiguous circuit and queues create task. |
 | `GET /api/cases/{case_id}/ticket` | Bearer / `200 OK` | Fetch ticket link, active operation & events | Returns `TicketView`, active `TicketOperationView`, and recent `TicketEventView` items. |
 | `GET /api/cases/{case_id}/ticket/operations/{operation_id}` | Bearer / `200 OK` | Check operation execution status | Returns `TicketOperationView`. |
-| `POST /api/integrations/ticketing/{provider}/webhook` | Public + `X-Hub-Signature` / `200 OK` | Inbound webhook receiver | Cryptographically verified on raw bytes; updates `observed_remote_status` and appends to `case_ticket_events`. |
+| `POST /api/integrations/ticketing/{provider}/webhook` | Public + `X-Hub-Signature` / `200 OK` | Inbound webhook receiver | Cryptographically verified on raw bytes; records delivery receipt and appends canonical event. |
 
 ---
 
@@ -608,8 +690,8 @@ The Case Details view features a dedicated **Ticketing Card**:
    - Refresh Action: `[Sync Now 🔄]` button.
    - **External Activity Feed:** Displays recent comments from `case_ticket_events` with remote author and timestamp, completely separate from the internal RCA notes.
 3. **Ambiguous Outcome State:**
-   - Renders diagnostic banner: *"Ticket creation was interrupted by a network timeout. Ops Signals could not confirm whether Jira created the ticket."*
-   - Options: `[Check Jira Again]`, `[Link Manually]`, or `[Force Create New]`.
+   - Diagnostic banner: *"Ticket creation was interrupted by a network timeout. Ops Signals could not confirm whether Jira created the ticket."*
+   - Actions: `[Check Jira Again]`, `[Link Existing Ticket]`, or `[Force Create New]`.
 4. **Failed / Dead-Letter State:**
    - Error banner with failure explanation and `[Retry Ticket Action]` button calling `POST /api/cases/{id}/ticket/retry`.
 
@@ -621,11 +703,12 @@ The Case Details view features a dedicated **Ticketing Card**:
 - **Migration `004_add_ticketing_tables.sql`:**
   - Create `case_ticket_links`.
   - Create `case_ticket_events`.
+  - Create `ticket_webhook_deliveries`.
   - Create `ticket_operations`.
 - **Core Engine:**
   - Value models (`models.py`), role protocols (`protocols.py`), and `CaseTicketing` façade (`service.py`).
   - `JiraTicketProvider` with ADF generator and JQL label reconciliation.
-  - Outbox worker loop with per-claim UUID leases, heartbeat renewal, and ownership verification.
+  - Outbox worker loop with per-claim UUID leases, independent session heartbeat, and atomic completion transaction.
 - **Security & Routes:**
   - Add dynamic webhook route exemption to `backend/app/security.py`.
   - Add `TicketingConfig` and `JiraConfig` to `config.py`.
@@ -639,7 +722,7 @@ The Case Details view features a dedicated **Ticketing Card**:
 
 ### Phase 3: Real-Time Inbound Webhooks via HMAC-SHA256
 - Implement `verify_signature` using `X-Hub-Signature` and constant-time `hmac.compare_digest`.
-- Ingest webhook events directly into `case_ticket_events` using `X-Atlassian-Webhook-Identifier`.
+- Ingest delivery receipts into `ticket_webhook_deliveries` and canonical domain events into `case_ticket_events`.
 
 ### Phase 4: Additional Adapters (ServiceNow, GitHub, Linear)
 - Add `ServiceNowTicketProvider` and `GitHubIssuesTicketProvider`.
@@ -651,7 +734,7 @@ The Case Details view features a dedicated **Ticketing Card**:
 
 1. **No Dual-Master Status Overwriting:** Ops Signals' computed `case_status` is never replaced by Jira status.
 2. **No Ingestion into `investigation_notes`:** Remote comments live in `case_ticket_events` to preserve case lifecycle rules.
-3. **No Blind External Retries:** Workers never retry ticket creation without pre-reconciliation of Jira labels and ambiguous-outcome circuits.
+3. **No Automated Creation After Uncertain Outcomes:** Negative JQL is never treated as proof of absence; uncertain outcomes require operator resolution.
 4. **No Direct Qdrant Access:** External systems cannot query or index directly into Qdrant vector memory.
 5. **No Legacy Jira v2 Wiki Markup:** We do not support Jira Server or Jira Cloud REST v2 fallback.
 6. **No Insecure Query-String Webhook Secrets:** Webhooks require authentic HTTP header HMAC signatures.
