@@ -5,7 +5,7 @@ import { api } from '../api/queries';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
-import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip } from '../utils/signalGroups';
+import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 
 type Props = {
   finding: Finding;
@@ -45,10 +45,7 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
     }
   };
 
-  const matchedSignals = finding.signal_ids
-    .map((signalId) => signals.find((signal) => signal.id === signalId))
-    .filter((signal): signal is Signal => Boolean(signal))
-    .filter((signal) => signal.severity ? signal.severity.toLowerCase() !== 'low' : signal.importance_score >= 0.55);
+  const matchedSignals = supportingSignals(finding.signal_ids, signals);
 
   const signalGroups = groupSignalsByAnalyzer(matchedSignals);
   const breakdown = findingBreakdown(finding);
