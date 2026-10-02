@@ -2,6 +2,27 @@
 
 ## 0.3.0 - Unreleased
 
+- Import past incidents. A new install's memory is empty, so "have we seen this before?" found
+  nothing for months. Postmortems and incidents can now be imported from Jira or PagerDuty CSV
+  exports, any CSV, or Markdown postmortems (also as a `.zip`), as resolved cases that similar-case
+  search and alert enrichment match from day one. Use **Import past incidents** on Operational Memory,
+  the **Incident history** card on Integrations, `ops-signals import-cases <folder>`, or
+  `POST /api/case-imports`. The preview shows what each record will do before anything is written.
+  Re-importing never duplicates: records are keyed by source and ID, unchanged ones are skipped and
+  changed ones update their case in place, keeping notes added in Ops Signals. Emails, IPs and
+  common secrets are masked before storage, and a whole import can be undone. Imported cases carry
+  an **Imported** badge, skip learning outcomes, and are recalled on service since they have no
+  metric. Adds columns to `ops_operational_cases` and an `ops_case_imports` table, applied at
+  startup (`backend/migrations/007_imported_cases.sql`). See
+  [`docs/importing-incident-history.md`](docs/importing-incident-history.md).
+- Past cases are visible where you look first. A finding's details now have a **Seen before?**
+  section listing past cases (detected or imported) that look like it, without opening a case; it
+  is backed by the new `GET /api/findings/{id}/seen-before`. Similar Cases and Seen before list
+  same-service matches first, fold other services away, and mark each match **strong** (70%+) or
+  **possible** (40-70%); Similar Cases previously hid everything under 70%, which hid every imported
+  postmortem from a detected case. When an alert has no outcome history but matches past incidents,
+  the alert preview and Slack message say **Seen before** with the closest incident's cause and fix
+  instead of "not enough history".
 - Findings show the deploy before their change. Deploy events from `POST /api/events` are looked up
   when a finding is shown, so findings from scheduled runs (not only alerts) get an "After deploy
   v1.4.2" chip and a **What changed** line. When the pod breakdown has new pods that first

@@ -211,6 +211,10 @@ class CaseOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None = None
+    source: str = "detected"
+    source_id: str | None = None
+    source_url: str | None = None
+    import_batch_id: str | None = None
 
 
 class InvestigationUpdateRequest(BaseModel):

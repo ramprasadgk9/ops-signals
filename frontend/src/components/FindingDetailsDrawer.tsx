@@ -4,6 +4,7 @@ import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis
 import { api } from '../api/queries';
 import { LinkedAlerts } from './AlertComponents';
 import { FindingBreakdown } from './FindingBreakdown';
+import { PastCaseMatches } from './PastCaseMatches';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
@@ -50,6 +51,13 @@ function providerColor(provider?: string | null): string {
 
 export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: Props) {
   const analysisRunId = finding?.analysis_run_id;
+
+  const seenBeforeQuery = useQuery({
+    queryKey: ['finding-seen-before', finding?.id],
+    queryFn: () => api.findingSeenBefore(finding!.id as number),
+    enabled: open && typeof finding?.id === 'number',
+    retry: false,
+  });
 
   const analysisRunQuery = useQuery({
     queryKey: ['finding-drawer-analysis-run', analysisRunId],
@@ -126,6 +134,27 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
             <Typography variant="body2">{finding.ai_summary ?? finding.summary}</Typography>
           </Stack>
         </Box>
+
+        {typeof finding.id === 'number' ? (
+          <Box sx={{ mb: 3 }} data-testid="seen-before">
+            <Typography variant="h6" sx={{ mb: 0.5 }}>Seen before?</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Past cases that look like this finding, including incidents imported from postmortems. No case needed.
+            </Typography>
+            {seenBeforeQuery.isLoading ? <CircularProgress size={20} /> : null}
+            {seenBeforeQuery.isError ? <Typography variant="body2" color="text.secondary">Past cases could not be searched.</Typography> : null}
+            {seenBeforeQuery.data && !seenBeforeQuery.data.available ? (
+              <Typography variant="body2" color="text.secondary">{seenBeforeQuery.data.reason}</Typography>
+            ) : null}
+            {seenBeforeQuery.data?.available ? (
+              <PastCaseMatches
+                matches={seenBeforeQuery.data.matches}
+                service={finding.service}
+                emptyText="Nothing like this in memory yet. Import past incidents from Operational Memory to give it history."
+              />
+            ) : null}
+          </Box>
+        ) : null}
 
         {breakdown && <FindingBreakdown breakdown={breakdown} changes={changes} />}
 

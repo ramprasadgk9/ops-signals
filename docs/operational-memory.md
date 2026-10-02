@@ -15,6 +15,14 @@ flowchart LR
   E --> F[Retrieved Cases]
 ```
 
+## Importing Past Incidents
+
+Memory starts empty on a new install. Past postmortems and incidents can be imported as resolved
+cases so recall works from day one; see [importing-incident-history.md](importing-incident-history.md).
+Imported cases share the `operational_cases` collection with detected ones. Their payload has
+`origin: imported`, and because a postmortem has no metric, recall matches them on service instead
+of requiring the same metric.
+
 ## Payload Versus Document
 
 - The document text is what gets embedded.

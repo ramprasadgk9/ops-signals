@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FindingDetailsDrawer } from './FindingDetailsDrawer';
 import { api } from '../api/queries';
@@ -10,6 +10,7 @@ vi.mock('../api/queries', () => ({
     analysisRun: vi.fn(),
     timeseries: vi.fn(),
     signalsByRunIds: vi.fn(async () => []),
+    findingSeenBefore: vi.fn(),
   },
 }));
 
@@ -242,5 +243,49 @@ describe('FindingDetailsDrawer deploys', () => {
 
     expect(screen.queryByTestId('finding-what-changed')).not.toBeInTheDocument();
     expect(screen.queryByText(/^After /)).not.toBeInTheDocument();
+  });
+});
+
+describe('FindingDetailsDrawer seen before', () => {
+  it('lists past cases on the same service first, including imported postmortems', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue(null as never);
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.findingSeenBefore).mockResolvedValue({
+      finding_id: 41,
+      available: true,
+      service: 'test-otlp-service',
+      matches: [
+        { case_id: 9, title: 'Payments CPU leak', similarity_score: 0.62, strength: 'possible', same_service: false, service: 'payments', origin: 'detected' },
+        {
+          case_id: 25, title: 'CPU pinned after release', similarity_score: 0.48, strength: 'possible', same_service: true,
+          service: 'test-otlp-service', origin: 'imported', source: 'jira', source_id: 'OPS-101',
+          root_cause_summary: 'Schema validation on every call', corrective_action: 'Cached the schema',
+        },
+      ],
+    });
+
+    renderDrawer(otlpFinding);
+
+    const panel = await screen.findByTestId('seen-before');
+    const rows = await within(panel).findAllByTestId('past-case-match');
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]).getByText('CPU pinned after release')).toHaveAttribute('href', '/cases/25');
+    expect(within(rows[0]).getByText('Possible match · 48%')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('Imported · jira OPS-101')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('Cached the schema')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Show 1 match on other services' })).toBeInTheDocument();
+    expect(api.findingSeenBefore).toHaveBeenCalledWith(41);
+  });
+
+  it('explains when memory is off', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue(null as never);
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.findingSeenBefore).mockResolvedValue({
+      finding_id: 41, available: false, reason: 'Operational memory is not enabled, so past cases can\'t be searched.', matches: [],
+    });
+
+    renderDrawer(otlpFinding);
+
+    expect(await screen.findByText(/Operational memory is not enabled/)).toBeInTheDocument();
   });
 });

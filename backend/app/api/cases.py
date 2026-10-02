@@ -84,7 +84,11 @@ def _compute_case_status(case: OperationalCaseEntity) -> tuple[str, str]:
     3. IF RCA verified AND corrective_action exists AND outcome exists → case_status = "resolved" + investigation_status = "completed"
     
     Returns: (case_status, investigation_status)
+
+    Imported cases arrive already resolved from their postmortem and keep the stored statuses.
     """
+    if case.is_imported:
+        return case.case_status, case.investigation_status
     investigation_status = case.investigation_status
     case_status = case.case_status
     
@@ -137,6 +141,10 @@ def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
         created_at=case.created_at,
         updated_at=case.updated_at,
         resolved_at=case.resolved_at,
+        source=case.source or "detected",
+        source_id=case.source_id,
+        source_url=case.source_url,
+        import_batch_id=case.import_batch_id,
     )
 
 
@@ -509,7 +517,9 @@ def update_resolution(
         raise HTTPException(status_code=404, detail="case not found")
     
     final_states = {"resolved", "mitigated", "won_t_fix"}
-    if payload.outcome_status in final_states and not payload.learning_outcome_status:
+    # Learning outcomes score the analyzers behind a detection; an imported case has none.
+    learns = not case.is_imported
+    if learns and payload.outcome_status in final_states and not payload.learning_outcome_status:
         raise HTTPException(
             status_code=400,
             detail="learning_outcome_status is required when resolving or closing a case",
@@ -520,7 +530,7 @@ def update_resolution(
     case.corrective_action = payload.corrective_action
     case.updated_at = datetime.utcnow()
 
-    if payload.outcome_status in final_states and payload.learning_outcome_status:
+    if learns and payload.outcome_status in final_states and payload.learning_outcome_status:
         try:
             AnalyzerLearningService(db).create_from_case_resolution(
                 case_id=case.id,

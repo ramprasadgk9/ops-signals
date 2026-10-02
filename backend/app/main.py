@@ -27,6 +27,7 @@ from backend.app.api.behavior_definitions import router as behavior_definitions_
 from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
 from backend.app.api.behavior_lab import router as behavior_lab_router
 from backend.app.api.capabilities import router as capabilities_router
+from backend.app.api.case_imports import router as case_imports_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.findings import router as findings_router
 from backend.app.api.ingestion import router as ingestion_router
@@ -62,6 +63,7 @@ from backend.app.models.schema_compat import (
     ensure_ai_narrative_schema,
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
+    ensure_case_import_schema,
     ensure_learning_schema,
 )
 from backend.app.security import require_api_token
@@ -228,6 +230,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_learning_schema(get_engine())
         ensure_ai_narrative_schema(get_engine())
         ensure_case_behavior_link_schema(get_engine())
+        ensure_case_import_schema(get_engine())
         ensure_autonomous_policy_scheduling_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
@@ -322,6 +325,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(questions_router)
     app.include_router(signals_router)
     app.include_router(findings_router)
+    app.include_router(case_imports_router)
     app.include_router(cases_router)
     app.include_router(timeseries_router)
     app.include_router(metric_analyzer_recommendations_router)

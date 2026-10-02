@@ -36,6 +36,9 @@ How the pieces fit together, what talks to what, and why the two storage layers 
   and the fields on each.
 - [`operational-memory.md`](operational-memory.md) - how a resolved Case becomes a Qdrant
   embedding, and how semantic similarity search over past cases works.
+- [`importing-incident-history.md`](importing-incident-history.md) - filling operational memory on
+  day one by importing past postmortems and incidents from Jira, PagerDuty, incident.io or CSV and
+  Markdown files: what to export, how fields map, and why re-importing never duplicates.
 - [`design-decisions.md`](design-decisions.md) and [`adr/`](adr/) - the "why," in short
   ADR-style writeups: why Postgres is the system of record, why Qdrant is a retrieval index and not
   the source of truth, why answer composition is deterministic by default, and more.

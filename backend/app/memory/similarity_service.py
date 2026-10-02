@@ -15,6 +15,31 @@ from backend.app.models.entities import OperationalCaseEntity
 logger = logging.getLogger(__name__)
 
 
+# Similarity tiers shown to people. Scores between a detected case and a written postmortem land
+# around 0.4-0.6 even for the same problem (machine-written vs human-written text), so only showing
+# matches above the old 0.70 cut-off hid every imported incident from a detected case.
+STRONG_MATCH_SCORE = 0.70
+POSSIBLE_MATCH_SCORE = 0.40
+
+
+def match_strength(score: float) -> str:
+    return "strong" if score >= STRONG_MATCH_SCORE else "possible"
+
+
+def same_metric_or_imported(metric_name: str) -> dict:
+    """Qdrant condition: a past case on the same metric, or an imported incident.
+
+    Imported incidents (docs/importing-incident-history.md) come from postmortems and carry no
+    metric, so a metric filter alone would hide them from every recall. They still go through the
+    service filter and the score threshold like any other case."""
+    return {
+        "should": [
+            {"key": "metric_name", "match": {"value": metric_name}},
+            {"key": "origin", "match": {"value": "imported"}},
+        ]
+    }
+
+
 class SimilarityService:
     """Find similar operational cases using vector search."""
 
@@ -149,6 +174,11 @@ class SimilarityService:
                     service=result["payload"].get("service"),
                     metric_name=result["payload"].get("metric_name"),
                     category=result["payload"].get("category"),
+                    origin="imported" if matched_case.is_imported else "detected",
+                    strength=match_strength(result["score"]),
+                    same_service=_same_service(result["payload"].get("service"), current_case),
+                    source=matched_case.source,
+                    source_id=matched_case.source_id,
                     case_status=matched_case.case_status,
                     investigation_status=matched_case.investigation_status,
                     rca_verified=matched_case.root_cause_verified,
@@ -179,7 +209,7 @@ class SimilarityService:
         """Build Qdrant filter for case search.
 
         Filters:
-        - Same metric_name (always)
+        - Same metric_name, or an imported incident (which has no metric)
         - Same service (if configured)
         - Include open and resolved cases
 
@@ -197,16 +227,7 @@ class SimilarityService:
             return None
 
         # Build filters using Qdrant syntax
-        filters = {
-            "must": [
-                {
-                    "key": "metric_name",
-                    "match": {
-                        "value": metric_name,
-                    },
-                }
-            ]
-        }
+        filters = {"must": [same_metric_or_imported(metric_name)]}
 
         # Add service filter if configured
         if same_service_only and finding.get("service"):
@@ -218,3 +239,8 @@ class SimilarityService:
             })
 
         return filters
+
+
+def _same_service(service: str | None, case: OperationalCaseEntity) -> bool:
+    current = (case.finding_snapshot or {}).get("service")
+    return bool(service and current and service.lower() == current.lower())

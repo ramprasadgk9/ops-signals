@@ -22,6 +22,8 @@ class CaseDocumentBuilder:
             Formatted text document for embedding
         """
         finding = case.finding_snapshot or {}
+        if finding.get('source_type') == 'imported':
+            return CaseDocumentBuilder._build_imported(case, finding)
         is_behavior = finding.get('source_type') == 'behavior'
         metric_label = ", ".join(finding.get('metric_names', [])) or finding.get('metric_name', 'unknown')
 
@@ -61,6 +63,33 @@ class CaseDocumentBuilder:
 
                 parts.append("")
 
+        return "\n".join(parts + CaseDocumentBuilder._resolution_sections(case))
+
+    @staticmethod
+    def _build_imported(case: OperationalCaseEntity, finding: dict) -> str:
+        """An incident imported from a postmortem or incident tool has no metric, analyzer
+        evidence or importance score - only what the postmortem said happened and why."""
+        services = finding.get('services') or [finding.get('service', 'unknown')]
+        origin = " ".join(part for part in (finding.get('source'), finding.get('source_id')) if part)
+        parts = [
+            f"Imported Incident ({origin or 'unknown source'})",
+            "",
+            f"Service: {', '.join(services)}",
+        ]
+        if finding.get('health_status'):
+            parts.append(f"Severity: {finding['health_status']}")
+        if finding.get('tags'):
+            parts.append(f"Tags: {', '.join(finding['tags'])}")
+        parts += ["", "Incident:", case.case_title]
+        if finding.get('summary'):
+            parts.append(finding['summary'])
+        parts.append("")
+        return "\n".join(parts + CaseDocumentBuilder._resolution_sections(case))
+
+    @staticmethod
+    def _resolution_sections(case: OperationalCaseEntity) -> list[str]:
+        parts: list[str] = []
+
         # Investigation section (optional)
         if case.investigation_notes and len(case.investigation_notes) > 0:
             parts.append("Investigation:")
@@ -97,7 +126,7 @@ class CaseDocumentBuilder:
             parts.append(case.outcome_summary)
             parts.append("")
 
-        return "\n".join(parts)
+        return parts
 
     @staticmethod
     def get_content_version() -> int:

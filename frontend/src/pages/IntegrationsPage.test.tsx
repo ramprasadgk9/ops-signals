@@ -13,6 +13,7 @@ vi.mock('../api/queries', () => ({
     otlpStatus: vi.fn(),
     sendTestAlert: vi.fn(),
     runCsvUpload: vi.fn(),
+    caseImports: vi.fn(async () => []),
   },
 }));
 

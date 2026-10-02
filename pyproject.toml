@@ -63,7 +63,7 @@ ops-signals = "intelligence.cli:main"
 include = ["intelligence*", "backend*", "experiments", "experiments.analyzer_router"]
 
 [tool.setuptools.package-data]
-backend = ["migrations/*.sql"]
+backend = ["migrations/*.sql", "app/case_import/templates/*"]
 "experiments.analyzer_router" = ["*.yaml"]
 
 [tool.pytest.ini_options]

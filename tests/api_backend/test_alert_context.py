@@ -225,7 +225,13 @@ def test_message_triggers_semantic_search_for_similar_cases(client_factory) -> N
     assert match["reference"] == "/cases/42"
     assert similarity.vector_store.calls[0]["filters"] == {
         "must": [
-            {"key": "metric_name", "match": {"value": "cpu_usage"}},
+            # Imported incidents have no metric, so they match on service alone.
+            {
+                "should": [
+                    {"key": "metric_name", "match": {"value": "cpu_usage"}},
+                    {"key": "origin", "match": {"value": "imported"}},
+                ]
+            },
             {"key": "service", "match": {"value": "payments-service"}},
         ]
     }
@@ -257,7 +263,9 @@ def test_similar_case_found_with_no_exact_match_history_is_not_reported_as_mixed
     assert len(body["similar_cases"]) == 1
     assert body["recommendation"] == "insufficient_history"
     assert "mixed" not in body["recommendation_basis"]
-    assert "1 semantically similar case" in body["recommendation_basis"]
+    assert body["recommendation_basis"].startswith("Seen before: 1 similar past incident, no real-vs-noise verdict yet.")
+    assert "Fixed by: Increased CPU limit" in body["recommendation_basis"]
+    assert ". Fixed by:" in body["recommendation_basis"]
 
 
 def _seed_finding(

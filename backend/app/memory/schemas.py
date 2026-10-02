@@ -59,8 +59,15 @@ class SimilarCaseMatch(BaseModel):
     similarity_score: float = Field(description="Score between 0 and 1")
     title: str
     service: str | None = None
-    metric_name: str
+    # None for an imported incident, which comes from a postmortem rather than a metric.
+    metric_name: str | None = None
     category: str | None = None
+    origin: str = "detected"
+    source: str | None = None
+    source_id: str | None = None
+    # "strong" (>= 0.70) or "possible" (>= 0.40); see similarity_service.match_strength.
+    strength: str = "strong"
+    same_service: bool = False
     case_status: str
     investigation_status: str
     rca_verified: bool
@@ -135,8 +142,43 @@ class AlertContextSimilarCase(BaseModel):
     case_status: str
     outcome_status: str | None = None
     root_cause_summary: str | None = None
+    corrective_action: str | None = None
     outcome_summary: str | None = None
+    origin: str = "detected"
+    source: str | None = None
+    source_id: str | None = None
     reference: str
+
+
+class PastIncidentMatch(BaseModel):
+    """A past case that looks like a finding, for the finding's "Seen before?" panel."""
+
+    case_id: int
+    title: str
+    similarity_score: float
+    strength: str
+    same_service: bool
+    service: str | None = None
+    metric_name: str | None = None
+    origin: str = "detected"
+    source: str | None = None
+    source_id: str | None = None
+    source_url: str | None = None
+    root_cause_summary: str | None = None
+    corrective_action: str | None = None
+    outcome_summary: str | None = None
+    resolved_at: datetime | None = None
+    reference: str
+
+
+class SeenBeforeResponse(BaseModel):
+    """Past cases resembling a finding, found without opening a case for it."""
+
+    finding_id: int
+    available: bool
+    reason: str | None = None
+    service: str | None = None
+    matches: list[PastIncidentMatch] = Field(default_factory=list)
 
 
 class AlertContextHistory(BaseModel):
