@@ -168,9 +168,22 @@
   padding: 0 10px;
   border: 1px solid var(--auto-border);
   border-radius: 6px;
+  background: transparent;
   color: var(--auto-text);
+  font: inherit;
   text-decoration: none;
   font-weight: 800;
+  cursor: pointer;
+}
+
+.auto-action-accent {
+  border-color: rgba(87, 148, 242, 0.55);
+  background: rgba(87, 148, 242, 0.14);
+  color: var(--auto-blue);
+}
+
+.auto-action-accent:hover {
+  background: rgba(87, 148, 242, 0.24);
 }
 
 .auto-pill {
