@@ -178,6 +178,7 @@ type RuntimeDesign = {
   type: 'internal_python' | 'external_http' | 'not_implemented';
   health_check_url?: string;
   analyze_url?: string;
+  api_key_env?: string;
 };
 
 type YamlPreview = {
@@ -193,7 +194,7 @@ const runtimeTypeOptions: RuntimeDesign['type'][] = ['not_implemented', 'interna
 const runtimeTypeLabels: Record<RuntimeDesign['type'], string> = {
   not_implemented: 'Custom Python (recommended)',
   internal_python: 'Reuse an existing built-in (advanced)',
-  external_http: 'External API / Model (coming soon)',
+  external_http: 'External API / Model',
 };
 const labProfileOptions: Array<{ id: LabProfileId; label: string }> = [
   { id: 'zscore_anomaly', label: 'Z-Score anomaly generated data' },
@@ -443,7 +444,8 @@ export function AddAnalyzerPage() {
     backendSupportMutation.data ||
       (currentCustomAnalyzer?.implementation_status && ['pending', 'verified'].includes(currentCustomAnalyzer.implementation_status)),
   );
-  const promotedRecommendationOnly = Boolean(draftPromoted && currentDraft?.config.runtime_mapping === 'not_implemented');
+  const draftIsHttp = getRuntimeDesign(currentDraft?.config.runtime_params ?? {}).type === 'external_http';
+  const promotedRecommendationOnly = Boolean(draftPromoted && !draftIsHttp && currentDraft?.config.runtime_mapping === 'not_implemented');
   const currentAdapterPath =
     backendSupportMutation.data?.adapter_path ??
     (currentCustomAnalyzer?.implementation_module
@@ -619,12 +621,26 @@ export function AddAnalyzerPage() {
         {draftPromoted ? (
           <Box sx={{ mt: 2, border: `1px solid ${ui.green}`, borderRadius: 2, p: 2, bgcolor: '#ffffff' }}>
             <Typography sx={{ fontWeight: 900, fontSize: 18 }}>Analyzer added</Typography>
-            <Typography sx={{ mt: 0.6 }}>
-              {currentDraft?.analyzer_id} is now available as a custom recommendation-only analyzer.
-            </Typography>
-            <Typography sx={{ color: ui.muted, mt: 0.6, fontSize: 14 }}>
-              It can be recommended by routing. It cannot execute or create findings until backend runtime support is added.
-            </Typography>
+            {draftIsHttp ? (
+              <>
+                <Typography sx={{ mt: 0.6 }}>
+                  {currentDraft?.analyzer_id} is live. When the router picks it, Ops Signals calls{' '}
+                  {getRuntimeDesign(currentDraft?.config.runtime_params ?? {}).analyze_url}.
+                </Typography>
+                <Typography sx={{ color: ui.muted, mt: 0.6, fontSize: 14 }}>
+                  Run the Execution Test to check the service answers in the expected format. No Python adapter is needed.
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography sx={{ mt: 0.6 }}>
+                  {currentDraft?.analyzer_id} is now available as a custom recommendation-only analyzer.
+                </Typography>
+                <Typography sx={{ color: ui.muted, mt: 0.6, fontSize: 14 }}>
+                  It can be recommended by routing. It cannot execute or create findings until backend runtime support is added.
+                </Typography>
+              </>
+            )}
             {promotedRecommendationOnly ? (
               <Box sx={{ mt: 2, border: backendSupportAdded ? `1px solid ${ui.green}` : '1px solid #fed7aa', borderRadius: 2, p: 2, bgcolor: backendSupportAdded ? '#f0fdf4' : '#fff7ed' }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
@@ -994,7 +1010,13 @@ export function AddAnalyzerPage() {
                 variant="outlined"
                 onClick={() => {
                   setEntryChoice('python');
-                  setForm({ ...form, runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, type: 'not_implemented' }) });
+                  const leavingApiPath = form.library === 'http';
+                  if (leavingApiPath) setImportName(motifTemplate.library);
+                  setForm({
+                    ...form,
+                    ...(leavingApiPath ? { library: motifTemplate.library, template_type: motifTemplate.template_type } : {}),
+                    runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, type: 'not_implemented' }),
+                  });
                 }}
                 sx={{ justifyContent: 'flex-start', textTransform: 'none', p: 2, borderRadius: 2 }}
               >
@@ -1009,14 +1031,21 @@ export function AddAnalyzerPage() {
                 variant="outlined"
                 onClick={() => {
                   setEntryChoice('api');
-                  setForm({ ...form, runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, type: 'external_http' }) });
+                  setImportName('http');
+                  setForm({
+                    ...form,
+                    template_type: 'External API / Model',
+                    library: 'http',
+                    runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, type: 'external_http' }),
+                  });
                 }}
                 sx={{ justifyContent: 'flex-start', textTransform: 'none', p: 2, borderRadius: 2 }}
               >
                 <Box sx={{ textAlign: 'left' }}>
                   <Typography sx={{ fontWeight: 850, fontSize: 16 }}>I have a hosted API or model</Typography>
                   <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.4 }}>
-                    Point at an endpoint instead of writing Python. Not runnable yet - fields are saved for when this ships.
+                    Point at your own service instead of writing Python. Ops Signals sends each metric window to it and
+                    shows what it returns as findings. No code changes or extra installs in Ops Signals.
                   </Typography>
                 </Box>
               </Button>
@@ -1036,6 +1065,8 @@ export function AddAnalyzerPage() {
           </Stack>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField fullWidth label="Template Type" value={form.template_type} onChange={(event) => setForm({ ...form, template_type: event.target.value })} />
+            {runtimeDesign.type !== 'external_http' ? (
+            <>
             <TextField
               fullWidth
               label="Library"
@@ -1048,6 +1079,8 @@ export function AddAnalyzerPage() {
               }}
             />
             <TextField fullWidth label="Python Import Name" value={importName} onChange={(event) => setImportName(event.target.value.trim().toLowerCase())} />
+            </>
+            ) : null}
           </Stack>
           <Typography sx={{ fontWeight: 900 }}>Runtime Design</Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -1089,6 +1122,7 @@ export function AddAnalyzerPage() {
             </Stack>
           ) : null}
           {runtimeDesign.type === 'external_http' ? (
+            <Stack spacing={2}>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
               <TextField
                 fullWidth
@@ -1113,10 +1147,25 @@ export function AddAnalyzerPage() {
                 }
               />
             </Stack>
+            <TextField
+              fullWidth
+              label="API key environment variable (optional)"
+              placeholder="MY_MODEL_API_KEY"
+              helperText="The name of an environment variable on the Ops Signals server that holds the key. The key itself is never saved."
+              value={runtimeDesign.api_key_env ?? ''}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  runtime_params: setRuntimeDesign(form.runtime_params, { ...runtimeDesign, api_key_env: event.target.value.trim() }),
+                })
+              }
+            />
+            </Stack>
           ) : null}
           <Alert severity="info">
             {runtimeDesign.type === 'external_http'
-              ? "External API / Model analyzers aren't wired up to actually run yet — these fields are saved but not called. Pick Custom Python to get a working analyzer today."
+              ? 'When the router picks this analyzer, Ops Signals POSTs the metric window to the Analyze URL and turns the findings in the reply into signals. If the service is down or slow, that run lists this analyzer as failed and the other analyzers still run. Your service must follow the request and reply format in docs/http-analyzer-contract.md. Run the Execution Test after promoting to check it.'
+
               : runtimeDesign.type === 'internal_python'
                 ? 'Reuses an existing built-in analyzer (e.g. stumpy, trend) with your own routing rules and parameters, instead of your own code.'
                 : "Custom Python is the recommended path: after you promote and add backend support, you'll get a real Python file to write your own analyze() logic in."}
@@ -1329,6 +1378,7 @@ function getRuntimeDesign(params: Record<string, unknown>): RuntimeDesign {
     type,
     health_check_url: typeof candidate.health_check_url === 'string' ? candidate.health_check_url : '',
     analyze_url: typeof candidate.analyze_url === 'string' ? candidate.analyze_url : '',
+    api_key_env: typeof candidate.api_key_env === 'string' ? candidate.api_key_env : '',
   };
 }
 
@@ -1339,6 +1389,7 @@ function setRuntimeDesign(params: Record<string, unknown>, design: RuntimeDesign
       type: design.type,
       ...(design.health_check_url ? { health_check_url: design.health_check_url } : {}),
       ...(design.analyze_url ? { analyze_url: design.analyze_url } : {}),
+      ...(design.api_key_env ? { api_key_env: design.api_key_env } : {}),
     },
   };
 }

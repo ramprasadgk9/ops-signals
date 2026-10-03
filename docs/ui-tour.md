@@ -32,8 +32,9 @@ A grouping inside **Experiments**, not a separate top-level tab:
 - **Labs** — one page per analyzer (Z-Score Anomaly, PyOD Outlier, Prophet Forecast, Ruptures Change
   Point, STUMPY Motif, Trend) for running that analyzer directly against sample data and inspecting
   its raw output.
-- **Add Analyzer** — the guided flow for registering a new analyzer. See
-  [`docs/analyzer-plugin-framework.md`](analyzer-plugin-framework.md#extensibility-model).
+- **Add Analyzer** — the guided flow for registering a new analyzer, either Python code or your own
+  HTTP service. See [`docs/analyzer-plugin-framework.md`](analyzer-plugin-framework.md#extensibility-model)
+  and [`docs/http-analyzer-contract.md`](http-analyzer-contract.md).
 - **Recommendations** — the Universal Router's live recommendation preview for a given series. See
   [`docs/analyzer-recommendation.md`](analyzer-recommendation.md).
 

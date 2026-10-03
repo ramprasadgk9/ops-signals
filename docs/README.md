@@ -64,6 +64,9 @@ What analyzers are, why a given one gets picked for a given metric, and how much
 
 - [`analyzer-plugin-framework.md`](analyzer-plugin-framework.md) - what an analyzer is, the
   two-registry model (pipeline vs. router), and how to add your own.
+- [`http-analyzer-contract.md`](http-analyzer-contract.md) - connect your own model or detection
+  service over HTTP: the request and reply format, a runnable example, and what happens when the
+  service is down.
 - [`analyzer-recommendation.md`](analyzer-recommendation.md) - **the** reference for routing:
   how the Universal Router scores and picks analyzers, eligibility vs. suitability, and the
   weighting behind the scores.

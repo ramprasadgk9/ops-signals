@@ -46,15 +46,17 @@ Signals should remain:
 ## Extensibility Model
 
 The fastest path is the **Add Analyzer** wizard in the web UI, which walks through two tracks -
-"I have Python code" (write a real `analyze()` implementation) or "I want to call an API"
-(HTTP-backed, config-only for now - execution support is planned, see Current Limitations) - and
-three steps: Save & Validate, Test (optional but recommended, runs against real normalized sample
-data), and Promote. Promoting writes a new registration to
-`config/analyzer_registry.d/custom_<analyzer_id>.yml` and, for the Python track, generates a
-starter adapter file at `backend/app/analyzers/custom/<analyzer_id>.py` with the `analyze()`
-method stubbed out for you to fill in.
+"I have Python code" (write a real `analyze()` implementation) or "I have a hosted API or model"
+(Ops Signals calls your own HTTP service; see
+[`http-analyzer-contract.md`](http-analyzer-contract.md)) - and three steps: Save & Validate, Test
+(optional but recommended, runs against real normalized sample data), and Promote. Promoting writes
+a new registration to `config/analyzer_registry.d/custom_<analyzer_id>.yml`. For the Python track
+it also generates a starter adapter file at `backend/app/analyzers/custom/<analyzer_id>.py` with the
+`analyze()` method stubbed out for you to fill in. The API track writes an `http:` block instead and
+needs no Python file.
 
-The manual path is the same thing without the UI:
+The manual path is the same thing without the UI (for an HTTP analyzer, see
+[Registering without the UI](http-analyzer-contract.md#registering-without-the-ui) instead):
 
 1. Implement the analyzer as an `Analyzer` subclass with an `analyze(dataframe) -> list[OperationalSignal]` method.
 2. Add a `config/analyzer_registry.d/<your_file>.yml` entry with `analyzer_id`, `class_path`, and
@@ -112,9 +114,8 @@ everything on this page in one place:
 
 ## Current Limitations
 
-- HTTP-backed analyzers can be registered (config-only) but not executed yet - the adapter that
-  would call out to an external service isn't implemented (see `AnalyzerRegistrationError` in
-  `intelligence/analyzer_registry.py`).
+- HTTP analyzers are called once per analysis with no automatic retry; a failed call is listed on
+  that run and the next run tries again. See [`http-analyzer-contract.md`](http-analyzer-contract.md).
 - The pipeline and router registries haven't merged yet, so a handful of router-recommendable
   analyzer ids have no real implementation behind them - [Router-only analyzers](analyzer-recommendation.md#router-only-analyzers-what-each-one-needs)
   lists exactly which ones and why.

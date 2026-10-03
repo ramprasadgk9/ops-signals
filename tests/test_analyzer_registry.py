@@ -366,7 +366,7 @@ def test_instantiate_raises_clear_error_for_bad_constructor_kwargs() -> None:
         instantiate(registration)
 
 
-def test_instantiate_raises_not_implemented_for_http_registrations() -> None:
+def test_instantiate_builds_an_http_analyzer_for_http_registrations() -> None:
     from intelligence.analyzer_registry import AnalyzerRegistration, HttpAnalyzerSpec, RouterSpec
 
     registration = AnalyzerRegistration(
@@ -379,5 +379,6 @@ def test_instantiate_raises_not_implemented_for_http_registrations() -> None:
         router=RouterSpec(),
     )
 
-    with pytest.raises(AnalyzerRegistrationError, match="HTTP analyzer execution is not implemented"):
-        instantiate(registration)
+    from intelligence.analyzers.http_analyzer import HttpAnalyzer
+
+    assert isinstance(instantiate(registration), HttpAnalyzer)

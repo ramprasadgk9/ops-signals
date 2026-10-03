@@ -15,7 +15,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 import yaml
 
-from backend.app.api.admin_analyzers import AnalyzerConfigIn, _ui_to_registry, _validate_analyzer, _write_yaml
+from backend.app.api.admin_analyzers import (
+    AnalyzerConfigIn,
+    _ui_to_registry,
+    _validate_analyzer,
+    _write_yaml,
+    http_spec_from_runtime_params,
+)
 from backend.app.api.ingestion import PreviewPipelineStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalyzerConfigSuggestionEntity, AnalyzerDraftEntity, NormalizedPoint
@@ -25,6 +31,7 @@ from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
 from experiments.analyzer_router.models import SeriesProfile
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
 from intelligence.analyzer_registry import instantiate as instantiate_analyzer, load_registrations
+from intelligence.analyzers.http_analyzer import safe_url
 from intelligence.config import InputConfig
 from intelligence.normalize.normalizer import normalize_timeseries
 from intelligence.pipeline import SignalPipeline
@@ -278,12 +285,19 @@ def _config_to_registration_dict(config: AnalyzerConfigIn) -> dict:
     through the Add Analyzer wizard - the shape intelligence/analyzer_registry.py's loader (and,
     for its router block, experiments/analyzer_router/analyzer_registry.py's additive merge)
     expects. Reuses _ui_to_registry's already-validated eligibility/scoring rule flattening
-    rather than re-deriving it."""
+    rather than re-deriving it. An analyzer on the "hosted API or model" path gets an http: block
+    instead of a class_path - it runs through HttpAnalyzer and needs no Python file."""
     legacy_shape = _ui_to_registry(config)
+    http_spec = http_spec_from_runtime_params(config.runtime_params)
+    runtime = (
+        {"http": http_spec}
+        if http_spec is not None
+        else {"class_path": f"backend.app.analyzers.custom.{config.analyzer_id}.{_adapter_class_name(config.analyzer_id)}"}
+    )
     return {
         "display_name": legacy_shape["display_name"],
         "enabled": config.enabled,
-        "class_path": f"backend.app.analyzers.custom.{config.analyzer_id}.{_adapter_class_name(config.analyzer_id)}",
+        **runtime,
         "router": {
             "supported_profiles": legacy_shape["supported_profiles"],
             "eligibility_rules": legacy_shape["eligibility_rules"],
@@ -302,7 +316,7 @@ def _executable_analyzer_ids() -> set[str]:
     analyzer no matter how far through the wizard it had progressed."""
     ids = set(EXECUTABLE_ANALYZER_IDS)
     for registration in _load_custom_registrations():
-        if _custom_adapter_path(registration.analyzer_id).exists():
+        if registration.http is not None or _custom_adapter_path(registration.analyzer_id).exists():
             ids.add(registration.analyzer_id)
     return ids
 
@@ -414,7 +428,8 @@ def _implementation_metadata(config: AnalyzerConfigIn, status: str = "pending") 
 
 def _registry_with_pending_implementation(config: AnalyzerConfigIn) -> dict:
     data = _ui_to_registry(config)
-    data["implementation"] = _implementation_metadata(config)
+    http_spec = http_spec_from_runtime_params(config.runtime_params)
+    data["implementation"] = {"type": "http", **http_spec} if http_spec is not None else _implementation_metadata(config)
     return data
 
 
@@ -775,6 +790,11 @@ def add_backend_support(draft_id: int, db: Session = Depends(get_db)) -> Backend
 
     config = AnalyzerConfigIn(**(row.config_json or {}))
     _validate_analyzer(config)
+    if http_spec_from_runtime_params(config.runtime_params) is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="An External API / Model analyzer doesn't need a Python adapter - it runs by calling its Analyze URL.",
+        )
 
     registration_path = _custom_registration_path(config.analyzer_id)
     if not registration_path.exists():
@@ -860,7 +880,8 @@ def run_execution_test(draft_id: int, payload: ExecutionTestIn = Body(default=Ex
     config = AnalyzerConfigIn(**(row.config_json or {}))
     runtime_mapping = _resolve_runtime_mapping(config.runtime_mapping, config.analyzer_id)
     registration = _custom_registration_for(config.analyzer_id)
-    has_own_adapter = registration is not None and _custom_adapter_path(config.analyzer_id).exists()
+    is_http = registration is not None and registration.http is not None
+    has_own_adapter = registration is not None and (is_http or _custom_adapter_path(config.analyzer_id).exists())
 
     if has_own_adapter:
         # A genuinely new analyzer (Promote + Add backend support already run) - construct it
@@ -929,12 +950,21 @@ def run_execution_test(draft_id: int, payload: ExecutionTestIn = Body(default=Ex
 
         try:
             analyzer_instance = instantiate_analyzer(registration, overrides=config.runtime_params or {})
+            if is_http:
+                health_issue = analyzer_instance.check_health()
+                if health_issue:
+                    raise RuntimeError(health_issue)
             signals = analyzer_instance.analyze(normalized)
+            ran = (
+                f"called {safe_url(registration.http.analyze_url)}"
+                if is_http
+                else "ran your analyzer's own analyze()"
+            )
             result = ExecutionTestOut(
                 analyzer_id=config.analyzer_id,
                 available=True,
                 status="passed",
-                reason=f"Execution test passed - ran your analyzer's own analyze() directly against {data_source} data.",
+                reason=f"Execution test passed - {ran} directly against {data_source} data.",
                 runtime_mapping=config.runtime_mapping,
                 sample_count=len(normalized),
                 signal_count=len(signals),
