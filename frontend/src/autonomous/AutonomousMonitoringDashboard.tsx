@@ -99,7 +99,7 @@ function ExclusionReasonCard({ entry, onEnableCategory }: { entry: AutonomousExc
           <span className="auto-row-title">{entry.label}</span>
           <span className="auto-row-meta" style={{ marginLeft: 8 }}>{entry.count} metric{entry.count === 1 ? '' : 's'}</span>
         </div>
-        <button type="button" className="auto-action" onClick={() => setExpanded((current) => !current)}>
+        <button type="button" className="auto-action auto-action-accent" onClick={() => setExpanded((current) => !current)}>
           {expanded ? 'Hide' : 'View list'}
         </button>
       </div>
