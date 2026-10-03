@@ -59,6 +59,8 @@ import type {
   NewDocTest,
   SaveDocTestsResult,
   CaseImportBatch,
+  AIStatus,
+  AITestResult,
   CaseImportPreview,
   CaseImportProfiles,
   CaseImportResult,
@@ -259,6 +261,8 @@ export const api = {
   previewCaseImport: (payload: FormData) => postForm<CaseImportPreview>('/api/case-imports/preview', payload),
   runCaseImport: (payload: FormData) => postForm<CaseImportResult>('/api/case-imports', payload),
   caseImports: () => getJson<CaseImportBatch[]>('/api/case-imports'),
+  aiStatus: () => getJson<AIStatus>('/api/ai/status'),
+  testAiConnection: () => postJson<Record<string, never>, AITestResult>('/api/ai/test', {}),
   undoCaseImport: (batchId: string) => deleteJson<{ batch_id: string; deleted_cases: number }>(`/api/case-imports/${batchId}`),
   alertContext: (metricName: string, service?: string, message?: string) => {
     const params = new URLSearchParams({ metric_name: metricName });

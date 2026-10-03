@@ -1144,3 +1144,24 @@ export type OtlpStatus = {
   last_analysis_cycle_duration_seconds: number;
   last_analysis_cycle_groups_processed: number;
 };
+
+// GET /api/ai/status: the AI provider the backend started with, and whether it is in use.
+export type AIStatus = {
+  enabled: boolean;
+  provider: string;
+  model: string | null;
+  endpoint: string | null;
+  api_key_set: boolean | null;
+  active: boolean;
+  issue: string | null;
+};
+
+// POST /api/ai/test: one short request through the configured provider.
+export type AITestResult = {
+  ok: boolean;
+  provider: string | null;
+  model: string | null;
+  latency_ms: number | null;
+  reply: string | null;
+  error: string | null;
+};

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
+from backend.app.api.ai import router as ai_router
 from backend.app.api.alerts import router as alerts_router
 from backend.app.api.analysis_runs import router as analysis_runs_router
 from backend.app.api.admin_analyzers import router as admin_analyzers_router
@@ -259,6 +260,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
         from backend.app.api import assistant as assistant_module
         assistant_module._services["assistant"] = memory_services["assistant"]
         assistant_module._services["knowledge_bootstrap"] = memory_services["knowledge_bootstrap"]
+        from backend.app.api import ai as ai_module
+        ai_module._services["config"] = memory_services["ai_config"]
 
         # Slack notifications: config-driven, disabled unless OPS_SIGNALS_SLACK_ENABLED=true
         # and a webhook URL are both set. SlackNotifier no-ops internally when disabled, so
@@ -336,6 +339,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(assistant_router)
     app.include_router(mcp_router)
     app.include_router(alerts_router)
+    app.include_router(ai_router)
     app.include_router(events_router)
     
     # Register memory router

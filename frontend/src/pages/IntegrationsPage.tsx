@@ -1,6 +1,7 @@
 import { Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
+import { AiProviderCard } from '../components/AiProviderCard';
 import { IntegrationTiles, OneOffAnalysisLine, SourceStatusStrip } from '../components/GetDataInPanel';
 import { ImportHistoryCard } from '../components/ImportHistoryCard';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -31,6 +32,8 @@ export function IntegrationsPage() {
       {statusQuery.isError ? <OtlpIngestionCard /> : null}
 
       <ImportHistoryCard />
+
+      <AiProviderCard />
 
       <OneOffAnalysisLine />
     </Stack>
