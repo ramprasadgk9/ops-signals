@@ -124,6 +124,34 @@ The Grafana plugin continues to query Prometheus through Grafana datasource APIs
 It sends samples to `POST /api/ingestion/prometheus-run`. The standalone direct
 Prometheus endpoints do not replace or modify this contract.
 
+## Mimir, Thanos and Other Multi-Source Backends
+
+Ops Signals reads from Prometheus-compatible backends such as Grafana Mimir,
+Thanos and VictoriaMetrics. For a Mimir tenant, pass the tenant header:
+
+```bash
+OPS_SIGNALS_PROMETHEUS_HEADERS=X-Scope-OrgID:my-tenant
+```
+
+Known limitations:
+
+- **One tenant per instance.** Only one connection is supported. To analyze
+  several tenants, run one Ops Signals backend per tenant.
+- **Series from different clusters are not told apart.** These backends often
+  hold data from many Prometheus servers, labelled only by an external label
+  such as `cluster`. Autonomous analysis scopes by service, namespace and
+  environment, so the same service in two clusters can be merged into one
+  series and give misleading findings. Until this is supported, narrow the
+  scope to one cluster: in the Configure panel, set **Environment label** to
+  `cluster` (or your external label) and pick a single value. For direct
+  analysis, add `cluster="…"` to the PromQL query.
+- **HA replicas are not deduplicated.** If your backend keeps both copies of an
+  HA Prometheus pair (labels such as `__replica__` or `prometheus_replica`),
+  enable deduplication in the backend (Mimir's HA tracker, Thanos
+  `--query.replica-label`) or filter to one replica.
+
+Planned support is tracked in the [roadmap](roadmap.md).
+
 ## Troubleshooting
 
 | Symptom | Meaning |
