@@ -169,4 +169,43 @@ describe('AutonomousMonitoringPage', () => {
     expect(await screen.findByRole('link', { name: 'cpu_usage' })).toBeInTheDocument();
     expect(screen.queryByText('No autonomous analysis has been completed yet.')).not.toBeInTheDocument();
   });
+
+  it('shows the backend error message when a preview fails', async () => {
+    vi.mocked(api.autonomousPreview).mockRejectedValue(
+      new Error('Prometheus HTTP error: 422: the query exceeded the maximum number of series (limit: 10000)')
+    );
+    renderRoute();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
+
+    expect(
+      await screen.findByText(
+        'Autonomous request failed: Prometheus HTTP error: 422: the query exceeded the maximum number of series (limit: 10000)'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('shows warnings returned by a preview', async () => {
+    vi.mocked(api.autonomousPreview).mockResolvedValue({
+      scope_summary: {},
+      metrics_discovered: 3,
+      metrics_matched: 1,
+      metrics_excluded: 2,
+      planned_jobs: 1,
+      budget_limited: 0,
+      warnings: [
+        'Prometheus warning: partial response: store unavailable',
+        ...Array.from({ length: 6 }, (_, index) => `Discovery warning ${index + 1}`),
+      ],
+      items: [],
+    });
+    renderRoute();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
+
+    expect(await screen.findByText('Prometheus warning: partial response: store unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Discovery warning 4')).toBeInTheDocument();
+    expect(screen.queryByText('Discovery warning 5')).not.toBeInTheDocument();
+    expect(screen.getByText('+2 more warnings')).toBeInTheDocument();
+  });
 });

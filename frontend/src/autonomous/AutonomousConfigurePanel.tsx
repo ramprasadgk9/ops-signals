@@ -39,6 +39,7 @@ const categories: Array<{ id: MonitoringCategory; title: string; detail: string 
 ];
 
 const schedulePresets = [5, 15, 30, 60, 360];
+const MAX_SHOWN_WARNINGS = 5;
 
 function formatSchedule(minutes: number): string {
   if (minutes % 60 === 0) return `${minutes / 60}h`;
@@ -218,6 +219,15 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     onSuccess: (result) => onRunComplete(result),
   });
 
+  // Backend warnings (e.g. partial data from a Thanos store, discovery truncation) from the latest
+  // run, or the latest preview when nothing has run yet. A run repeats its preview's warnings.
+  const resultWarnings = useMemo(() => {
+    const warnings = runMutation.data
+      ? [...runMutation.data.warnings, ...runMutation.data.results.flatMap((job) => job.warnings ?? [])]
+      : previewMutation.data?.warnings ?? [];
+    return [...new Set(warnings)];
+  }, [runMutation.data, previewMutation.data]);
+
   const saveMutation = useMutation({
     mutationFn: () => {
       const payload = {
@@ -290,6 +300,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     );
   }
 
+  const requestError = previewMutation.error ?? runMutation.error ?? saveMutation.error ?? scopeQuery.error;
+
   return (
     <Paper id="autonomous-configure" variant="outlined" sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={2} sx={{ mb: 2 }}>
@@ -317,9 +329,19 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
         </Stack>
       </Stack>
 
-      {(previewMutation.error || runMutation.error || saveMutation.error || scopeQuery.error) ? <Alert severity="error" sx={{ mb: 2 }}>Autonomous request failed. Check Prometheus configuration and backend logs.</Alert> : null}
+      {requestError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Autonomous request failed{requestError.message ? `: ${requestError.message}` : '. Check Prometheus configuration and backend logs.'}
+        </Alert>
+      ) : null}
       {runMutation.data ? <Alert severity="success" sx={{ mb: 2 }}>Run {runMutation.data.status}: {runMutation.data.executed_jobs} executed, {runMutation.data.failed_jobs} failed.</Alert> : null}
       {previewMutation.data ? <Alert severity="info" sx={{ mb: 2 }}>Preview found {previewMutation.data.metrics_discovered} metrics and planned {previewMutation.data.planned_jobs} jobs.</Alert> : null}
+      {resultWarnings.length ? (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {resultWarnings.slice(0, MAX_SHOWN_WARNINGS).map((warning) => <div key={warning}>{warning}</div>)}
+          {resultWarnings.length > MAX_SHOWN_WARNINGS ? <div>+{resultWarnings.length - MAX_SHOWN_WARNINGS} more warnings</div> : null}
+        </Alert>
+      ) : null}
       {saveMutation.isSuccess ? <Alert severity="success" sx={{ mb: 2 }}>{scheduleMode === 'scheduled' ? 'Scheduled - this policy will now run automatically.' : 'Saved.'}</Alert> : null}
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1.4fr 1fr' }, gap: 2 }}>
