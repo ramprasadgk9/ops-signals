@@ -6,6 +6,7 @@ from uuid import UUID
 
 import yaml
 
+from backend.app.ai.config import apply_ai_env_overrides
 from backend.app.ai.factory import build_optional_ai_services
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
@@ -41,15 +42,7 @@ def load_ai_config() -> AIConfig | None:
         with open("config.yaml") as f:
             config_data = yaml.safe_load(f)
             ai_config = AIConfig(**config_data["ai"]) if config_data and "ai" in config_data else AIConfig()
-            if os.getenv("OPS_SIGNALS_AI_ENABLED"):
-                ai_config.enabled = os.environ["OPS_SIGNALS_AI_ENABLED"].strip().lower() in {"1", "true", "yes", "on"}
-            if os.getenv("OPS_SIGNALS_AI_PROVIDER"):
-                ai_config.provider = os.environ["OPS_SIGNALS_AI_PROVIDER"]
-            if os.getenv("OPS_SIGNALS_OLLAMA_URL"):
-                ai_config.ollama.base_url = os.environ["OPS_SIGNALS_OLLAMA_URL"]
-            if os.getenv("OPS_SIGNALS_OLLAMA_MODEL"):
-                ai_config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
-            return ai_config
+            return apply_ai_env_overrides(ai_config)
     except Exception:
         return None
     return None

@@ -185,6 +185,43 @@ Any Ollama chat-capable model works - there's no dependency on a specific one, a
 safety net above means a smaller/weaker model degrades in quality of prose, not correctness of
 what evidence gets found.
 
+## Other AI Providers
+
+AI stays off unless you turn it on (`OPS_SIGNALS_AI_ENABLED=1`). Besides Ollama, the backend can
+use any OpenAI-compatible endpoint or Anthropic. Set the provider with `OPS_SIGNALS_AI_PROVIDER`
+or `ai.provider` in `config.yaml`:
+
+| Provider | Covers | Settings |
+| --- | --- | --- |
+| `ollama` | Local Ollama | `OPS_SIGNALS_OLLAMA_URL`, `OPS_SIGNALS_OLLAMA_MODEL` |
+| `openai_compatible` | vLLM, Azure OpenAI, Bedrock gateways, LiteLLM, OpenAI | `OPS_SIGNALS_OPENAI_BASE_URL` (the API root, e.g. `http://vllm:8000/v1`), `OPS_SIGNALS_OPENAI_MODEL`, `OPS_SIGNALS_OPENAI_API_KEY`, `OPS_SIGNALS_OPENAI_API_KEY_HEADER` |
+| `anthropic` | Claude | `OPS_SIGNALS_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`), `OPS_SIGNALS_ANTHROPIC_MODEL` (default `claude-opus-5`) |
+
+Examples:
+
+```bash
+OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=openai_compatible OPS_SIGNALS_OPENAI_BASE_URL=http://vllm:8000/v1 OPS_SIGNALS_OPENAI_MODEL=Qwen/Qwen2.5-7B-Instruct
+
+OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=openai_compatible OPS_SIGNALS_OPENAI_BASE_URL=https://my-resource.openai.azure.com/openai/v1 OPS_SIGNALS_OPENAI_MODEL=my-deployment OPS_SIGNALS_OPENAI_API_KEY_HEADER=api-key OPS_SIGNALS_OPENAI_API_KEY=...
+
+OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=anthropic OPS_SIGNALS_ANTHROPIC_API_KEY=...
+```
+
+Notes:
+
+- **Azure OpenAI** uses the v1 API (`.../openai/v1`). The model is your deployment name, and the
+  key goes in the `api-key` header.
+- **JSON mode.** When a feature asks for JSON, the OpenAI-compatible client sends
+  `response_format: {"type": "json_object"}`. If your server rejects that, set
+  `ai.openai_compatible.json_mode: false`; the prompt still asks for JSON.
+- **Anthropic** takes no `temperature` (current Claude models reject it). Set
+  `ai.anthropic.effort` (`low` to `max`) to trade answer depth for cost and speed.
+- **Data leaves your network** with hosted providers: questions and the evidence quoted in them are
+  sent to that provider. Ollama and self-hosted vLLM keep everything local.
+
+If a provider is misconfigured (no model, or the `anthropic` package missing), the backend logs a
+warning and runs without an LLM, the same as when AI is off.
+
 ## First-Screen Examples
 
 "What can I ask?" splits its example questions in two. **About Ops Signals** is a fixed list answered

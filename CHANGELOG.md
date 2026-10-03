@@ -2,6 +2,12 @@
 
 ## 0.3.0 - Unreleased
 
+- AI provider choice. Besides Ollama, the optional AI layer can now use any OpenAI-compatible
+  endpoint (`OPS_SIGNALS_AI_PROVIDER=openai_compatible`: vLLM, Azure OpenAI, Bedrock gateways,
+  LiteLLM) or Anthropic (`anthropic`, default model `claude-opus-5`). AI is still off by default and
+  everything works without it; a misconfigured provider logs a warning and falls back to no LLM.
+  Adds the `anthropic` package as a dependency. See
+  [`docs/ask-ops-signals-assistant.md`](docs/ask-ops-signals-assistant.md#other-ai-providers).
 - Prometheus-compatible backends (Thanos, Mimir, VictoriaMetrics, Grafana Cloud) work more reliably
   ([#67](https://github.com/ramprasadgk9/ops-signals/issues/67)). Autonomous discovery now asks
   only for series seen in the policy's analysis window instead of all history, so long-retention
