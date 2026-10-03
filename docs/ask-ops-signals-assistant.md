@@ -222,6 +222,12 @@ Notes:
 If a provider is misconfigured (no model, or the `anthropic` package missing), the backend logs a
 warning and runs without an LLM, the same as when AI is off.
 
+To check what's active, open **Integrations → AI provider**. It shows whether AI is in use, the
+provider, model and endpoint (never the key), and why AI isn't in use when it's configured but not
+running. **Test connection** sends one short request and shows the reply or the provider's error.
+The same data is at `GET /api/ai/status` and `POST /api/ai/test`. The card is read-only; change the
+provider in `config.yaml` or the environment and restart the backend.
+
 ## First-Screen Examples
 
 "What can I ask?" splits its example questions in two. **About Ops Signals** is a fixed list answered

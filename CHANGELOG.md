@@ -6,7 +6,9 @@
   endpoint (`OPS_SIGNALS_AI_PROVIDER=openai_compatible`: vLLM, Azure OpenAI, Bedrock gateways,
   LiteLLM) or Anthropic (`anthropic`, default model `claude-opus-5`). AI is still off by default and
   everything works without it; a misconfigured provider logs a warning and falls back to no LLM.
-  Adds the `anthropic` package as a dependency. See
+  Adds the `anthropic` package as a dependency. **Integrations → AI provider** shows whether AI is
+  in use, which provider and model, why not when it's configured but not running, and a **Test
+  connection** button (`GET /api/ai/status`, `POST /api/ai/test`). See
   [`docs/ask-ops-signals-assistant.md`](docs/ask-ops-signals-assistant.md#other-ai-providers).
 - Prometheus-compatible backends (Thanos, Mimir, VictoriaMetrics, Grafana Cloud) work more reliably
   ([#67](https://github.com/ramprasadgk9/ops-signals/issues/67)). Autonomous discovery now asks
