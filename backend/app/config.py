@@ -7,6 +7,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
+from backend.app.ai.config import AIConfig, OllamaConfig as OllamaAIConfig  # noqa: F401  re-exported
+
 from intelligence.storage.database_url import database_url_from_env
 
 _PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
@@ -62,22 +64,6 @@ class EmbeddingConfig(BaseModel):
         if v <= 0:
             raise ValueError("dimension must be positive")
         return v
-
-
-class OllamaAIConfig(BaseModel):
-    base_url: str = "http://localhost:11434"
-    model: str = "qwen2.5:3b"
-    timeout_seconds: float = 30.0
-
-
-class AIConfig(BaseModel):
-    enabled: bool = False
-    provider: str = "noop"
-    temperature: float = 0.0
-    max_tokens: int | None = None
-    timeout_seconds: float = 30.0
-    retry_on_invalid_output: bool = True
-    ollama: OllamaAIConfig = Field(default_factory=OllamaAIConfig)
 
 
 class IndexingConfig(BaseModel):

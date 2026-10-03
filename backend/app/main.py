@@ -53,6 +53,7 @@ from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.notifications.slack_client import SlackNotifier
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
+from backend.app.ai.config import apply_ai_env_overrides
 from backend.app.ai.factory import build_optional_ai_services
 from backend.app.memory.qdrant_initializer import QdrantInitializer
 from backend.app.memory.similarity_service import SimilarityService
@@ -95,15 +96,7 @@ def load_ai_config() -> AIConfig | None:
         with open("config.yaml") as f:
             config_data = yaml.safe_load(f)
             ai_config = AIConfig(**config_data["ai"]) if config_data and "ai" in config_data else AIConfig()
-            if os.getenv("OPS_SIGNALS_AI_ENABLED"):
-                ai_config.enabled = os.environ["OPS_SIGNALS_AI_ENABLED"].strip().lower() in {"1", "true", "yes", "on"}
-            if os.getenv("OPS_SIGNALS_AI_PROVIDER"):
-                ai_config.provider = os.environ["OPS_SIGNALS_AI_PROVIDER"]
-            if os.getenv("OPS_SIGNALS_OLLAMA_URL"):
-                ai_config.ollama.base_url = os.environ["OPS_SIGNALS_OLLAMA_URL"]
-            if os.getenv("OPS_SIGNALS_OLLAMA_MODEL"):
-                ai_config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
-            return ai_config
+            return apply_ai_env_overrides(ai_config)
     except Exception as e:
         logger.warning(f"Failed to load AI configuration: {e}")
     return None
