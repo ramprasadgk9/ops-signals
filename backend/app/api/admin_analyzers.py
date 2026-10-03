@@ -166,7 +166,37 @@ def _ui_to_registry(data: AnalyzerConfigIn) -> dict[str, Any]:
     }
 
 
+def http_spec_from_runtime_params(runtime_params: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The registry http: block for a wizard config on the "hosted API or model" path
+    (runtime_params.external_runtime.type == "external_http"), or None for every other path.
+    Only settings that describe the service are copied; API keys are referenced by environment
+    variable name (api_key_env) so the key itself is never written to a file."""
+    runtime = (runtime_params or {}).get("external_runtime")
+    if not isinstance(runtime, dict) or runtime.get("type") != "external_http":
+        return None
+    spec: dict[str, Any] = {"analyze_url": str(runtime.get("analyze_url") or "").strip()}
+    for key in ("health_check_url", "api_key_env"):
+        value = str(runtime.get(key) or "").strip()
+        if value:
+            spec[key] = value
+    if runtime.get("timeout_seconds"):
+        spec["timeout_seconds"] = float(runtime["timeout_seconds"])
+    return spec
+
+
+def _validate_http_spec(spec: dict[str, Any]) -> None:
+    if not spec["analyze_url"]:
+        raise HTTPException(status_code=422, detail="Analyze URL is required for an External API / Model analyzer.")
+    for key, label in (("analyze_url", "Analyze URL"), ("health_check_url", "Health Check URL")):
+        url = spec.get(key)
+        if url and not url.lower().startswith(("http://", "https://")):
+            raise HTTPException(status_code=422, detail=f"{label} must start with http:// or https://.")
+
+
 def _validate_analyzer(data: AnalyzerConfigIn) -> None:
+    http_spec = http_spec_from_runtime_params(data.runtime_params)
+    if http_spec is not None:
+        _validate_http_spec(http_spec)
     if not data.supported_profiles:
         raise HTTPException(status_code=422, detail="At least one supported profile is required.")
     if not data.scoring_rules:
@@ -194,6 +224,7 @@ def _new_registration_to_ui(registration: AnalyzerRegistration) -> AnalyzerConfi
     show up together in this list instead of a newly-promoted analyzer silently not appearing
     here even though it's genuinely live."""
     adapter_exists = (CUSTOM_ANALYZER_ADAPTER_DIR / f"{registration.analyzer_id}.py").exists()
+    is_http = registration.http is not None
     module, _, class_name = (registration.class_path or "").rpartition(".")
     return AnalyzerConfigOut(
         analyzer_id=registration.analyzer_id,
@@ -215,8 +246,8 @@ def _new_registration_to_ui(registration: AnalyzerRegistration) -> AnalyzerConfi
         excluded_explanation=str(registration.router.explanation_templates.get("excluded", "")),
         source="custom",
         routable=True,
-        executable=adapter_exists,
-        implementation_status="verified" if adapter_exists else "pending",
+        executable=adapter_exists or is_http,
+        implementation_status="http" if is_http else "verified" if adapter_exists else "pending",
         implementation_module=module or None,
         implementation_class_name=class_name or None,
     )

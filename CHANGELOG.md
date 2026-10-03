@@ -2,6 +2,15 @@
 
 ## 0.3.0 - Unreleased
 
+- HTTP analyzers. An analyzer can now be your own web service: Ops Signals POSTs each metric window
+  to it and shows the findings it returns next to the built-in analyzers'. Add one with **Add
+  Analyzer → I have a hosted API or model** (no longer "coming soon") or an `http:` block in
+  `config/analyzer_registry.d/`. Execution Test calls the health check and the service. If the
+  service is down or slow, that run lists the analyzer as failed and the other analyzers still run.
+  API keys are read from an environment variable named in `api_key_env`. Built-in analyzers and
+  Python custom analyzers are unchanged, and nothing is called unless you register a service. See
+  [`docs/http-analyzer-contract.md`](docs/http-analyzer-contract.md), with a runnable example in
+  `examples/http_analyzer/service.py`.
 - AI provider choice. Besides Ollama, the optional AI layer can now use any OpenAI-compatible
   endpoint (`OPS_SIGNALS_AI_PROVIDER=openai_compatible`: vLLM, Azure OpenAI, Bedrock gateways,
   LiteLLM) or Anthropic (`anthropic`, default model `claude-opus-5`). AI is still off by default and

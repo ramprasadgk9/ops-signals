@@ -38,12 +38,15 @@ class AnalyzerRegistrationError(ValueError):
 @dataclass(slots=True)
 class HttpAnalyzerSpec:
     """Declares an analyzer implemented as an external HTTP service rather than a Python class.
-    Not yet wired into instantiate() - see Phase 2 of the analyzer extensibility plan."""
+    instantiate() turns it into an HttpAnalyzer (intelligence/analyzers/http_analyzer.py); the
+    request and reply format is in docs/http-analyzer-contract.md. Prefer api_key_env (the name of
+    an environment variable holding the key) over api_key, so the key stays out of the YAML."""
 
     analyze_url: str
     health_check_url: str | None = None
     timeout_seconds: float = 30.0
     api_key: str | None = None
+    api_key_env: str | None = None
 
 
 @dataclass(slots=True)
@@ -94,8 +97,13 @@ def _validate_entry(analyzer_id: str, data: dict[str, Any]) -> list[str]:
         errors.append("must declare only one of class_path or http, not both")
     if http is not None and not isinstance(http, dict):
         errors.append("http must be a mapping")
-    elif isinstance(http, dict) and not http.get("analyze_url"):
-        errors.append("http block must declare analyze_url")
+    elif isinstance(http, dict):
+        if not http.get("analyze_url"):
+            errors.append("http block must declare analyze_url")
+        for url_key in ("analyze_url", "health_check_url"):
+            url = http.get(url_key)
+            if url and not str(url).lower().startswith(("http://", "https://")):
+                errors.append(f"http {url_key} must start with http:// or https://")
 
     router = data.get("router") or {}
     if not isinstance(router, dict):
@@ -131,6 +139,7 @@ def _parse_entry(analyzer_id: str, data: dict[str, Any], source_file: str) -> An
                 health_check_url=http_data.get("health_check_url"),
                 timeout_seconds=float(http_data.get("timeout_seconds", 30.0)),
                 api_key=http_data.get("api_key"),
+                api_key_env=http_data.get("api_key_env"),
             )
             if http_data
             else None
@@ -214,12 +223,17 @@ def instantiate(registration: AnalyzerRegistration, overrides: dict[str, Any] | 
     single bad analyzer rather than let it take the whole pipeline run down (same per-analyzer
     isolation posture already used elsewhere in the pipeline).
 
-    HTTP-backed registrations (registration.http set) are not yet supported here - that's Phase 2
-    of the analyzer extensibility plan (HttpAnalyzerAdapter).
+    HTTP-backed registrations (registration.http set) become an HttpAnalyzer, which only calls the
+    service when analyze() runs - constructing one never touches the network.
     """
     if registration.http is not None:
-        raise AnalyzerRegistrationError(
-            f"analyzer '{registration.analyzer_id}' is HTTP-backed; HTTP analyzer execution is not implemented yet"
+        from intelligence.analyzers.http_analyzer import HttpAnalyzer
+
+        return HttpAnalyzer(
+            analyzer_id=registration.analyzer_id,
+            spec=registration.http,
+            params={**registration.runtime_params, **(overrides or {})},
+            display_name=registration.display_name,
         )
     if not registration.class_path:
         raise AnalyzerRegistrationError(f"analyzer '{registration.analyzer_id}' declares neither class_path nor http")
