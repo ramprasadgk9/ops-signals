@@ -82,7 +82,7 @@ class CommentTriageService:
         case_context: CaseTriageContext | dict[str, Any],
         author: str | None,
         comment_body: str,
-        timeout_seconds: float = 15.0,
+        timeout_seconds: float = 60.0,
     ) -> CommentTriageEvaluation | None:
         """Evaluates an external ticket comment against case context.
 
@@ -119,7 +119,7 @@ class CommentTriageService:
                 LLMMessage(role="user", content=user_content),
             ],
             temperature=0.0,
-            max_tokens=200,
+            max_tokens=1000,
             response_format="json",
             timeout_seconds=timeout_seconds,
         )
