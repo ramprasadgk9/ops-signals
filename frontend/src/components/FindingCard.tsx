@@ -62,7 +62,7 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
           <Stack sx={{ pr: 1, minWidth: 0 }}>
             <Typography variant="h6">{finding.title}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-              {finding.service ? `${finding.service} · ${finding.metric_name}` : finding.metric_name}
+              {[finding.service, finding.metric_name, finding.cluster].filter(Boolean).join(' · ')}
             </Typography>
           </Stack>
           <Chip 

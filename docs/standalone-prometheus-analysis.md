@@ -43,7 +43,12 @@ OPS_SIGNALS_PROMETHEUS_MAX_SAMPLES_PER_SERIES=10000
 OPS_SIGNALS_PROMETHEUS_MAX_TOTAL_SAMPLES=100000
 OPS_SIGNALS_PROMETHEUS_MIN_STEP_SECONDS=1
 OPS_SIGNALS_PROMETHEUS_MAX_STEP_SECONDS=86400
+OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL=cluster
+OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS=__replica__,prometheus_replica
 ```
+
+The last two matter for Mimir, Thanos and other multi-source backends - see
+[below](#mimir-thanos-and-other-multi-source-backends).
 
 Secrets are never returned to the browser. Connection profiles are environment
 based in this first release; durable stored profiles would require a separate
@@ -133,24 +138,62 @@ Thanos and VictoriaMetrics. For a Mimir tenant, pass the tenant header:
 OPS_SIGNALS_PROMETHEUS_HEADERS=X-Scope-OrgID:my-tenant
 ```
 
-Known limitations:
+### Several clusters behind one endpoint
+
+These backends often hold data from many Prometheus servers, told apart only by
+an external label such as `cluster`. Ops Signals treats series that differ by
+that label as separate series:
+
+- **Autonomous analysis** plans one job per cluster. The same service in `eu`
+  and `us` becomes two queries, each with a `cluster="…"` matcher and
+  `by (service, cluster)`, so clusters are never summed together. The Configure
+  panel shows a **Clusters** picker when Prometheus reports more than one value,
+  to analyse all clusters or only some.
+- **Findings** carry the cluster. Cards and the details drawer show it
+  (`checkout · latency_p95 · eu`), the drawer chart shows only that cluster, and
+  the Findings page has a cluster filter when findings span several clusters.
+  `GET /api/findings?cluster=eu` filters the same way.
+- **CSV uploads** with a `cluster` column are split the same way.
+- **Alerts** from one cluster never reuse a finding from another cluster.
+
+The label defaults to `cluster`. Set `OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL` if
+yours is different (e.g. `k8s_cluster`), or to `none` to turn this off. A
+policy's scope can also set its own `cluster_label`. Data without the label is
+analysed exactly as before.
+
+### HA replica pairs
+
+An HA Prometheus pair sends each series twice, differing only by a replica
+label. Ops Signals keeps one copy:
+
+- Autonomous queries wrap the series in `max without (<replica labels>) (…)`
+  before aggregating, so sums aren't doubled. This is only added when the
+  discovered series actually carry a replica label.
+- Direct analysis, previews and alert analysis drop the duplicate copies (the
+  one with the most samples is kept) and return a warning saying how many were
+  dropped. An HA pair no longer fails with "the query returned 2 series".
+
+Replica labels default to `__replica__,prometheus_replica`. Thanos setups that
+use a plain `replica` label should set
+`OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS=replica` (comma-separated; `none` turns
+it off). Deduplicating in the backend too (Mimir's HA tracker, Thanos
+`--query.replica-label`) is still a good idea.
+
+### Known limitations
 
 - **One tenant per instance.** Only one connection is supported. To analyze
   several tenants, run one Ops Signals backend per tenant.
-- **Series from different clusters are not told apart.** These backends often
-  hold data from many Prometheus servers, labelled only by an external label
-  such as `cluster`. Autonomous analysis scopes by service, namespace and
-  environment, so the same service in two clusters can be merged into one
-  series and give misleading findings. Until this is supported, narrow the
-  scope to one cluster: in the Configure panel, set **Environment label** to
-  `cluster` (or your external label) and pick a single value. For direct
-  analysis, add `cluster="…"` to the PromQL query.
-- **HA replicas are not deduplicated.** If your backend keeps both copies of an
-  HA Prometheus pair (labels such as `__replica__` or `prometheus_replica`),
-  enable deduplication in the backend (Mimir's HA tracker, Thanos
-  `--query.replica-label`) or filter to one replica.
+- **Hand-written PromQL that aggregates away the cluster** (e.g.
+  `sum by (service) (…)` in direct analysis) still adds clusters together;
+  keep `cluster` in the `by (…)` or add a `cluster="…"` matcher.
+- **Behavior findings** (cross-metric rules) look at one analysis run as a
+  whole. Autonomous runs hold one series each, so this only matters for a CSV
+  upload that mixes clusters.
 
-Planned support is tracked in the [roadmap](roadmap.md).
+To try all of this without a real Mimir, see
+[Testing Multi-Cluster Mimir Locally](testing-multicluster-locally.md).
+
+Multiple tenants with a connection picker are tracked in the [roadmap](roadmap.md).
 
 ## Troubleshooting
 

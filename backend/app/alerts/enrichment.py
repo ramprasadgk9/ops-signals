@@ -304,15 +304,21 @@ class AlertEnrichmentService:
         # Only findings analysis produced on its own count. An earlier alert's analysis isn't
         # "detected before the alert", and its data is older than this alert's.
         alert_runs = select(AlertEnrichmentEntity.analysis_run_id).where(AlertEnrichmentEntity.analysis_run_id.is_not(None))
+        conditions = [
+            FindingEntity.service == alert.service,
+            FindingEntity.metric_name == metric_key,
+            FindingEntity.health_status != "normal",
+            FindingEntity.created_at >= cutoff,
+            or_(FindingEntity.analysis_run_id.is_(None), FindingEntity.analysis_run_id.not_in(alert_runs)),
+        ]
+        # An alert from one cluster never reuses another cluster's finding for the same service.
+        cluster_label = self.prometheus_config.cluster_label
+        alert_cluster = alert.labels.get(cluster_label) if cluster_label else None
+        if alert_cluster:
+            conditions.append(or_(FindingEntity.cluster.is_(None), FindingEntity.cluster == alert_cluster))
         finding = db.execute(
             select(FindingEntity)
-            .where(
-                FindingEntity.service == alert.service,
-                FindingEntity.metric_name == metric_key,
-                FindingEntity.health_status != "normal",
-                FindingEntity.created_at >= cutoff,
-                or_(FindingEntity.analysis_run_id.is_(None), FindingEntity.analysis_run_id.not_in(alert_runs)),
-            )
+            .where(*conditions)
             .order_by(FindingEntity.importance_score.desc(), FindingEntity.created_at.desc())
             .limit(1)
         ).scalars().first()
@@ -326,6 +332,7 @@ class AlertEnrichmentService:
                     SignalEntity.analysis_run_id == finding.analysis_run_id,
                     SignalEntity.service == alert.service,
                     SignalEntity.metric_name == metric_key,
+                    *([SignalEntity.cluster == finding.cluster] if finding.cluster else []),
                 )
             ).scalars().all()
         change_point = _change_point_from_evidence([(s.analyzer_id, s.evidence_json or {}) for s in signals])
@@ -385,7 +392,8 @@ class AlertEnrichmentService:
         samples = fetched.series.samples
         service = alert.service or "unknown-service"
         normalized = _prometheus_series_to_normalized(
-            samples=samples, labels=fetched.series.labels, service=service, metric=metric_key
+            samples=samples, labels=fetched.series.labels, service=service, metric=metric_key,
+            cluster_label=self.prometheus_config.cluster_label,
         )
         app_config = build_csv_routing_config(
             provider="prometheus",

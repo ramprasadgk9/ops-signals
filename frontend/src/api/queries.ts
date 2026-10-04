@@ -198,7 +198,9 @@ export const api = {
     params.append('namespace_label', labels.namespace_label ?? 'namespace');
     params.append('environment_label', labels.environment_label ?? 'env');
     params.append('window', labels.window ?? '24h');
-    return getJson<{ services: string[]; namespaces: string[]; environments: string[] }>(`/api/autonomous/scope-options?${params.toString()}`);
+    return getJson<{ services: string[]; namespaces: string[]; environments: string[]; clusters?: string[]; cluster_label?: string | null }>(
+      `/api/autonomous/scope-options?${params.toString()}`
+    );
   },
   autonomousPreview: (payload: AutonomousPreviewRequest) =>
     postJson<AutonomousPreviewRequest, AutonomousPreviewResponse>('/api/autonomous/preview', payload),
@@ -321,8 +323,10 @@ export const api = {
       `/api/analyzer-labs/config-suggestions${analyzerId ? `?analyzer_id=${encodeURIComponent(analyzerId)}` : ''}`
     ),
   
-  timeseries: (service: string, metric: string, runId: string) =>
-    getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
+  timeseries: (service: string, metric: string, runId: string, cluster?: string | null) =>
+    getJson<TimeseriesPoint[]>(
+      `/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}${cluster ? `&cluster=${encodeURIComponent(cluster)}` : ''}`
+    ),
   runCsvUpload: (payload: FormData) => postForm<CsvRunResult>('/api/ingestion/csv-run', payload),
   runCsvValidation: (payload: FormData) => postForm<CsvValidationResult>('/api/ingestion/csv-validate', payload),
   prometheusConnections: () => getJson<PrometheusConnectionsResponse>('/api/prometheus/connections'),

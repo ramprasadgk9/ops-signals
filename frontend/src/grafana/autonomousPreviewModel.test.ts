@@ -64,6 +64,14 @@ describe('autonomous preview model', () => {
     expect(request.scope.namespaces).toEqual(['commerce']);
   });
 
+  it('defaults to all clusters and sends selected clusters when narrowed', () => {
+    expect(buildAutonomousPreviewRequest(baseForm).scope).toMatchObject({ all_clusters: true, clusters: [] });
+    expect(buildAutonomousPreviewRequest({ ...baseForm, allClusters: false, selectedClusters: ['us'] }).scope).toMatchObject({
+      all_clusters: false,
+      clusters: ['us'],
+    });
+  });
+
   it('splits custom CSV values', () => {
     expect(splitCsvList('cpu.*, memory.*,')).toEqual(['cpu.*', 'memory.*']);
   });

@@ -243,6 +243,7 @@ def _execute_plan_item(
                 "namespace": labels.get("namespace") or item.namespace,
                 "pod": labels.get("pod"),
                 "env": labels.get("env") or labels.get("environment") or item.environment,
+                "cluster": (labels.get(config.cluster_label) if config.cluster_label else None) or item.cluster,
                 "series_id": ",".join(f"{key}={value}" for key, value in sorted(labels.items())),
                 **{f"label_{key}": value for key, value in labels.items()},
             }

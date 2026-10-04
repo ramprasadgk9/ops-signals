@@ -147,6 +147,7 @@ export type Signal = {
   analyzer_id?: string;
   metric_name: string;
   service?: string;
+  cluster?: string | null;
   severity?: string;
   confidence?: number;
   importance_score: number;
@@ -161,6 +162,8 @@ export type Finding = {
   id?: number;
   service?: string;
   metric_name: string;
+  /** External cluster label (Mimir/Thanos multi-cluster); null for single-cluster data. */
+  cluster?: string | null;
   title: string;
   summary: string;
   ai_summary?: string | null;

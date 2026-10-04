@@ -66,6 +66,10 @@ class AnalysisScope(BaseModel):
     namespaces: list[str] = Field(default_factory=list)
     all_namespaces: bool = True
     namespace_label: str | None = "namespace"
+    # None = the connection's cluster label (OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL).
+    cluster_label: str | None = None
+    clusters: list[str] = Field(default_factory=list)
+    all_clusters: bool = True
     max_series_per_metric: int = Field(default=10, ge=1, le=5000)
     metadata_limit: int = Field(default=5000, ge=10, le=50000)
 
@@ -166,6 +170,7 @@ class DiscoveredMetric(BaseModel):
     service: str | None = None
     namespace: str | None = None
     environment: str | None = None
+    cluster: str | None = None
     last_seen: datetime | None = None
     source: str = "prometheus"
     estimated_series_count: int | None = None
@@ -207,6 +212,9 @@ class MetricDiscoveryResult(BaseModel):
 class ResolvedAnalysisScope(BaseModel):
     resolved_services: list[str] = Field(default_factory=list)
     resolved_namespaces: list[str] = Field(default_factory=list)
+    resolved_clusters: list[str] = Field(default_factory=list)
+    # The connection's HA replica labels; planned queries keep one copy per replica pair.
+    replica_labels: list[str] = Field(default_factory=list)
     resolved_environment: str | None = None
     discovered_metric_count: int = 0
     series_discovered: int = 0
@@ -257,6 +265,7 @@ class MetricPlanItem(BaseModel):
     service: str | None = None
     namespace: str | None = None
     environment: str | None = None
+    cluster: str | None = None
     metric_name: str
     category: MonitoringCategory | None = None
     concept: MetricConcept | None = None

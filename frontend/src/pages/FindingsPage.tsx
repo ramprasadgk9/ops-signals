@@ -88,6 +88,17 @@ export function FindingsPage() {
   if (findingsQuery.isLoading || summaryQuery.isLoading) return <LoadingSkeleton />;
 
   const findings = findingsQuery.data ?? [];
+  // Same service in several clusters (one Mimir/Thanos endpoint) gives one finding per cluster;
+  // the filter only appears when there is more than one cluster to choose from.
+  const clusters = [...new Set(findings.map((finding) => finding.cluster).filter((cluster): cluster is string => Boolean(cluster)))].sort();
+  const clusterFilter = searchParams.get('cluster');
+  const visibleFindings = clusterFilter ? findings.filter((finding) => finding.cluster === clusterFilter) : findings;
+  const setClusterFilter = (cluster: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (cluster) next.set('cluster', cluster);
+    else next.delete('cluster');
+    setSearchParams(next, { replace: true });
+  };
   const summary = summaryQuery.data;
   const categoryCounts = (summary?.category_breakdown ?? []).map((item) => ({ key: item.category, name: categoryLabel(item.category), value: item.count }));
   const trendData = (summary?.severity_trend ?? []).map((item) => ({
@@ -215,6 +226,21 @@ export function FindingsPage() {
           <Typography sx={{ fontSize: 18, fontWeight: 900 }}>Finding Records</Typography>
           <Chip label={windows.find((item) => item.id === window)?.label ?? window} />
         </Stack>
+        {clusters.length > 1 ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 2 }} aria-label="Filter by cluster">
+            <Typography variant="body2" sx={{ fontWeight: 750, color: ui.muted }}>Cluster</Typography>
+            <Chip label="All clusters" color={clusterFilter ? 'default' : 'primary'} variant={clusterFilter ? 'outlined' : 'filled'} onClick={() => setClusterFilter(null)} />
+            {clusters.map((cluster) => (
+              <Chip
+                key={cluster}
+                label={cluster}
+                color={clusterFilter === cluster ? 'primary' : 'default'}
+                variant={clusterFilter === cluster ? 'filled' : 'outlined'}
+                onClick={() => setClusterFilter(cluster)}
+              />
+            ))}
+          </Stack>
+        ) : null}
         {linkedFindingQuery.isError ? (
           <Typography role="status" color="text.secondary" sx={{ mb: 1.5 }}>
             Finding #{linkedFindingId} could not be found.
@@ -222,8 +248,8 @@ export function FindingsPage() {
         ) : null}
         {findingsQuery.error ? (
           <Typography color="error">Findings unavailable.</Typography>
-        ) : findings.length ? (
-          <TopFindingsList findings={findings} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} />
+        ) : visibleFindings.length ? (
+          <TopFindingsList findings={visibleFindings} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} />
         ) : (
           <Typography color="text.secondary">No findings returned for this window.</Typography>
         )}

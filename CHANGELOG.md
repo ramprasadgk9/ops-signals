@@ -2,6 +2,18 @@
 
 ## 0.3.0 - Unreleased
 
+- Multi-cluster Mimir and Thanos. When one endpoint holds several clusters' data, series that differ
+  only by the `cluster` label are now analysed separately instead of being added together. Autonomous
+  analysis plans one job per cluster (`by (service, cluster)` with a `cluster="…"` matcher), and the
+  Configure panel gets a **Clusters** picker when there is more than one cluster. Findings, signals
+  and stored points have a `cluster` field: cards and the details drawer show it, the Findings page
+  can filter by it, and `GET /api/findings?cluster=` filters too. An alert from one cluster never
+  reuses another cluster's finding. HA replica pairs count once: autonomous queries wrap series in
+  `max without (__replica__, prometheus_replica)`, and previews, direct analysis and alert analysis
+  keep one copy and say how many were dropped. Labels are set with
+  `OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL` and `OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS`. Data without
+  these labels is analysed exactly as before. The new `cluster` columns are added on startup. See
+  [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md#mimir-thanos-and-other-multi-source-backends).
 - HTTP analyzers. An analyzer can now be your own web service: Ops Signals POSTs each metric window
   to it and shows the findings it returns next to the built-in analyzers'. Add one with **Add
   Analyzer → I have a hosted API or model** (no longer "coming soon") or an `http:` block in

@@ -74,8 +74,8 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
   });
 
   const timeseriesQuery = useQuery({
-    queryKey: ['finding-drawer-timeseries', finding?.service, finding?.metric_name, analysisRunId],
-    queryFn: () => api.timeseries(finding!.service!, finding!.metric_name, analysisRunId!),
+    queryKey: ['finding-drawer-timeseries', finding?.service, finding?.metric_name, analysisRunId, finding?.cluster],
+    queryFn: () => api.timeseries(finding!.service!, finding!.metric_name, analysisRunId!, finding!.cluster),
     enabled: open && Boolean(finding?.service) && Boolean(analysisRunId),
   });
 
@@ -165,6 +165,11 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
           {finding.service && (
             <ListItem>
               <ListItemText primary="Service" secondary={finding.service} />
+            </ListItem>
+          )}
+          {finding.cluster && (
+            <ListItem>
+              <ListItemText primary="Cluster" secondary={finding.cluster} />
             </ListItem>
           )}
           {whatChanged && (

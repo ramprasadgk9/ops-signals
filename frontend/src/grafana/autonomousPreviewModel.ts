@@ -7,6 +7,8 @@ export type AutonomousPreviewForm = {
   selectedServices: string[];
   allNamespaces: boolean;
   selectedNamespaces: string[];
+  allClusters?: boolean;
+  selectedClusters?: string[];
   serviceLabel: string;
   namespaceLabel: string;
   environmentLabel: string;
@@ -46,6 +48,8 @@ export function buildAutonomousPreviewRequest(form: AutonomousPreviewForm): Auto
       service_label: form.serviceLabel,
       namespace_label: form.namespaceLabel,
       environment_label: form.environmentLabel,
+      clusters: form.allClusters === false ? form.selectedClusters ?? [] : [],
+      all_clusters: form.allClusters ?? true,
     },
     monitoring_selection: {
       categories: form.selectedCategories,

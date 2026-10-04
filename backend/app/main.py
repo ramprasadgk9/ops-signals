@@ -66,6 +66,7 @@ from backend.app.models.schema_compat import (
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
     ensure_case_import_schema,
+    ensure_cluster_schema,
     ensure_learning_schema,
 )
 from backend.app.security import require_api_token
@@ -226,6 +227,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_case_behavior_link_schema(get_engine())
         ensure_case_import_schema(get_engine())
         ensure_autonomous_policy_scheduling_schema(get_engine())
+        ensure_cluster_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)

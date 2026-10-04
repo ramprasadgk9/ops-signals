@@ -134,3 +134,54 @@ describe('FindingsPage category legend', () => {
     expect(screen.getByText('Short spikes or dips that don’t fit the usual pattern')).toBeInTheDocument();
   });
 });
+
+describe('FindingsPage cluster filter', () => {
+  const inCluster = (id: number, cluster: string | null): Finding => ({ ...finding, id, cluster, title: `Latency shift in ${cluster ?? 'single cluster'}` });
+
+  beforeEach(() => {
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z',
+      window: '24h',
+      active_findings: 2,
+      open_cases: 0,
+      behavior_changes: 0,
+      impacted_services: 1,
+      memory_items: 0,
+      severity_trend: [],
+      category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.signalsByRunIds).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows each cluster on its finding and filters by cluster', async () => {
+    vi.mocked(api.findings).mockResolvedValue([inCluster(1, 'eu'), inCluster(2, 'us')]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('checkout-api · latency_p95 · eu')).toBeInTheDocument();
+    expect(screen.getByText('checkout-api · latency_p95 · us')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'us' }));
+
+    await waitFor(() => expect(screen.queryByText('Latency shift in eu')).not.toBeInTheDocument());
+    expect(screen.getByText('Latency shift in us')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('cluster=us');
+
+    fireEvent.click(screen.getByRole('button', { name: 'All clusters' }));
+    expect(await screen.findByText('Latency shift in eu')).toBeInTheDocument();
+  });
+
+  it('hides the cluster filter for single-cluster data', async () => {
+    vi.mocked(api.findings).mockResolvedValue([inCluster(1, null)]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('checkout-api · latency_p95')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'All clusters' })).not.toBeInTheDocument();
+  });
+});

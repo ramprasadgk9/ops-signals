@@ -145,8 +145,10 @@ def test_scope_options_api_lists_only_values_seen_in_the_window() -> None:
     assert default.status_code == 200
     assert week.status_code == 200
     assert invalid.status_code == 422
-    assert {call["end"] - call["start"] for call in calls[:3]} == {timedelta(hours=24)}
-    assert {call["end"] - call["start"] for call in calls[3:]} == {timedelta(days=7)}
+    # services, namespaces, environments and clusters: four windowed lookups per request.
+    assert [call["label"] for call in calls[:4]] == ["service", "namespace", "env", "cluster"]
+    assert {call["end"] - call["start"] for call in calls[:4]} == {timedelta(hours=24)}
+    assert {call["end"] - call["start"] for call in calls[4:]} == {timedelta(days=7)}
 
 
 # 2. Backend error details are kept

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
@@ -168,6 +168,40 @@ describe('AutonomousMonitoringPage', () => {
 
     expect(await screen.findByRole('link', { name: 'cpu_usage' })).toBeInTheDocument();
     expect(screen.queryByText('No autonomous analysis has been completed yet.')).not.toBeInTheDocument();
+  });
+
+  it('offers a cluster picker only when Prometheus has more than one cluster', async () => {
+    renderRoute();
+    expect(await screen.findByText('Configure Autonomous Analysis')).toBeInTheDocument();
+    expect(screen.queryByLabelText('All clusters')).not.toBeInTheDocument();
+  });
+
+  it('sends the cluster scope with a preview', async () => {
+    vi.mocked(api.autonomousScopeOptions).mockResolvedValue({
+      services: ['checkout'],
+      namespaces: [],
+      environments: ['production'],
+      clusters: ['eu', 'us'],
+      cluster_label: 'cluster',
+    });
+    vi.mocked(api.autonomousPreview).mockResolvedValue({
+      scope_summary: {},
+      metrics_discovered: 0,
+      metrics_matched: 0,
+      metrics_excluded: 0,
+      planned_jobs: 0,
+      budget_limited: 0,
+      warnings: [],
+      items: [],
+    } as never);
+    renderRoute();
+
+    fireEvent.click(await screen.findByLabelText('All clusters'));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(api.autonomousPreview).toHaveBeenCalled());
+    expect(await screen.findByText(/Each cluster is analysed separately/)).toBeInTheDocument();
+    expect(vi.mocked(api.autonomousPreview).mock.calls.at(-1)?.[0].scope).toMatchObject({ all_clusters: false, clusters: [] });
   });
 
   it('shows the backend error message when a preview fails', async () => {

@@ -472,11 +472,17 @@ class PrometheusQueryService:
         step_seconds: int,
         result: list[object],
     ) -> PrometheusPreviewOut:
+        warnings: list[str] = []
+        result, dropped_replicas = _dedupe_replicas(result, self.config.replica_labels)
+        if dropped_replicas:
+            warnings.append(
+                f"Kept one copy of each HA replica pair: {dropped_replicas} duplicate series that differed only by "
+                f"{', '.join(self.config.replica_labels)} were dropped."
+            )
         if len(result) > self.config.max_series:
             raise HTTPException(status_code=400, detail=f"query returned {len(result)} series, which exceeds max_series {self.config.max_series}")
 
         series_items: list[PrometheusSeriesOut] = []
-        warnings: list[str] = []
         total_samples = 0
         for item in result:
             if not isinstance(item, dict):
@@ -562,6 +568,26 @@ def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _dedupe_replicas(result: list[object], replica_labels: list[str]) -> tuple[list[object], int]:
+    """Collapse HA copies - series identical apart from a replica label - into the copy with the
+    most samples, with the replica label removed. Returns the kept series and how many were dropped."""
+    replicas = set(replica_labels)
+    # Malformed items are left for _parse_matrix to reject.
+    if not replicas or not all(isinstance(item, dict) and isinstance(item.get("metric"), dict) for item in result):
+        return result, 0
+    if not any(replicas & item["metric"].keys() for item in result):
+        return result, 0
+    kept: dict[tuple, dict] = {}
+    for item in result:
+        labels = {key: value for key, value in item["metric"].items() if key not in replicas}
+        identity = tuple(sorted((str(key), str(value)) for key, value in labels.items()))
+        candidate = {**item, "metric": labels}
+        current = kept.get(identity)
+        if current is None or len(candidate.get("values") or []) > len(current.get("values") or []):
+            kept[identity] = candidate
+    return list(kept.values()), len(result) - len(kept)
+
+
 def _http_error_detail(exc: HTTPError) -> str:
     """Keep the backend's own explanation (e.g. a Mimir or Thanos series limit) instead of only the status code."""
     detail = f"Prometheus HTTP error: {exc.code}"
@@ -637,6 +663,7 @@ def _prometheus_series_to_normalized(
     labels: dict[str, str],
     service: str,
     metric: str,
+    cluster_label: str | None = "cluster",
 ) -> pd.DataFrame:
     rows = []
     metric_name = labels.get("__name__") or metric
@@ -652,6 +679,7 @@ def _prometheus_series_to_normalized(
                 "host": labels.get("instance"),
                 "namespace": labels.get("namespace"),
                 "pod": labels.get("pod"),
+                "cluster": labels.get(cluster_label) if cluster_label else None,
                 "source": "prometheus",
                 "unit": None,
                 "metric_type": None,

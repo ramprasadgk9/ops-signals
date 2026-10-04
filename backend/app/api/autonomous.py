@@ -325,19 +325,25 @@ def autonomous_scope_options(
     service_label: str = Query(default="service"),
     namespace_label: str = Query(default="namespace"),
     environment_label: str = Query(default="env"),
+    cluster_label: str | None = Query(default=None, description="Defaults to the connection's cluster label."),
     window: str = Query(default="24h", description="Only list values seen in this recent window, e.g. 24h or 7d."),
     prometheus: PrometheusQueryService = Depends(get_prometheus_query_service),
-) -> dict[str, list[str]]:
+) -> dict[str, object]:
     try:
         window_seconds = parse_duration_seconds(window)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="window must be a duration like 24h or 7d") from exc
     end = datetime.now(timezone.utc)
     start = end - timedelta(seconds=window_seconds)
+    connection = getattr(prometheus, "config", None)
+    resolved_cluster_label = cluster_label or (connection.cluster_label if isinstance(connection, PrometheusConnectionConfig) else "cluster")
     return {
         "services": prometheus.label_values(service_label, start=start, end=end),
         "namespaces": prometheus.label_values(namespace_label, start=start, end=end),
         "environments": prometheus.label_values(environment_label, start=start, end=end),
+        # [] for single-cluster data, which hides the cluster picker in the UI.
+        "clusters": prometheus.label_values(resolved_cluster_label, start=start, end=end) if resolved_cluster_label else [],
+        "cluster_label": resolved_cluster_label,
     }
 
 

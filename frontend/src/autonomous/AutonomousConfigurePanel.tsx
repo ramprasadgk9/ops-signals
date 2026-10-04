@@ -80,6 +80,7 @@ function ScheduledPolicyCard({ policy, onEdit, onPause, onResume, onViewOverview
   const scopeLabel = [
     policy.scope.all_services ? 'all services' : `${policy.scope.services.length} service(s)`,
     policy.scope.all_namespaces ? 'all namespaces' : `${policy.scope.namespaces.length} namespace(s)`,
+    ...(policy.scope.all_clusters === false ? [`${policy.scope.clusters?.length ?? 0} cluster(s)`] : []),
   ].join(' · ');
 
   return (
@@ -141,6 +142,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
   const [allNamespaces, setAllNamespaces] = useState(true);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
+  const [allClusters, setAllClusters] = useState(true);
+  const [selectedClusters, setSelectedClusters] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<MonitoringCategory[]>(['performance', 'capacity', 'availability']);
   const [analysisWindow, setAnalysisWindow] = useState('24h');
   const [executionInterval, setExecutionInterval] = useState('1m');
@@ -162,6 +165,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     setSelectedServices(policy.scope.services);
     setAllNamespaces(policy.scope.all_namespaces);
     setSelectedNamespaces(policy.scope.namespaces);
+    setAllClusters(policy.scope.all_clusters ?? true);
+    setSelectedClusters(policy.scope.clusters ?? []);
     setSelectedCategories(policy.monitoring_selection.categories);
     setCustomExplicitMetrics((policy.monitoring_selection.custom_constraints?.explicit_metrics ?? []).join(','));
     setCustomIncludePatterns((policy.monitoring_selection.custom_constraints?.include_patterns ?? []).join(','));
@@ -193,6 +198,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     selectedServices,
     allNamespaces,
     selectedNamespaces,
+    allClusters,
+    selectedClusters,
     serviceLabel,
     namespaceLabel,
     environmentLabel,
@@ -204,7 +211,7 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     customExplicitMetrics,
     customIncludePatterns,
     customExcludePatterns,
-  }), [environment, allServices, selectedServices, allNamespaces, selectedNamespaces, serviceLabel, namespaceLabel, environmentLabel, selectedCategories, executionInterval, analysisWindow, maxMetricsPerRun, maxParallelJobs, customExplicitMetrics, customIncludePatterns, customExcludePatterns]);
+  }), [environment, allServices, selectedServices, allNamespaces, selectedNamespaces, allClusters, selectedClusters, serviceLabel, namespaceLabel, environmentLabel, selectedCategories, executionInterval, analysisWindow, maxMetricsPerRun, maxParallelJobs, customExplicitMetrics, customIncludePatterns, customExcludePatterns]);
 
   const previewMutation = useMutation({
     mutationFn: () => api.autonomousPreview(request),
@@ -363,6 +370,23 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
           <TextField select size="small" label="Namespaces" SelectProps={{ multiple: true }} disabled={allNamespaces} value={selectedNamespaces} onChange={(e) => setSelectedNamespaces(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value as string[])}>
             {(scopeQuery.data?.namespaces ?? []).map((namespace) => <MenuItem key={namespace} value={namespace}>{namespace}</MenuItem>)}
           </TextField>
+          {(scopeQuery.data?.clusters ?? []).length > 1 || !allClusters ? (
+            <>
+              <FormControlLabel control={<Checkbox checked={allClusters} onChange={(e) => setAllClusters(e.target.checked)} />} label="All clusters" />
+              <TextField
+                select
+                size="small"
+                label="Clusters"
+                helperText={`Each cluster is analysed separately (label "${scopeQuery.data?.cluster_label ?? 'cluster'}").`}
+                SelectProps={{ multiple: true }}
+                disabled={allClusters}
+                value={selectedClusters}
+                onChange={(e) => setSelectedClusters(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value as string[])}
+              >
+                {(scopeQuery.data?.clusters ?? []).map((cluster) => <MenuItem key={cluster} value={cluster}>{cluster}</MenuItem>)}
+              </TextField>
+            </>
+          ) : null}
         </Stack>
 
         <Stack gap={1.2}>

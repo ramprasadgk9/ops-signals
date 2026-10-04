@@ -113,6 +113,7 @@ def run_direct_prometheus_analysis(
         labels=labels,
         service=payload.service,
         metric=payload.metric,
+        cluster_label=config.cluster_label,
     )
 
     try:

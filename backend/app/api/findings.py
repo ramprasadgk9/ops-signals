@@ -36,6 +36,7 @@ def _to_finding_out(finding: FindingEntity, changes: dict | None = None) -> Find
         id=finding.id,
         service=finding.service,
         metric_name=finding.metric_name,
+        cluster=finding.cluster,
         title=finding.title,
         summary=finding.summary,
         ai_summary=finding.ai_summary,
@@ -95,6 +96,7 @@ def _ensure_ai_summary(finding: FindingEntity, db: Session, assistant: Operation
 def list_findings(
     service: str | None = None,
     metric_name: str | None = None,
+    cluster: str | None = None,
     health_status: str | None = None,
     category: str | None = None,
     analysis_run_id: str | None = Query(default=None),
@@ -107,6 +109,8 @@ def list_findings(
         query = query.where(FindingEntity.service == service)
     if metric_name:
         query = query.where(FindingEntity.metric_name == metric_name)
+    if cluster:
+        query = query.where(FindingEntity.cluster == cluster)
     if health_status:
         query = query.where(FindingEntity.health_status == health_status)
     if category:
@@ -124,6 +128,7 @@ def search_findings(
     q: str | None = Query(default=None, description="Optional text search across title, summary, service, metric, and category."),
     service: str | None = None,
     metric_name: str | None = None,
+    cluster: str | None = None,
     health_status: str | None = None,
     category: str | None = None,
     analysis_run_id: str | None = Query(default=None),
@@ -137,6 +142,8 @@ def search_findings(
         query = query.where(FindingEntity.service == service)
     if metric_name:
         query = query.where(FindingEntity.metric_name == metric_name)
+    if cluster:
+        query = query.where(FindingEntity.cluster == cluster)
     if health_status:
         query = query.where(FindingEntity.health_status == health_status)
     if category:

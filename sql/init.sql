@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS ops_operational_findings (
 ALTER TABLE IF EXISTS ops_operational_findings
     ADD COLUMN IF NOT EXISTS analysis_run_id TEXT;
 
+-- External cluster label (Mimir/Thanos multi-cluster); NULL for single-cluster data.
+ALTER TABLE IF EXISTS ops_normalized_timeseries_points
+    ADD COLUMN IF NOT EXISTS cluster TEXT;
+
+ALTER TABLE IF EXISTS ops_operational_signals
+    ADD COLUMN IF NOT EXISTS cluster TEXT;
+
+ALTER TABLE IF EXISTS ops_operational_findings
+    ADD COLUMN IF NOT EXISTS cluster TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_ops_finding_metric
     ON ops_operational_findings (metric_name, created_at);
 

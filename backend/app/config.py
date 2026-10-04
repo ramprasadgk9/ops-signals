@@ -123,6 +123,16 @@ class PrometheusConnectionConfig(BaseModel):
     max_total_samples: int = 100000
     min_step_seconds: int = 1
     max_step_seconds: int = 86400
+    # One Mimir/Thanos endpoint can hold several clusters' data, told apart only by an external
+    # label. Series that differ by this label are analysed separately. None turns it off.
+    cluster_label: str | None = "cluster"
+    # HA pairs send the same series twice, differing only by one of these labels; one copy is kept.
+    replica_labels: list[str] = Field(default_factory=lambda: ["__replica__", "prometheus_replica"])
+
+    @field_validator("cluster_label")
+    @classmethod
+    def cluster_label_not_blank(cls, value: str | None) -> str | None:
+        return value.strip() if value and value.strip() else None
 
     @field_validator("base_url")
     @classmethod
@@ -265,7 +275,21 @@ def get_prometheus_config() -> PrometheusConnectionConfig:
         max_total_samples=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_TOTAL_SAMPLES", "100000")),
         min_step_seconds=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MIN_STEP_SECONDS", "1")),
         max_step_seconds=int(os.getenv("OPS_SIGNALS_PROMETHEUS_MAX_STEP_SECONDS", "86400")),
+        cluster_label=_cluster_label_from_env(),
+        **_replica_labels_from_env(),
     )
+
+
+def _cluster_label_from_env() -> str | None:
+    value = _env("OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL")
+    if value is None:
+        return "cluster"
+    return None if value.strip().lower() == "none" else value
+
+
+def _replica_labels_from_env() -> dict[str, list[str]]:
+    labels = _parse_list(_env("OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS"))
+    return {} if labels is None else {"replica_labels": labels}
 
 
 def get_slack_config() -> SlackConfig:

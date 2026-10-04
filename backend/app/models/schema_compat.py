@@ -58,6 +58,23 @@ def ensure_ai_narrative_schema(engine: Engine) -> None:
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
 
 
+_CLUSTER_TABLES = ("ops_normalized_timeseries_points", "ops_operational_signals", "ops_operational_findings")
+
+
+def ensure_cluster_schema(engine: Engine) -> None:
+    """Adds the nullable `cluster` column (the external label that tells apart the same series from
+    different clusters behind one Mimir/Thanos endpoint) to points, signals and findings."""
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    for table_name in _CLUSTER_TABLES:
+        if table_name not in existing_tables:
+            continue
+        if "cluster" in {column["name"] for column in inspector.get_columns(table_name)}:
+            continue
+        with engine.begin() as connection:
+            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN cluster TEXT"))
+
+
 AUTONOMOUS_POLICY_SCHEDULING_COLUMN_SQL = {
     "schedule_minutes": "INTEGER",
     "next_run_at": "TIMESTAMPTZ",

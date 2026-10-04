@@ -168,6 +168,10 @@ export type AutonomousPreviewRequest = {
     service_label: string;
     namespace_label: string;
     environment_label: string;
+    /** Clusters behind one Mimir/Thanos endpoint; omitted = all clusters. */
+    clusters?: string[];
+    all_clusters?: boolean;
+    cluster_label?: string | null;
   };
   monitoring_selection?: {
     categories: MonitoringCategory[];
