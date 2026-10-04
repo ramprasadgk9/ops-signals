@@ -42,7 +42,7 @@ def get_ticketing_service(
         _ticketing_service = CaseTicketing(
             session_factory=lambda: get_session_local()(),
             config=effective_config,
-            ai_services_supplier=lambda: (assistant.services.ai_services if (assistant := get_assistant()) else None),
+            ai_services_supplier=lambda: (assistant.ai_services if (assistant := get_assistant()) else None),
         )
     return _ticketing_service
 
@@ -228,7 +228,7 @@ def triage_case_ticket_comments(
     """Evaluates unpromoted external ticket comments against case telemetry using AI,
     automatically promoting high-confidence operational clues into case notes."""
     try:
-        ai_services = assistant.services.ai_services if assistant else None
+        ai_services = assistant.ai_services if assistant else None
         return service.triage_comments(case_id, ai_services=ai_services)
     except TicketNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

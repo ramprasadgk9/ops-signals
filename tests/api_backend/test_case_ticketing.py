@@ -595,6 +595,39 @@ def test_get_external_comments_no_starvation():
     assert "Comment content 11" in comments[1]
 
 
+def test_get_external_comments_for_analysis_no_starvation_over_50_promoted():
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        events = []
+        # 60 comments: 0-4 are unpromoted (older), 5-59 are promoted (newer)
+        for i in range(60):
+            is_promoted = i >= 5
+            ev = CaseTicketEventEntity(
+                case_id=case_id,
+                provider="jira",
+                remote_event_id=f"comm_deep_starv_{i}",
+                event_type="comment_added",
+                occurred_at=now + timedelta(minutes=i),
+                created_at=now + timedelta(minutes=i),
+                author=f"Author {i}",
+                summary=f"Comment content {i}",
+                payload={"promoted_at": now.isoformat()} if is_promoted else {},
+            )
+            events.append(ev)
+        db.add_all(events)
+        db.commit()
+
+    service = CaseTicketing(session_factory=lambda: get_session_local()(), config=TicketingConfig())
+
+    comments = service.get_external_comments_for_analysis(case_id, limit=5, unpromoted_only=True)
+    # Even though the 55 most recent comments were promoted, the 5 unpromoted ones are not starved
+    assert len(comments) == 5
+    assert "Comment content 0" in comments[0]
+    assert "Comment content 4" in comments[-1]
+
+
 def test_promote_comment_api_endpoint(client):
     session_local = get_session_local()
     now = datetime.now(timezone.utc)
@@ -734,10 +767,34 @@ def test_triage_comments_promotes_relevant_clues():
     assert ev_map["triage_ev_2"].promoted_to_note is False
     assert ev_map["triage_ev_2"].auto_promoted is False
 
-    # Second triage run skips already promoted comment
+    # Second triage run skips already triaged and promoted comments (no re-evaluation token burn)
     result2 = service.triage_comments(case_id)
-    assert result2.evaluated_count == 1  # Only ev2 is unpromoted
+    assert result2.evaluated_count == 0  # Both ev1 (promoted) and ev2 (triaged noise) skipped
     assert result2.promoted_count == 0
+
+    # Add a third new comment
+    with session_local() as db:
+        ev3 = CaseTicketEventEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_event_id="triage_ev_3",
+            event_type="comment_added",
+            occurred_at=now,
+            created_at=now,
+            author="Dev",
+            summary="New unpromoted clue",
+        )
+        db.add(ev3)
+        db.commit()
+
+    result3 = service.triage_comments(case_id)
+    assert result3.evaluated_count == 1  # Only new ev3 is evaluated
+    assert result3.promoted_count == 0
+
+    # Manual promotion of an already-triaged noise comment still works
+    manual_res = service.promote_event_to_case_note(case_id, ev_map["triage_ev_2"].id)
+    assert manual_res.success is True
+    assert manual_res.auto_promoted is False
 
 
 def test_triage_comments_api_endpoint(client):

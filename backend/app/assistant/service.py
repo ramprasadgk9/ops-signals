@@ -53,6 +53,10 @@ class OperationalIntelligenceAssistant:
             services.ai_services.structured if services.ai_services else None
         )
 
+    @property
+    def ai_services(self) -> OptionalAIServices | None:
+        return self.services.ai_services
+
     @staticmethod
     def route_intents(message: str) -> list[str]:
         # The product's own name is not a question about signals: "How do I deploy Ops Signals?"

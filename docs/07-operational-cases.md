@@ -57,4 +57,4 @@ When an operational case is linked to an external ticketing provider (e.g., Jira
 
 ## Current State
 
-Case tracking exists in the backend models, standalone and Grafana web frontends, and operational memory pipeline.
+Case tracking exists in the backend models, standalone web frontend, and operational memory pipeline.

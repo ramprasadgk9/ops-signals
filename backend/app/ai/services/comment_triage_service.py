@@ -43,6 +43,15 @@ class CommentTriageEvaluation(BaseModel):
     )
 
 
+class CaseTriageContext(BaseModel):
+    """Pydantic schema for contextual incident telemetry used during comment triage."""
+
+    case_title: str = Field(..., description="Title of the operational incident case.")
+    service: str = Field("unknown", description="Name of the affected service.")
+    metric_name: str = Field("unknown", description="Primary telemetry metric under investigation.")
+    summary: str = Field("", description="Summary description of the triggering operational finding.")
+
+
 class CommentTriageService:
     """Evaluates external ticket comments for operational relevance using structured LLM output."""
 
@@ -70,7 +79,7 @@ class CommentTriageService:
         self,
         ai_services: OptionalAIServices | None,
         *,
-        case_context: dict[str, Any],
+        case_context: CaseTriageContext | dict[str, Any],
         author: str | None,
         comment_body: str,
         timeout_seconds: float = 15.0,
@@ -83,12 +92,22 @@ class CommentTriageService:
         if not ai_services or not comment_body.strip():
             return None
 
+        if isinstance(case_context, dict):
+            ctx = CaseTriageContext(
+                case_title=case_context.get("case_title", "Incident"),
+                service=case_context.get("service", "Unknown"),
+                metric_name=case_context.get("metric_name", "Unknown"),
+                summary=case_context.get("summary", ""),
+            )
+        else:
+            ctx = case_context
+
         user_content = (
             f"INCIDENT CASE CONTEXT:\n"
-            f"- Title: {case_context.get('case_title', 'Incident')}\n"
-            f"- Service: {case_context.get('service', 'Unknown')}\n"
-            f"- Metric: {case_context.get('metric_name', 'Unknown')}\n"
-            f"- Finding Summary: {case_context.get('summary', '')}\n\n"
+            f"- Title: {ctx.case_title}\n"
+            f"- Service: {ctx.service}\n"
+            f"- Metric: {ctx.metric_name}\n"
+            f"- Finding Summary: {ctx.summary}\n\n"
             f"EXTERNAL TICKET COMMENT:\n"
             f"- Author: {author or 'Unknown'}\n"
             f"- Comment: {comment_body.strip()}\n"
