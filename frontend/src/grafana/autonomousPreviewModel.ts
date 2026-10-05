@@ -20,6 +20,7 @@ export type AutonomousPreviewForm = {
   customExplicitMetrics: string;
   customIncludePatterns: string;
   customExcludePatterns: string;
+  connectionId?: string;
 };
 
 export function splitCsvList(value: string) {
@@ -39,6 +40,7 @@ export function buildAutonomousPreviewRequest(form: AutonomousPreviewForm): Auto
   return {
     datasource: 'prometheus',
     backend: form.backend,
+    ...(form.connectionId ? { connection_id: form.connectionId } : {}),
     scope: {
       environment: form.environment || null,
       services: form.allServices ? [] : form.selectedServices,

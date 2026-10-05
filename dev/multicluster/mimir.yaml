@@ -19,9 +19,15 @@ blocks_storage:
     dir: /data/tsdb
   bucket_store:
     sync_dir: /data/tsdb-sync
+    # The compactor refreshes the bucket index only while its ring entry is healthy; a laptop sleep
+    # stops heartbeats, and queries then fail with err-mimir-bucket-index-too-old after the default 1h.
+    bucket_index:
+      max_stale_period: 168h
 
 compactor:
   data_dir: /data/compactor
+  # Refresh the bucket index soon after waking up, instead of the default 15m.
+  cleanup_interval: 5m
   sharding_ring:
     kvstore:
       store: memberlist

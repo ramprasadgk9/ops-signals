@@ -38,12 +38,33 @@ spec:
             - name: OPS_SIGNALS_CORS_ORIGINS
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.prometheusConnections.config }}
+            - name: OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE
+              value: /etc/ops-signals/prometheus/connections.yaml
+            {{- end }}
+          {{- with .Values.prometheusConnections.secretName }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          {{- if .Values.prometheusConnections.config }}
+          volumeMounts:
+            - name: prometheus-connections
+              mountPath: /etc/ops-signals/prometheus
+              readOnly: true
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /api/health
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
+      {{- if .Values.prometheusConnections.config }}
+      volumes:
+        - name: prometheus-connections
+          configMap:
+            name: {{ include "ops-signals.fullname" . }}-prometheus-connections
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

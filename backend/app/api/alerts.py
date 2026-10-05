@@ -18,7 +18,7 @@ from backend.app.alerts.alertmanager import from_alertmanager, from_generic
 from backend.app.alerts.auth import check_bearer_token
 from backend.app.alerts.enrichment import AlertEnrichmentService
 from backend.app.alerts.schemas import AlertmanagerWebhook, AlertReceiptOut, GenericAlertRequest, NormalizedAlert
-from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config, get_prometheus_config
+from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config, get_prometheus_connections
 from backend.app.alerts.correlation import as_utc
 from backend.app.models.db import get_db, get_session_local
 from backend.app.models.entities import AlertEnrichmentEntity, OperationalCaseEntity
@@ -35,7 +35,7 @@ def get_alert_enrichment_service() -> AlertEnrichmentService:
     if _service is None:
         _service = AlertEnrichmentService(
             get_alert_enrichment_config(),
-            get_prometheus_config(),
+            get_prometheus_connections,
             session_factory=lambda: get_session_local()(),
         )
     return _service

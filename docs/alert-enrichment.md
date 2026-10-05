@@ -178,6 +178,9 @@ Design details, decision tables and trade-offs: [`design/alert-enrichment-plan.m
                credentials: <OPS_SIGNALS_ALERT_RECEIVER_TOKEN>
    ```
 2. **Point Ops Signals at the same Prometheus** your rules run on: `OPS_SIGNALS_PROMETHEUS_URL`.
+   With several tenants, give each connection `match_labels` (e.g. `tenant: team-b`) so an alert is
+   analysed on its own tenant; alerts that match none go to the default connection. See
+   [named connections](standalone-prometheus-analysis.md#several-tenants-named-connections).
 3. **Make sure alerts carry a service label.** By default the first of `service`, `job`, `app`,
    `app_kubernetes_io_name` is used (`OPS_SIGNALS_ALERT_SERVICE_LABELS`).
 4. **Send deploy events from CI** (optional, but it's what fills "What changed"). Use the same

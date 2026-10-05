@@ -192,8 +192,9 @@ export const api = {
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),
-  autonomousScopeOptions: (labels: { service_label?: string; namespace_label?: string; environment_label?: string; window?: string } = {}) => {
+  autonomousScopeOptions: (labels: { service_label?: string; namespace_label?: string; environment_label?: string; window?: string; connection_id?: string } = {}) => {
     const params = new URLSearchParams();
+    if (labels.connection_id) params.append('connection_id', labels.connection_id);
     params.append('service_label', labels.service_label ?? 'service');
     params.append('namespace_label', labels.namespace_label ?? 'namespace');
     params.append('environment_label', labels.environment_label ?? 'env');
@@ -330,10 +331,14 @@ export const api = {
   runCsvUpload: (payload: FormData) => postForm<CsvRunResult>('/api/ingestion/csv-run', payload),
   runCsvValidation: (payload: FormData) => postForm<CsvValidationResult>('/api/ingestion/csv-validate', payload),
   prometheusConnections: () => getJson<PrometheusConnectionsResponse>('/api/prometheus/connections'),
-  prometheusLabelValues: (label: string, connectionId = 'default') =>
-    getJson<PrometheusLabelValuesResponse>(
-      `/api/prometheus/label-values?label=${encodeURIComponent(label)}&connection_id=${encodeURIComponent(connectionId)}`
-    ),
+  prometheusLabelValues: (label: string, connectionId = 'default', filter?: { match?: string[]; start?: string; end?: string }) => {
+    const params = new URLSearchParams({ label, connection_id: connectionId });
+    // Only values on series these selectors match, within the time range.
+    (filter?.match ?? []).forEach((selector) => params.append('match', selector));
+    if (filter?.start) params.append('start', filter.start);
+    if (filter?.end) params.append('end', filter.end);
+    return getJson<PrometheusLabelValuesResponse>(`/api/prometheus/label-values?${params.toString()}`);
+  },
   testPrometheusConnection: (connectionId: string) =>
     postJson<{ connection_id: string }, PrometheusConnectionTestResponse>('/api/prometheus/test-connection', { connection_id: connectionId }),
   previewPrometheus: (payload: { connection_id: string; query: string; start: string; end: string; step: string }) =>

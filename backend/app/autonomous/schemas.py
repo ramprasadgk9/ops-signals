@@ -105,6 +105,7 @@ class AutonomousAnalysisPolicy(BaseModel):
     name: str = "Preview policy"
     datasource: str = "prometheus"
     backend: str = "grafana-stack"
+    connection_id: str = "default"
     scope: AnalysisScope = Field(default_factory=AnalysisScope)
     monitoring_selection: MonitoringSelection = Field(
         default_factory=lambda: MonitoringSelection(categories=[MonitoringCategory.performance])
@@ -122,6 +123,8 @@ class AutonomousAnalysisPolicy(BaseModel):
 class AutonomousPreviewRequest(BaseModel):
     datasource: str = "prometheus"
     backend: str = "grafana-stack"
+    # Which Prometheus connection (Mimir tenant) to plan against; `default` is the default connection.
+    connection_id: str = "default"
     scope: AnalysisScope = Field(default_factory=AnalysisScope)
     monitoring_selection: MonitoringSelection | None = None
     # Backward-compatible fields used by the current plugin build.

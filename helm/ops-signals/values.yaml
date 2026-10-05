@@ -41,6 +41,27 @@ backend:
     OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
     OPS_SIGNALS_PROMETHEUS_URL: http://prometheus-server:9090
 
+# Several Prometheus connections - typically one per Mimir tenant. Empty = the single connection
+# OPS_SIGNALS_PROMETHEUS_URL above describes. See docs/standalone-prometheus-analysis.md
+# ("Several tenants: named connections") for every field.
+prometheusConnections:
+  # The connections file, as YAML. Rendered into a ConfigMap and mounted into the backend.
+  # Keep secrets out: write `bearer_token: ${MIMIR_TEAM_A_TOKEN}` and put the value in the Secret below.
+  config: {}
+  #   default: team-a
+  #   connections:
+  #     - id: team-a
+  #       name: Mimir team A
+  #       base_url: http://mimir-query-frontend.mimir:8080/prometheus
+  #       bearer_token: ${MIMIR_TEAM_A_TOKEN}
+  #       headers:
+  #         X-Scope-OrgID: team-a
+  #       match_labels:
+  #         tenant: team-a
+  # An existing Secret whose keys become environment variables of the backend, e.g. a key
+  # MIMIR_TEAM_A_TOKEN for the ${MIMIR_TEAM_A_TOKEN} reference above. Empty = none.
+  secretName: ""
+
 web:
   image:
     repository: ghcr.io/ramprasadgk9/ops-signals-web

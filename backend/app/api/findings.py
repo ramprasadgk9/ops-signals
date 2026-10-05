@@ -13,7 +13,7 @@ from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
 from backend.app.models.api_schema import FindingOut
 from backend.app.models.db import get_db
-from backend.app.models.entities import FindingEntity
+from backend.app.models.entities import AnalysisRunEntity, FindingEntity
 from backend.app.services.finding_changes import finding_changes
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
@@ -31,12 +31,13 @@ def _window_start(window: Window) -> datetime:
     return now - timedelta(hours=24)
 
 
-def _to_finding_out(finding: FindingEntity, changes: dict | None = None) -> FindingOut:
+def _to_finding_out(finding: FindingEntity, changes: dict | None = None, connection_id: str | None = None) -> FindingOut:
     return FindingOut(
         id=finding.id,
         service=finding.service,
         metric_name=finding.metric_name,
         cluster=finding.cluster,
+        connection_id=connection_id,
         title=finding.title,
         summary=finding.summary,
         ai_summary=finding.ai_summary,
@@ -54,7 +55,13 @@ def _to_finding_out(finding: FindingEntity, changes: dict | None = None) -> Find
 
 def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmentConfig) -> list[FindingOut]:
     changes = finding_changes(db, rows, config)
-    return [_to_finding_out(row, changes.get(row.id)) for row in rows]
+    run_ids = {row.analysis_run_id for row in rows if row.analysis_run_id}
+    connections = (
+        dict(db.execute(select(AnalysisRunEntity.id, AnalysisRunEntity.connection_id).where(AnalysisRunEntity.id.in_(run_ids))).all())
+        if run_ids
+        else {}
+    )
+    return [_to_finding_out(row, changes.get(row.id), connections.get(row.analysis_run_id)) for row in rows]
 
 
 def _ensure_ai_summary(finding: FindingEntity, db: Session, assistant: OperationalIntelligenceAssistant | None) -> None:

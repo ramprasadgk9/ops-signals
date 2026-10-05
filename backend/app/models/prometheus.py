@@ -11,6 +11,10 @@ class PrometheusConnectionOut(BaseModel):
     name: str
     base_url: str | None = None
     configured: bool
+    is_default: bool = False
+    match_labels: dict[str, str] = Field(default_factory=dict)
+    # The label that tells clusters apart on this connection; None when turned off.
+    cluster_label: str | None = None
 
 
 class PrometheusConnectionsOut(BaseModel):

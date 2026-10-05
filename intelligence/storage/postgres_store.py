@@ -184,6 +184,7 @@ class PostgresStore:
             Column("router_decisions_json", JSON),
             Column("executed_analyzers_json", JSON),
             Column("generated_findings_json", JSON),
+            Column("connection_id", String(64)),
             Column("created_at", TIMESTAMP(timezone=True), server_default=func.now()),
         )
 

@@ -170,6 +170,8 @@ class FindingOut(BaseModel):
     metric_name: str
     # External cluster label the finding's series came from; None for single-cluster data.
     cluster: str | None = None
+    # Prometheus connection (Mimir tenant) its run queried; None for CSV, OTLP and older runs.
+    connection_id: str | None = None
     title: str
     summary: str
     ai_summary: str | None = None

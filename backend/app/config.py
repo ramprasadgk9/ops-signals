@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator
+import yaml
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from backend.app.ai.config import AIConfig, OllamaConfig as OllamaAIConfig  # noqa: F401  re-exported
 
@@ -128,6 +132,8 @@ class PrometheusConnectionConfig(BaseModel):
     cluster_label: str | None = "cluster"
     # HA pairs send the same series twice, differing only by one of these labels; one copy is kept.
     replica_labels: list[str] = Field(default_factory=lambda: ["__replica__", "prometheus_replica"])
+    # Alerts carrying all of these labels are analysed on this connection (e.g. {"tenant": "team-b"}).
+    match_labels: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("cluster_label")
     @classmethod
@@ -140,6 +146,52 @@ class PrometheusConnectionConfig(BaseModel):
         if value is not None and not value.strip():
             return None
         return value.rstrip("/") if value else None
+
+
+class PrometheusConnectionsError(ValueError):
+    """The connections file can't be used. Raised at startup so a typo never reaches a query."""
+
+
+class PrometheusConnections(BaseModel):
+    """Every Prometheus-compatible endpoint Ops Signals may query - typically one per Mimir tenant."""
+
+    connections: list[PrometheusConnectionConfig]
+    default_id: str
+
+    def model_post_init(self, __context: object) -> None:
+        if not self.connections:
+            raise PrometheusConnectionsError("the connections file must list at least one connection")
+        seen: set[str] = set()
+        for connection in self.connections:
+            if connection.id in seen:
+                raise PrometheusConnectionsError(f"duplicate connection id {connection.id!r}")
+            seen.add(connection.id)
+        if self.default_id not in seen:
+            raise PrometheusConnectionsError(f"default connection {self.default_id!r} is not in the connections list")
+
+    @property
+    def default(self) -> PrometheusConnectionConfig:
+        return self._by_id(self.default_id)  # type: ignore[return-value]
+
+    def get(self, connection_id: str | None) -> PrometheusConnectionConfig | None:
+        """None, and the literal id `default` when no connection is called that, mean the default
+        connection - so clients written for the single-connection API keep working."""
+        if connection_id is None:
+            return self.default
+        found = self._by_id(connection_id)
+        if found is None and connection_id == "default":
+            return self.default
+        return found
+
+    def route(self, labels: dict[str, str]) -> PrometheusConnectionConfig:
+        """The first connection whose match_labels the alert carries; otherwise the default."""
+        for connection in self.connections:
+            if connection.match_labels and all(labels.get(key) == value for key, value in connection.match_labels.items()):
+                return connection
+        return self.default
+
+    def _by_id(self, connection_id: str) -> PrometheusConnectionConfig | None:
+        return next((connection for connection in self.connections if connection.id == connection_id), None)
 
 
 class SlackConfig(BaseModel):
@@ -278,6 +330,74 @@ def get_prometheus_config() -> PrometheusConnectionConfig:
         cluster_label=_cluster_label_from_env(),
         **_replica_labels_from_env(),
     )
+
+
+def get_prometheus_connections() -> PrometheusConnections:
+    """The connections file named by OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE, or - without one - the
+    single `default` connection the OPS_SIGNALS_PROMETHEUS_* variables describe."""
+    path = _env("OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE")
+    if path is None:
+        return PrometheusConnections(connections=[get_prometheus_config()], default_id="default")
+    try:
+        stat = os.stat(path)
+    except OSError as exc:
+        raise PrometheusConnectionsError(f"cannot read Prometheus connections file {path}: {exc}") from exc
+    return _load_connections_file(path, stat.st_mtime_ns, _secret_env_snapshot())
+
+
+_SECRET_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# Only these fields may hold ${ENV} references, so secrets stay out of the file but nothing else
+# (a URL, a label) changes meaning because of the environment.
+_SECRET_FIELDS = ("bearer_token", "username", "password")
+
+
+def _secret_env_snapshot() -> tuple[tuple[str, str], ...]:
+    # Part of the cache key, so a rotated secret is picked up without a restart.
+    return tuple(sorted((key, value) for key, value in os.environ.items()))
+
+
+@lru_cache(maxsize=4)
+def _load_connections_file(path: str, _mtime_ns: int, _env_snapshot: tuple[tuple[str, str], ...]) -> PrometheusConnections:
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+        raw = json.loads(text) if path.endswith(".json") else yaml.safe_load(text)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise PrometheusConnectionsError(f"cannot parse Prometheus connections file {path}: {exc}") from exc
+    if not isinstance(raw, dict) or not isinstance(raw.get("connections"), list):
+        raise PrometheusConnectionsError(f"{path} must have a `connections:` list")
+    items = []
+    for item in raw["connections"]:
+        if not isinstance(item, dict) or not item.get("id"):
+            raise PrometheusConnectionsError(f"{path}: every connection needs an `id`")
+        item = dict(item)
+        for key in _SECRET_FIELDS:
+            if isinstance(item.get(key), str):
+                item[key] = _expand_secret(item[key], item["id"], key)
+        if isinstance(item.get("headers"), dict):
+            item["headers"] = {
+                str(name): _expand_secret(str(value), item["id"], f"headers.{name}") for name, value in item["headers"].items()
+            }
+        try:
+            items.append(PrometheusConnectionConfig(**item))
+        except ValueError as exc:
+            raise PrometheusConnectionsError(f"{path}: connection {item['id']!r} is invalid: {exc}") from exc
+    default_id = raw.get("default") or (items[0].id if items else "")
+    try:
+        return PrometheusConnections(connections=items, default_id=str(default_id))
+    except ValidationError as exc:
+        raise PrometheusConnectionsError(f"{path}: {exc.errors()[0]['msg'].removeprefix('Value error, ')}") from exc
+
+
+def _expand_secret(value: str, connection_id: str, field_name: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in os.environ:
+            raise PrometheusConnectionsError(
+                f"connection {connection_id!r} {field_name} refers to ${{{name}}}, which is not set"
+            )
+        return os.environ[name]
+
+    return _SECRET_REF.sub(replace, value)
 
 
 def _cluster_label_from_env() -> str | None:

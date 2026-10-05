@@ -3,7 +3,7 @@
 # pairs and two tenants. See docs/testing-multicluster-locally.md.
 #
 #   ./scripts/multicluster.sh up        start Mimir + 4 Prometheus "clusters", backfill 72h history
-#   ./scripts/multicluster.sh app       start Ops Signals (run_all.sh) reading from Mimir tenant team-a
+#   ./scripts/multicluster.sh app       start Ops Signals (run_all.sh) with one connection per Mimir tenant
 #   ./scripts/multicluster.sh check     verify clusters, replicas, tenants, history (and the app, if running)
 #   ./scripts/multicluster.sh status    containers and what is in Mimir
 #   ./scripts/multicluster.sh env       print the OPS_SIGNALS_* lines for pointing the backend at Mimir
@@ -18,7 +18,6 @@ COMPOSE_FILE="$ROOT_DIR/dev/multicluster/docker-compose.yml"
 MIMIR_URL="${MIMIR_URL:-http://localhost:9009}"
 QUERY_URL="$MIMIR_URL/prometheus"
 BACKEND_URL="${BACKEND_URL:-http://localhost:${BACKEND_PORT:-8001}}"
-TENANT="${TENANT:-team-a}"
 
 compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
@@ -79,10 +78,7 @@ wait_for_backfill() {
 
 print_env() {
   cat <<EOF
-OPS_SIGNALS_PROMETHEUS_URL=$QUERY_URL
-OPS_SIGNALS_PROMETHEUS_HEADERS=X-Scope-OrgID:$TENANT
-OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL=cluster
-OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS=__replica__,prometheus_replica
+OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE=$ROOT_DIR/dev/multicluster/connections.yaml
 EOF
 }
 
@@ -107,16 +103,16 @@ cmd_up() {
 }
 
 cmd_app() {
-  if [[ -f "$ROOT_DIR/.env" ]] && grep -qE '^\s*OPS_SIGNALS_PROMETHEUS_(URL|HEADERS)=' "$ROOT_DIR/.env"; then
-    say "Your .env sets OPS_SIGNALS_PROMETHEUS_URL or _HEADERS, and run_all.sh loads .env after this script,"
-    say "so it would point the app back at your usual Prometheus. Comment those lines out and run this again."
+  if [[ -f "$ROOT_DIR/.env" ]] && grep -qE '^\s*OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE=' "$ROOT_DIR/.env"; then
+    say "Your .env sets OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE, and run_all.sh loads .env after this script,"
+    say "so it would point the app at your own connections. Comment that line out and run this again."
     exit 1
   fi
   if ! curl -sf "$MIMIR_URL/ready" >/dev/null 2>&1; then
     say "Mimir is not running. Start it first: ./scripts/multicluster.sh up"
     exit 1
   fi
-  say "Starting Ops Signals against Mimir tenant $TENANT:"
+  say "Starting Ops Signals with one connection per Mimir tenant (team-a, team-b):"
   print_env | sed 's/^/  /'
   say ""
   set -a
@@ -178,7 +174,7 @@ cmd_check() {
     end="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     start="$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)"
     body="$(curl -s -X POST "$BACKEND_URL/api/prometheus/preview" -H 'Content-Type: application/json' \
-      -d "{\"connection_id\":\"default\",\"query\":\"request_latency_p95{service=\\\"checkout\\\",cluster=\\\"eu\\\"}\",\"start\":\"$start\",\"end\":\"$end\",\"step\":\"1m\"}")"
+      -d "{\"connection_id\":\"team-a\",\"query\":\"request_latency_p95{service=\\\"checkout\\\",cluster=\\\"eu\\\"}\",\"start\":\"$start\",\"end\":\"$end\",\"step\":\"1m\"}")"
     local count
     count="$(printf '%s' "$body" | json "data.get('series_count', 'error: ' + str(data.get('detail')))")"
     if [[ "$count" == "1" ]]; then
@@ -190,6 +186,16 @@ cmd_check() {
       bad "backend preview failed: $count - is the backend pointed at Mimir? (./scripts/multicluster.sh env)"
     else
       bad "backend preview returned $count series for the eu HA pair, expected 1"
+    fi
+    local staging
+    staging="$(curl -s "$BACKEND_URL/api/prometheus/label-values?label=cluster&connection_id=team-b" \
+      | json "','.join(data['values']) if 'values' in data else 'error: ' + str(data.get('detail'))")"
+    if [[ "$staging" == "staging" ]]; then
+      ok "backend connection team-b sees only cluster staging (tenants kept apart)"
+    elif [[ "$staging" == error* ]]; then
+      note "backend has no team-b connection ($staging) - start it with ./scripts/multicluster.sh app"
+    else
+      bad "backend connection team-b sees clusters '$staging', expected staging"
     fi
   fi
 

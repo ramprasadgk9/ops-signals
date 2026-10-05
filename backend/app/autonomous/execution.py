@@ -266,7 +266,8 @@ def _execute_plan_item(
             pd.DataFrame.from_records(records),
             run_metadata={
                 "trigger": "autonomous_run_once",
-                "datasource_uid": "default",
+                "datasource_uid": config.id,
+                "connection_id": config.id,
                 "datasource_name": configured_connection(config).name,
                 "promql": item.promql,
                 "from": preview.start.isoformat(),

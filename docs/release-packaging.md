@@ -72,6 +72,30 @@ Postgres:    localhost:5432
 Qdrant:      http://localhost:6333
 ```
 
+Point it at your Prometheus with `OPS_SIGNALS_PROMETHEUS_URL` in `.env` next to the compose file (or
+in the shell). From inside the backend container, a Prometheus on the same machine is
+`http://host.docker.internal:9090`:
+
+```bash
+echo 'OPS_SIGNALS_PROMETHEUS_URL=http://host.docker.internal:9090' >> .env
+docker compose -f docker-compose.packaged.yml up -d
+```
+
+### Several Mimir tenants with Docker Compose
+
+Add [`docker-compose.connections.yml`](../docker-compose.connections.yml), which mounts a
+connections file into the backend:
+
+```bash
+cp examples/prometheus-connections.yaml prometheus-connections.yaml   # edit: URLs, tenants, match_labels
+printf 'MIMIR_TEAM_A_TOKEN=...\nMIMIR_TEAM_B_TOKEN=...\n' > prometheus-connections.env
+docker compose -f docker-compose.packaged.yml -f docker-compose.connections.yml up -d
+```
+
+`prometheus-connections.env` holds the values of the `${...}` references in the file (it's optional
+when nothing needs a token). Both files are git-ignored. To keep the file elsewhere, set
+`OPS_SIGNALS_PROMETHEUS_CONNECTIONS_PATH=/path/to/connections.yaml`.
+
 ## Kubernetes Deployment
 
 The chart's defaults pull `ghcr.io/ramprasadgk9/ops-signals-{backend,web,mcp}` at the chart's
@@ -103,6 +127,44 @@ mcp:
   env:
     OPS_SIGNALS_QDRANT_URL: http://...
 ```
+
+### Several Mimir tenants with Helm
+
+Put the connections file in `prometheusConnections.config` and the tokens it references in an
+existing Secret. The chart renders the file into a ConfigMap, mounts it into the backend and sets
+`OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE`; each key of the Secret becomes an environment variable:
+
+```bash
+kubectl create secret generic mimir-tokens \
+  --from-literal=MIMIR_TEAM_A_TOKEN=... --from-literal=MIMIR_TEAM_B_TOKEN=...
+```
+
+```yaml
+prometheusConnections:
+  secretName: mimir-tokens
+  config:
+    default: team-a
+    connections:
+      - id: team-a
+        name: Mimir team A
+        base_url: http://mimir-query-frontend.mimir:8080/prometheus
+        bearer_token: ${MIMIR_TEAM_A_TOKEN}
+        headers:
+          X-Scope-OrgID: team-a
+        match_labels:
+          tenant: team-a
+      - id: team-b
+        name: Mimir team B
+        base_url: http://mimir-query-frontend.mimir:8080/prometheus
+        bearer_token: ${MIMIR_TEAM_B_TOKEN}
+        headers:
+          X-Scope-OrgID: team-b
+        match_labels:
+          tenant: team-b
+```
+
+With `prometheusConnections.config` set, `OPS_SIGNALS_PROMETHEUS_URL` is ignored. Changes to the
+ConfigMap reach the running backend without a restart (after the kubelet syncs the volume).
 
 To pin a different image version, set `backend.image.tag`, `web.image.tag` and `mcp.image.tag`.
 See [`security-model.md`](security-model.md) for the API token (`security.apiTokenSecret`).

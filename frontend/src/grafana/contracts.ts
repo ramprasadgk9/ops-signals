@@ -159,6 +159,8 @@ export type MonitoringCategory =
 export type AutonomousPreviewRequest = {
   datasource: 'prometheus';
   backend: string;
+  /** Named Prometheus connection (e.g. one Mimir tenant); omitted = the default connection. */
+  connection_id?: string;
   scope: {
     environment?: string | null;
     services: string[];
@@ -204,6 +206,7 @@ export type AutonomousPolicy = {
   name: string;
   datasource: string;
   backend: string;
+  connection_id?: string;
   scope: AutonomousPreviewRequest['scope'];
   monitoring_selection: NonNullable<AutonomousPreviewRequest['monitoring_selection']>;
   execution: AutonomousPreviewRequest['execution'];
@@ -220,6 +223,7 @@ export type AutonomousPolicySaveRequest = {
   name: string;
   datasource: string;
   backend: string;
+  connection_id?: string;
   scope: AutonomousPreviewRequest['scope'];
   monitoring_selection: NonNullable<AutonomousPreviewRequest['monitoring_selection']>;
   execution: AutonomousPreviewRequest['execution'];

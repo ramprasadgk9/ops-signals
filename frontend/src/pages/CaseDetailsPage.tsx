@@ -42,6 +42,7 @@ import { isImportedCase } from '../standalone/casesService';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+import { findingLevel } from '../utils/findingLevel';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -199,19 +200,6 @@ export function CaseDetailsPage() {
   const caseData = caseQuery.data;
   const finding = caseData?.finding_snapshot;
 
-  const getHealthColor = (status?: string): 'error' | 'warning' | 'success' | 'default' => {
-    switch (status?.toLowerCase()) {
-      case 'critical':
-        return 'error';
-      case 'significant':
-        return 'warning';
-      case 'normal':
-        return 'success';
-      default:
-        return 'default';
-    }
-  };
-
   const currentStep = useMemo(() => {
     if (!caseData) return 0;
     return stepForCase(caseData.case_status, caseData.investigation_status, caseData.root_cause_status, caseData.outcome_status);
@@ -242,7 +230,7 @@ export function CaseDetailsPage() {
     : 'unknown';
 
   const summaryCards = [
-    { label: 'Severity', value: statusLabel(finding.health_status), color: getHealthColor(finding.health_status) },
+    { label: 'Importance level', value: findingLevel(finding.health_status).label, color: findingLevel(finding.health_status).chip },
     { label: 'Importance', value: isImported ? 'n/a' : `${(finding.importance_score * 100).toFixed(0)}%` },
     { label: 'Category', value: categoryLabel },
     { label: 'Service', value: finding.service ?? 'n/a' },
@@ -393,7 +381,7 @@ export function CaseDetailsPage() {
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>
                               {item.value}
                             </Typography>
-                            {'color' in item && item.color ? <Chip size="small" color={item.color} label={statusLabel(finding.health_status)} /> : null}
+                            {'color' in item && item.color && item.color !== 'default' ? <Chip size="small" color={item.color} label={findingLevel(finding.health_status).label} /> : null}
                           </Stack>
                         </Box>
                       </Grid>

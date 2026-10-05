@@ -164,6 +164,8 @@ export type Finding = {
   metric_name: string;
   /** External cluster label (Mimir/Thanos multi-cluster); null for single-cluster data. */
   cluster?: string | null;
+  /** Prometheus connection (Mimir tenant) the finding's run queried; null for CSV/OTLP runs. */
+  connection_id?: string | null;
   title: string;
   summary: string;
   ai_summary?: string | null;
@@ -349,6 +351,10 @@ export type PrometheusConnection = {
   name: string;
   base_url?: string | null;
   configured: boolean;
+  is_default?: boolean;
+  match_labels?: Record<string, string>;
+  /** The label that tells clusters apart on this connection; null when turned off. */
+  cluster_label?: string | null;
 };
 
 export type PrometheusConnectionsResponse = {

@@ -21,8 +21,16 @@ vi.mock('../api/queries', () => ({
     autonomousScopeOptions: vi.fn().mockResolvedValue({ services: ['checkout'], namespaces: [], environments: ['production'] }),
     autonomousPreview: vi.fn(),
     autonomousRunOnce: vi.fn(),
+    prometheusConnections: vi.fn().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] }),
   },
 }));
+
+const TWO_CONNECTIONS = {
+  connections: [
+    { id: 'mimir-a', name: 'Mimir team A', configured: true, is_default: true },
+    { id: 'mimir-b', name: 'Mimir team B', configured: true, is_default: false },
+  ],
+};
 
 function renderRoute(path = '/autonomous-monitoring') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -202,6 +210,38 @@ describe('AutonomousMonitoringPage', () => {
     await waitFor(() => expect(api.autonomousPreview).toHaveBeenCalled());
     expect(await screen.findByText(/Each cluster is analysed separately/)).toBeInTheDocument();
     expect(vi.mocked(api.autonomousPreview).mock.calls.at(-1)?.[0].scope).toMatchObject({ all_clusters: false, clusters: [] });
+  });
+
+  it('offers a connection picker only when there is more than one Prometheus connection', async () => {
+    renderRoute();
+    expect(await screen.findByText('Configure Autonomous Analysis')).toBeInTheDocument();
+    await waitFor(() => expect(api.prometheusConnections).toHaveBeenCalled());
+    expect(screen.queryByLabelText('Prometheus connection')).not.toBeInTheDocument();
+  });
+
+  it('sends the chosen connection with scope lookups and a preview', async () => {
+    vi.mocked(api.prometheusConnections).mockResolvedValue(TWO_CONNECTIONS);
+    vi.mocked(api.autonomousPreview).mockResolvedValue({
+      scope_summary: {},
+      metrics_discovered: 0,
+      metrics_matched: 0,
+      metrics_excluded: 0,
+      planned_jobs: 0,
+      budget_limited: 0,
+      warnings: [],
+      items: [],
+    } as never);
+    renderRoute();
+
+    fireEvent.mouseDown(await screen.findByLabelText('Prometheus connection'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Mimir team B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(api.autonomousPreview).toHaveBeenCalled());
+    expect(vi.mocked(api.autonomousPreview).mock.calls.at(-1)?.[0].connection_id).toBe('mimir-b');
+    await waitFor(() =>
+      expect(vi.mocked(api.autonomousScopeOptions).mock.calls.some(([options]) => options?.connection_id === 'mimir-b')).toBe(true)
+    );
   });
 
   it('shows the backend error message when a preview fails', async () => {

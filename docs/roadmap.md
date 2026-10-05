@@ -15,7 +15,7 @@
 - multi-source Prometheus backends (Mimir, Thanos):
   - ~~scope analysis by cluster, and tell apart series that differ only by `cluster` or other external labels~~ (done)
   - ~~ignore HA replica labels (`__replica__`, `prometheus_replica`) so duplicated series aren't counted twice~~ (done)
-  - several connections, one per Mimir tenant, with a connection picker in the Configure panel
+  - ~~several connections, one per Mimir tenant, with a connection picker in the Configure panel~~ (done)
 
 ## Long-Term
 

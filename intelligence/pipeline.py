@@ -246,6 +246,7 @@ class SignalPipeline(RegistryAnalyzerSelection):
             "end_time": pd.to_datetime(normalized["timestamp"], utc=True, errors="coerce").max().to_pydatetime(),
             "sample_count": int(len(normalized)),
             "status": "running",
+            "connection_id": str(run_metadata["connection_id"]) if run_metadata and run_metadata.get("connection_id") else None,
             "created_at": datetime.utcnow(),
         }
         self.store.create_analysis_run(payload)

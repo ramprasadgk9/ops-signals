@@ -46,7 +46,7 @@ from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
-from backend.app.config import MemoryConfig, get_security_config, get_settings, get_slack_config
+from backend.app.config import MemoryConfig, get_prometheus_connections, get_security_config, get_settings, get_slack_config
 from backend.app.config import AIConfig
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
@@ -220,6 +220,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # A broken connections file stops startup instead of failing (or misrouting) a later query.
+        get_prometheus_connections()
         init_engine(database_url)
         Base.metadata.create_all(bind=get_engine())
         ensure_learning_schema(get_engine())

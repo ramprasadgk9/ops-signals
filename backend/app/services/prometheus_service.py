@@ -8,14 +8,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 import pandas as pd
 from fastapi import HTTPException
+from fastapi import Request as HttpRequest
 
 from backend.app.autonomous.schemas import DiscoveredMetric, MetricDiscoveryResult
-from backend.app.config import PrometheusConnectionConfig
+from backend.app.config import PrometheusConnectionConfig, get_prometheus_connections
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
 from intelligence.normalize.normalizer import CORE_COLUMNS
 
@@ -41,9 +42,36 @@ def configured_connection(config: PrometheusConnectionConfig) -> PrometheusConne
     return PrometheusConnectionProfile(
         id=config.id,
         name=config.name,
-        base_url=config.base_url,
+        base_url=display_url(config.base_url) if config.base_url else None,
         configured=bool(config.base_url),
     )
+
+
+def display_url(url: str) -> str:
+    """The URL without any user:password@ part, safe to show."""
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(netloc=parts.hostname + (f":{parts.port}" if parts.port else ""))) if parts.hostname else url
+
+
+def resolve_prometheus_connection(connection_id: str | None) -> PrometheusConnectionConfig:
+    connection = get_prometheus_connections().get(connection_id)
+    if connection is None:
+        raise HTTPException(status_code=404, detail=f"Prometheus connection {connection_id!r} not found")
+    return connection
+
+
+async def get_prometheus_connection(request: HttpRequest) -> PrometheusConnectionConfig:
+    """FastAPI dependency: the connection a request names with `connection_id` - in the query
+    string, or in the JSON body of a POST. No id means the default connection; an unknown id is a 404."""
+    connection_id = request.query_params.get("connection_id")
+    if connection_id is None and request.method in {"POST", "PUT", "PATCH"}:
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict) and isinstance(body.get("connection_id"), str):
+            connection_id = body["connection_id"]
+    return resolve_prometheus_connection(connection_id)
 
 
 def parse_step_seconds(value: str, config: PrometheusConnectionConfig) -> int:

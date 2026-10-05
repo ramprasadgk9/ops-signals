@@ -12,6 +12,7 @@ ANALYSIS_RUN_COLUMN_SQL = {
     "router_decisions_json": "JSON",
     "executed_analyzers_json": "JSON",
     "generated_findings_json": "JSON",
+    "connection_id": "VARCHAR(64)",
 }
 
 
@@ -80,6 +81,7 @@ AUTONOMOUS_POLICY_SCHEDULING_COLUMN_SQL = {
     "next_run_at": "TIMESTAMPTZ",
     "last_run_status": "VARCHAR(32)",
     "consecutive_failures": "INTEGER NOT NULL DEFAULT 0",
+    "connection_id": "VARCHAR(64) NOT NULL DEFAULT 'default'",
 }
 
 

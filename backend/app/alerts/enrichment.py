@@ -23,10 +23,16 @@ from backend.app.alerts.query_builder import QueryWindow, query_window
 from backend.app.alerts.schemas import AlertReceiptOut, NormalizedAlert
 from backend.app.alerts.timing import ALERT_TIME, STEP_ANALYZERS, StartTime, choose_start_time
 from backend.app.autonomous.drilldown import finding_breakdown
-from backend.app.config import AlertEnrichmentConfig, DrillDownConfig, PrometheusConnectionConfig, get_drilldown_config
+from backend.app.config import (
+    AlertEnrichmentConfig,
+    DrillDownConfig,
+    PrometheusConnectionConfig,
+    PrometheusConnections,
+    get_drilldown_config,
+)
 from backend.app.memory.alert_context import build_alert_context
 from backend.app.memory.schemas import AlertContextResponse
-from backend.app.models.entities import AlertEnrichmentEntity, FindingEntity, SignalEntity
+from backend.app.models.entities import AlertEnrichmentEntity, AnalysisRunEntity, FindingEntity, SignalEntity
 from backend.app.models.prometheus import PrometheusSeriesOut
 from backend.app.notifications.message_builder import build_alert_enrichment_blocks, build_alert_resolved_blocks
 from backend.app.notifications.slack_client import post_to_slack_webhook
@@ -86,14 +92,21 @@ class _AnalysisSkipped(Exception):
         self.detail = detail
 
 
+@dataclass(frozen=True)
+class _Connection:
+    config: PrometheusConnectionConfig
+    query: PrometheusQueryService
+
+
 class AlertEnrichmentService:
     def __init__(
         self,
         config: AlertEnrichmentConfig,
-        prometheus_config: PrometheusConnectionConfig,
+        prometheus: PrometheusConnectionConfig | PrometheusConnections | Callable[[], PrometheusConnections],
         session_factory: Callable[[], Session],
         *,
         query_service: PrometheusQueryService | None = None,
+        query_service_factory: Callable[[PrometheusConnectionConfig], PrometheusQueryService] | None = None,
         pipeline_runner: PipelineRunner | None = None,
         poster: Callable[[dict], None] | None = None,
         context_builder: Callable[[Session, str, str | None, str], AlertContextResponse] | None = None,
@@ -103,9 +116,17 @@ class AlertEnrichmentService:
     ) -> None:
         self.config = config
         self.drilldown_config = drilldown_config or get_drilldown_config()
-        self.prometheus_config = prometheus_config
+        # Each alert is analysed on the connection its labels match (see PrometheusConnections.route).
+        # A callable is read per alert, so edits to the connections file apply without a restart.
+        if isinstance(prometheus, PrometheusConnectionConfig):
+            prometheus = PrometheusConnections(connections=[prometheus], default_id=prometheus.id)
+        self._connections: Callable[[], PrometheusConnections] = (
+            (lambda fixed=prometheus: fixed) if isinstance(prometheus, PrometheusConnections) else prometheus
+        )
         self.session_factory = session_factory
-        self.query_service = query_service or PrometheusQueryService(prometheus_config)
+        self._fixed_query_service = query_service
+        self._query_service_factory = query_service_factory or PrometheusQueryService
+        self._query_services: dict[str, tuple[PrometheusConnectionConfig, PrometheusQueryService]] = {}
         self.pipeline_runner = pipeline_runner or _run_signal_pipeline
         self.poster = poster or self._post_to_slack
         self.context_builder = context_builder or _default_context_builder
@@ -194,7 +215,8 @@ class AlertEnrichmentService:
             alert = _alert_from_row(row)
             enrichment: dict[str, Any] = {"source": alert.source}
             try:
-                decision = classify(alert, prometheus_configured=bool(self.prometheus_config.base_url))
+                connection = self._route(alert)
+                decision = classify(alert, prometheus_configured=bool(connection.config.base_url))
                 metric_key = decision.metric_key or alert.alert_name
                 row.metric_key = metric_key
                 row.promql = decision.query or alert.expr
@@ -202,7 +224,7 @@ class AlertEnrichmentService:
                 # History first: our own analysis below writes a finding for this service+metric,
                 # which would otherwise show up in the lookup as "seen before".
                 context, context_error = self._context(db, metric_key, alert)
-                analysis = self._analysis(db, alert, decision, metric_key)
+                analysis = self._analysis(db, alert, decision, metric_key, connection)
                 timing = analysis.setdefault("timing", StartTime(ALERT_TIME).to_dict())
                 anchor = _parse_iso(timing.get("time")) or alert.starts_at
                 changes = self._changes(db, alert, anchor)
@@ -271,22 +293,34 @@ class AlertEnrichmentService:
 
     # --- analysis -------------------------------------------------------------------------------
 
-    def _analysis(self, db: Session, alert: NormalizedAlert, decision: AnalysisDecision, metric_key: str) -> dict[str, Any]:
+    def _route(self, alert: NormalizedAlert) -> _Connection:
+        config = self._connections().route(alert.labels)
+        if self._fixed_query_service is not None:
+            return _Connection(config, self._fixed_query_service)
+        cached = self._query_services.get(config.id)
+        if cached is None or cached[0] != config:
+            cached = (config, self._query_service_factory(config))
+            self._query_services[config.id] = cached
+        return _Connection(config, cached[1])
+
+    def _analysis(
+        self, db: Session, alert: NormalizedAlert, decision: AnalysisDecision, metric_key: str, connection: _Connection
+    ) -> dict[str, Any]:
         base: dict[str, Any] = {"lookback_seconds": self._lookback_seconds(alert)}
         if not decision.analyze:
             return {**base, **_skipped(decision.reason or "no_query")}
 
-        reused = self._recent_finding(db, alert, metric_key)
+        reused = self._recent_finding(db, alert, metric_key, connection.config)
         if reused is not None:
             return {**base, **reused}
 
         with self._analysis_slots:
             try:
-                fetched = self._fetch_series(alert, decision.query or "")
+                fetched = self._fetch_series(alert, decision.query or "", connection.query)
             except _AnalysisSkipped as skipped:
                 return {**base, **_skipped(skipped.reason, skipped.detail)}
             try:
-                return {**base, **self._run_pipeline(alert, decision, metric_key, fetched)}
+                return {**base, **self._run_pipeline(alert, decision, metric_key, fetched, connection)}
             except Exception as exc:
                 logger.warning("Analysis pipeline failed for alert %s: %s", alert.alert_name, exc)
                 return {**base, **_skipped("analysis_failed", str(exc), status="failed")}
@@ -295,7 +329,9 @@ class AlertEnrichmentService:
         window = query_window(self.config, alert.annotations, self.clock())
         return int((window.end - window.start).total_seconds())
 
-    def _recent_finding(self, db: Session, alert: NormalizedAlert, metric_key: str) -> dict[str, Any] | None:
+    def _recent_finding(
+        self, db: Session, alert: NormalizedAlert, metric_key: str, connection: PrometheusConnectionConfig
+    ) -> dict[str, Any] | None:
         """Reuse a finding autonomous analysis already produced for this series, instead of
         re-running the analyzers - and say how much earlier it was detected."""
         if not alert.service:
@@ -312,10 +348,15 @@ class AlertEnrichmentService:
             or_(FindingEntity.analysis_run_id.is_(None), FindingEntity.analysis_run_id.not_in(alert_runs)),
         ]
         # An alert from one cluster never reuses another cluster's finding for the same service.
-        cluster_label = self.prometheus_config.cluster_label
+        cluster_label = connection.cluster_label
         alert_cluster = alert.labels.get(cluster_label) if cluster_label else None
         if alert_cluster:
             conditions.append(or_(FindingEntity.cluster.is_(None), FindingEntity.cluster == alert_cluster))
+        # Nor another connection's (Mimir tenant's) finding: `cluster=prod` can exist in both.
+        other_connection_runs = select(AnalysisRunEntity.id).where(
+            AnalysisRunEntity.connection_id.is_not(None), AnalysisRunEntity.connection_id != connection.id
+        )
+        conditions.append(or_(FindingEntity.analysis_run_id.is_(None), FindingEntity.analysis_run_id.not_in(other_connection_runs)))
         finding = db.execute(
             select(FindingEntity)
             .where(*conditions)
@@ -350,7 +391,7 @@ class AlertEnrichmentService:
             "detected_before_alert_minutes": detected_before,
         }
 
-    def _fetch_series(self, alert: NormalizedAlert, query: str) -> _FetchedSeries:
+    def _fetch_series(self, alert: NormalizedAlert, query: str, query_service: PrometheusQueryService) -> _FetchedSeries:
         delays = [0, *self.config.retry_delays_seconds]
         fetched: _FetchedSeries | None = None
         for attempt, delay in enumerate(delays):
@@ -358,7 +399,7 @@ class AlertEnrichmentService:
                 self.sleep(delay)
             window = query_window(self.config, alert.annotations, self.clock())
             try:
-                preview = self.query_service.preview(query, window.start, window.end, window.step)
+                preview = query_service.preview(query, window.start, window.end, window.step)
             except HTTPException as exc:
                 raise _AnalysisSkipped(_reason_for_http_error(exc), str(exc.detail)) from exc
             except Exception as exc:
@@ -388,12 +429,13 @@ class AlertEnrichmentService:
         decision: AnalysisDecision,
         metric_key: str,
         fetched: _FetchedSeries,
+        connection: _Connection,
     ) -> dict[str, Any]:
         samples = fetched.series.samples
         service = alert.service or "unknown-service"
         normalized = _prometheus_series_to_normalized(
             samples=samples, labels=fetched.series.labels, service=service, metric=metric_key,
-            cluster_label=self.prometheus_config.cluster_label,
+            cluster_label=connection.config.cluster_label,
         )
         app_config = build_csv_routing_config(
             provider="prometheus",
@@ -418,7 +460,8 @@ class AlertEnrichmentService:
             "alert_source": alert.source,
             "alert_name": alert.alert_name,
             "alert_fingerprint": alert.fingerprint,
-            "datasource_uid": self.prometheus_config.id,
+            "datasource_uid": connection.config.id,
+            "connection_id": connection.config.id,
             "promql": decision.query,
             "from": fetched.window.start.isoformat(),
             "to": fetched.window.end.isoformat(),
@@ -446,7 +489,7 @@ class AlertEnrichmentService:
         headline = max(significant, key=lambda f: f.importance_score)
         finding = _finding_dict(headline)
         finding["id"] = self._stored_finding_id(result.analysis_run_id, headline.title)
-        breakdown = self._breakdown(decision.query, fetched, result, headline)
+        breakdown = self._breakdown(decision.query, fetched, result, headline, connection.query)
         if breakdown is not None:
             finding["breakdown"] = breakdown
             self._store_breakdown(finding["id"], breakdown)
@@ -465,7 +508,9 @@ class AlertEnrichmentService:
             series=series,
         )
 
-    def _breakdown(self, query: str | None, fetched: _FetchedSeries, result: Any, headline: Any) -> dict[str, Any] | None:
+    def _breakdown(
+        self, query: str | None, fetched: _FetchedSeries, result: Any, headline: Any, query_service: PrometheusQueryService
+    ) -> dict[str, Any] | None:
         """Which pods the headline finding's change came from (docs/finding-drilldown.md), using the
         same OPS_SIGNALS_DRILLDOWN_* settings as autonomous runs."""
         if not self.drilldown_config.enabled or not query or not fetched.series.samples:
@@ -476,7 +521,7 @@ class AlertEnrichmentService:
         timestamps = [as_utc(sample.timestamp) for sample in fetched.series.samples]
         try:
             return finding_breakdown(
-                prometheus=self.query_service,
+                prometheus=query_service,
                 promql=query,
                 step=fetched.window.step,
                 signals=signals,

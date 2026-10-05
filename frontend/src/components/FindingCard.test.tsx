@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { api } from '../api/queries';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { FindingCard } from './FindingCard';
 import type { Finding } from '../types';
 
-vi.mock('../api/queries', () => ({ api: { createCase: vi.fn() } }));
+vi.mock('../api/queries', () => ({ api: { createCase: vi.fn(), prometheusConnections: vi.fn() } }));
 
 const newPodsFinding: Finding = {
   id: 7,
@@ -78,5 +79,29 @@ describe('FindingCard identity', () => {
     renderCard(newPodsFinding);
 
     expect(screen.getByText('drill-cart \u00b7 http_errors_total')).toBeInTheDocument();
+  });
+});
+
+describe('FindingCard connection', () => {
+  const plain = { ...newPodsFinding, comparison_json: {} };
+
+  it('names the Prometheus connection when there are several', async () => {
+    vi.mocked(api.prometheusConnections).mockResolvedValue({
+      connections: [
+        { id: 'mimir-a', name: 'Mimir team A', configured: true, is_default: true },
+        { id: 'mimir-b', name: 'Mimir team B', configured: true },
+      ],
+    });
+    renderCard({ ...plain, connection_id: 'mimir-b' });
+
+    expect(await screen.findByText(/Mimir team B/)).toBeInTheDocument();
+  });
+
+  it('says nothing about connections when there is only one', async () => {
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true }] });
+    renderCard({ ...plain, connection_id: 'default' });
+
+    await vi.waitFor(() => expect(api.prometheusConnections).toHaveBeenCalled());
+    expect(screen.queryByText(/Default Prometheus/)).not.toBeInTheDocument();
   });
 });

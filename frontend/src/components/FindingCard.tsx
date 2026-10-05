@@ -2,43 +2,42 @@ import { Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typograph
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
+import { useConnectionName } from '../api/useConnectionName';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
+import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+
+/** The same finding seen in several runs; the card shows one of them. */
+export type FindingRepeats = {
+  count: number;
+  firstSeen?: string;
+  lastSeen?: string;
+  onShowAll?: () => void;
+};
 
 type Props = {
   finding: Finding;
   onViewDetails?: (finding: Finding) => void;
   signals?: Signal[];
+  repeats?: FindingRepeats;
 };
 
-export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
+function seenAt(value?: string): string {
+  return value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'unknown';
+}
+
+export function FindingCard({ finding, onViewDetails, signals = [], repeats }: Props) {
   const navigate = useNavigate();
+  const connectionName = useConnectionName(finding.connection_id);
   const createCaseMutation = useMutation({
     mutationFn: (findingId: number) => api.createCase(findingId),
     onSuccess: (data) => {
       navigate(`/cases/${data.case_id}`);
     },
   });
-
-  const getHealthColor = (status?: string): 'error' | 'warning' | 'success' | 'default' => {
-    switch (status?.toLowerCase()) {
-      case 'critical':
-        return 'error';
-      case 'significant':
-        return 'warning';
-      case 'normal':
-        return 'success';
-      default:
-        return 'default';
-    }
-  };
-
-  const getHealthLabel = (status?: string): string => {
-    return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
-  };
 
   const handleCreateCase = () => {
     if (finding.id) {
@@ -62,15 +61,17 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
           <Stack sx={{ pr: 1, minWidth: 0 }}>
             <Typography variant="h6">{finding.title}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-              {[finding.service, finding.metric_name, finding.cluster].filter(Boolean).join(' · ')}
+              {[finding.service, finding.metric_name, finding.cluster, connectionName].filter(Boolean).join(' · ')}
             </Typography>
           </Stack>
-          <Chip 
-            label={getHealthLabel(finding.health_status)} 
-            color={getHealthColor(finding.health_status)}
-            size="small"
-            sx={{ flexShrink: 0 }}
-          />
+          <Tooltip title={findingLevelHint(finding.health_status)} arrow>
+            <Chip
+              label={findingLevel(finding.health_status).label}
+              color={findingLevel(finding.health_status).chip}
+              size="small"
+              sx={{ flexShrink: 0 }}
+            />
+          </Tooltip>
         </Stack>
         
         <Stack direction="row" spacing={0.75} alignItems="flex-start" sx={{ mb: 2 }}>
@@ -82,6 +83,21 @@ export function FindingCard({ finding, onViewDetails, signals = [] }: Props) {
           </Typography>
         </Stack>
 
+        {repeats && repeats.count > 1 && (
+          <Tooltip
+            title={`The same finding on this series in ${repeats.count} runs: first ${seenAt(repeats.firstSeen)}, latest ${seenAt(repeats.lastSeen)}. This card shows #${finding.id ?? '?'}.${repeats.onShowAll ? ' Click to list each run.' : ''}`}
+            arrow
+          >
+            <Chip
+              label={`Seen in ${repeats.count} runs`}
+              size="small"
+              color="info"
+              variant="outlined"
+              onClick={repeats.onShowAll}
+              sx={{ mb: 1, mr: 1 }}
+            />
+          </Tooltip>
+        )}
         {scope && breakdown && (
           <Tooltip title={`${breakdownSentence(breakdown)} Click for the full breakdown.`} arrow>
             <Chip

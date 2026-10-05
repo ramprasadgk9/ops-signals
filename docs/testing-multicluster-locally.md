@@ -19,7 +19,7 @@ metrics-staging ► prometheus-staging (cluster=staging)            ─┘ tenan
 | Clusters `eu` and `us` in tenant `team-a` | The same services (`checkout`, `payments`, `search`) in two clusters, told apart only by the `cluster` label. |
 | `eu` is an HA pair | Two Prometheus servers scrape the same target, so Mimir stores every `eu` series twice (`prometheus_replica` a and b). Mimir's own HA dedup is off on purpose, so Ops Signals' replica handling is what gets tested. |
 | A recurring incident in `us` only | `checkout` in `us` gets 3x slower for 15 minutes every 8 hours (00:00, 08:00 and 16:00 UTC). `eu` stays healthy, so findings should appear for `us` only. |
-| Tenant `team-b` with cluster `staging` | Kept separate from `team-a`. Not used by Ops Signals yet; it's there for multi-tenant connections (roadmap). |
+| Tenant `team-b` with cluster `staging` | Kept separate from `team-a`, read through its own named connection. |
 | 72 hours of history | Written straight into Mimir on the first start, so analyzers have a baseline from the first minute. |
 
 Metrics: `request_latency_p95`, `error_rate`, `cpu_usage` (gauges) and `http_requests_total`
@@ -44,18 +44,18 @@ Then start Ops Signals reading from Mimir instead of your usual Prometheus. Stop
 ./scripts/multicluster.sh app
 ```
 
-This runs `run_all.sh` with these settings (`./scripts/multicluster.sh env` prints them, to put in
-`.env` instead):
+This runs `run_all.sh` with one named connection per tenant, from
+[`dev/multicluster/connections.yaml`](../dev/multicluster/connections.yaml): `team-a` (the default)
+and `team-b`, each sending its own `X-Scope-OrgID`. `./scripts/multicluster.sh env` prints the
+setting, to put in `.env` instead:
 
 ```bash
-OPS_SIGNALS_PROMETHEUS_URL=http://localhost:9009/prometheus
-OPS_SIGNALS_PROMETHEUS_HEADERS=X-Scope-OrgID:team-a
-OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL=cluster
-OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS=__replica__,prometheus_replica
+OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE=<repo>/dev/multicluster/connections.yaml
 ```
 
-If your `.env` already sets `OPS_SIGNALS_PROMETHEUS_URL` or `_HEADERS`, comment those lines out -
-`run_all.sh` loads `.env` and it would win. Run `./scripts/multicluster.sh check` again: the last
+If your `.env` already sets `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE`, comment that line out -
+`run_all.sh` loads `.env` and it would win. (`OPS_SIGNALS_PROMETHEUS_URL` in `.env` doesn't matter:
+the connections file replaces it.) Run `./scripts/multicluster.sh check` again: the last
 check now goes through the app.
 
 ## What to look at in the UI
@@ -69,9 +69,15 @@ Open http://localhost:5174.
 2. **Run once**, then **Findings**. Findings are labelled `checkout · request_latency_p95 · us`, the
    latency incident shows up for `us`, and the **Cluster** filter switches between them. The details
    drawer shows the cluster and charts only that cluster.
-3. **Validate Data → Prometheus.** Query `request_latency_p95{service="checkout",cluster="eu"}`:
-   Mimir returns two copies, Ops Signals keeps one and says so in a warning, and **Run Analysis**
-   works (before, it refused with "returned 2 series").
+3. **Validate Data → Prometheus.** Pick service `checkout` and metric `request_latency_p95`. A
+   **Cluster** field appears (`eu`, `us`) and **Run Analysis** waits until you choose one; choosing
+   adds `cluster="…"` to the query. With `eu`, Mimir returns two copies, Ops Signals keeps one and
+   says so in a warning. On `team-b`, or for a series in one cluster, there is no Cluster field. The
+   Lab Scenarios chips are hidden here, since those services only exist in `run_all.sh`'s Prometheus.
+4. **Two tenants.** The Configure panel and Validate Data have a **Prometheus connection** picker.
+   Switch it to `Mimir team-b (staging)`: the cluster list becomes `staging` only, and a preview or
+   run queries tenant `team-b`. Findings from it are labelled with the connection name. Alerts with
+   `tenant="team-b"` are analysed on `team-b`; alerts without a `tenant` label go to `team-a`.
 
 To see the problem Ops Signals avoids, compare these in a Prometheus UI or with curl:
 
@@ -93,6 +99,14 @@ The first is twice the second: summing both replica copies doubles the traffic.
 
 Leave it running for days to test scheduled policies, findings building up over time and alert
 reuse. Mimir keeps 30 days.
+
+If a query fails with `the bucket index is too old (err-mimir-bucket-index-too-old)`, Mimir's
+compactor stopped refreshing its list of stored blocks - usually because the machine slept. The
+config here tolerates a week of that; if it still happens, `docker compose -f
+dev/multicluster/docker-compose.yml restart mimir` rebuilds the index at once (no data is lost).
+
+The Validate Data **Lab Scenarios** (`spike-lab`, `trend-lab`, ...) come from `run_all.sh`'s mock
+Prometheus and aren't in Mimir; query `checkout`, `payments` or `search` here instead.
 
 Per-cluster Prometheus UIs, to see exactly what each "cluster" scrapes: eu-a
 http://localhost:9191, eu-b http://localhost:9192, us http://localhost:9193, staging

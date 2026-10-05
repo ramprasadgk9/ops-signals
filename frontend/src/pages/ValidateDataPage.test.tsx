@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ValidateDataPage } from './ValidateDataPage';
 import { api } from '../api/queries';
@@ -123,5 +123,106 @@ describe('ValidateDataPage source modes', () => {
     expect(submittedForm.get('custom_timestamp_column')).toBe('event_time');
     expect(submittedForm.get('custom_value_column')).toBe('measurement');
     expect(submittedForm.get('custom_metric_name_column')).toBe('metric');
+  });
+});
+
+describe('ValidateDataPage clusters', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function setup({ services, clusters }: { services: string[]; clusters: string[] }) {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({
+      connections: [{ id: 'mimir-a', name: 'Mimir team-a', configured: true, is_default: true, cluster_label: 'cluster' }],
+    });
+    vi.mocked(api.prometheusLabelValues).mockImplementation(async (label: string) => ({
+      connection_id: 'mimir-a',
+      label,
+      values: label === 'service' ? services : label === 'cluster' ? clusters : ['ops_signal_lab_value'],
+    }));
+    vi.mocked(api.runPrometheusAnalysis).mockResolvedValue({
+      analysis_run_id: 'run-1', provider: 'prometheus', source_type: 'prometheus', connection_id: 'mimir-a', connection_name: 'Mimir team-a',
+      service: 'ruptures-lab', metric_name: 'ops_signal_lab_value', query: '', requested_start: '', requested_end: '', step: '5m', step_seconds: 300,
+      sample_count: 0, series_count: 1, findings_count: 0, signal_count: 0, behavior_findings_count: 0, warnings: [],
+      analyzer_selection_mode: 'all', analyzer_routing: [], executed_analyzers: [], series: [], signals: [], findings: [],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Prometheus' }));
+  }
+
+  const promql = () => (screen.getByLabelText('PromQL') as HTMLTextAreaElement).value;
+  const runButton = () => screen.getByRole('button', { name: 'Run Analysis' });
+
+  it('adds nothing when the series is in one cluster', async () => {
+    setup({ services: ['ruptures-lab'], clusters: ['eu'] });
+
+    await waitFor(() => expect(api.prometheusLabelValues).toHaveBeenCalledWith('cluster', 'mimir-a', expect.anything()));
+    expect(screen.queryByText('Cluster')).not.toBeInTheDocument();
+    expect(promql()).toBe('ops_signal_lab_value{service="ruptures-lab"}');
+    expect(runButton()).toBeEnabled();
+  });
+
+  it('looks up clusters only for the chosen service and metric, in the chosen time range', async () => {
+    setup({ services: ['ruptures-lab'], clusters: [] });
+
+    await waitFor(() => expect(api.prometheusLabelValues).toHaveBeenCalledWith('cluster', 'mimir-a', expect.anything()));
+    const filter = vi.mocked(api.prometheusLabelValues).mock.calls.find(([label]) => label === 'cluster')?.[2];
+    expect(filter?.match).toEqual(['ops_signal_lab_value{service="ruptures-lab"}']);
+    expect(filter?.start).toBeTruthy();
+    expect(filter?.end).toBeTruthy();
+  });
+
+  it('asks for a cluster before running when the series is in several', async () => {
+    setup({ services: ['ruptures-lab'], clusters: ['eu', 'us'] });
+
+    expect(await screen.findByText('ruptures-lab runs in 2 clusters')).toBeInTheDocument();
+    expect(screen.getByText('Choose a cluster (eu, us) to run analysis. Preview shows every cluster.')).toBeInTheDocument();
+    expect(runButton()).toBeDisabled();
+    expect(promql()).toBe('ops_signal_lab_value{service="ruptures-lab"}');
+
+    fireEvent.mouseDown(screen.getByText('Choose a cluster'));
+    fireEvent.click(await screen.findByRole('option', { name: 'us' }));
+
+    expect(promql()).toBe('ops_signal_lab_value{service="ruptures-lab",cluster="us"}');
+    expect(runButton()).toBeEnabled();
+    fireEvent.click(runButton());
+    await waitFor(() => expect(api.runPrometheusAnalysis).toHaveBeenCalled());
+    expect(vi.mocked(api.runPrometheusAnalysis).mock.calls[0][0].query).toBe('ops_signal_lab_value{service="ruptures-lab",cluster="us"}');
+  });
+
+  it('shows the lab scenarios only when the connection has the lab services', async () => {
+    setup({ services: ['checkout', 'payments'], clusters: [] });
+
+    await waitFor(() => expect(api.prometheusLabelValues).toHaveBeenCalledWith('service', 'mimir-a'));
+    await waitFor(() => expect(screen.queryByText('Lab Scenarios')).not.toBeInTheDocument());
+  });
+
+  it('links the run result to its finding on the Findings page', async () => {
+    setup({ services: ['ruptures-lab'], clusters: [] });
+    const finding = {
+      id: 42, title: 'request_latency_p95 is trending in one direction.', summary: 'Upward trend.', category: 'behavior_change',
+      health_status: 'normal', investigation_priority: 3,
+    };
+    vi.mocked(api.runPrometheusAnalysis).mockResolvedValue({
+      analysis_run_id: 'run-1', provider: 'prometheus', source_type: 'prometheus', connection_id: 'mimir-a', connection_name: 'Mimir team-a',
+      service: 'ruptures-lab', metric_name: 'ops_signal_lab_value', query: '', requested_start: '', requested_end: '', step: '5m', step_seconds: 300,
+      sample_count: 0, series_count: 1, findings_count: 1, signal_count: 0, behavior_findings_count: 0, warnings: [],
+      analyzer_selection_mode: 'all', analyzer_routing: [], executed_analyzers: [], series: [], signals: [], findings: [finding],
+    } as never);
+
+    await waitFor(() => expect(runButton()).toBeEnabled());
+    fireEvent.click(runButton());
+
+    const link = await screen.findByRole('link', { name: 'View in Findings' });
+    expect(link).toHaveAttribute('href', '/findings?finding=42');
+    expect(screen.getByText(/Finding #42/)).toBeInTheDocument();
+  });
+
+  it('keeps the lab scenarios on the mock Prometheus', async () => {
+    setup({ services: ['ruptures-lab', 'trend-lab'], clusters: [] });
+
+    await waitFor(() => expect(api.prometheusLabelValues).toHaveBeenCalledWith('service', 'mimir-a'));
+    expect(screen.getByText('Lab Scenarios')).toBeInTheDocument();
   });
 });
