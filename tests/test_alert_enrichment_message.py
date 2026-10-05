@@ -239,3 +239,11 @@ def test_step_change_does_not_claim_a_separate_trend() -> None:
     text = _what_changed_text({"basis": "step_change", "time": "2026-09-23T14:08:00+00:00", "analyzer_id": "ruptures", "trend_direction": "upward"})
     assert "_Start time 14:08 UTC, from a step change (change-point detection)._" in text
     assert "trend" not in text
+
+
+def test_a_deploy_names_its_cluster() -> None:
+    text = _what_changed_text(
+        {"basis": "step_change", "time": "2026-09-23T14:08:00+00:00", "analyzer_id": "baseline_shift"},
+        [{**DEPLOY, "cluster": "us"}],
+    )
+    assert "deploy `v4.1` to `us` by bob" in text

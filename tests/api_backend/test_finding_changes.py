@@ -44,12 +44,13 @@ NEW_PODS = {"cart-8c2-q1": CHANGE - timedelta(minutes=1), "cart-8c2-w7": CHANGE}
 
 
 def _add_finding(db, finding_id: int, *, service: str | None = "cart", breakdown: dict | None = None,
-                 signal_ids: list[str] | None = None, run_id: str = "run-1") -> None:
+                 signal_ids: list[str] | None = None, run_id: str = "run-1", cluster: str | None = None) -> None:
     db.add(
         FindingEntity(
             id=finding_id,
             analysis_run_id=run_id,
             service=service,
+            cluster=cluster,
             metric_name="http_errors_total",
             title="http_errors_total moved to a new baseline.",
             summary="up",
@@ -65,9 +66,9 @@ def _add_finding(db, finding_id: int, *, service: str | None = "cart", breakdown
 
 
 def _add_event(db, *, service: str = "cart", event_type: str = "deploy", at: datetime = DEPLOY,
-               version: str | None = "v1.4.2", env: str | None = None) -> None:
+               version: str | None = "v1.4.2", env: str | None = None, cluster: str | None = None) -> None:
     db.add(ChangeEventEntity(service=service, event_type=event_type, timestamp=at, version=version, env=env,
-                             received_at=datetime.now(timezone.utc)))
+                             cluster=cluster, received_at=datetime.now(timezone.utc)))
 
 
 def _add_signal(db, signal_id: str, signal_type: str, *, start: datetime, end: datetime, evidence: dict | None = None) -> None:
@@ -221,6 +222,57 @@ def test_deploy_to_another_environment_is_not_matched(client, seed) -> None:
     seed(build)
 
     assert _changes(client, 1)["status"] == "none_in_window"
+
+
+def test_deploy_to_another_cluster_is_not_matched(client, seed) -> None:
+    seed(lambda db: (_add_finding(db, 1, cluster="us", breakdown=_breakdown(NEW_PODS)), _add_event(db, cluster="eu")))
+
+    changes = _changes(client, 1)
+
+    assert changes["status"] == "none_in_window"
+    assert changes["matches"] == []
+
+
+def test_deploy_to_the_findings_cluster_is_matched_and_names_it(client, seed) -> None:
+    def build(db) -> None:
+        _add_finding(db, 1, cluster="us", breakdown=_breakdown(NEW_PODS))
+        _add_event(db, cluster="eu", version="v1.4.1", at=DEPLOY - timedelta(minutes=1))
+        _add_event(db, cluster="US")
+    seed(build)
+
+    changes = _changes(client, 1)
+
+    assert changes["status"] == "matched"
+    assert [(match["version"], match["cluster"]) for match in changes["matches"]] == [("v1.4.2", "US")]
+    assert changes["pods"]["status"] == "linked"
+
+
+def test_deploy_without_a_cluster_counts_for_every_cluster(client, seed) -> None:
+    seed(lambda db: (_add_finding(db, 1, cluster="eu", breakdown=_breakdown(NEW_PODS)), _add_event(db)))
+
+    changes = _changes(client, 1)
+
+    assert changes["status"] == "matched"
+    assert changes["matches"][0]["cluster"] is None
+
+
+def test_finding_without_a_cluster_matches_deploys_to_any_cluster(client, seed) -> None:
+    seed(lambda db: (_add_finding(db, 1, breakdown=_breakdown(NEW_PODS)), _add_event(db, cluster="eu")))
+
+    assert _changes(client, 1)["status"] == "matched"
+
+
+def test_alert_correlation_skips_other_clusters(client, seed) -> None:
+    from backend.app.alerts.correlation import correlate_changes
+
+    seed(lambda db: (_add_event(db, cluster="eu", version="v-eu"), _add_event(db, cluster="us", version="v-us"),
+                     _add_event(db, version="v-global", at=DEPLOY - timedelta(minutes=2))))
+    with get_session_local()() as db:
+        us = correlate_changes(db, "cart", CHANGE, before=timedelta(minutes=30), after=timedelta(minutes=5), cluster="us")
+        anywhere = correlate_changes(db, "cart", CHANGE, before=timedelta(minutes=30), after=timedelta(minutes=5))
+
+    assert [match.version for match in us.matches] == ["v-us", "v-global"]
+    assert len(anywhere.matches) == 3
 
 
 def test_a_failed_lookup_still_returns_the_finding(client, seed, monkeypatch) -> None:

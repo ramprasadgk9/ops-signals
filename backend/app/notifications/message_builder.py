@@ -188,8 +188,9 @@ _ANALYZER_LABEL = {
 
 def _change_label(match: dict) -> str:
     label = f"{match.get('event_type', 'change')} `{match.get('version') or match.get('description') or 'unversioned'}`"
+    where = f" to `{match['cluster']}`" if match.get("cluster") else ""
     who = f" by {match['author']}" if match.get("author") else ""
-    return f"{_link(match.get('url'), label)}{who}"
+    return f"{_link(match.get('url'), label)}{where}{who}"
 
 
 def _what_changed(changes: dict | None, service: str | None, timing: dict | None = None, ui_base_url: str | None = None) -> str:

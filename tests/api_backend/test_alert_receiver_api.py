@@ -348,6 +348,27 @@ def test_finding_from_the_alerts_cluster_is_reused(harness) -> None:
     assert "latency shift in eu" not in text
 
 
+def test_deploy_to_another_cluster_is_not_blamed_for_the_alert(harness) -> None:
+    h = harness()
+    deployed = (CHANGE_AT - timedelta(minutes=6)).isoformat()
+    h.client.post(
+        "/api/events",
+        json=[
+            {"service": "checkout-api", "type": "deploy", "version": "v2.3.1-eu", "cluster": "eu", "timestamp": deployed},
+            {"service": "checkout-api", "type": "deploy", "version": "v2.3.1-us", "cluster": "us", "timestamp": deployed},
+        ],
+    )
+    payload = _payload()
+    payload["alerts"][0]["labels"]["cluster"] = "us"
+
+    h.client.post("/api/integrations/alertmanager", json=payload)
+
+    text = _message_text(h.posted[0])
+    assert "v2.3.1-us" in text
+    assert "v2.3.1-eu" not in text
+    assert len(_rows()[0].change_event_ids) == 1
+
+
 def test_generic_endpoint_is_labelled_external(harness) -> None:
     h = harness()
     response = h.client.post(

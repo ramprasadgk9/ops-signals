@@ -129,6 +129,7 @@ class AlertChangeOut(BaseModel):
     url: str | None = None
     timestamp: datetime | None = None
     minutes_before_anchor: float | None = None
+    cluster: str | None = None
 
 
 class AlertOut(BaseModel):

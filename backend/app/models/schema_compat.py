@@ -59,12 +59,13 @@ def ensure_ai_narrative_schema(engine: Engine) -> None:
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
 
 
-_CLUSTER_TABLES = ("ops_normalized_timeseries_points", "ops_operational_signals", "ops_operational_findings")
+_CLUSTER_TABLES = ("ops_normalized_timeseries_points", "ops_operational_signals", "ops_operational_findings", "ops_change_events")
 
 
 def ensure_cluster_schema(engine: Engine) -> None:
     """Adds the nullable `cluster` column (the external label that tells apart the same series from
-    different clusters behind one Mimir/Thanos endpoint) to points, signals and findings."""
+    different clusters behind one Mimir/Thanos endpoint) to points, signals and findings, and to change
+    events so a deploy to one cluster isn't matched to another cluster's findings."""
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
     for table_name in _CLUSTER_TABLES:

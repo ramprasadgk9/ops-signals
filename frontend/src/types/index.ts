@@ -1095,6 +1095,8 @@ export type AlertChange = {
   timestamp: string | null;
   /** Positive: the change came before the start time (or the alert, when there is no start time). */
   minutes_before_anchor: number | null;
+  /** Cluster the change went to; absent or null when it went to every cluster. */
+  cluster?: string | null;
 };
 
 export type AlertReceipt = {

@@ -34,7 +34,8 @@ export function clock(iso: string | null): string {
 
 export function changeLabel(change: AlertChange): string {
   const what = `${change.event_type ?? 'change'} ${change.version ?? change.description ?? 'unversioned'}`;
-  return change.author ? `${what} by ${change.author}` : what;
+  const where = change.cluster ? `${what} to ${change.cluster}` : what;
+  return change.author ? `${where} by ${change.author}` : where;
 }
 
 /** Null when the alert hasn't been enriched yet or has no service to match changes against. */

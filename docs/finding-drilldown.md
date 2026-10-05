@@ -145,11 +145,12 @@ Your CI pipeline calls the webhook `POST /api/events` once per deploy (Integrati
 deploy events** has a ready-made `curl` step):
 
 ```json
-{"service": "cart", "type": "deploy", "version": "v1.4.2", "env": "prod",
+{"service": "cart", "type": "deploy", "version": "v1.4.2", "env": "prod", "cluster": "us",
  "timestamp": "2026-10-01T14:06:00Z", "author": "ci", "url": "https://ci.example/run/42"}
 ```
 
-Only `service` and `type` are required; `type` is `deploy`, `config`, `feature_flag`, `scale`,
+Only `service` and `type` are required; send `cluster` (the value of the metrics' cluster label,
+such as `cluster="us"`) when several clusters share one Prometheus, Mimir or Thanos; `type` is `deploy`, `config`, `feature_flag`, `scale`,
 `rollback` or `other`, and a missing `timestamp` means now. Each event is one row in the
 `ops_change_events` table. Nothing is joined when the event arrives: deploy data and metric data
 stay separate until a finding or an alert is shown. With `OPS_SIGNALS_EVENTS_TOKEN` set, CI must
@@ -157,18 +158,22 @@ send `Authorization: Bearer <token>`.
 
 ### How are deploy events joined to metrics and findings?
 
-Deploys and metrics share no ID, so a finding is joined on service, environment and time
+Deploys and metrics share no ID, so a finding is joined on service, environment, cluster and time
 (`services/finding_changes.py`):
 
 1. **Service**: the finding's service (the metric's `service` label) must equal the event's
    `service`, or be in the same `OPS_SIGNALS_SERVICE_ALIASES` group.
 2. **Environment**: events from another `env` than the finding's run are skipped, so a staging
    deploy never matches a prod finding. Events with no `env` match any.
-3. **Change time**: where the breakdown splits before and after, else the earliest change point
+3. **Cluster**: events for another `cluster` than the finding's are skipped, so a deploy to `eu`
+   never shows on a `us` finding. Events with no `cluster` (a deploy everywhere at once, or a
+   single-cluster setup) match every finding, and a finding with no cluster matches every event.
+   The matched deploy is named with its cluster: "deploy v1.4.2 to us".
+4. **Change time**: where the breakdown splits before and after, else the earliest change point
    among the finding's signals, else the start of its earliest short spike. A slow trend has none.
-4. **Window**: events 30 min before to 5 min after the change time
+5. **Window**: events 30 min before to 5 min after the change time
    (`OPS_SIGNALS_ALERT_CHANGE_WINDOW_BEFORE` / `_AFTER`), nearest first, at most 3.
-5. **Pods**: the nearest `deploy` or `rollback` is compared with the new pods' start times, below.
+6. **Pods**: the nearest `deploy` or `rollback` is compared with the new pods' start times, below.
 
 ### How is a new pod matched to a deploy?
 
