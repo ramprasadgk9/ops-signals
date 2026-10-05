@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import re
+
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.config import PrometheusConnectionConfig, get_prometheus_config
+from backend.app.config import PrometheusConnectionConfig, get_prometheus_connections
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
 from backend.app.models.prometheus import (
@@ -17,12 +21,14 @@ from backend.app.models.prometheus import (
     PrometheusLabelValuesOut,
     PrometheusPreviewOut,
     PrometheusQueryRequest,
+    PrometheusSeriesOut,
 )
 from backend.app.services.prometheus_service import (
     PrometheusQueryService,
     _observed_interval,
     _prometheus_series_to_normalized,
     configured_connection,
+    get_prometheus_connection,
 )
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from intelligence.pipeline import SignalPipeline
@@ -33,24 +39,56 @@ analysis_router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 
 def get_prometheus_query_service(
-    config: PrometheusConnectionConfig = Depends(get_prometheus_config),
+    config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> PrometheusQueryService:
     return PrometheusQueryService(config)
 
 
+_SIMPLE_SELECTOR = re.compile(r"^\s*([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(?:\{(.*)\})?\s*$", re.DOTALL)
+
+
+def _multi_series_detail(query: str, series: list[PrometheusSeriesOut], cluster_label: str | None) -> str:
+    """Says which label tells the returned series apart and how to pick one - for a plain selector,
+    with the exact query - so "refine the filters" isn't left to guesswork."""
+    values: dict[str, set[str]] = {}
+    for item in series:
+        for key, value in item.labels.items():
+            if key != "__name__":
+                values.setdefault(key, set()).add(value)
+    differing = sorted(key for key, seen in values.items() if len(seen) > 1 or any(key not in item.labels for item in series))
+    if not differing:
+        return f"This query matched {len(series)} series. Refine the label filters to pick one."
+    # The cluster label wins: it is the usual reason on Mimir/Thanos, and other labels (instance)
+    # usually differ only because the clusters do.
+    key = cluster_label if cluster_label in differing else differing[0]
+    shown = sorted(values[key])
+    listed = f"{', '.join(shown[:5])}{', ...' if len(shown) > 5 else ''}"
+    what = f"{len(shown)} clusters" if key == cluster_label else f"{len(series)} series, which differ by {key}"
+    pick = next(item.labels[key] for item in series if key in item.labels)
+    message = f'This query matched {what} ({listed}). Add {key}="{pick}" to pick one'
+    match = _SIMPLE_SELECTOR.match(query)
+    if match:
+        name, matchers = match.group(1), (match.group(2) or "").strip().rstrip(",")
+        return f'{message}: {name}{{{matchers + "," if matchers else ""}{key}="{pick}"}}'
+    return f"{message}, or aggregate {key} away."
+
+
 @router.get("/connections", response_model=PrometheusConnectionsOut)
-def list_prometheus_connections(
-    config: PrometheusConnectionConfig = Depends(get_prometheus_config),
-) -> PrometheusConnectionsOut:
-    connection = configured_connection(config)
+def list_prometheus_connections() -> PrometheusConnectionsOut:
+    connections = get_prometheus_connections()
     return PrometheusConnectionsOut(
         connections=[
             PrometheusConnectionOut(
-                id=connection.id,
-                name=connection.name,
-                base_url=connection.base_url,
-                configured=connection.configured,
+                id=profile.id,
+                name=profile.name,
+                base_url=profile.base_url,
+                configured=profile.configured,
+                is_default=connection.id == connections.default_id,
+                match_labels=connection.match_labels,
+                cluster_label=connection.cluster_label,
             )
+            for connection in connections.connections
+            for profile in [configured_connection(connection)]
         ]
     )
 
@@ -60,8 +98,6 @@ def test_prometheus_connection(
     payload: PrometheusConnectionTestRequest,
     service: PrometheusQueryService = Depends(get_prometheus_query_service),
 ) -> PrometheusConnectionTestOut:
-    if payload.connection_id != "default":
-        raise HTTPException(status_code=404, detail="Prometheus connection not found")
     available, version, latency_ms, message = service.test_connection()
     return PrometheusConnectionTestOut(available=available, version=version, latency_ms=latency_ms, message=message)
 
@@ -70,11 +106,14 @@ def test_prometheus_connection(
 def get_prometheus_label_values(
     label: str,
     connection_id: str = "default",
+    match: list[str] = Query(default=[], description="Only values on series these selectors match, e.g. up{service=\"checkout\"}."),
+    start: datetime | None = None,
+    end: datetime | None = None,
     service: PrometheusQueryService = Depends(get_prometheus_query_service),
+    config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> PrometheusLabelValuesOut:
-    if connection_id != "default":
-        raise HTTPException(status_code=404, detail="Prometheus connection not found")
-    return PrometheusLabelValuesOut(connection_id=connection_id, label=label, values=service.label_values(label))
+    values = service.label_values(label, matchers=match or None, start=start, end=end)
+    return PrometheusLabelValuesOut(connection_id=config.id, label=label, values=values)
 
 
 @router.post("/preview", response_model=PrometheusPreviewOut)
@@ -82,8 +121,6 @@ def preview_prometheus_query(
     payload: PrometheusQueryRequest,
     service: PrometheusQueryService = Depends(get_prometheus_query_service),
 ) -> PrometheusPreviewOut:
-    if payload.connection_id != "default":
-        raise HTTPException(status_code=404, detail="Prometheus connection not found")
     return service.preview(payload.query, payload.start, payload.end, payload.step)
 
 
@@ -92,18 +129,13 @@ def run_direct_prometheus_analysis(
     payload: DirectPrometheusAnalysisRequest,
     db: Session = Depends(get_db),
     service: PrometheusQueryService = Depends(get_prometheus_query_service),
-    config: PrometheusConnectionConfig = Depends(get_prometheus_config),
+    config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> DirectPrometheusAnalysisOut:
-    if payload.connection_id != "default":
-        raise HTTPException(status_code=404, detail="Prometheus connection not found")
     preview = service.preview(payload.query, payload.start, payload.end, payload.step)
     if preview.sample_count == 0:
         raise HTTPException(status_code=400, detail="The query succeeded, but Prometheus returned no samples for the selected time range.")
     if preview.series_count != 1:
-        raise HTTPException(
-            status_code=400,
-            detail=f"The query returned {preview.series_count} series. Select one series or refine the label filters before running analysis.",
-        )
+        raise HTTPException(status_code=400, detail=_multi_series_detail(payload.query, preview.series, config.cluster_label))
 
     selected_series = preview.series[0]
     labels = selected_series.labels
@@ -113,6 +145,7 @@ def run_direct_prometheus_analysis(
         labels=labels,
         service=payload.service,
         metric=payload.metric,
+        cluster_label=config.cluster_label,
     )
 
     try:
@@ -131,7 +164,8 @@ def run_direct_prometheus_analysis(
         result = SignalPipeline(pipeline_config).run_normalized(
             normalized,
             run_metadata={
-                "datasource_uid": payload.connection_id,
+                "datasource_uid": config.id,
+                "connection_id": config.id,
                 "datasource_name": configured_connection(config).name,
                 "promql": payload.query,
                 "from": preview.start.isoformat(),
@@ -159,7 +193,7 @@ def run_direct_prometheus_analysis(
 
     return DirectPrometheusAnalysisOut(
         analysis_run_id=result.analysis_run_id,
-        connection_id=payload.connection_id,
+        connection_id=config.id,
         connection_name=configured_connection(config).name,
         service=payload.service,
         metric_name=payload.metric,

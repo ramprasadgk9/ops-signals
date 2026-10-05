@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 GAP_POLICIES = {"warn", "reject"}
 VALIDATION_WARNINGS_ATTR = "validation_warnings"
 
-CORE_COLUMNS = ["metric_name", "timestamp", "value", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"]
+# `cluster` is the external label that tells apart otherwise identical series from different
+# clusters behind one Mimir/Thanos endpoint; empty for single-cluster data.
+CORE_COLUMNS = ["metric_name", "timestamp", "value", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster"]
 
 
 def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.DataFrame:
@@ -35,6 +37,8 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     for column in config.optional_columns:
         if column not in working.columns:
             working[column] = None
+    if "cluster" not in working.columns:
+        working["cluster"] = None
 
     if "service" in working.columns and config.service:
         working["service"] = working["service"].where(working["service"].notna(), config.service)
@@ -44,7 +48,7 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
         provider = (config.provider or "generic").lower()
         working["source"] = working["source"].where(working["source"].notna(), provider)
 
-    for column in ["metric_name", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"]:
+    for column in ["metric_name", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster"]:
         if column in working.columns:
             working[column] = working[column].where(working[column].notna(), None)
 
@@ -77,8 +81,8 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     tag_columns = [column for column in working.columns if column not in CORE_COLUMNS]
     tag_lookup = (
         working[[*CORE_COLUMNS, *tag_columns]]
-        .drop_duplicates(subset=["metric_name", "timestamp", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"])
-        .set_index(["metric_name", "timestamp", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"])
+        .drop_duplicates(subset=["metric_name", "timestamp", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster"])
+        .set_index(["metric_name", "timestamp", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster"])
         if tag_columns
         else None
     )
@@ -86,7 +90,7 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     def build_tags(row: pd.Series) -> dict[str, object]:
         if tag_lookup is None:
             return {}
-        key = tuple(row[column] for column in ["metric_name", "timestamp", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type"])
+        key = tuple(row[column] for column in ["metric_name", "timestamp", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster"])
         if key not in tag_lookup.index:
             return {}
         tag_row = tag_lookup.loc[key]
@@ -276,7 +280,7 @@ def _validate_rules(dataframe: pd.DataFrame, config: InputConfig) -> list[str]:
                     f"Column '{column}' null ratio {null_ratio:.3f} exceeds configured max_null_ratio {ratio:.3f}"
                 )
 
-    group_columns = [column for column in ["metric_name", "service", "host", "pod"] if column in dataframe.columns]
+    group_columns = [column for column in ["metric_name", "service", "host", "pod", "cluster"] if column in dataframe.columns]
 
     if bool(rules.get("enforce_monotonic_timestamp", False)):
         for keys, group in dataframe.groupby(group_columns, dropna=False):

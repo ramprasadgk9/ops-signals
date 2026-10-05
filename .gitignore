@@ -35,6 +35,9 @@ frontend/playwright-report/
 .env
 .env.*
 !.env.example
+# Named Prometheus connections for docker-compose.connections.yml (may reference real hosts/tokens)
+/prometheus-connections.yaml
+/prometheus-connections.env
 
 # Logs
 *.log

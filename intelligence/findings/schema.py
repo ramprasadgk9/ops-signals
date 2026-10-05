@@ -22,6 +22,7 @@ class OperationalFinding:
     comparison_json: dict[str, Any] = field(default_factory=dict)
     analysis_run_id: str | None = None
     created_at: datetime | None = None
+    cluster: str | None = None
 
     def to_record(self) -> dict[str, Any]:
         payload = _sanitize_json(asdict(self))

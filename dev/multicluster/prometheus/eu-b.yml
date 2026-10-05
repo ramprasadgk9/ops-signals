@@ -1,0 +1,17 @@
+# Prometheus "eu-b" for the local multi-cluster Mimir setup (scripts/multicluster.sh).
+# external_labels mark every sample it sends to Mimir, the way a real cluster's Prometheus does.
+global:
+  scrape_interval: 15s
+  external_labels:
+    cluster: eu
+    prometheus_replica: b
+
+scrape_configs:
+  - job_name: cluster-metrics
+    static_configs:
+      - targets: ["metrics-eu:9100"]
+
+remote_write:
+  - url: http://mimir:9009/api/v1/push
+    headers:
+      X-Scope-OrgID: team-a

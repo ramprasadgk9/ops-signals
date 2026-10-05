@@ -19,6 +19,7 @@ def get_timeseries(
     start_time: datetime | None = Query(default=None),
     end_time: datetime | None = Query(default=None),
     analysis_run_id: str | None = Query(default=None),
+    cluster: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[dict]:
     query = select(NormalizedPoint).where(
@@ -31,6 +32,8 @@ def get_timeseries(
         query = query.where(NormalizedPoint.timestamp <= end_time)
     if analysis_run_id:
         query = query.where(NormalizedPoint.analysis_run_id == analysis_run_id)
+    if cluster:
+        query = query.where(NormalizedPoint.cluster == cluster)
     points = db.execute(query.order_by(NormalizedPoint.timestamp.asc())).scalars().all()
     return [
         {
@@ -38,6 +41,7 @@ def get_timeseries(
             "value": p.value,
             "service": p.service,
             "metric_name": p.metric_name,
+            "cluster": p.cluster,
             "analysis_run_id": p.analysis_run_id,
         }
         for p in points

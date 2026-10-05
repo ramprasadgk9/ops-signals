@@ -8,6 +8,7 @@ import pandas as pd
 
 from intelligence.findings.schema import OperationalFinding
 from intelligence.importance_score import score_finding
+from intelligence.series_identity import cluster_points
 from intelligence.signals.schema import OperationalSignal
 from intelligence.window_compare import compare_windows
 
@@ -34,14 +35,14 @@ class FindingAggregator:
         if not signal_list:
             return FindingAggregationResult(findings=[], comparison_json={})
 
-        signals_by_key: dict[tuple[str | None, str, bool], list[OperationalSignal]] = {}
+        signals_by_key: dict[tuple[str | None, str, str | None, bool], list[OperationalSignal]] = {}
         for signal in signal_list:
-            key = (signal.service, signal.metric_name, signal.signal_type in DATA_HEALTH_SIGNAL_TYPES)
+            key = (signal.service, signal.metric_name, signal.cluster, signal.signal_type in DATA_HEALTH_SIGNAL_TYPES)
             signals_by_key.setdefault(key, []).append(signal)
 
         findings: list[OperationalFinding] = []
         comparison_json: dict[str, object] = {}
-        for (service, metric_name, _), grouped_signals in signals_by_key.items():
+        for (service, metric_name, cluster, _), grouped_signals in signals_by_key.items():
             if any(self._skip_by_finding_rule(grouped_signals, analyzer_id) for analyzer_id in self._FINDING_RULE_GATED_ANALYZERS):
                 continue
 
@@ -49,6 +50,7 @@ class FindingAggregator:
             metric_points = metric_points[metric_points["metric_name"].astype(str) == str(metric_name)]
             if service is not None:
                 metric_points = metric_points[metric_points["service"].astype(str) == str(service)]
+            metric_points = cluster_points(metric_points, cluster)
 
             comparison_json = compare_windows(metric_points, grouped_signals)
             signal_ids = [signal.signal_id for signal in grouped_signals]
@@ -70,6 +72,7 @@ class FindingAggregator:
                     investigation_priority=investigation_priority,
                     signal_ids=signal_ids,
                     comparison_json=comparison_json,
+                    cluster=cluster,
                 )
             )
 

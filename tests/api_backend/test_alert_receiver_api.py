@@ -307,6 +307,47 @@ def test_recent_autonomous_finding_is_reused_instead_of_rerunning(harness) -> No
     assert _rows()[0].analysis_status == "reused"
 
 
+def test_finding_from_another_cluster_is_not_reused(harness) -> None:
+    h = harness()
+    with get_session_local()() as db:
+        db.add(FindingEntity(
+            analysis_run_id="auto-eu", service="checkout-api", metric_name=METRIC_KEY, cluster="eu",
+            title="Autonomous: latency shift in eu", summary="found by the scheduler", category="baseline_shift",
+            health_status="significant", importance_score=0.9, signal_ids=[], comparison_json={},
+            created_at=STARTS_AT - timedelta(minutes=5),
+        ))
+        db.commit()
+    payload = _payload()
+    payload["alerts"][0]["labels"]["cluster"] = "us"
+
+    h.client.post("/api/integrations/alertmanager", json=payload)
+
+    assert len(h.pipeline.calls) == 1
+    assert "Autonomous: latency shift in eu" not in _message_text(h.posted[0])
+
+
+def test_finding_from_the_alerts_cluster_is_reused(harness) -> None:
+    h = harness()
+    with get_session_local()() as db:
+        for cluster in ("eu", "us"):
+            db.add(FindingEntity(
+                analysis_run_id=f"auto-{cluster}", service="checkout-api", metric_name=METRIC_KEY, cluster=cluster,
+                title=f"Autonomous: latency shift in {cluster}", summary="found by the scheduler", category="baseline_shift",
+                health_status="significant", importance_score=0.95 if cluster == "eu" else 0.9, signal_ids=[], comparison_json={},
+                created_at=STARTS_AT - timedelta(minutes=5),
+            ))
+        db.commit()
+    payload = _payload()
+    payload["alerts"][0]["labels"]["cluster"] = "us"
+
+    h.client.post("/api/integrations/alertmanager", json=payload)
+
+    assert h.pipeline.calls == []
+    text = _message_text(h.posted[0])
+    assert "Autonomous: latency shift in us" in text
+    assert "latency shift in eu" not in text
+
+
 def test_generic_endpoint_is_labelled_external(harness) -> None:
     h = harness()
     response = h.client.post(

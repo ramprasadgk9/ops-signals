@@ -63,7 +63,29 @@ describe('FindingDetailsDrawer ingested data section', () => {
     expect(await screen.findByText('OTLP')).toBeInTheDocument();
     expect(screen.getByText(/288 points/)).toBeInTheDocument();
     expect(screen.getByText(/c06d17a3/)).toBeInTheDocument();
-    expect(api.timeseries).toHaveBeenCalledWith('test-otlp-service', 'cpu_usage', 'c06d17a3dd9143ef8ebd8c454031fd89');
+    expect(api.timeseries).toHaveBeenCalledWith('test-otlp-service', 'cpu_usage', 'c06d17a3dd9143ef8ebd8c454031fd89', undefined);
+  });
+
+  it('shows the cluster and charts only that cluster for a multi-cluster finding', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue({
+      id: 'run-eu',
+      source_type: 'prometheus',
+      provider: 'prometheus',
+      service: 'checkout',
+      metric_name: 'cpu_usage',
+      start_time: '2026-09-21T00:00:00Z',
+      end_time: '2026-09-22T00:00:00Z',
+      sample_count: 100,
+      status: 'completed',
+      created_at: '2026-09-22T17:47:07Z',
+    });
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+
+    renderDrawer({ ...otlpFinding, service: 'checkout', analysis_run_id: 'run-eu', cluster: 'eu' });
+
+    expect(await screen.findByText('Cluster')).toBeInTheDocument();
+    expect(screen.getByText('eu')).toBeInTheDocument();
+    expect(api.timeseries).toHaveBeenCalledWith('checkout', 'cpu_usage', 'run-eu', 'eu');
   });
 
   it('labels a prometheus-sourced finding distinctly from an OTLP one', async () => {

@@ -24,6 +24,8 @@ class OperationalSignal:
     importance_score: float = 0.0
     status: str = "new"
     analysis_run_id: str | None = None
+    # Set by the pipeline (intelligence/series_identity.py), not by analyzers.
+    cluster: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = _sanitize_json(asdict(self))

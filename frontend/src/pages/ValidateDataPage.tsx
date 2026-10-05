@@ -38,6 +38,7 @@ import UploadRoundedIcon from '@mui/icons-material/UploadRounded';
 import WifiTetheringRoundedIcon from '@mui/icons-material/WifiTetheringRounded';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { findingLevel } from '../utils/findingLevel';
 import { api } from '../api/queries';
 import { panelSx, ui } from '../standalone/theme';
 import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
@@ -116,11 +117,12 @@ function parseStepMs(value: string) {
   return amount * multipliers[unit];
 }
 
-function buildPromql(metric: string, service: string) {
+function buildPromql(metric: string, service: string, cluster?: { label: string; value: string } | null) {
   const trimmedMetric = metric.trim();
   const trimmedService = service.trim();
   if (!trimmedMetric || !trimmedService) return trimmedMetric;
-  return `${trimmedMetric}{service="${trimmedService}"}`;
+  const clusterMatcher = cluster?.value ? `,${cluster.label}="${cluster.value}"` : '';
+  return `${trimmedMetric}{service="${trimmedService}"${clusterMatcher}}`;
 }
 
 function formatRangeDate(value: Date | string | null | undefined) {
@@ -346,7 +348,8 @@ export function ValidateDataPage() {
   const [customStart, setCustomStart] = useState(isoForDatetimeLocal(defaultRange.start));
   const [customEnd, setCustomEnd] = useState(isoForDatetimeLocal(defaultRange.end));
   const [step, setStep] = useState('5m');
-  const [connectionId, setConnectionId] = useState('default');
+  const [selectedConnectionId, setConnectionId] = useState<string | null>(null);
+  const [selectedCluster, setSelectedCluster] = useState('');
   const [promPreview, setPromPreview] = useState<PrometheusPreviewResponse | null>(null);
   const [promResult, setPromResult] = useState<DirectPrometheusAnalysisResponse | null>(null);
   const [promResults, setPromResults] = useState<DirectPrometheusAnalysisResponse[]>([]);
@@ -356,7 +359,11 @@ export function ValidateDataPage() {
 
   const capabilitiesQuery = useQuery({ queryKey: ['capabilities'], queryFn: () => api.capabilities() });
   const connectionsQuery = useQuery({ queryKey: ['prometheus-connections'], queryFn: api.prometheusConnections });
-  const connectionConfigured = connectionsQuery.data?.connections.find((connection) => connection.id === connectionId)?.configured ?? false;
+  // Until the user picks one, the default connection - by its own id, so the picker shows it.
+  const connectionId = selectedConnectionId ?? connectionsQuery.data?.connections.find((connection) => connection.is_default)?.id ?? 'default';
+  const selectedConnection = connectionsQuery.data?.connections.find((connection) => connection.id === connectionId);
+  const connectionConfigured = selectedConnection?.configured ?? false;
+  const clusterLabel = selectedConnection?.cluster_label ?? null;
   const serviceLabelsQuery = useQuery({
     queryKey: ['prometheus-label-values', connectionId, 'service'],
     queryFn: () => api.prometheusLabelValues('service', connectionId),
@@ -386,7 +393,26 @@ export function ValidateDataPage() {
   }, [customEnd, customStart, timePreset]);
 
   const selectedMetricNames = queryMode === 'simple' ? (metricNames.length ? metricNames : [metricName]).filter(Boolean) : [metricName].filter(Boolean);
-  const effectiveQuery = queryMode === 'simple' ? buildPromql(selectedMetricNames[0] ?? metricName, service) : promQuery;
+  // Which clusters the chosen service+metrics exist in. A Cluster field appears only when there are
+  // several; with one or none the query is built exactly as without it.
+  const clusterMatchers = queryMode === 'simple' && service.trim() ? selectedMetricNames.map((metric) => buildPromql(metric, service)).filter((selector) => selector.includes('{')) : [];
+  const clustersQuery = useQuery({
+    queryKey: ['prometheus-label-values', connectionId, clusterLabel, clusterMatchers, selectedRange.start.getTime(), selectedRange.end.getTime()],
+    queryFn: () => api.prometheusLabelValues(clusterLabel!, connectionId, {
+      match: clusterMatchers,
+      start: selectedRange.start.toISOString(),
+      end: selectedRange.end.toISOString(),
+    }),
+    enabled: mode === 'prometheus' && connectionConfigured && Boolean(clusterLabel) && clusterMatchers.length > 0 && !Number.isNaN(selectedRange.start.getTime()) && !Number.isNaN(selectedRange.end.getTime()),
+    retry: false,
+  });
+  const clusterOptions = clusterMatchers.length ? clustersQuery.data?.values ?? [] : [];
+  const needsCluster = clusterOptions.length > 1;
+  // A choice that isn't in the current list (another service, metric or connection) no longer applies.
+  const chosenCluster = needsCluster && clusterOptions.includes(selectedCluster) ? selectedCluster : '';
+  const clusterSelector = chosenCluster && clusterLabel ? { label: clusterLabel, value: chosenCluster } : null;
+  const clusterRequired = needsCluster && !chosenCluster;
+  const effectiveQuery = queryMode === 'simple' ? buildPromql(selectedMetricNames[0] ?? metricName, service, clusterSelector) : promQuery;
   const rangeValid = selectedRange.start instanceof Date && selectedRange.end instanceof Date && !Number.isNaN(selectedRange.start.getTime()) && !Number.isNaN(selectedRange.end.getTime()) && selectedRange.start < selectedRange.end;
   const suggestedLabService = service.replace(/_/g, '-');
   const likelyLabServiceTypo = service.includes('_') && LAB_SERVICE_NAMES.has(suggestedLabService);
@@ -459,7 +485,7 @@ export function ValidateDataPage() {
       const previews = await Promise.all(selectedMetricNames.map((metric) =>
         api.previewPrometheus({
           connection_id: connectionId,
-          query: buildPromql(metric, service),
+          query: buildPromql(metric, service, clusterSelector),
           start: selectedRange.start.toISOString(),
           end: selectedRange.end.toISOString(),
           step,
@@ -501,7 +527,7 @@ export function ValidateDataPage() {
       for (const metric of selectedMetricNames) {
         results.push(await api.runPrometheusAnalysis({
           connection_id: connectionId,
-          query: buildPromql(metric, service),
+          query: buildPromql(metric, service, clusterSelector),
           service,
           metric,
           start: selectedRange.start.toISOString(),
@@ -561,6 +587,9 @@ export function ValidateDataPage() {
   const connectionVerified = testConnectionMutation.data?.available === true;
   const connectionLabel = connectionVerified ? 'Connected' : connectionConfigured ? 'Configured' : 'Not configured';
   const serviceOptions = serviceLabelsQuery.data?.values ?? [];
+  // The lab scenarios are services in run_all.sh's mock Prometheus; hide them on a connection that
+  // doesn't have them (e.g. Mimir). Until the service list loads, keep today's behaviour.
+  const labScenariosAvailable = !serviceLabelsQuery.data || serviceOptions.some((value) => LAB_SERVICE_NAMES.has(value));
   const metricOptions = [
     ...['ops_signal_lab_value', 'cpu_usage', 'request_latency_p95', 'error_rate'].filter((item) => metricLabelsQuery.data?.values.includes(item)),
     ...(metricLabelsQuery.data?.values ?? []).filter((item) => !['ops_signal_lab_value', 'cpu_usage', 'request_latency_p95', 'error_rate'].includes(item)),
@@ -684,7 +713,7 @@ export function ValidateDataPage() {
                   <FieldLabel>Connection</FieldLabel>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
                     <FormControl fullWidth>
-                      <Select size="small" value={connectionId} onChange={(e) => setConnectionId(e.target.value)} sx={{ height: 44, bgcolor: '#fff' }}>
+                      <Select size="small" value={connectionId} onChange={(e) => { setConnectionId(e.target.value); setSelectedCluster(''); }} sx={{ height: 44, bgcolor: '#fff' }}>
                         {(connectionsQuery.data?.connections ?? [{ id: 'default', name: 'Default Prometheus', configured: false }]).map((connection) => (
                           <MenuItem key={connection.id} value={connection.id}>{connection.name}{connection.configured ? '' : ' (not configured)'}</MenuItem>
                         ))}
@@ -697,6 +726,7 @@ export function ValidateDataPage() {
 	                  </Stack>
 	                </Box>
 
+	                {labScenariosAvailable ? (
 	                <Box>
 	                  <FieldLabel>Lab Scenarios</FieldLabel>
 	                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -728,9 +758,10 @@ export function ValidateDataPage() {
 	                    Lab scenarios are Prometheus service labels. Analyzer controls choose which detector runs.
 	                  </Typography>
 	                </Box>
+	                ) : null}
 
-	                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
-	                  <Box><FieldLabel>Query Mode</FieldLabel><FormControl fullWidth><Select size="small" value={queryMode} onChange={(e) => setQueryMode(e.target.value as 'simple' | 'advanced')} sx={{ height: 44 }}><MenuItem value="simple">Simple</MenuItem><MenuItem value="advanced">Advanced PromQL</MenuItem></Select></FormControl></Box>
+	                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: `repeat(${needsCluster ? 5 : 4}, 1fr)` }, gap: 1.5 }}>
+	                  <Box><FieldLabel>Query Mode</FieldLabel><FormControl fullWidth><Select size="small" value={queryMode} onChange={(e) => { if (e.target.value === 'advanced') setPromQuery(effectiveQuery); setQueryMode(e.target.value as 'simple' | 'advanced'); }} sx={{ height: 44 }}><MenuItem value="simple">Simple</MenuItem><MenuItem value="advanced">Advanced PromQL</MenuItem></Select></FormControl></Box>
 	                  <Box>
 	                    <FieldLabel>Service</FieldLabel>
 	                    <Autocomplete
@@ -773,6 +804,29 @@ export function ValidateDataPage() {
 	                      renderInput={(params) => <TextField {...params} placeholder={metricLabelsQuery.error ? 'Type metric manually' : 'Select or type metric'} />}
 	                    />
 	                  </Box>
+	                  {needsCluster ? (
+	                    <Box>
+	                      <FieldLabel>Cluster</FieldLabel>
+	                      <FormControl fullWidth>
+	                        <Select
+	                          size="small"
+	                          displayEmpty
+	                          value={chosenCluster}
+	                          onChange={(e) => { setSelectedCluster(e.target.value); setPromPreview(null); setPromResult(null); setPromResults([]); }}
+	                          inputProps={{ 'aria-label': 'Cluster' }}
+	                          renderValue={(value) => value || <span style={{ color: ui.muted }}>Choose a cluster</span>}
+	                          sx={{ height: 44 }}
+	                        >
+	                          {clusterOptions.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+	                        </Select>
+	                      </FormControl>
+	                      {!chosenCluster ? (
+	                        <Typography sx={{ mt: 0.5, color: '#b45309', fontSize: 12, fontWeight: 700 }}>
+	                          {service.trim()} runs in {clusterOptions.length} clusters
+	                        </Typography>
+	                      ) : null}
+	                    </Box>
+	                  ) : null}
 	                  <Box><FieldLabel>Analyzer</FieldLabel><FormControl fullWidth><Select size="small" value={analyzerId} onChange={(e) => setAnalyzerId(e.target.value)} sx={{ height: 44 }}>{analyzerOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}</Select></FormControl></Box>
 	                </Box>
 
@@ -819,10 +873,15 @@ export function ValidateDataPage() {
                   <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: '#b6d5dd', color: '#0f766e', textTransform: 'none', fontWeight: 850 }}>
                     {previewMutation.isPending ? <CircularProgress size={20} /> : 'Preview Data'}
                   </Button>
-                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || belowRouterMinimum || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
+                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || belowRouterMinimum || clusterRequired || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
                     {runPrometheusMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Run Analysis'}
                   </Button>
                 </Stack>
+                {clusterRequired ? (
+                  <Typography sx={{ color: ui.muted, fontSize: 13, fontWeight: 700 }}>
+                    Choose a cluster ({clusterOptions.join(', ')}) to run analysis. Preview shows every cluster.
+                  </Typography>
+                ) : null}
                 {promMessage ? <Alert severity="success">{promMessage}</Alert> : null}
                 {promError ? <Alert severity="error">{promError}</Alert> : null}
               </Stack>
@@ -917,7 +976,7 @@ export function ValidateDataPage() {
 	              <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5}>
 	                <Box>
 	                  <Typography sx={{ fontSize: 20, fontWeight: 900, color: ui.text }}>What Ops Signals Found</Typography>
-	                  <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.4 }}>Run {promResult.analysis_run_id} · {promResult.metric_name} · {promResult.service}</Typography>
+	                  <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.4 }}>Run {promResult.analysis_run_id} · {promResult.metric_name} · {promResult.service}{primaryFinding?.id ? ` · Finding #${primaryFinding.id}` : ''}</Typography>
 	                </Box>
 	                <Stack direction="row" spacing={1} flexWrap="wrap">
 	                  <Chip size="small" label={`${promResult.sample_count} samples`} />
@@ -972,7 +1031,7 @@ export function ValidateDataPage() {
 	                  {primaryFinding ? (
 	                    <Stack spacing={1.4}>
 	                      <Stack direction="row" spacing={1} flexWrap="wrap">
-	                        <Chip size="small" label={primaryFinding.health_status} sx={{ bgcolor: '#fff1f2', color: ui.red, fontWeight: 800 }} />
+	                        <Chip size="small" label={`${findingLevel(primaryFinding.health_status).label} importance`} sx={{ bgcolor: findingLevel(primaryFinding.health_status).tone.bg, color: findingLevel(primaryFinding.health_status).tone.color, fontWeight: 800 }} />
 	                        <Chip size="small" label={primaryFinding.category} />
 	                        <Chip size="small" label={`priority ${primaryFinding.investigation_priority}`} />
 	                      </Stack>
@@ -995,6 +1054,9 @@ export function ValidateDataPage() {
                                 {createCaseMutation.isPending ? 'Creating...' : 'Create Case'}
                               </Button>
                             )}
+                            <Button size="small" variant="outlined" href={`/findings?finding=${primaryFinding.id}`} sx={{ textTransform: 'none', fontWeight: 850 }}>
+                              View in Findings
+                            </Button>
                           </Stack>
                         ) : null}
 	                    </Stack>
@@ -1050,10 +1112,14 @@ export function ValidateDataPage() {
                             <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.2}>
                               <Box>
 	                              <Typography sx={{ fontWeight: 850 }}>{finding.title}</Typography>
-	                              <Typography sx={{ color: ui.muted, fontSize: 13 }}>{finding.category} · {finding.health_status}</Typography>
+	                              <Typography sx={{ color: ui.muted, fontSize: 13 }}>{finding.category} · {findingLevel(finding.health_status).label} importance</Typography>
                               </Box>
                               {finding.id ? (
-                                createdCases[finding.id] ? (
+                                <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}>
+                                <Button size="small" variant="text" href={`/findings?finding=${finding.id}`} aria-label={`View finding #${finding.id} in Findings`} sx={{ textTransform: 'none', fontWeight: 850 }}>
+                                  View
+                                </Button>
+                                {createdCases[finding.id] ? (
                                   <Button size="small" variant="outlined" href={`/cases/${createdCases[finding.id]}`} sx={{ textTransform: 'none', fontWeight: 850, alignSelf: { xs: 'flex-start', sm: 'center' } }}>
                                     Open Case
                                   </Button>
@@ -1067,7 +1133,8 @@ export function ValidateDataPage() {
                                   >
                                     Create Case
                                   </Button>
-                                )
+                                )}
+                                </Stack>
                               ) : null}
                             </Stack>
 	                        </Box>
@@ -1112,7 +1179,7 @@ export function ValidateDataPage() {
         <>
           <RouterDecisionPanel decisions={routerDecisions} executions={routerExecutions} executedAnalyzers={executedAnalyzers} />
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Signals</Typography>{resultSignals.length === 0 ? <Typography variant="body2" color="text.secondary">No signals returned yet.</Typography> : resultSignals.map((signal) => <Card key={signal.signal_id} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={signal.signal_type} size="small" /><Chip label={signal.severity} size="small" /><Chip label={signal.analyzer_id} size="small" /></Stack><Typography variant="subtitle1">{signal.summary}</Typography><Typography variant="body2" color="text.secondary">{signal.metric_name} · {signal.service ?? 'n/a'} · confidence {signal.confidence.toFixed(2)}</Typography></Stack></Card>)}</Stack></CardContent></Card>
-          <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">No findings returned yet.</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={finding.health_status} size="small" /><Chip label={finding.category} size="small" /></Stack><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography><Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
+          <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">No findings returned yet.</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={`${findingLevel(finding.health_status).label} importance`} size="small" /><Chip label={finding.category} size="small" /></Stack><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography><Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
         </>
       ) : null}
     </Box>

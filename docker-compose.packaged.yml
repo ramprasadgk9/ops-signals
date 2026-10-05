@@ -36,13 +36,18 @@ services:
     environment:
       OPS_SIGNALS_DATABASE_URL: postgresql+psycopg://ops_signals:ops_signals@postgres:5432/ops_signals
       OPS_SIGNALS_QDRANT_URL: http://qdrant:6333
-      OPS_SIGNALS_PROMETHEUS_URL: http://prometheus:9090
+      # Your Prometheus, as the backend container sees it (a Prometheus on this machine is
+      # http://host.docker.internal:9090). For several Mimir tenants, add docker-compose.connections.yml.
+      OPS_SIGNALS_PROMETHEUS_URL: ${OPS_SIGNALS_PROMETHEUS_URL:-http://prometheus:9090}
       # See docs/security-model.md. Without a token the API is open to anyone who can reach port 8000.
       OPS_SIGNALS_API_TOKEN: ${OPS_SIGNALS_API_TOKEN:-}
       OPS_SIGNALS_ALLOW_FILE_WRITES: ${OPS_SIGNALS_ALLOW_FILE_WRITES:-false}
       OPS_SIGNALS_ENABLE_TESTING_API: ${OPS_SIGNALS_ENABLE_TESTING_API:-false}
     ports:
       - "8000:8000"
+    # Lets the backend reach a Prometheus on this machine as host.docker.internal on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       default:
         # docker/nginx.web.conf proxies /api/ to this name.

@@ -2,6 +2,50 @@
 
 ## 0.3.0 - Unreleased
 
+- Findings page: search by service, metric, cluster, connection or finding number (`#57`), sort by
+  latest (the new default), oldest, importance or investigation priority, and every finding in the
+  window is listed, 20 at a time - before, only the 5 most important were shown. Search and sort are
+  kept in the URL (`?q=`, `?sort=`). A `#number` outside the window can be opened directly. New
+  Analysis results show the finding number and link to it with **View in Findings**. A finding that
+  repeats across runs (same connection, service, metric, cluster, category and title) gets one card
+  with a **Seen in N runs** chip, giving the first and latest time; clicking it lists each run, and
+  **Group repeats** turns grouping off (`?group=off`).
+- Finding levels read as importance: `critical`, `significant` and `normal` are shown as **High**,
+  **Medium** and **Low** (grey, no longer a green "Normal" that looked like "all fine"), with a
+  tooltip giving the score range. Stored values and the API are unchanged.
+- Validate Data asks for a **Cluster** when the chosen service and metric exist in more than one
+  cluster, before running, instead of failing with "returned 2 series".
+- Named Prometheus connections, one per Mimir tenant. List them in a YAML or JSON file named by
+  `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE`, each with its own URL, tenant header, auth and cluster
+  settings; secrets come from `${ENV}` references. Every Prometheus API call takes a `connection_id`;
+  an unknown id is a 404, never a silent fallback, and `default` still means the default connection.
+  The Configure panel and Validate Data get a **Prometheus connection** picker when there is more than
+  one. Autonomous policies keep their connection, and a scheduled run for a removed connection fails
+  instead of querying another tenant. Alerts are analysed on the connection whose `match_labels` they
+  carry (otherwise the default), and never reuse a finding from another connection. Findings carry
+  `connection_id`, shown on cards and in the drawer. The Integrations status lists each connection's
+  reachability. A broken connections file stops startup. Without the file, the
+  `OPS_SIGNALS_PROMETHEUS_*` variables give one `default` connection, as before. New
+  `analysis_runs.connection_id` and `autonomous_policies.connection_id` columns are added on startup.
+  Docker Compose takes the file through the new `docker-compose.connections.yml` overlay, and the Helm
+  chart through `prometheusConnections` (file in a ConfigMap, tokens from a Secret); a starting file
+  is in `examples/prometheus-connections.yaml`. `docker-compose.packaged.yml` now reads
+  `OPS_SIGNALS_PROMETHEUS_URL` from the environment instead of hardcoding `http://prometheus:9090`.
+  The README's Quick Start says which way to run Ops Signals (demo, laptop, Docker Compose, Helm),
+  with a new **Deploy for Your Team** section.
+  See [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md#several-tenants-named-connections).
+- Multi-cluster Mimir and Thanos. When one endpoint holds several clusters' data, series that differ
+  only by the `cluster` label are now analysed separately instead of being added together. Autonomous
+  analysis plans one job per cluster (`by (service, cluster)` with a `cluster="…"` matcher), and the
+  Configure panel gets a **Clusters** picker when there is more than one cluster. Findings, signals
+  and stored points have a `cluster` field: cards and the details drawer show it, the Findings page
+  can filter by it, and `GET /api/findings?cluster=` filters too. An alert from one cluster never
+  reuses another cluster's finding. HA replica pairs count once: autonomous queries wrap series in
+  `max without (__replica__, prometheus_replica)`, and previews, direct analysis and alert analysis
+  keep one copy and say how many were dropped. Labels are set with
+  `OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL` and `OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS`. Data without
+  these labels is analysed exactly as before. The new `cluster` columns are added on startup. See
+  [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md#mimir-thanos-and-other-multi-source-backends).
 - HTTP analyzers. An analyzer can now be your own web service: Ops Signals POSTs each metric window
   to it and shows the findings it returns next to the built-in analyzers'. Add one with **Add
   Analyzer → I have a hosted API or model** (no longer "coming soon") or an `http:` block in

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Chip, Grid2 as Grid, Stack, Tooltip as MuiTooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, FormControlLabel, Grid2 as Grid, InputAdornment, MenuItem, Stack, Switch, TextField, Tooltip as MuiTooltip, Typography } from '@mui/material';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import CategoryRoundedIcon from '@mui/icons-material/CategoryRounded';
 import { useQuery } from '@tanstack/react-query';
@@ -13,6 +14,7 @@ import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
 import type { Finding } from '../types';
 import { categoryDetail, categoryLabel, categoryShortDescription } from '../utils/findingCategories';
+import { findingIdFromQuery, findingSortFromParam, findingSorts, groupRepeatedFindings, searchFindings } from '../utils/findingSearch';
 
 type FindingsWindow = '24h' | '7d';
 
@@ -21,6 +23,7 @@ const windows: Array<{ id: FindingsWindow; label: string }> = [
   { id: '24h', label: 'Last 24 hours' },
   { id: '7d', label: 'Last 7 days' },
 ];
+const PAGE_SIZE = 20;
 
 function windowFromParams(value: string | null): FindingsWindow {
   return value === '7d' ? '7d' : '24h';
@@ -85,9 +88,40 @@ export function FindingsPage() {
     setDrawerOpen(true);
   };
 
+  // Search and sort live in the URL, so a filtered list can be shared and survives a reload.
+  const searchQuery = searchParams.get('q') ?? '';
+  const sort = findingSortFromParam(searchParams.get('sort'));
+  // Repeated findings (same change on the same series, one per run) share a card unless ?group=off.
+  const groupRepeats = searchParams.get('group') !== 'off';
+  const setParam = (name: string, value: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(name, value);
+    else next.delete(name);
+    setSearchParams(next, { replace: true });
+  };
+  const [shown, setShown] = useState(PAGE_SIZE);
+  useEffect(() => setShown(PAGE_SIZE), [searchQuery, sort, groupRepeats, window, searchParams.get('cluster')]);
+  const showRuns = (finding: Finding) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('q', [finding.service, finding.metric_name, finding.cluster].filter(Boolean).join(' '));
+    next.set('group', 'off');
+    setSearchParams(next, { replace: true });
+  };
+
   if (findingsQuery.isLoading || summaryQuery.isLoading) return <LoadingSkeleton />;
 
   const findings = findingsQuery.data ?? [];
+  // Same service in several clusters (one Mimir/Thanos endpoint) gives one finding per cluster;
+  // the filter only appears when there is more than one cluster to choose from.
+  const clusters = [...new Set(findings.map((finding) => finding.cluster).filter((cluster): cluster is string => Boolean(cluster)))].sort();
+  const clusterFilter = searchParams.get('cluster');
+  const clusterFindings = clusterFilter ? findings.filter((finding) => finding.cluster === clusterFilter) : findings;
+  const visibleFindings = searchFindings(clusterFindings, searchQuery, sort);
+  const visibleGroups = groupRepeatedFindings(visibleFindings, groupRepeats);
+  const setClusterFilter = (cluster: string | null) => setParam('cluster', cluster);
+  // "#57" for a finding outside this window: offer to open it directly, as the deep link does.
+  const searchedId = findingIdFromQuery(searchQuery);
+  const searchedIdMissing = searchedId !== null && !visibleFindings.some((finding) => finding.id === searchedId);
   const summary = summaryQuery.data;
   const categoryCounts = (summary?.category_breakdown ?? []).map((item) => ({ key: item.category, name: categoryLabel(item.category), value: item.count }));
   const trendData = (summary?.severity_trend ?? []).map((item) => ({
@@ -112,7 +146,7 @@ export function FindingsPage() {
             <Button
               key={item.id}
               variant={item.id === window ? 'contained' : 'outlined'}
-              onClick={() => setSearchParams({ window: item.id })}
+              onClick={() => setParam('window', item.id)}
               sx={{ textTransform: 'none', fontWeight: 800, bgcolor: item.id === window ? '#009688' : '#fff' }}
             >
               {item.label}
@@ -215,6 +249,47 @@ export function FindingsPage() {
           <Typography sx={{ fontSize: 18, fontWeight: 900 }}>Finding Records</Typography>
           <Chip label={windows.find((item) => item.id === window)?.label ?? window} />
         </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
+          <TextField
+            size="small"
+            value={searchQuery}
+            onChange={(event) => setParam('q', event.target.value)}
+            placeholder="Search by service, metric, cluster or #finding"
+            inputProps={{ 'aria-label': 'Search findings' }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
+            sx={{ flex: 1, bgcolor: '#fff' }}
+          />
+          <TextField
+            select
+            size="small"
+            label="Sort by"
+            value={sort}
+            onChange={(event) => setParam('sort', event.target.value === 'latest' ? null : event.target.value)}
+            sx={{ minWidth: 220, bgcolor: '#fff' }}
+          >
+            {findingSorts.map((item) => <MenuItem key={item.id} value={item.id}>{item.label}</MenuItem>)}
+          </TextField>
+          <FormControlLabel
+            control={<Switch checked={groupRepeats} onChange={(event) => setParam('group', event.target.checked ? null : 'off')} />}
+            label="Group repeats"
+            sx={{ whiteSpace: 'nowrap', mr: 0 }}
+          />
+        </Stack>
+        {clusters.length > 1 ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 2 }} aria-label="Filter by cluster">
+            <Typography variant="body2" sx={{ fontWeight: 750, color: ui.muted }}>Cluster</Typography>
+            <Chip label="All clusters" color={clusterFilter ? 'default' : 'primary'} variant={clusterFilter ? 'outlined' : 'filled'} onClick={() => setClusterFilter(null)} />
+            {clusters.map((cluster) => (
+              <Chip
+                key={cluster}
+                label={cluster}
+                color={clusterFilter === cluster ? 'primary' : 'default'}
+                variant={clusterFilter === cluster ? 'filled' : 'outlined'}
+                onClick={() => setClusterFilter(cluster)}
+              />
+            ))}
+          </Stack>
+        ) : null}
         {linkedFindingQuery.isError ? (
           <Typography role="status" color="text.secondary" sx={{ mb: 1.5 }}>
             Finding #{linkedFindingId} could not be found.
@@ -222,11 +297,30 @@ export function FindingsPage() {
         ) : null}
         {findingsQuery.error ? (
           <Typography color="error">Findings unavailable.</Typography>
-        ) : findings.length ? (
-          <TopFindingsList findings={findings} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} />
+        ) : visibleFindings.length ? (
+          <Stack spacing={2}>
+            <Typography variant="body2" sx={{ color: ui.muted }}>
+              Showing {Math.min(shown, visibleGroups.length)} of {visibleGroups.length}
+              {visibleGroups.length !== visibleFindings.length ? ` (${visibleFindings.length} findings, repeats grouped)` : ''}
+              {visibleFindings.length !== findings.length ? ` · ${findings.length} in window` : ''}
+            </Typography>
+            <TopFindingsList groups={visibleGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} />
+            {visibleGroups.length > shown ? (
+              <Button variant="outlined" onClick={() => setShown((current) => current + PAGE_SIZE)} sx={{ alignSelf: 'center', textTransform: 'none', fontWeight: 800 }}>
+                Show {Math.min(PAGE_SIZE, visibleGroups.length - shown)} more
+              </Button>
+            ) : null}
+          </Stack>
+        ) : searchQuery ? (
+          <Typography color="text.secondary">No findings in this window match "{searchQuery}".</Typography>
         ) : (
           <Typography color="text.secondary">No findings returned for this window.</Typography>
         )}
+        {searchedIdMissing ? (
+          <Button variant="text" onClick={() => setParam('finding', String(searchedId))} sx={{ mt: 1, textTransform: 'none', fontWeight: 800 }}>
+            Open finding #{searchedId}
+          </Button>
+        ) : null}
       </WorkspacePanel>
 
       <FindingDetailsDrawer

@@ -2,12 +2,14 @@ import { Box, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stac
 import { useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
+import { useConnectionName } from '../api/useConnectionName';
 import { LinkedAlerts } from './AlertComponents';
 import { FindingBreakdown } from './FindingBreakdown';
 import { PastCaseMatches } from './PastCaseMatches';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
+import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { changeChipLabel, findingChanges, findingWhatChanged } from '../utils/findingChanges';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 
@@ -52,6 +54,7 @@ function providerColor(provider?: string | null): string {
 export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: Props) {
   const analysisRunId = finding?.analysis_run_id;
 
+  const connectionName = useConnectionName(finding?.connection_id);
   const seenBeforeQuery = useQuery({
     queryKey: ['finding-seen-before', finding?.id],
     queryFn: () => api.findingSeenBefore(finding!.id as number),
@@ -74,25 +77,12 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
   });
 
   const timeseriesQuery = useQuery({
-    queryKey: ['finding-drawer-timeseries', finding?.service, finding?.metric_name, analysisRunId],
-    queryFn: () => api.timeseries(finding!.service!, finding!.metric_name, analysisRunId!),
+    queryKey: ['finding-drawer-timeseries', finding?.service, finding?.metric_name, analysisRunId, finding?.cluster],
+    queryFn: () => api.timeseries(finding!.service!, finding!.metric_name, analysisRunId!, finding!.cluster),
     enabled: open && Boolean(finding?.service) && Boolean(analysisRunId),
   });
 
   if (!finding) return null;
-
-  const getHealthColor = (status?: string): 'error' | 'warning' | 'success' | 'default' => {
-    switch (status?.toLowerCase()) {
-      case 'critical':
-        return 'error';
-      case 'significant':
-        return 'warning';
-      case 'normal':
-        return 'success';
-      default:
-        return 'default';
-    }
-  };
 
   const matchedSignals = supportingSignals(finding.signal_ids, runSignalsQuery.data ?? signals);
 
@@ -111,10 +101,9 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
         <Typography variant="h5">{finding.title}</Typography>
         
         <Stack direction="row" spacing={1} sx={{ my: 2, flexWrap: 'wrap', gap: 1 }}>
-          <Chip 
-            label={finding.health_status.charAt(0).toUpperCase() + finding.health_status.slice(1)} 
-            color={getHealthColor(finding.health_status)}
-          />
+          <Tooltip title={findingLevelHint(finding.health_status)} arrow>
+            <Chip label={`${findingLevel(finding.health_status).label} importance`} color={findingLevel(finding.health_status).chip} />
+          </Tooltip>
           <Tooltip title={categoryDetail(finding.category) ?? ''} arrow>
             <Chip label={`Category: ${categoryLabel(finding.category)}`} />
           </Tooltip>
@@ -165,6 +154,16 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
           {finding.service && (
             <ListItem>
               <ListItemText primary="Service" secondary={finding.service} />
+            </ListItem>
+          )}
+          {finding.cluster && (
+            <ListItem>
+              <ListItemText primary="Cluster" secondary={finding.cluster} />
+            </ListItem>
+          )}
+          {connectionName && (
+            <ListItem>
+              <ListItemText primary="Prometheus connection" secondary={connectionName} />
             </ListItem>
           )}
           {whatChanged && (

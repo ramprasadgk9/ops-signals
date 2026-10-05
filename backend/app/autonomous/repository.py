@@ -31,6 +31,7 @@ class AutonomousPolicyRepository:
         monitoring_categories: dict,
         execution_policy: dict,
         schedule_minutes: int | None,
+        connection_id: str = "default",
     ) -> AutonomousPolicyEntity:
         now = utc_now()
         enabled = schedule_minutes is not None
@@ -39,6 +40,7 @@ class AutonomousPolicyRepository:
             name=name,
             datasource=datasource,
             backend=backend,
+            connection_id=connection_id,
             scope_json=scope,
             monitoring_categories_json=monitoring_categories,
             execution_policy_json=execution_policy,
@@ -80,9 +82,11 @@ class AutonomousPolicyRepository:
         monitoring_categories: dict,
         execution_policy: dict,
         schedule_minutes: int | None,
+        connection_id: str = "default",
     ) -> AutonomousPolicyEntity:
         """Full edit - always sent together, mirrors what the "Save & Schedule" form submits."""
         policy = self.get(policy_id)
+        policy.connection_id = connection_id
         policy.scope_json = scope
         policy.monitoring_categories_json = monitoring_categories
         policy.execution_policy_json = execution_policy

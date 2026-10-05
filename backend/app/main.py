@@ -46,7 +46,7 @@ from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
-from backend.app.config import MemoryConfig, get_security_config, get_settings, get_slack_config
+from backend.app.config import MemoryConfig, get_prometheus_connections, get_security_config, get_settings, get_slack_config
 from backend.app.config import AIConfig
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
@@ -66,6 +66,7 @@ from backend.app.models.schema_compat import (
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
     ensure_case_import_schema,
+    ensure_cluster_schema,
     ensure_learning_schema,
 )
 from backend.app.security import require_api_token
@@ -219,6 +220,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # A broken connections file stops startup instead of failing (or misrouting) a later query.
+        get_prometheus_connections()
         init_engine(database_url)
         Base.metadata.create_all(bind=get_engine())
         ensure_learning_schema(get_engine())
@@ -226,6 +229,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_case_behavior_link_schema(get_engine())
         ensure_case_import_schema(get_engine())
         ensure_autonomous_policy_scheduling_schema(get_engine())
+        ensure_cluster_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)

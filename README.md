@@ -153,8 +153,23 @@ Historical similarity does not prove two cases share the same root cause.
 
 ## Quick Start
 
-Just want to see it working? The [one-command demo](docs/demo.md) needs only Docker. The steps below
-set up a development install that you can point at your own data.
+### Choose How to Run It
+
+| You want to | Use | Needs |
+| --- | --- | --- |
+| See it working in a minute, with a scripted incident | `docker compose -f docker-compose.demo.yml up` ([demo](docs/demo.md)) | Docker |
+| Try it on your laptop, with sample metrics or your own Prometheus | `./scripts/setup.sh`, then `./scripts/run_all.sh` (the steps below) | Docker, Python, Node |
+| Run it for your team on one server | `docker compose -f docker-compose.packaged.yml up -d` ([Deploy for Your Team](#deploy-for-your-team)) | Docker |
+| Run it in Kubernetes | `helm upgrade --install ops-signals ./helm/ops-signals` ([Deploy for Your Team](#deploy-for-your-team)) | Kubernetes, Helm |
+| Use it inside Grafana | the Grafana plugin ([Grafana Plugin](#grafana-plugin)) | Grafana, plus one of the two above |
+
+The demo doesn't read your data. The laptop install starts its own Prometheus with mock metrics, so
+it works before you connect anything. The team installs read only from the Prometheus you point
+them at.
+
+### Try It on Your Laptop
+
+The steps below set up a development install that you can point at your own data.
 
 ### Prerequisites
 
@@ -210,7 +225,8 @@ the first data arrives, the Overview shows a **Get data in** panel with every wa
 - **OTLP** - the endpoint to point an OTel Collector or SDK at, with a config snippet (see [OTLP](#otlp)).
 - **Alertmanager** - the webhook URL and a `receivers:` snippet; **Send test alert** proves the
   whole path once alert enrichment is on (see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack)).
-- **Prometheus** - pulled on a schedule once `OPS_SIGNALS_PROMETHEUS_URL` is set (see [Prometheus](#prometheus)).
+- **Prometheus** - pulled on a schedule once `OPS_SIGNALS_PROMETHEUS_URL` is set in `.env`, or
+  `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE` for several Mimir tenants (see [Prometheus](#prometheus)).
 - **Deploy events** - the URL and a `curl` step for your CI pipeline, so alerts and findings can say
   which deploy came just before a change (see [Deploy and change events](#deploy-and-change-events)).
 - **Load demo data** - analyzes a bundled checkout series in seconds, or upload your own CSV from
@@ -270,11 +286,56 @@ Alertmanager) sends the token, the Helm and Compose settings, and the known limi
 | --- | --- | --- | --- |
 | `./scripts/setup.sh` | Installs Python and frontend deps, starts Postgres and Qdrant, and initializes the database. | First-time setup or after a clean checkout. | Postgres `5432`, Qdrant `6333` |
 | `./scripts/run_all.sh` | Starts the standalone backend, frontend, Postgres, Qdrant, Prometheus, and mock metrics for the app. | Daily local development outside Grafana. | Backend `8001`, frontend `5174`, Prometheus `9090` |
+| `./scripts/multicluster.sh up`, then `app` | Starts a local Grafana Mimir with several clusters, an HA pair and two tenants, then the app with one connection per tenant. | Testing multi-cluster and multi-tenant behaviour; not for real deployments. See [`docs/testing-multicluster-locally.md`](docs/testing-multicluster-locally.md). | Mimir `9009`, plus the `run_all.sh` ports |
 | `./scripts/run_grafana_stack.sh` | Builds the Grafana plugin, starts Grafana, Prometheus, mock metrics, and the plugin backend. | Testing the Grafana plugin experience. | Grafana `3000`, Prometheus `9090`, backend `8002` |
 | `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
 | `MCP_MODE=mcp-write ./scripts/test_mcp.sh` | Verifies the write-enabled MCP tool list. | Confirming write-capable tools are exposed. | None; stdio only |
 
 `3000` is reserved for Grafana, `8002` for the Grafana/plugin backend - they don't conflict with the standalone app's `8001`/`5174`.
+
+## Deploy for Your Team
+
+`run_all.sh` is for trying Ops Signals out: it runs from source and starts mock metrics. For a team,
+run the backend, web UI and MCP server as containers, pointed at your real Prometheus. Set
+`OPS_SIGNALS_API_TOKEN` for anything others can reach (see [Security model](#security-model)).
+
+### One Server: Docker Compose
+
+```bash
+git clone https://github.com/ramprasadgk9/ops-signals.git
+cd ops-signals
+echo 'OPS_SIGNALS_PROMETHEUS_URL=http://host.docker.internal:9090' >> .env
+docker compose -f docker-compose.packaged.yml up -d
+```
+
+The web UI is at **http://localhost:8080** and the API at `http://localhost:8000`. Set
+`OPS_SIGNALS_PROMETHEUS_URL` to your Prometheus as the backend container sees it:
+`host.docker.internal` is the machine Docker runs on.
+
+**Several Mimir tenants:** list them in a connections file and add the connections overlay.
+Tokens go in `prometheus-connections.env`, never in the YAML:
+
+```bash
+cp examples/prometheus-connections.yaml prometheus-connections.yaml
+printf 'MIMIR_TEAM_A_TOKEN=...\nMIMIR_TEAM_B_TOKEN=...\n' > prometheus-connections.env
+docker compose -f docker-compose.packaged.yml -f docker-compose.connections.yml up -d
+```
+
+### Kubernetes: Helm
+
+```bash
+kubectl create secret generic ops-signals-db \
+  --from-literal=database-url='postgresql+psycopg://USER:PASSWORD@HOST:5432/ops_signals'
+
+helm upgrade --install ops-signals ./helm/ops-signals \
+  --set database.urlSecret.name=ops-signals-db \
+  --set backend.env.OPS_SIGNALS_PROMETHEUS_URL=http://prometheus-server.monitoring:9090
+```
+
+**Several Mimir tenants:** put the connections file under `prometheusConnections.config` in your
+values and the tokens in a Secret named by `prometheusConnections.secretName`.
+
+Both paths, with every value to set, are in [`docs/release-packaging.md`](docs/release-packaging.md).
 
 ## Product Overview
 
@@ -417,6 +478,15 @@ behavior config.
 
 Connect Ops Signals to an existing Prometheus datasource for direct or autonomous analysis. See
 [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md).
+
+One Prometheus is set with `OPS_SIGNALS_PROMETHEUS_URL`. For Grafana Mimir with several tenants (or
+several Prometheus servers), list them as named connections in a file set by
+`OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE` - start from
+[`examples/prometheus-connections.yaml`](examples/prometheus-connections.yaml). The Configure panel and
+Validate Data then get a connection picker, each autonomous policy keeps its connection, and alerts
+are analysed on the tenant their labels match. Series from several clusters behind one endpoint are
+analysed per cluster, and HA replica copies count once. See
+[Mimir, Thanos and other multi-source backends](docs/standalone-prometheus-analysis.md#mimir-thanos-and-other-multi-source-backends).
 
 #### CSV Input
 
@@ -633,7 +703,9 @@ and a deploy recorded (shortened):
 ```
 
 `category` is one of `behavior_change`, `unusual_activity`, `data_quality` or
-`operational_insight`; `health_status` is `critical`, `significant` or `normal`. See
+`operational_insight`; `health_status` is `critical`, `significant` or `normal`, set by the
+importance score (0.8 or more, 0.55 or more, below that). The UI shows them as **High**, **Medium**
+and **Low** importance: `normal` means a change was found but it is small, not that all is well. See
 [`docs/operational-findings.md`](docs/operational-findings.md). How a finding becomes a
 case is in [`docs/operational-cases.md`](docs/operational-cases.md).
 

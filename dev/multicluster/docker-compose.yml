@@ -1,0 +1,107 @@
+# Local multi-cluster Mimir: four Prometheus servers ("clusters") remote-writing into one Mimir.
+# Start, stop and check it with scripts/multicluster.sh - see docs/testing-multicluster-locally.md.
+#
+#   metrics-eu ──► prometheus-eu-a (cluster=eu, prometheus_replica=a) ─┐
+#              └─► prometheus-eu-b (cluster=eu, prometheus_replica=b) ─┤ tenant team-a
+#   metrics-us ──► prometheus-us   (cluster=us, incident every 8h)   ─┼─► mimir :9009
+#   metrics-staging ► prometheus-staging (cluster=staging)            ─┘ tenant team-b
+#
+# Separate project and network from the main docker-compose.yml, so the normal dev setup is untouched.
+name: ops-signals-multicluster
+
+x-metrics: &metrics
+  image: python:3.12-alpine
+  command: ["python", "/app/cluster_metrics.py", "serve"]
+  volumes:
+    - ./cluster_metrics.py:/app/cluster_metrics.py:ro
+  restart: unless-stopped
+
+x-prometheus: &prometheus
+  image: prom/prometheus:v2.54.1
+  restart: unless-stopped
+  depends_on:
+    backfill:
+      condition: service_completed_successfully
+
+services:
+  mimir:
+    image: grafana/mimir:2.17.0
+    command: ["-config.file=/etc/mimir/mimir.yaml", "-target=all"]
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir.yaml:/etc/mimir/mimir.yaml:ro
+      - mimir_data:/data
+    restart: unless-stopped
+
+  metrics-eu:
+    <<: *metrics
+    environment:
+      CLUSTER: eu
+
+  metrics-us:
+    <<: *metrics
+    environment:
+      CLUSTER: us
+      # checkout in us gets 3x slower for 15 minutes every 8 hours; eu and staging stay healthy.
+      INCIDENT_SERVICE: checkout
+      INCIDENT_EVERY_MINUTES: "480"
+      INCIDENT_FOR_MINUTES: "15"
+      INCIDENT_FACTOR: "3"
+
+  metrics-staging:
+    <<: *metrics
+    environment:
+      CLUSTER: staging
+
+  # One-shot: writes BACKFILL_HOURS of history into Mimir before the Prometheus servers start,
+  # labelled exactly like their live data. Runs once; `scripts/multicluster.sh reset` starts over.
+  backfill:
+    image: python:3.12-alpine
+    command: ["python", "/app/cluster_metrics.py", "backfill"]
+    environment:
+      MIMIR_URL: http://mimir:9009
+      BACKFILL_HOURS: "${BACKFILL_HOURS:-72}"
+      BACKFILL_MARKER: /state/backfilled
+      # cluster|tenant|instance|replica labels|incident service
+      BACKFILL_TARGETS: >-
+        eu|team-a|metrics-eu:9100|prometheus_replica=a,prometheus_replica=b|;
+        us|team-a|metrics-us:9100||checkout;
+        staging|team-b|metrics-staging:9100||
+      INCIDENT_EVERY_MINUTES: "480"
+      INCIDENT_FOR_MINUTES: "15"
+      INCIDENT_FACTOR: "3"
+    volumes:
+      - ./cluster_metrics.py:/app/cluster_metrics.py:ro
+      - backfill_state:/state
+    depends_on:
+      - mimir
+    restart: "no"
+
+  prometheus-eu-a:
+    <<: *prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.listen-address=:9090"]
+    ports: ["9191:9090"]
+    volumes: ["./prometheus/eu-a.yml:/etc/prometheus/prometheus.yml:ro"]
+
+  prometheus-eu-b:
+    <<: *prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.listen-address=:9090"]
+    ports: ["9192:9090"]
+    volumes: ["./prometheus/eu-b.yml:/etc/prometheus/prometheus.yml:ro"]
+
+  prometheus-us:
+    <<: *prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.listen-address=:9090"]
+    ports: ["9193:9090"]
+    volumes: ["./prometheus/us.yml:/etc/prometheus/prometheus.yml:ro"]
+
+  prometheus-staging:
+    <<: *prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.listen-address=:9090"]
+    ports: ["9194:9090"]
+    volumes: ["./prometheus/staging.yml:/etc/prometheus/prometheus.yml:ro"]
+
+volumes:
+  mimir_data:
+  backfill_state:

@@ -18,6 +18,7 @@ def _to_signal_out(signal: SignalEntity) -> SignalOut:
         analyzer_id=signal.analyzer_id,
         metric_name=signal.metric_name,
         service=signal.service,
+        cluster=signal.cluster,
         severity=signal.severity,
         confidence=signal.confidence,
         importance_score=signal.importance_score,

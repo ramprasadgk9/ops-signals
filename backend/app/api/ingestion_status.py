@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.config import get_alert_enrichment_config, get_prometheus_config
+from backend.app.config import PrometheusConnectionConfig, get_alert_enrichment_config, get_prometheus_connections
 from backend.app.models.db import get_db
 from backend.app.models.entities import (
     AlertEnrichmentEntity,
@@ -29,7 +29,7 @@ from backend.app.models.entities import (
 )
 from backend.app.otlp.metrics import last_received_at as otlp_last_received_at
 from backend.app.security import receiver_token_or_api_token
-from backend.app.services.prometheus_service import PrometheusQueryService
+from backend.app.services.prometheus_service import PrometheusQueryService, display_url
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,8 @@ EVENTS_ENDPOINT_PATH = "/api/events"
 # The page polls this every 15s; a Prometheus reachability check is cached so it isn't hit that often.
 PROMETHEUS_CHECK_TTL_SECONDS = 30.0
 PROMETHEUS_CHECK_TIMEOUT_SECONDS = 3.0
-_prometheus_check: tuple[float, str, bool] | None = None
+# connection id -> (checked at, base_url, reachable)
+_prometheus_checks: dict[str, tuple[float, str, bool]] = {}
 # analysis_runs.source_type the OTLP backlog cycle writes (backend/app/autonomous/scheduler.py).
 OTLP_RUN_SOURCE_TYPE = "otel"
 
@@ -59,12 +60,21 @@ class AlertmanagerSourceStatus(BaseModel):
     received_24h: int
 
 
-class PrometheusSourceStatus(BaseModel):
+class PrometheusConnectionStatus(BaseModel):
+    id: str
+    name: str
     configured: bool
     url: str | None = None  # without any user:password@ part
     reachable: bool | None = None  # None when not configured
+
+
+class PrometheusSourceStatus(BaseModel):
+    configured: bool  # any connection configured
+    url: str | None = None  # the default connection's, without any user:password@ part
+    reachable: bool | None = None  # any connection answers; None when none is configured
     scheduled_policies: int = 0  # enabled autonomous analysis policies
     alert_enrichment_enabled: bool = False
+    connections: list[PrometheusConnectionStatus] = Field(default_factory=list)
 
 
 class LastChangeEvent(BaseModel):
@@ -122,25 +132,46 @@ def _exists(db: Session, entity, label: str) -> bool:
     return _scalar(db, select(entity.id).limit(1), label) is not None
 
 
-def _display_url(url: str) -> str:
-    parts = urlsplit(url)
-    return urlunsplit(parts._replace(netloc=parts.hostname + (f":{parts.port}" if parts.port else ""))) if parts.hostname else url
-
-
-def _prometheus_reachable() -> bool | None:
-    global _prometheus_check
-    config = get_prometheus_config()
+def _prometheus_reachable(config: PrometheusConnectionConfig) -> bool | None:
     if not config.base_url:
         return None
     now = time.monotonic()
-    if _prometheus_check and _prometheus_check[1] == config.base_url and now - _prometheus_check[0] < PROMETHEUS_CHECK_TTL_SECONDS:
-        return _prometheus_check[2]
+    cached = _prometheus_checks.get(config.id)
+    if cached and cached[1] == config.base_url and now - cached[0] < PROMETHEUS_CHECK_TTL_SECONDS:
+        return cached[2]
     try:
         reachable = PrometheusQueryService(config.model_copy(update={"timeout_seconds": PROMETHEUS_CHECK_TIMEOUT_SECONDS})).test_connection()[0]
     except Exception:  # noqa: BLE001 - a status read never fails because Prometheus is down
         reachable = False
-    _prometheus_check = (now, config.base_url, reachable)
+    _prometheus_checks[config.id] = (now, config.base_url, reachable)
     return reachable
+
+
+def _prometheus_status(scheduled_policies: int, alert_enrichment_enabled: bool) -> PrometheusSourceStatus:
+    connections = get_prometheus_connections()
+    # In parallel, so several unreachable tenants cost one timeout, not one each.
+    with ThreadPoolExecutor(max_workers=min(len(connections.connections), 8)) as pool:
+        reachable = list(pool.map(_prometheus_reachable, connections.connections))
+    statuses = [
+        PrometheusConnectionStatus(
+            id=connection.id,
+            name=connection.name,
+            configured=bool(connection.base_url),
+            url=display_url(connection.base_url) if connection.base_url else None,
+            reachable=ok,
+        )
+        for connection, ok in zip(connections.connections, reachable)
+    ]
+    default = connections.default
+    checked = [ok for ok in reachable if ok is not None]
+    return PrometheusSourceStatus(
+        configured=any(status.configured for status in statuses),
+        url=display_url(default.base_url) if default.base_url else None,
+        reachable=any(checked) if checked else None,
+        scheduled_policies=scheduled_policies,
+        alert_enrichment_enabled=alert_enrichment_enabled,
+        connections=statuses,
+    )
 
 
 def _last_change_event(db: Session) -> ChangeEventEntity | None:
@@ -188,7 +219,6 @@ def get_ingestion_status(db: Session = Depends(get_db)) -> IngestionStatusOut:
         or _exists(db, FindingEntity, "findings")
     )
 
-    prometheus_config = get_prometheus_config()
     last_event = _last_change_event(db)
     events_24h = _scalar(
         db,
@@ -213,13 +243,7 @@ def get_ingestion_status(db: Session = Depends(get_db)) -> IngestionStatusOut:
                 last_received_at=alerts_last,
                 received_24h=int(alerts_24h or 0),
             ),
-            prometheus=PrometheusSourceStatus(
-                configured=bool(prometheus_config.base_url),
-                url=_display_url(prometheus_config.base_url) if prometheus_config.base_url else None,
-                reachable=_prometheus_reachable(),
-                scheduled_policies=int(scheduled_policies or 0),
-                alert_enrichment_enabled=alert_config.enabled,
-            ),
+            prometheus=_prometheus_status(int(scheduled_policies or 0), alert_config.enabled),
             events=EventsSourceStatus(
                 endpoint_path=EVENTS_ENDPOINT_PATH,
                 token_required=bool(receiver_token_or_api_token(alert_config.events_token)),

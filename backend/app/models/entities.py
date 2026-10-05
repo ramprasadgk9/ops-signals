@@ -25,6 +25,7 @@ class NormalizedPoint(Base):
     pod: Mapped[str | None] = mapped_column(Text, nullable=True)
     unit: Mapped[str | None] = mapped_column(Text, nullable=True)
     metric_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     analysis_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
@@ -40,6 +41,7 @@ class SignalEntity(Base):
     metric_name: Mapped[str] = mapped_column(Text, nullable=False)
     service: Mapped[str | None] = mapped_column(Text, nullable=True)
     env: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     severity: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -112,6 +114,8 @@ class AnalysisRunEntity(Base):
     router_decisions_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     executed_analyzers_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     generated_findings_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    # The Prometheus connection (Mimir tenant) a run queried; None for CSV, OTLP and older runs.
+    connection_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -166,6 +170,7 @@ class AutonomousPolicyEntity(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     datasource: Mapped[str] = mapped_column(String(64), nullable=False)
     backend: Mapped[str] = mapped_column(String(128), nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default", server_default="default")
     scope_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     monitoring_categories_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     execution_policy_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
@@ -254,6 +259,7 @@ class FindingEntity(Base):
     analysis_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     service: Mapped[str | None] = mapped_column(Text, nullable=True)
     metric_name: Mapped[str] = mapped_column(Text, nullable=False)
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
