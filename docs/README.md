@@ -56,7 +56,9 @@ How the pieces fit together, what talks to what, and why the two storage layers 
 consumer surface is `POST /api/integrations/alertmanager` (enrich alerts as they fire - see
 [`alert-enrichment.md`](alert-enrichment.md)), `GET /api/alert-context` (pre-page decision support) and
 `POST /api/assistant/chat` (conversational Q&A) - the last two documented in `architecture.md`'s
-"Consume" section.
+"Consume" section. [`integrations.md`](integrations.md) is the full index: every data-in, data-out,
+pluggable-surface and "where you work" integration in one table, each with what it's for and how it's
+wired.
 
 ## 3. Analyzers
 
