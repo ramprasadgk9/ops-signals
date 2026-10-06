@@ -114,3 +114,34 @@ class AmbiguousResolutionRequest(BaseModel):
     """Operator action payload for resolving ambiguous outcome operations."""
     action: str  # 'check_again' | 'link_existing' | 'force_create_new'
     remote_key: str | None = None
+
+
+class TicketResolutionDraft(BaseModel):
+    """Case resolution snapshot prepared for outbound ticket resolution and comment posting."""
+    case_id: int
+    display_key: str
+    root_cause_summary: str | None = None
+    root_cause_verified: bool = False
+    corrective_action: str | None = None
+    outcome_status: str = "resolved"
+    outcome_summary: str | None = None
+    deep_link_url: str | None = None
+
+
+class TicketResolutionResult(BaseModel):
+    """Result returned by a provider upon resolving an external ticket."""
+    remote_id: str
+    display_key: str
+    comment_id: str | None = None
+    transitioned_to: str | None = None
+    success: bool = True
+
+
+class WebhookInfoView(BaseModel):
+    """Configuration and delivery health status of the incoming webhook."""
+    provider: str
+    webhook_url: str
+    is_secret_configured: bool
+    deliveries_count: int
+    last_delivery_at: datetime | None = None
+

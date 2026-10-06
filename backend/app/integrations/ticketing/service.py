@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
@@ -25,13 +26,17 @@ from backend.app.integrations.ticketing.models import (
     TicketDraft,
     TicketEventView,
     TicketOperationView,
+    TicketResolutionDraft,
+    TicketResolutionResult,
     TicketView,
+    WebhookInfoView,
 )
 from backend.app.integrations.ticketing.protocols import (
     AmbiguousOutcomeError,
     LeaseLostError,
     ProviderNotConfiguredError,
     TicketNotFoundError,
+    TicketResolver,
     TicketingError,
 )
 from backend.app.models.entities import (
@@ -167,6 +172,88 @@ class CaseTicketing:
                 provider=provider_name,
                 operation_type="sync_ticket",
                 idempotency_key=f"sync_{case_id}_{uuid4().hex[:8]}",
+                status="pending",
+                attempts=0,
+                max_attempts=self.config.outbox_max_attempts,
+                available_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(op)
+            session.commit()
+            session.refresh(op)
+            return self._to_operation_view(op)
+
+    def request_resolve(
+        self,
+        case_id: int,
+        provider: str | None = None,
+    ) -> TicketOperationView | None:
+        """Enqueues an asynchronous resolve_ticket operation if a linked ticket exists.
+
+        Deep module invariant:
+        - If ticketing is disabled or provider is not configured, returns None (fail-safe no-op).
+        - If no linked ticket exists for this case, returns None (fail-safe no-op).
+        - Enqueues operation with deterministic idempotency key based on resolution payload.
+        """
+        provider_name = provider or self.config.active_provider
+        if not self.config.enabled:
+            return None
+
+        provider_obj = self.providers.get(provider_name)
+        if not provider_obj or not getattr(provider_obj, "is_configured", True):
+            return None
+
+        with self._session_factory() as session:
+            # 1. Check if an active link exists for this case and provider
+            link = (
+                session.query(CaseTicketLinkEntity)
+                .filter_by(case_id=case_id, provider=provider_name)
+                .first()
+            )
+            if not link:
+                return None
+
+            # 2. Check if case exists
+            case = session.query(OperationalCaseEntity).filter_by(id=case_id).first()
+            if not case:
+                return None
+
+            # 3. Deterministic idempotency key based on resolution state
+            content_bytes = (
+                f"{case.outcome_status}:{case.outcome_summary or ''}:"
+                f"{case.corrective_action or ''}:{case.root_cause_summary or ''}"
+            ).encode("utf-8")
+            content_hash = hashlib.sha256(content_bytes).hexdigest()[:12]
+            idem_key = f"resolve_{case_id}_{content_hash}"
+
+            # 4. Check for existing operation with this idempotency key
+            existing_op = (
+                session.query(TicketOperationEntity)
+                .filter_by(provider=provider_name, idempotency_key=idem_key)
+                .first()
+            )
+            if existing_op:
+                if existing_op.status == "failed":
+                    now = datetime.now(timezone.utc)
+                    existing_op.status = "pending"
+                    existing_op.attempts = 0
+                    existing_op.available_at = now
+                    existing_op.error_message = None
+                    existing_op.lease_token = None
+                    existing_op.lease_expires_at = None
+                    existing_op.updated_at = now
+                    session.commit()
+                    session.refresh(existing_op)
+                return self._to_operation_view(existing_op)
+
+            now = datetime.now(timezone.utc)
+            op = TicketOperationEntity(
+                id=f"op_{uuid4().hex[:16]}",
+                case_id=case_id,
+                provider=provider_name,
+                operation_type="resolve_ticket",
+                idempotency_key=idem_key,
                 status="pending",
                 attempts=0,
                 max_attempts=self.config.outbox_max_attempts,
@@ -719,7 +806,7 @@ class CaseTicketing:
                         & (TicketOperationEntity.attempts < TicketOperationEntity.max_attempts)
                         & (TicketOperationEntity.available_at <= now),
                         (TicketOperationEntity.status == "processing")
-                        & (TicketOperationEntity.operation_type == "sync_ticket")
+                        & (TicketOperationEntity.operation_type.in_(["sync_ticket", "resolve_ticket"]))
                         & (TicketOperationEntity.lease_expires_at < now),
                     )
                 )
@@ -761,6 +848,8 @@ class CaseTicketing:
             self._execute_create_operation(op_id, lease_token, case_id, provider)
         elif op_type == "sync_ticket":
             self._execute_sync_operation(op_id, lease_token, case_id, provider_name, provider)
+        elif op_type == "resolve_ticket":
+            self._execute_resolve_operation(op_id, lease_token, case_id, provider_name, provider)
 
     def _execute_create_operation(
         self, op_id: str, lease_token: str, case_id: int, provider: Any
@@ -938,6 +1027,111 @@ class CaseTicketing:
         except Exception as e:
             self._fail_operation(op_id, lease_token, str(e))
 
+    def _execute_resolve_operation(
+        self, op_id: str, lease_token: str, case_id: int, provider_name: str, provider: Any
+    ) -> None:
+        try:
+            with self._session_factory() as session:
+                link = (
+                    session.query(CaseTicketLinkEntity)
+                    .filter_by(case_id=case_id, provider=provider_name)
+                    .first()
+                )
+                if not link:
+                    self._fail_operation(op_id, lease_token, "No ticket link found for case")
+                    return
+
+                case = session.query(OperationalCaseEntity).filter_by(id=case_id).first()
+                if not case:
+                    self._fail_operation(op_id, lease_token, "Case not found")
+                    return
+
+                remote_id = link.remote_id
+                display_key = link.display_key
+                resolution = TicketResolutionDraft(
+                    case_id=case.id,
+                    display_key=link.display_key,
+                    root_cause_summary=case.root_cause_summary,
+                    root_cause_verified=case.root_cause_verified,
+                    corrective_action=case.corrective_action,
+                    outcome_status=case.outcome_status or "resolved",
+                    outcome_summary=case.outcome_summary,
+                    deep_link_url=f"/cases/{case.id}",
+                )
+
+            if not hasattr(provider, "resolve_ticket"):
+                self._fail_operation(op_id, lease_token, f"Provider {provider_name} does not support resolving tickets")
+                return
+
+            result: TicketResolutionResult = provider.resolve_ticket(
+                remote_id=remote_id,
+                display_key=display_key,
+                resolution=resolution,
+            )
+
+            with self._session_factory() as session:
+                now = datetime.now(timezone.utc)
+                op = (
+                    session.query(TicketOperationEntity)
+                    .filter(
+                        TicketOperationEntity.id == op_id,
+                        TicketOperationEntity.lease_token == lease_token,
+                        TicketOperationEntity.status == "processing",
+                        TicketOperationEntity.lease_expires_at > now,
+                    )
+                    .first()
+                )
+                if not op:
+                    session.rollback()
+                    raise LeaseLostError(f"Lease lost for resolve op {op_id}")
+
+                op.status = "completed"
+                op.lease_token = None
+                op.lease_expires_at = None
+                op.updated_at = now
+
+                link = (
+                    session.query(CaseTicketLinkEntity)
+                    .filter_by(case_id=case_id, provider=provider_name)
+                    .first()
+                )
+                if link:
+                    if result.transitioned_to:
+                        link.observed_remote_status = result.transitioned_to
+                    link.last_synced_at = now
+                    link.updated_at = now
+
+                summary_text = f"Posted case resolution to {result.display_key}"
+                if result.transitioned_to:
+                    summary_text += f" (transitioned to {result.transitioned_to})"
+
+                event = CaseTicketEventEntity(
+                    case_id=case_id,
+                    provider=provider_name,
+                    remote_event_id=f"resolve_{result.remote_id}_{uuid4().hex[:8]}",
+                    event_type="resolution_posted",
+                    author="system",
+                    summary=summary_text,
+                    payload={
+                        "remote_id": result.remote_id,
+                        "display_key": result.display_key,
+                        "comment_id": result.comment_id,
+                        "transitioned_to": result.transitioned_to,
+                    },
+                    occurred_at=now,
+                    created_at=now,
+                )
+                session.add(event)
+                session.commit()
+                logger.info("Resolve operation %s completed for %s", op_id, result.display_key)
+
+        except AmbiguousOutcomeError as e:
+            self._fail_operation(op_id, lease_token, str(e))
+        except LeaseLostError:
+            pass
+        except Exception as e:
+            self._fail_operation(op_id, lease_token, str(e))
+
     def _fail_operation(self, op_id: str, lease_token: str, error_message: str) -> None:
         with self._session_factory() as session:
             op = (
@@ -1046,6 +1240,34 @@ class CaseTicketing:
                 self._trigger_auto_triage(case_id, "webhook processing")
 
             return (200, {"status": "processed", "case_id": case_id})
+
+    def get_webhook_info(self, provider: str = "jira") -> WebhookInfoView:
+        """Returns configuration details and delivery metrics for the incoming webhook."""
+        provider_obj = self.providers.get(provider)
+        secret = getattr(getattr(provider_obj, "config", None), "webhook_secret", None) if provider_obj else None
+        is_secret_configured = bool(secret and secret.strip())
+
+        with self._session_factory() as session:
+            deliveries_count = (
+                session.query(TicketWebhookDeliveryEntity)
+                .filter_by(provider=provider)
+                .count()
+            )
+            last_delivery = (
+                session.query(TicketWebhookDeliveryEntity)
+                .filter_by(provider=provider)
+                .order_by(TicketWebhookDeliveryEntity.processed_at.desc())
+                .first()
+            )
+            last_delivery_at = last_delivery.processed_at if last_delivery else None
+
+        return WebhookInfoView(
+            provider=provider,
+            webhook_url=f"/api/integrations/ticketing/{provider}/webhook",
+            is_secret_configured=is_secret_configured,
+            deliveries_count=deliveries_count,
+            last_delivery_at=last_delivery_at,
+        )
 
     def _build_ticket_draft(self, case_id: int) -> TicketDraft:
         with self._session_factory() as session:

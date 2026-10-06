@@ -1095,3 +1095,11 @@ export type AmbiguousResolutionPayload = {
   remote_key?: string;
 };
 
+export type WebhookInfoView = {
+  provider: string;
+  webhook_url: string;
+  is_secret_configured: boolean;
+  deliveries_count: number;
+  last_delivery_at?: string | null;
+};
+

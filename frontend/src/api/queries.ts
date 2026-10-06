@@ -49,6 +49,7 @@ import type {
   CaseNotePromoteResult,
   CommentTriageResult,
   AmbiguousResolutionPayload,
+  WebhookInfoView,
   IngestionStatus,
   OtlpStatus,
   ValidationResult,
@@ -254,6 +255,10 @@ export const api = {
     ),
   getCaseTicketOperation: (caseId: number, operationId: string) =>
     getJson<CaseTicketOperation>(`/api/cases/${caseId}/ticket/operations/${encodeURIComponent(operationId)}`),
+  resolveCaseTicket: (caseId: number, provider?: string) =>
+    postJson<{ provider?: string }, CaseTicketOperation | null>(`/api/cases/${caseId}/ticket/resolve`, { provider }),
+  getTicketingWebhookInfo: (provider: string = 'jira') =>
+    getJson<WebhookInfoView>(`/api/integrations/ticketing/${encodeURIComponent(provider)}/webhook-info`),
 
   
   // Memory API calls

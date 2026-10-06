@@ -7,8 +7,12 @@ import pytest
 
 from backend.app.config import JiraConfig
 from backend.app.integrations.ticketing.jira.adapter import JiraTicketProvider
-from backend.app.integrations.ticketing.jira.adf import adf_to_plain_text, build_case_adf_description
-from backend.app.integrations.ticketing.models import TicketDraft
+from backend.app.integrations.ticketing.jira.adf import (
+    adf_to_plain_text,
+    build_case_adf_description,
+    build_case_resolution_adf_comment,
+)
+from backend.app.integrations.ticketing.models import TicketDraft, TicketResolutionDraft
 from backend.app.integrations.ticketing.protocols import (
     AmbiguousOutcomeError,
     ProviderNotConfiguredError,
@@ -266,3 +270,155 @@ def test_jira_webhook_parsing():
     assert event.event_type == "comment_added"
     assert event.author == "Alice Engineer"
     assert "Deploying hotfix." in event.summary
+
+
+def test_build_case_resolution_adf_comment():
+    draft = TicketResolutionDraft(
+        case_id=99,
+        display_key="OPS-99",
+        root_cause_summary="Keep-alive timeout mismatch",
+        root_cause_verified=True,
+        corrective_action="Adjusted pool size to 50",
+        outcome_status="resolved",
+        outcome_summary="All worker pools stabilized",
+        deep_link_url="http://localhost:3000/cases/99",
+    )
+    adf = build_case_resolution_adf_comment(draft)
+    assert adf["type"] == "doc"
+    assert adf["version"] == 1
+    content = adf["content"]
+    assert len(content) == 6
+
+    # Check title heading
+    heading = content[0]
+    assert heading["type"] == "heading"
+    assert "Case #99" in heading["content"][0]["text"]
+
+    # Check link
+    link_node = content[-1]
+    link_mark = link_node["content"][0]["marks"][0]
+    assert link_mark["type"] == "link"
+    assert link_mark["attrs"]["href"] == "http://localhost:3000/cases/99"
+
+
+def test_resolve_ticket_with_done_transition(monkeypatch):
+    config = JiraConfig(
+        base_url="https://example.atlassian.net",
+        email="eng@example.com",
+        api_token="secret",
+        project_key="OPS",
+    )
+    provider = JiraTicketProvider(config)
+
+    posted_urls: list[str] = []
+    posted_payloads: list[dict] = []
+
+    def mock_post(self, url, json=None, **kwargs):
+        posted_urls.append(url)
+        posted_payloads.append(json or {})
+        if "/comment" in url:
+            return httpx.Response(201, json={"id": "comm_123"})
+        if "/transitions" in url:
+            return httpx.Response(204)
+        return httpx.Response(400)
+
+    def mock_get(self, url, **kwargs):
+        if "/transitions" in url:
+            return httpx.Response(200, json={
+                "transitions": [
+                    {"id": "11", "name": "In Progress", "to": {"name": "In Progress"}},
+                    {"id": "41", "name": "Done", "to": {"name": "Done"}},
+                ]
+            })
+        return httpx.Response(404)
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+    monkeypatch.setattr(httpx.Client, "get", mock_get)
+
+    draft = TicketResolutionDraft(
+        case_id=8,
+        display_key="OPS-8",
+        root_cause_summary="Keep-alive timeout misconfigured",
+        root_cause_verified=True,
+        corrective_action="Rolled back keep-alive config",
+        outcome_status="resolved",
+        outcome_summary="Issue mitigated",
+        deep_link_url="/cases/8",
+    )
+
+    result = provider.resolve_ticket("1008", "OPS-8", draft)
+    assert result.success is True
+    assert result.remote_id == "1008"
+    assert result.display_key == "OPS-8"
+    assert result.comment_id == "comm_123"
+    assert result.transitioned_to == "Done"
+
+    # Verify comment was posted and transition was invoked
+    assert any("/comment" in u for u in posted_urls)
+    assert any("/transitions" in u and p.get("transition", {}).get("id") == "41" for u, p in zip(posted_urls, posted_payloads))
+
+
+def test_resolve_ticket_graceful_degradation_when_no_done_transition(monkeypatch):
+    config = JiraConfig(
+        base_url="https://example.atlassian.net",
+        email="eng@example.com",
+        api_token="secret",
+        project_key="OPS",
+    )
+    provider = JiraTicketProvider(config)
+
+    def mock_post(self, url, json=None, **kwargs):
+        if "/comment" in url:
+            return httpx.Response(201, json={"id": "comm_456"})
+        return httpx.Response(400)
+
+    def mock_get(self, url, **kwargs):
+        if "/transitions" in url:
+            return httpx.Response(200, json={
+                "transitions": [
+                    {"id": "21", "name": "Under Review", "to": {"name": "Under Review"}},
+                ]
+            })
+        return httpx.Response(404)
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+    monkeypatch.setattr(httpx.Client, "get", mock_get)
+
+    draft = TicketResolutionDraft(
+        case_id=8,
+        display_key="OPS-8",
+        root_cause_summary="Unverified bug",
+        root_cause_verified=False,
+        outcome_status="resolved",
+    )
+
+    result = provider.resolve_ticket("1008", "OPS-8", draft)
+    assert result.success is True
+    assert result.comment_id == "comm_456"
+    assert result.transitioned_to is None
+
+
+def test_resolve_ticket_network_error_raises_ambiguous(monkeypatch):
+    config = JiraConfig(
+        base_url="https://example.atlassian.net",
+        email="eng@example.com",
+        api_token="secret",
+        project_key="OPS",
+    )
+    provider = JiraTicketProvider(config)
+
+    def mock_post(self, url, json=None, **kwargs):
+        raise httpx.ConnectTimeout("Connection timed out")
+
+    monkeypatch.setattr(httpx.Client, "post", mock_post)
+
+    draft = TicketResolutionDraft(
+        case_id=8,
+        display_key="OPS-8",
+        outcome_status="resolved",
+    )
+
+    with pytest.raises(AmbiguousOutcomeError) as exc_info:
+        provider.resolve_ticket("1008", "OPS-8", draft)
+    assert "Network error resolving Jira ticket OPS-8" in str(exc_info.value)
+

@@ -14,6 +14,9 @@ from backend.app.integrations.ticketing.models import (
     RemoteTicketSnapshot,
     TicketCreationResult,
     TicketDraft,
+    TicketResolutionDraft,
+    TicketResolutionResult,
+    WebhookInfoView,
 )
 from backend.app.integrations.ticketing.protocols import (
     AmbiguousOutcomeError,
@@ -46,6 +49,8 @@ def _setup_test_case(db_session) -> int:
         end_time=now,
         sample_count=50,
         status="completed",
+        series_profile_json={"metric": "http_errors"},
+        router_decisions_json=[{"analyzer": "threshold"}],
     )
     db_session.add(run)
     finding = FindingEntity(
@@ -110,6 +115,15 @@ class DummyJiraProvider:
             comments=[{"id": "c-1", "author": "dev", "body": "Looking into it"}],
             changelog_items=[],
             cursor="cursor-123",
+        )
+
+    def resolve_ticket(self, remote_id: str, display_key: str, resolution: TicketResolutionDraft) -> TicketResolutionResult:
+        return TicketResolutionResult(
+            remote_id=remote_id,
+            display_key=display_key,
+            comment_id="dummy_c1",
+            transitioned_to="Done",
+            success=True,
         )
 
     def verify_signature(self, raw_body: bytes, headers, secret: str) -> bool:
@@ -892,5 +906,212 @@ def test_sync_operation_triggers_comment_triage():
         assert len(case.investigation_notes) == 1
         assert "(AI auto-promoted)" in case.investigation_notes[0]["note"]
         assert "Cleared blocked queue" in case.investigation_notes[0]["note"]
+
+
+def test_request_resolve_and_outbox_processing():
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        case.outcome_status = "resolved"
+        case.root_cause_summary = "Deadlock in order placement"
+        case.root_cause_verified = True
+        case.corrective_action = "Added row-level lock"
+        case.outcome_summary = "Resolved and confirmed"
+
+        # Link ticket
+        link = CaseTicketLinkEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_id="10099",
+            display_key="OPS-99",
+            ticket_url="https://jira.example.com/browse/OPS-99",
+            observed_remote_status="In Progress",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(link)
+        db.commit()
+
+    mock_provider = MagicMock()
+    mock_provider.is_configured = True
+    mock_provider.resolve_ticket.return_value = TicketResolutionResult(
+        remote_id="10099",
+        display_key="OPS-99",
+        comment_id="comm_res_1",
+        transitioned_to="Done",
+        success=True,
+    )
+
+    service = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(enabled=True),
+        providers={"jira": mock_provider},
+    )
+
+    op_view = service.request_resolve(case_id, provider="jira")
+    assert op_view is not None
+    assert op_view.operation_type == "resolve_ticket"
+    assert op_view.status == "pending"
+
+    # Idempotent: re-calling returns same pending operation
+    op_view2 = service.request_resolve(case_id, provider="jira")
+    assert op_view2.operation_id == op_view.operation_id
+
+    # Process outbox
+    processed_count = service.process_pending_operations(limit=5)
+    assert processed_count >= 1
+
+    completed_op = service.get_operation_view(op_view.operation_id)
+    assert completed_op.status == "completed"
+
+    mock_provider.resolve_ticket.assert_called_once()
+    call_args = mock_provider.resolve_ticket.call_args[1]
+    assert call_args["remote_id"] == "10099"
+    assert call_args["display_key"] == "OPS-99"
+    assert call_args["resolution"].root_cause_verified is True
+    assert call_args["resolution"].corrective_action == "Added row-level lock"
+
+    # Verify link updated and event recorded
+    with session_local() as db:
+        link = db.query(CaseTicketLinkEntity).filter_by(case_id=case_id).first()
+        assert link.observed_remote_status == "Done"
+
+    events = service.list_ticket_events(case_id)
+    resolve_event = next(e for e in events if e.event_type == "resolution_posted")
+    assert "Posted case resolution to OPS-99" in resolve_event.summary
+    assert "(transitioned to Done)" in resolve_event.summary
+
+
+def test_request_resolve_noop_when_unlinked_or_disabled():
+    session_local = get_session_local()
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+
+    # 1. Unlinked case returns None
+    service = CaseTicketing(session_factory=lambda: get_session_local()(), config=TicketingConfig())
+    assert service.request_resolve(case_id) is None
+
+    # 2. Disabled config returns None even if linked
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        link = CaseTicketLinkEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_id="10099",
+            display_key="OPS-99",
+            ticket_url="https://jira.example.com/browse/OPS-99",
+            observed_remote_status="In Progress",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(link)
+        db.commit()
+
+    disabled_service = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(enabled=False),
+    )
+    assert disabled_service.request_resolve(case_id) is None
+
+
+def test_get_webhook_info():
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        deliv = TicketWebhookDeliveryEntity(
+            provider="jira",
+            delivery_id="deliv_info_test_1",
+            processed_at=now,
+        )
+        db.add(deliv)
+        db.commit()
+
+    service = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(jira=JiraConfig(webhook_secret="test-secret-123")),
+    )
+
+    info = service.get_webhook_info("jira")
+    assert info.provider == "jira"
+    assert info.webhook_url == "/api/integrations/ticketing/jira/webhook"
+    assert info.is_secret_configured is True
+    assert info.deliveries_count >= 1
+    assert info.last_delivery_at is not None
+
+
+def test_api_resolve_and_webhook_info_endpoints(client):
+    session_local = get_session_local()
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+
+    # 1. GET /api/integrations/ticketing/jira/webhook-info
+    res = client.get("/api/integrations/ticketing/jira/webhook-info")
+    assert res.status_code == 200
+    info_json = res.json()
+    assert info_json["provider"] == "jira"
+    assert info_json["webhook_url"] == "/api/integrations/ticketing/jira/webhook"
+    assert "is_secret_configured" in info_json
+    assert "deliveries_count" in info_json
+
+    # 2. POST /api/cases/{case_id}/ticket/resolve (unlinked case returns None / 202 null)
+    resolve_res = client.post(f"/api/cases/{case_id}/ticket/resolve")
+    assert resolve_res.status_code == 202
+    assert resolve_res.json() is None
+
+
+def test_patch_resolution_triggers_request_resolve(client, monkeypatch):
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        link = CaseTicketLinkEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_id="10099",
+            display_key="OPS-99",
+            ticket_url="https://jira.example.com/browse/OPS-99",
+            observed_remote_status="In Progress",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(link)
+        db.commit()
+
+    from backend.app.api import ticketing
+    provider = DummyJiraProvider()
+    test_svc = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(enabled=True),
+        providers={"jira": provider},
+    )
+    monkeypatch.setattr(ticketing, "_ticketing_service", test_svc)
+
+    # Call PATCH /api/cases/{case_id}/resolution
+    patch_res = client.patch(
+        f"/api/cases/{case_id}/resolution",
+        json={
+            "outcome_status": "resolved",
+            "outcome_summary": "Issue mitigated by rolling back cache TTL",
+            "corrective_action": "Reverted TTL to 60s",
+            "learning_outcome_status": "confirmed",
+            "root_cause_category": "configuration",
+            "resolved_by": "alice",
+        },
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["outcome_status"] == "resolved"
+
+    # Check outbox has resolve_ticket operation queued!
+    with session_local() as db:
+        op = db.query(TicketOperationEntity).filter_by(case_id=case_id, operation_type="resolve_ticket").first()
+        assert op is not None
+        assert op.status == "pending"
+        assert "resolve_" in op.idempotency_key
+
 
 

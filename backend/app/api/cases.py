@@ -568,4 +568,11 @@ def update_resolution(
 
     _refresh_case_memory(case, db, indexer, config)
 
+    if payload.outcome_status in {"resolved", "mitigated"}:
+        try:
+            ticketing_svc = get_ticketing_service()
+            ticketing_svc.request_resolve(case_id=case.id)
+        except Exception as ticketing_exc:
+            logger.warning("Optional ticket resolution sync failed to enqueue for case %s: %s", case.id, ticketing_exc)
+
     return _to_case_out(case)

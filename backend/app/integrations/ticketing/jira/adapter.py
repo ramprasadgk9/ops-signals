@@ -12,12 +12,15 @@ from backend.app.config import JiraConfig
 from backend.app.integrations.ticketing.jira.adf import (
     adf_to_plain_text,
     build_case_adf_description,
+    build_case_resolution_adf_comment,
 )
 from backend.app.integrations.ticketing.models import (
     RemoteEventDraft,
     RemoteTicketSnapshot,
     TicketCreationResult,
     TicketDraft,
+    TicketResolutionDraft,
+    TicketResolutionResult,
 )
 from backend.app.integrations.ticketing.protocols import (
     AmbiguousOutcomeError,
@@ -203,6 +206,78 @@ class JiraTicketProvider:
                 )
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             raise AmbiguousOutcomeError(f"Network error pulling Jira ticket {display_key}: {e}") from e
+
+    def resolve_ticket(
+        self,
+        remote_id: str,
+        display_key: str,
+        resolution: TicketResolutionDraft,
+    ) -> TicketResolutionResult:
+        """Posts a formatted ADF resolution comment to the Jira ticket and optionally transitions it to Done."""
+        self._ensure_configured()
+        comment_url = f"{self.base_url}/rest/api/3/issue/{remote_id}/comment"
+        adf_body = build_case_resolution_adf_comment(resolution)
+        comment_payload = {"body": adf_body}
+        comment_id = None
+        transitioned_to = None
+
+        try:
+            with self._get_client() as client:
+                # 1. Post resolution comment
+                res = client.post(comment_url, json=comment_payload)
+                if res.status_code in (500, 502, 503, 504):
+                    raise AmbiguousOutcomeError(
+                        f"Jira returned HTTP {res.status_code} posting resolution comment for {display_key}"
+                    )
+                if not res.is_success:
+                    raise TicketingError(
+                        f"Failed to post resolution comment to Jira {display_key}: HTTP {res.status_code} - {res.text}"
+                    )
+                comment_data = res.json()
+                comment_id = str(comment_data.get("id"))
+                logger.info("Successfully posted resolution comment %s to Jira issue %s", comment_id, display_key)
+
+                # 2. Attempt to transition to Done / Resolved / Closed (fail-safe)
+                try:
+                    trans_url = f"{self.base_url}/rest/api/3/issue/{remote_id}/transitions"
+                    trans_res = client.get(trans_url)
+                    if trans_res.is_success:
+                        transitions = trans_res.json().get("transitions", [])
+                        target_trans = None
+                        target_names = {"done", "resolved", "closed", "complete"}
+                        for t in transitions:
+                            to_name = str(t.get("to", {}).get("name", "")).lower().strip()
+                            t_name = str(t.get("name", "")).lower().strip()
+                            if to_name in target_names or t_name in target_names:
+                                target_trans = t
+                                break
+                        if target_trans:
+                            trans_id = target_trans["id"]
+                            trans_target_name = target_trans.get("to", {}).get("name") or target_trans.get("name")
+                            do_trans_res = client.post(trans_url, json={"transition": {"id": trans_id}})
+                            if do_trans_res.is_success or do_trans_res.status_code == 204:
+                                transitioned_to = trans_target_name
+                                logger.info("Successfully transitioned Jira issue %s to %s", display_key, transitioned_to)
+                            else:
+                                logger.warning(
+                                    "Could not transition Jira issue %s to %s (HTTP %s): %s",
+                                    display_key,
+                                    trans_target_name,
+                                    do_trans_res.status_code,
+                                    do_trans_res.text,
+                                )
+                except Exception as trans_err:
+                    logger.warning("Optional transition to Done failed for Jira issue %s: %s", display_key, trans_err)
+
+                return TicketResolutionResult(
+                    remote_id=remote_id,
+                    display_key=display_key,
+                    comment_id=comment_id,
+                    transitioned_to=transitioned_to,
+                    success=True,
+                )
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            raise AmbiguousOutcomeError(f"Network error resolving Jira ticket {display_key}: {e}") from e
 
     def verify_signature(self, raw_body: bytes, headers: Mapping[str, str], secret: str) -> bool:
         """Verifies cryptographic HMAC-SHA256 signature across headers."""

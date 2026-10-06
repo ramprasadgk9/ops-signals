@@ -28,6 +28,9 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
+import CableRoundedIcon from '@mui/icons-material/CableRounded';
+import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { AmbiguousResolutionPayload, CaseTicketOperation } from '../types';
@@ -45,6 +48,8 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
   const [remoteKeyInput, setRemoteKeyInput] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [triageFeedback, setTriageFeedback] = useState<string | null>(null);
+  const [isWebhookGuideOpen, setIsWebhookGuideOpen] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   // 1. Fetch active ticket link
   const ticketQuery = useQuery({
@@ -57,6 +62,19 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
     queryKey: ['caseTicketEvents', caseId],
     queryFn: () => api.getCaseTicketEvents(caseId),
     enabled: Boolean(ticketQuery.data),
+  });
+
+  // 3. Fetch case details to inspect outcome status
+  const caseQuery = useQuery({
+    queryKey: ['case', caseId],
+    queryFn: () => api.getCase(caseId),
+  });
+
+  // 4. Fetch webhook configuration info
+  const webhookQuery = useQuery({
+    queryKey: ['ticketingWebhookInfo', 'jira'],
+    queryFn: () => api.getTicketingWebhookInfo('jira'),
+    enabled: isWebhookGuideOpen,
   });
 
   // 3. Poll active operation if present
@@ -176,6 +194,34 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
     },
   });
 
+  const resolveTicketMutation = useMutation({
+    mutationFn: () => api.resolveCaseTicket(caseId),
+    onSuccess: (data) => {
+      setErrorMessage(null);
+      if (data) {
+        if (data.status === 'completed') {
+          queryClient.invalidateQueries({ queryKey: ['caseTicket', caseId] });
+          queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
+        } else {
+          setActiveOpId(data.operation_id);
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ['caseTicket', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
+    },
+    onError: (err: any) => {
+      setErrorMessage(err.message || 'Failed to sync resolution to Jira');
+    },
+  });
+
+  const handleCopyWebhookUrl = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const fullUrl = `${origin}${webhookQuery.data?.webhook_url || '/api/integrations/ticketing/jira/webhook'}`;
+    navigator.clipboard.writeText(fullUrl);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
+
   const handleResolveSubmit = () => {
     resolveMutation.mutate({
       action: resolutionAction,
@@ -184,7 +230,17 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
   };
 
   const ticket = ticketQuery.data;
-  const isOperating = createMutation.isPending || syncMutation.isPending || Boolean(activeOpId);
+  const isOperating =
+    createMutation.isPending ||
+    syncMutation.isPending ||
+    resolveTicketMutation.isPending ||
+    Boolean(activeOpId);
+  const isCaseResolved =
+    caseQuery.data?.outcome_status === 'resolved' ||
+    caseQuery.data?.outcome_status === 'mitigated';
+  const resolutionPostedEvent = eventsQuery.data?.find(
+    (e) => e.event_type === 'resolution_posted'
+  );
 
   return (
     <Card variant="outlined" sx={{ mt: 2 }}>
@@ -195,37 +251,48 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
               <ConfirmationNumberRoundedIcon color="primary" />
               <Typography variant="h6">External Ticketing</Typography>
             </Stack>
-            {ticket && (
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="secondary"
-                  startIcon={
-                    triageMutation.isPending ? (
-                      <CircularProgress size={14} color="inherit" />
-                    ) : (
-                      <AutoAwesomeRoundedIcon sx={{ fontSize: '15px !important' }} />
-                    )
-                  }
-                  disabled={isOperating || triageMutation.isPending}
-                  onClick={() => triageMutation.mutate()}
-                  sx={{ textTransform: 'none' }}
-                >
-                  {triageMutation.isPending ? 'Triaging...' : '⚡ AI Triage'}
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<SyncRoundedIcon />}
-                  disabled={isOperating || triageMutation.isPending}
-                  onClick={() => syncMutation.mutate()}
-                  sx={{ textTransform: 'none' }}
-                >
-                  {syncMutation.isPending ? 'Syncing...' : 'Sync Now'}
-                </Button>
-              </Stack>
-            )}
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<CableRoundedIcon />}
+                onClick={() => setIsWebhookGuideOpen(true)}
+                sx={{ textTransform: 'none' }}
+              >
+                Webhook Setup
+              </Button>
+              {ticket && (
+                <>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="secondary"
+                    startIcon={
+                      triageMutation.isPending ? (
+                        <CircularProgress size={14} color="inherit" />
+                      ) : (
+                        <AutoAwesomeRoundedIcon sx={{ fontSize: '15px !important' }} />
+                      )
+                    }
+                    disabled={isOperating || triageMutation.isPending}
+                    onClick={() => triageMutation.mutate()}
+                    sx={{ textTransform: 'none' }}
+                  >
+                    {triageMutation.isPending ? 'Triaging...' : '⚡ AI Triage'}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<SyncRoundedIcon />}
+                    disabled={isOperating || triageMutation.isPending}
+                    onClick={() => syncMutation.mutate()}
+                    sx={{ textTransform: 'none' }}
+                  >
+                    {syncMutation.isPending ? 'Syncing...' : 'Sync Now'}
+                  </Button>
+                </>
+              )}
+            </Stack>
           </Stack>
 
           {triageFeedback && (
@@ -264,7 +331,7 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
                   <Typography variant="caption" color="text.secondary">
                     Remote Issue ({ticket.provider})
                   </Typography>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap', gap: 1 }}>
                     <Chip
                       label={ticket.display_key}
                       color="primary"
@@ -285,6 +352,39 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
                       }
                       size="small"
                     />
+                    {isCaseResolved && (
+                      resolutionPostedEvent ? (
+                        <Chip
+                          icon={<TaskAltRoundedIcon />}
+                          label={
+                            resolutionPostedEvent.summary.includes('transitioned to')
+                              ? 'Resolution Synced to Jira ✓'
+                              : 'Resolution Posted ✓'
+                          }
+                          color="success"
+                          variant="outlined"
+                          size="small"
+                        />
+                      ) : (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          startIcon={
+                            resolveTicketMutation.isPending ? (
+                              <CircularProgress size={12} color="inherit" />
+                            ) : (
+                              <TaskAltRoundedIcon sx={{ fontSize: '15px !important' }} />
+                            )
+                          }
+                          disabled={isOperating || resolveTicketMutation.isPending}
+                          onClick={() => resolveTicketMutation.mutate()}
+                          sx={{ textTransform: 'none', height: 26, fontSize: '0.75rem' }}
+                        >
+                          {resolveTicketMutation.isPending ? 'Syncing...' : 'Sync Resolution to Jira'}
+                        </Button>
+                      )
+                    )}
                   </Stack>
                 </Box>
                 <Box>
@@ -484,6 +584,108 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
           >
             {resolveMutation.isPending ? 'Resolving...' : 'Confirm'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Webhook Configuration Guide Modal */}
+      <Dialog
+        open={isWebhookGuideOpen}
+        onClose={() => setIsWebhookGuideOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CableRoundedIcon color="primary" />
+          <span>Jira Webhook Configuration</span>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2.5}>
+            <Typography variant="body2" color="text.secondary">
+              Configure Jira Cloud System Webhooks to ingest comments and issue updates instantaneously, eliminating polling delays.
+            </Typography>
+
+            <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                WEBHOOK TARGET URL
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={
+                    typeof window !== 'undefined'
+                      ? `${window.location.origin}${webhookQuery.data?.webhook_url || '/api/integrations/ticketing/jira/webhook'}`
+                      : '/api/integrations/ticketing/jira/webhook'
+                  }
+                  slotProps={{ input: { readOnly: true } }}
+                  sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ContentCopyRoundedIcon />}
+                  onClick={handleCopyWebhookUrl}
+                  sx={{ minWidth: 100, textTransform: 'none' }}
+                >
+                  {copiedUrl ? 'Copied!' : 'Copy'}
+                </Button>
+              </Stack>
+            </Box>
+
+            <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+              <Typography variant="caption" fontWeight={600} color="text.secondary">
+                SECURITY & DELIVERY HEALTH
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                <Chip
+                  size="small"
+                  label={
+                    webhookQuery.data?.is_secret_configured
+                      ? 'HMAC-SHA256 Active'
+                      : 'Secret Not Configured'
+                  }
+                  color={webhookQuery.data?.is_secret_configured ? 'success' : 'warning'}
+                />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`${webhookQuery.data?.deliveries_count ?? 0} deliveries received`}
+                />
+              </Stack>
+              {webhookQuery.data?.last_delivery_at && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  Last delivery received at {new Date(webhookQuery.data.last_delivery_at).toLocaleString()}
+                </Typography>
+              )}
+            </Box>
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Setup Steps in Atlassian Jira Cloud:
+              </Typography>
+              <Stack spacing={1} component="ol" sx={{ pl: 2.5, m: 0, fontSize: '0.875rem' }}>
+                <Typography component="li" variant="body2">
+                  Open Jira Settings ➔ <strong>System</strong> ➔ <strong>Webhooks</strong>.
+                </Typography>
+                <Typography component="li" variant="body2">
+                  Click <strong>Create a Webhook</strong> and paste the target URL above.
+                </Typography>
+                <Typography component="li" variant="body2">
+                  Under <strong>Issue related events</strong>, check:
+                  <br />
+                  • <strong>Issue:</strong> updated, created
+                  <br />
+                  • <strong>Comment:</strong> created, updated
+                </Typography>
+                <Typography component="li" variant="body2">
+                  Scroll to bottom and click <strong>Save</strong>. Incoming comments will now triage instantly!
+                </Typography>
+              </Stack>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsWebhookGuideOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Card>

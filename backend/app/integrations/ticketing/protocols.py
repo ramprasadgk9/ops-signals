@@ -7,6 +7,8 @@ from backend.app.integrations.ticketing.models import (
     RemoteTicketSnapshot,
     TicketCreationResult,
     TicketDraft,
+    TicketResolutionDraft,
+    TicketResolutionResult,
 )
 
 
@@ -67,3 +69,16 @@ class WebhookParser(Protocol):
 
     def parse_webhook_event(self, raw_body: bytes, headers: Mapping[str, str]) -> RemoteEventDraft | None:
         ...
+
+
+@runtime_checkable
+class TicketResolver(Protocol):
+    """Role protocol for outbound ticket resolution and closing comment posting."""
+    def resolve_ticket(
+        self,
+        remote_id: str,
+        display_key: str,
+        resolution: TicketResolutionDraft,
+    ) -> TicketResolutionResult:
+        ...
+

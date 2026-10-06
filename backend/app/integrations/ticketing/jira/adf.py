@@ -2,7 +2,86 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.app.integrations.ticketing.models import TicketDraft
+from backend.app.integrations.ticketing.models import TicketDraft, TicketResolutionDraft
+
+
+def build_case_resolution_adf_comment(resolution: TicketResolutionDraft) -> dict:
+    """Builds a Jira Cloud v3 Atlassian Document Format (ADF) closing resolution comment."""
+    status_label = "Verified Resolution" if resolution.root_cause_verified else "Case Resolution"
+    content: list[dict] = [
+        {
+            "type": "heading",
+            "attrs": {"level": 3},
+            "content": [
+                {"type": "text", "text": f"🎯 Ops Signals Incident Resolution: Case #{resolution.case_id}"}
+            ],
+        },
+        {
+            "type": "paragraph",
+            "content": [
+                {"type": "text", "text": "Status: ", "marks": [{"type": "strong"}]},
+                {"type": "text", "text": f"{resolution.outcome_status.upper()} ({status_label})"},
+            ],
+        },
+    ]
+
+    if resolution.root_cause_summary:
+        content.append(
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Root Cause: ", "marks": [{"type": "strong"}]},
+                    {"type": "text", "text": resolution.root_cause_summary},
+                ],
+            }
+        )
+
+    if resolution.corrective_action:
+        content.append(
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Corrective Action: ", "marks": [{"type": "strong"}]},
+                    {"type": "text", "text": resolution.corrective_action},
+                ],
+            }
+        )
+
+    if resolution.outcome_summary:
+        content.append(
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Outcome Summary: ", "marks": [{"type": "strong"}]},
+                    {"type": "text", "text": resolution.outcome_summary},
+                ],
+            }
+        )
+
+    if resolution.deep_link_url:
+        content.append(
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"View Case #{resolution.case_id} in Ops Signals",
+                        "marks": [
+                            {
+                                "type": "link",
+                                "attrs": {"href": resolution.deep_link_url},
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+    return {
+        "version": 1,
+        "type": "doc",
+        "content": content,
+    }
 
 
 def build_case_adf_description(draft: TicketDraft) -> dict:

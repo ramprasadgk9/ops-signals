@@ -16,6 +16,7 @@ from backend.app.integrations.ticketing.models import (
     TicketEventView,
     TicketOperationView,
     TicketView,
+    WebhookInfoView,
 )
 from backend.app.integrations.ticketing.protocols import (
     AmbiguousOutcomeError,
@@ -250,6 +251,37 @@ def get_ticket_operation(
     if not op or op.case_id != case_id:
         raise HTTPException(status_code=404, detail="Operation not found")
     return op
+
+
+@router.post(
+    "/api/cases/{case_id}/ticket/resolve",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=TicketOperationView | None,
+)
+def resolve_case_ticket(
+    case_id: int,
+    payload: CreateTicketRequest | None = None,
+    service: CaseTicketing = Depends(get_ticketing_service),
+) -> TicketOperationView | None:
+    try:
+        provider = payload.provider if payload else None
+        return service.request_resolve(case_id, provider=provider)
+    except ProviderNotConfiguredError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TicketingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/api/integrations/ticketing/{provider}/webhook-info",
+    status_code=status.HTTP_200_OK,
+    response_model=WebhookInfoView,
+)
+def get_ticketing_webhook_info(
+    provider: str,
+    service: CaseTicketing = Depends(get_ticketing_service),
+) -> WebhookInfoView:
+    return service.get_webhook_info(provider=provider)
 
 
 @router.post(
