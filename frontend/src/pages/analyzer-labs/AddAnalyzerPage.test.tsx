@@ -81,3 +81,27 @@ describe('AddAnalyzerPage - hosted API or model', () => {
     ));
   });
 });
+
+describe('AddAnalyzerPage - walkthrough video', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('plays the recorded walkthrough from the Setup Flow card', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /Watch how/i }));
+
+    const dialog = screen.getByRole('dialog', { name: 'How to add an analyzer' });
+    const video = within(dialog).getByLabelText('Add analyzer walkthrough video');
+    expect(video).toHaveAttribute('src', `${import.meta.env.BASE_URL}walkthroughs/add-analyzer.webm`);
+  });
+
+  it('goes straight to the add form from the video', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /Watch how/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try it now' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'How to add an analyzer' })).not.toBeInTheDocument());
+    expect(screen.getByText('What are you adding?')).toBeInTheDocument();
+  });
+});

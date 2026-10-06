@@ -247,7 +247,10 @@ def _new_registration_to_ui(registration: AnalyzerRegistration) -> AnalyzerConfi
         source="custom",
         routable=True,
         executable=adapter_exists or is_http,
-        implementation_status="http" if is_http else "verified" if adapter_exists else "pending",
+        # No adapter file yet means no backend support yet - None, like the legacy path above. The
+        # wizard reads "pending" as "adapter stub already created" and disables the button that
+        # creates it, so reporting "pending" here left a freshly promoted analyzer stuck.
+        implementation_status="http" if is_http else "verified" if adapter_exists else None,
         implementation_module=module or None,
         implementation_class_name=class_name or None,
     )

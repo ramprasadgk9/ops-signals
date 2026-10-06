@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 import yaml
 
-from backend.app.api import analyzer_labs
+from backend.app.api import admin_analyzers, analyzer_labs
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import NormalizedPoint
@@ -206,10 +206,19 @@ def test_analyzer_lab_runtime_mappings_and_draft_lifecycle(tmp_path, monkeypatch
         assert not registration_path.exists()
 
 
+def _listed_custom_analyzer(client, analyzer_id):
+    listed = client.get("/api/admin/analyzers")
+    assert listed.status_code == 200
+    return next(item for item in listed.json() if item["analyzer_id"] == analyzer_id and item["source"] == "custom")
+
+
 def test_analyzer_lab_backend_support_generates_pending_adapter(tmp_path, monkeypatch):
     monkeypatch.setattr(analyzer_labs, "CUSTOM_ANALYZERS_PATH", tmp_path / "custom_analyzers.yaml")
     monkeypatch.setattr(analyzer_labs, "CUSTOM_ANALYZER_ADAPTER_DIR", tmp_path / "custom_adapters")
     monkeypatch.setattr(analyzer_labs, "CUSTOM_ANALYZER_REGISTRY_DIR", tmp_path / "analyzer_registry.d")
+    monkeypatch.setattr(admin_analyzers, "CUSTOM_ANALYZERS_PATH", tmp_path / "custom_analyzers.yaml")
+    monkeypatch.setattr(admin_analyzers, "CUSTOM_ANALYZER_REGISTRY_DIR", tmp_path / "analyzer_registry.d")
+    monkeypatch.setattr(admin_analyzers, "CUSTOM_ANALYZER_ADAPTER_DIR", tmp_path / "custom_adapters")
     app = create_app("sqlite+pysqlite:///:memory:")
     payload = _draft_payload("statsforecast_forecast")
     payload["config"]["display_name"] = "StatsForecast Forecast"
@@ -226,10 +235,16 @@ def test_analyzer_lab_backend_support_generates_pending_adapter(tmp_path, monkey
         promoted = client.post(f"/api/analyzer-labs/drafts/{draft['id']}/promote", json={})
         assert promoted.status_code == 200
 
+        # Promoted but no adapter yet: the wizard must still offer "Add backend execution support".
+        listed = _listed_custom_analyzer(client, "statsforecast_forecast")
+        assert listed["implementation_status"] is None
+        assert listed["executable"] is False
+
         support = client.post(f"/api/analyzer-labs/drafts/{draft['id']}/backend-support", json={})
         assert support.status_code == 200
         body = support.json()
         assert body["implementation_status"] == "pending"
+        assert _listed_custom_analyzer(client, "statsforecast_forecast")["implementation_status"] == "verified"
         assert body["module"] == "backend.app.analyzers.custom.statsforecast_forecast"
         assert body["class_name"] == "StatsforecastForecastAnalyzer"
         assert body["created"] is True
