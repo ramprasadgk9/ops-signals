@@ -18,3 +18,25 @@ if str(PROJECT_ROOT) not in sys.path:
 # exercise the background loop itself (test_autonomous_policies.py calls the tick function
 # directly and synchronously), so disabling it here removes the race with no loss of coverage.
 os.environ.setdefault("OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED", "false")
+
+
+import pytest  # noqa: E402
+import qdrant_client  # noqa: E402
+
+_RealQdrantClient = qdrant_client.QdrantClient
+
+
+def _in_memory_qdrant(*_args, **_kwargs) -> qdrant_client.QdrantClient:
+    return _RealQdrantClient(":memory:")
+
+
+@pytest.fixture(autouse=True)
+def _never_the_configured_qdrant(monkeypatch):
+    """Every Qdrant client the app builds is in-memory. config.yaml points at localhost:6333,
+    which is usually a running demo or dev stack: startup there runs the collection migration and
+    the vector backfill against that stack's data, and indexing writes test cases into it.
+    Tests that want a Qdrant create their own QdrantClient(":memory:")."""
+    for module in ("backend.app.main", "backend.app.mcp_runtime", "backend.app.api.testing"):
+        monkeypatch.setattr(f"{module}.QdrantClient", _in_memory_qdrant)
+    # backend.app.case_import.cli imports it inside a function.
+    monkeypatch.setattr(qdrant_client, "QdrantClient", _in_memory_qdrant)
