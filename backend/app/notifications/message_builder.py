@@ -268,7 +268,9 @@ def _seen_before(context: dict | None, ui_base_url: str) -> str:
         origin = ""
         if top.get("origin") == "imported":
             origin = f", imported from {top.get('source')}" + (f" {top['source_id']}" if top.get("source_id") and not top["source_id"].startswith("fp-") else "")
-        lines.append(f"Most similar case: {title} ({round(top.get('similarity_score', 0) * 100)}% match{origin})")
+        more = top.get("more_like_this") or 0
+        more_text = f", +{more} more like this" if more else ""
+        lines.append(f"Most similar case: {title} ({round(top.get('similarity_score', 0) * 100)}% match{origin}{more_text})")
         if top.get("root_cause_summary") and top.get("origin") == "imported":
             lines.append(f"↳ Cause: {top['root_cause_summary']}")
         fix = top.get("corrective_action") or top.get("outcome_summary")

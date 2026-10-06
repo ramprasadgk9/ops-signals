@@ -117,10 +117,32 @@ downstream consumers query.
 **PostgreSQL** is the system of record: normalized points, signals, findings, cases, and learning
 outcomes. **Qdrant** is a semantic retrieval index, never the source of truth — each case's deterministic
 text representation (built by `CaseDocumentBuilder`, explicitly excluding raw JSON/IDs) is embedded and
-upserted into the `operational_cases` collection.
+upserted into the `operational_cases` collection as named vectors (`backend/app/memory/vector_names.py`):
+`full` (the whole document), `symptom` (what was seen), `resolution` (cause and fix, once there is one),
+and a keyword (BM25-style sparse) vector of the whole document. A finding is matched symptom to symptom
+(Seen before?, Similar Cases), free text - alert messages, chat questions - against the full document,
+fixes against fixes. Recall ranks candidates with one Qdrant score formula: cosine similarity plus capped
+bonuses for shared keywords, the same service, a verified root cause and recency
+(`backend/app/memory/recall_scoring.py`), then folds near-copies of a higher match under it
+(`backend/app/memory/diversity.py`). The similarity shown and every score threshold stay plain cosine
+similarity. A collection created before this is recreated with these vectors on startup, keeping its
+points (the old vector becomes `full`); the others are backfilled from PostgreSQL in the background, and
+symptom searches use the full document until that is done.
 
 - `backend/app/models/entities.py`
 - `backend/app/memory/qdrant_initializer.py`, `backend/app/memory/document_builder.py`
+- `backend/app/memory/sparse_encoder.py`, `backend/app/memory/recall_scoring.py`, `backend/app/memory/diversity.py`
+
+Two read-only views are built on the same index. **Novelty** (`backend/app/memory/novelty.py`) labels
+a finding or case New pattern / First time on a service / Seen before / Recurring from the matches
+recall already returned. **Recurring problems** (`backend/app/memory/recurring.py`,
+`GET /api/memory/recurring-problems`) groups the cases in a time window with Qdrant's distance matrix -
+by symptom (80%) or by cause and fix (60%): the most-connected case centres a group of cases at least that
+alike, so groups don't chain. **Fix outcomes** (`backend/app/memory/fix_outcomes.py`) infer whether a fix
+held: no case with the same symptom on the same service within 30 days. They feed **Same fix elsewhere**
+(`GET /api/cases/{id}/same-fix`, resolution vectors) and **Suggested fixes** for a finding
+(`backend/app/memory/suggested_fixes.py`, `GET /api/findings/{id}/suggested-fixes`, with a draft-only
+runbook from the configured LLM).
 
 ### 6. Consume
 

@@ -27,7 +27,7 @@ class _DocsStore:
         self.fallback_rows = fallback_rows
         self.calls = 0
 
-    def search(self, vector, limit=5, score_threshold=0.0, filters=None):
+    def search(self, vector, limit=5, score_threshold=0.0, filters=None, **_kwargs):
         self.calls += 1
         return [] if self.calls == 1 else self.fallback_rows
 

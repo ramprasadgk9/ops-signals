@@ -20,7 +20,7 @@ class _RecordingDocsStore:
     def __init__(self) -> None:
         self.thresholds: list[float] = []
 
-    def search(self, vector, limit=5, score_threshold=0.0, filters=None):
+    def search(self, vector, limit=5, score_threshold=0.0, filters=None, **_kwargs):
         self.thresholds.append(score_threshold)
         return []
 

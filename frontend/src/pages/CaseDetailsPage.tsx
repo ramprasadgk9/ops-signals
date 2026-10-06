@@ -37,6 +37,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
+import { NoveltyBadge } from '../components/NoveltyBadge';
+import { SameFixElsewhere } from '../components/FixHistory';
 import { PastCaseMatches } from '../components/PastCaseMatches';
 import { isImportedCase } from '../standalone/casesService';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -935,7 +937,9 @@ function SimilarCasesList({ caseId, service }: { caseId: number; service?: strin
       <Typography variant="body2" color="text.secondary">
         Strong matches score 70% or more. Possible matches (40-70%) are often the same problem described differently, for example a postmortem written by a person.
       </Typography>
+      <NoveltyBadge novelty={similarCases?.novelty} />
       <PastCaseMatches matches={similarCases?.matches ?? []} service={service} emptyText="No similar cases found." />
+      <SameFixElsewhere caseId={caseId} />
     </Stack>
   );
 }

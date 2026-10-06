@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,7 +12,10 @@ from sqlalchemy import func, select
 from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import MemoryConfig
+from backend.app.memory.diversity import leaders_only
+from backend.app.memory.fix_outcomes import SameFixResponse, find_same_fix
 from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import (
     AlertContextResponse,
     MemoryHealthResponse,
@@ -26,8 +29,10 @@ from backend.app.memory.schemas import (
 )
 from backend.app.memory.alert_context import build_alert_context
 from backend.app.memory.schemas import SeenBeforeResponse
+from backend.app.memory.recurring import RecurringProblemsResponse, find_recurring_problems
 from backend.app.memory.seen_before import find_seen_before
 from backend.app.memory.similarity_service import SimilarityService
+from backend.app.memory.suggested_fixes import RunbookDraft, SuggestedFixesResponse, draft_runbook, suggest_fixes
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
@@ -213,14 +218,82 @@ def finding_seen_before(
     finding = db.get(FindingEntity, finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="finding not found")
+    return _seen_before_or_unavailable(db, finding, service, embedder, config)
+
+
+def _seen_before_or_unavailable(db: Session, finding: FindingEntity, service, embedder, config) -> SeenBeforeResponse:
     enabled = bool(config and config.enabled)
     try:
         return find_seen_before(db, finding, service if enabled else None, embedder if enabled else None)
     except Exception as e:
-        logger.warning(f"Seen-before search failed for finding {finding_id}: {e}")
+        logger.warning(f"Seen-before search failed for finding {finding.id}: {e}")
         return SeenBeforeResponse(
-            finding_id=finding_id, available=False, reason="Past cases could not be searched right now.", service=finding.service
+            finding_id=finding.id, available=False, reason="Past cases could not be searched right now.", service=finding.service
         )
+
+
+@router.get("/findings/{finding_id}/suggested-fixes", response_model=SuggestedFixesResponse)
+def finding_suggested_fixes(
+    finding_id: int,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> SuggestedFixesResponse:
+    """Fixes from past cases like this finding on its service, merged where they say the same
+    thing and ranked by how often they held (inferred: the same symptom didn't come back within
+    30 days)."""
+    finding = db.get(FindingEntity, finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    seen = _seen_before_or_unavailable(db, finding, service, embedder, config)
+    try:
+        return suggest_fixes(db, service.vector_store if service and seen.available else None, seen)
+    except Exception as e:
+        logger.warning(f"Suggested fixes failed for finding {finding_id}: {e}")
+        return SuggestedFixesResponse(finding_id=finding_id, available=False, reason="Past fixes could not be compared right now.")
+
+
+@router.post("/findings/{finding_id}/suggested-fixes/runbook-draft", response_model=RunbookDraft)
+def finding_runbook_draft(
+    finding_id: int,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> RunbookDraft:
+    """Draft-only runbook from the suggested fixes, citing the cases each step comes from. Never
+    saved; returns available=False (not a made-up draft) when AI is off or there are no fixes."""
+    finding = db.get(FindingEntity, finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    ai_services = assistant.services.ai_services if assistant else None
+    if ai_services is None:
+        return RunbookDraft(available=False, reason="AI assistance is not configured.")
+    suggestions = finding_suggested_fixes(finding_id, db, service, embedder, config)
+    return draft_runbook(finding.title, suggestions, ai_services)
+
+
+@router.get("/cases/{case_id}/same-fix", response_model=SameFixResponse)
+def case_same_fix(
+    case_id: int,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> SameFixResponse:
+    """Other cases this case's cause and fix also resolved, on any service, and whether each fix
+    held - plus this case's own fix outcome."""
+    case = db.get(OperationalCaseEntity, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    enabled = bool(config and config.enabled and service)
+    try:
+        return find_same_fix(db, service.vector_store if enabled else None, embedder if enabled else None, case)
+    except Exception as e:
+        logger.warning(f"Same-fix search failed for case {case_id}: {e}")
+        return SameFixResponse(case_id=case_id, available=False, reason="Past fixes could not be searched right now.")
 
 
 @router.get("/cases/{case_id}/similar", response_model=SimilarCasesResponse)
@@ -319,6 +392,8 @@ async def chat_memory(
             filters=filters,
             limit=payload.top_k * 2,
             score_threshold=payload.minimum_score,
+            text=query_text,
+            boost=RecallBoost(service=(current_case.finding_snapshot or {}).get("service") if current_case else None),
         )
 
         if current_case:
@@ -328,7 +403,8 @@ async def chat_memory(
                 if result["payload"].get("case_id") != current_case.id
             ]
 
-        filtered_results = search_results[: payload.top_k]
+        # One answer source per distinct past problem (diversity), not five copies of one.
+        filtered_results = leaders_only(search_results)[: payload.top_k]
         source_case_ids = [result["payload"].get("case_id") for result in filtered_results if result["payload"].get("case_id")]
         matched_cases = db.execute(
             select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(source_case_ids))
@@ -496,6 +572,26 @@ async def get_memory_stats(
         error_cases=counts.get("error", 0),
         total_cases=sum(counts.values()),
     )
+
+
+@router.get("/memory/recurring-problems", response_model=RecurringProblemsResponse)
+def get_recurring_problems(
+    days: Annotated[int, Query(ge=7, le=730)] = 90,
+    min_occurrences: Annotated[int, Query(ge=2, le=20)] = 3,
+    group_by: Literal["symptom", "cause"] = "symptom",
+    db: Session = Depends(get_db),
+    store: VectorStore | None = Depends(get_vector_store),
+    config: MemoryConfig | None = Depends(get_memory_config),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> RecurringProblemsResponse:
+    """Past cases from the last `days` grouped into problems that happened at least
+    `min_occurrences` times, with the causes and fixes found each time - grouped by what was seen
+    (`symptom`) or by root cause and fix (`cause`). Groups are named by the configured LLM when
+    there is one, otherwise after their central case."""
+    if not config or not config.enabled:
+        store = None
+    ai_services = assistant.services.ai_services if assistant else None
+    return find_recurring_problems(db, store, days=days, min_occurrences=min_occurrences, group_by=group_by, ai_services=ai_services)
 
 
 @router.get("/alert-context", response_model=AlertContextResponse)

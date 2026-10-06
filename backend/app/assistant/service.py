@@ -17,9 +17,11 @@ from backend.app.ai.services.intent_service import IntentService
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.assistant.passages import quote_is_in, select_passage
 from backend.app.assistant.schemas import AssistantChatRequest, AssistantChatResponse, AssistantEvidenceGroup, AssistantSource
+from backend.app.memory.diversity import leaders_only
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
+from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.similarity_service import SimilarityService
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
@@ -247,13 +249,15 @@ class OperationalIntelligenceAssistant:
             return None
         try:
             vector = self.services.embedder.encode(payload.message)
-            results = case_similarity.vector_store.search(vector=vector, limit=payload.top_k, score_threshold=0.3)
+            results = case_similarity.vector_store.search(
+                vector=vector, limit=payload.top_k, score_threshold=0.3, text=payload.message, boost=RecallBoost(),
+            )
         except Exception as exc:
             logger.warning("Semantic case search failed, falling back to keyword search: %s", exc)
             return None
         by_id = {case.id: case for case in rows}
         sources: list[AssistantSource] = []
-        for result in results:
+        for result in leaders_only(results):
             case = by_id.get(result["payload"].get("case_id"))
             if not case:
                 continue
@@ -604,10 +608,14 @@ class OperationalIntelligenceAssistant:
             query_text = "\n".join(["Operational case context:", CaseDocumentBuilder.build(current_case), "", f"User question: {payload.message}"])
         vector = self.services.embedder.encode(query_text)
         filters = self.services.case_similarity._build_filters(current_case, payload.same_service_only) if current_case else None
-        results = self.services.case_similarity.vector_store.search(vector=vector, filters=filters, limit=payload.top_k * 2, score_threshold=payload.minimum_score)
+        boost = RecallBoost(service=(current_case.finding_snapshot or {}).get("service") if current_case else None)
+        results = self.services.case_similarity.vector_store.search(
+            vector=vector, filters=filters, limit=payload.top_k * 2, score_threshold=payload.minimum_score, text=query_text, boost=boost,
+        )
         if current_case:
             results = [row for row in results if row["payload"].get("case_id") != current_case.id]
-        results = results[: payload.top_k]
+        # One source per distinct past problem (diversity), not five copies of one.
+        results = leaders_only(results)[: payload.top_k]
         ids = [row["payload"].get("case_id") for row in results if row["payload"].get("case_id")]
         cases = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(ids))).scalars().all() if ids else []
         by_id = {case.id: case for case in cases}

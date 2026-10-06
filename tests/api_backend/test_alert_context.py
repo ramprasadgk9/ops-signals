@@ -22,7 +22,7 @@ class _FakeVectorSearch:
         self.results = results
         self.calls: list[dict] = []
 
-    def search(self, vector, filters=None, limit=5, score_threshold=0.0):
+    def search(self, vector, filters=None, limit=5, score_threshold=0.0, **_kwargs):
         self.calls.append({"filters": filters, "limit": limit, "score_threshold": score_threshold})
         return self.results
 

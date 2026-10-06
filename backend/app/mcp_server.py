@@ -14,7 +14,9 @@ from backend.app.api.mcp import list_tools as list_http_tools
 from backend.app.api.mcp import list_read_only_tools as list_read_only_http_tools
 from backend.app.api.mcp import _recommendation_service
 from backend.app.assistant.schemas import AssistantChatRequest
+from backend.app.memory.diversity import leaders_only
 from backend.app.memory.document_builder import CaseDocumentBuilder
+from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import MemoryChatRequest
 from backend.app.mcp_runtime import initialize_memory_services, load_memory_config
 from backend.app.metric_analyzer_recommendations.api import _analyzer_config
@@ -185,10 +187,11 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
             query_text = question if not current_case else "\n".join(["Operational case context:", CaseDocumentBuilder.build(current_case), "", f"User question: {question}"])
             vector = embedder.encode(query_text)
             filters = service._build_filters(current_case, payload.same_service_only) if current_case else None
-            search_results = service.vector_store.search(vector=vector, filters=filters, limit=payload.top_k * 2, score_threshold=payload.minimum_score)
+            boost = RecallBoost(service=(current_case.finding_snapshot or {}).get("service") if current_case else None)
+            search_results = service.vector_store.search(vector=vector, filters=filters, limit=payload.top_k * 2, score_threshold=payload.minimum_score, text=query_text, boost=boost)
             if current_case:
                 search_results = [result for result in search_results if result["payload"].get("case_id") != current_case.id]
-            filtered_results = search_results[: payload.top_k]
+            filtered_results = leaders_only(search_results)[: payload.top_k]
             source_case_ids = [result["payload"].get("case_id") for result in filtered_results if result["payload"].get("case_id")]
             matched_cases = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(source_case_ids))).scalars().all() if source_case_ids else []
             case_by_id = {case.id: case for case in matched_cases}

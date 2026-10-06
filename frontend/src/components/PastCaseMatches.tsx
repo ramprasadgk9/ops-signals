@@ -4,15 +4,12 @@ import { CaseOriginBadge } from './CaseOriginBadge';
 import { ui } from '../standalone/theme';
 import type { PastCaseMatch } from '../types';
 
-/** Same service first, then strong before possible, then score. A possible match on this service
- * is more useful than a strong-looking one elsewhere. */
+/** Same service first; within each group, the server's order. The backend ranks matches by
+ * similarity plus small bonuses (shared keywords, verified root cause, recency), so re-sorting by
+ * score here would undo that. A possible match on this service is more useful than a strong-looking
+ * one elsewhere. */
 export function rankPastMatches(matches: PastCaseMatch[]) {
-  return [...matches].sort(
-    (a, b) =>
-      Number(Boolean(b.same_service)) - Number(Boolean(a.same_service)) ||
-      Number(b.strength === 'strong') - Number(a.strength === 'strong') ||
-      b.similarity_score - a.similarity_score
-  );
+  return [...matches].sort((a, b) => Number(Boolean(b.same_service)) - Number(Boolean(a.same_service)));
 }
 
 /** Past cases resembling a finding or a case: same-service matches up front, labelled strong or
@@ -52,8 +49,10 @@ export function PastCaseMatches({ matches, service, emptyText }: { matches: Past
 }
 
 function MatchRow({ match }: { match: PastCaseMatch }) {
+  const [showCopies, setShowCopies] = React.useState(false);
   const strong = match.strength !== 'possible';
   const fix = match.corrective_action || match.outcome_summary;
+  const copies = match.more_like_this ?? [];
   return (
     <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: strong ? '#fff' : '#fafafa' }} data-testid="past-case-match">
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -73,6 +72,27 @@ function MatchRow({ match }: { match: PastCaseMatch }) {
       </Typography>
       {match.root_cause_summary ? <Typography sx={{ fontSize: 13, mt: 0.75 }}><b>Cause:</b> {match.root_cause_summary}</Typography> : null}
       {fix ? <Typography sx={{ fontSize: 13, mt: 0.25 }}><b>Fix:</b> {fix}</Typography> : null}
+      {copies.length ? (
+        <Box sx={{ mt: 0.75 }}>
+          <Chip
+            size="small"
+            variant="outlined"
+            label={showCopies ? 'Hide repeats' : `+${copies.length} more like this`}
+            onClick={() => setShowCopies(!showCopies)}
+            sx={{ fontWeight: 700 }}
+          />
+          {showCopies ? (
+            <Stack spacing={0.25} sx={{ mt: 0.75 }}>
+              {copies.map((copy) => (
+                <Typography key={copy.case_id} sx={{ fontSize: 13 }}>
+                  <Link href={`/cases/${copy.case_id}`} underline="hover">{copy.title}</Link>
+                  <span style={{ color: ui.muted }}> · {Math.round(copy.similarity_score * 100)}%</span>
+                </Typography>
+              ))}
+            </Stack>
+          ) : null}
+        </Box>
+      ) : null}
     </Box>
   );
 }

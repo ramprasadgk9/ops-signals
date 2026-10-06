@@ -226,6 +226,69 @@ export type PastCaseMatch = {
   root_cause_summary?: string | null;
   corrective_action?: string | null;
   outcome_summary?: string | null;
+  /** Near-copies folded under this match (same service, symptom, cause and fix). */
+  more_like_this?: PastCaseMatch[];
+};
+
+/** Did a fix hold? Inferred: the same symptom didn't come back on the service within 30 days. */
+export type FixOutcome = {
+  status: 'held' | 'came_back' | 'too_early' | 'not_fixed' | 'unknown';
+  label: string;
+  came_back_case_id?: number | null;
+  came_back_after_days?: number | null;
+};
+
+export type SuggestedFix = {
+  fix: string;
+  root_cause?: string | null;
+  held: number;
+  came_back: number;
+  too_early: number;
+  label: string;
+  verified: number;
+  sources: { case_id: number; title: string; service?: string | null; corrective_action: string; outcome: FixOutcome }[];
+};
+
+export type SuggestedFixesResponse = {
+  finding_id: number;
+  available: boolean;
+  reason?: string | null;
+  based_on_cases: number;
+  fixes: SuggestedFix[];
+};
+
+export type RunbookDraft = {
+  available: boolean;
+  draft?: string | null;
+  reason?: string | null;
+  based_on_cases: number[];
+};
+
+export type SameFixResponse = {
+  case_id: number;
+  available: boolean;
+  reason?: string | null;
+  outcome?: FixOutcome | null;
+  matches: {
+    case_id: number;
+    title: string;
+    service?: string | null;
+    similarity_score: number;
+    root_cause_summary?: string | null;
+    corrective_action?: string | null;
+    rca_verified: boolean;
+    outcome: FixOutcome;
+  }[];
+};
+
+/** How familiar a finding or case is, read off its past-case matches (backend/app/memory/novelty.py). */
+export type Novelty = {
+  level: 'new' | 'new_on_service' | 'seen_before' | 'recurring';
+  label: string;
+  explanation: string;
+  matching_cases: number;
+  all_matching_cases: number;
+  best_score?: number | null;
 };
 
 export type SeenBeforeResponse = {
@@ -234,11 +297,48 @@ export type SeenBeforeResponse = {
   reason?: string | null;
   service?: string | null;
   matches: PastCaseMatch[];
+  novelty?: Novelty | null;
 };
 
 export type SimilarCasesResponse = {
   source_case_id: number;
   matches: PastCaseMatch[];
+  novelty?: Novelty | null;
+};
+
+export type RecurringProblem = {
+  name: string;
+  named_by: 'ai' | 'central_case';
+  central_case_id: number;
+  occurrences: number;
+  services: string[];
+  first_seen?: string | null;
+  last_seen?: string | null;
+  verified_root_causes: number;
+  open_cases: number;
+  causes: { case_id: number; root_cause: string; fix?: string | null; verified: boolean }[];
+  cases: {
+    case_id: number;
+    title: string;
+    service?: string | null;
+    created_at?: string | null;
+    origin: string;
+    case_status: string;
+    rca_verified: boolean;
+    similarity_to_central: number;
+  }[];
+};
+
+export type RecurringProblemsResponse = {
+  available: boolean;
+  reason?: string | null;
+  window_days: number;
+  min_occurrences: number;
+  group_by: 'symptom' | 'cause';
+  group_similarity: number;
+  cases_considered: number;
+  sampled: boolean;
+  problems: RecurringProblem[];
 };
 
 export type CaseImportProfile = {

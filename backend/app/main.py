@@ -52,6 +52,7 @@ from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootst
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.notifications.slack_client import SlackNotifier
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.ai.config import apply_ai_env_overrides
@@ -203,6 +204,22 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
         return None, None, None, None, None, None
 
 
+def _needs_backfill(indexer: CaseMemoryIndexer) -> bool:
+    try:
+        return bool(indexer.vector_store.points_missing(SYMPTOM_VECTOR, limit=1))
+    except Exception as e:
+        logger.warning(f"Could not check for cases needing vector backfill: {e}")
+        return False
+
+
+def _backfill_vectors(indexer: CaseMemoryIndexer, session_local) -> None:
+    try:
+        with session_local() as db:
+            indexer.backfill_vectors(db)
+    except Exception as e:
+        logger.warning(f"Vector backfill failed; older cases keep full-document recall until re-indexed: {e}")
+
+
 def create_app(database_url: str | None = None) -> FastAPI:
     settings = get_settings()
     
@@ -235,6 +252,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             seed_reference_data(db)
 
         # Load memory config at startup
+        backfill_task: asyncio.Task | None = None
         memory_config = load_memory_config()
         memory_services["ai_config"] = load_ai_config()
         memory_services["config"] = memory_config
@@ -250,6 +268,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 memory_services["assistant"],
                 memory_services["knowledge_bootstrap"],
             ) = initialize_memory_services(memory_config)
+            indexer = memory_services["indexer"]
+            if indexer is not None and _needs_backfill(indexer):
+                # Cases indexed before symptom/resolution/keyword vectors get them, in the background:
+                # it embeds each older case, and recall uses the full document until it is done.
+                # Started only when there is something to fill, so a normal startup runs nothing.
+                backfill_task = asyncio.create_task(asyncio.to_thread(_backfill_vectors, indexer, session_local))
             logger.info(f"✓ Memory services initialized successfully")
         else:
             logger.info(f"Memory services disabled")
@@ -287,6 +311,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         yield
 
+        if backfill_task is not None and not backfill_task.done():
+            backfill_task.cancel()
         if scheduler_task is not None:
             scheduler_task.cancel()
             with suppress(asyncio.CancelledError):
