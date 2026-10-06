@@ -2,6 +2,13 @@
 
 ## 0.3.0 - Unreleased
 
+- Cluster-aware deploy events: `POST /api/events` takes an optional `cluster`, and `GET
+  /api/events` filters by it. A finding or an alert is matched only to change events from its own
+  cluster, or with no cluster (a deploy everywhere, or a single-cluster setup), so a deploy to `eu`
+  is no longer shown as "After deploy" on a `us` finding. The UI and Slack name the cluster ("deploy
+  v1.4.2 to us"). The `ops_change_events.cluster` column is added on startup. The local multi-cluster
+  setup gives `checkout` in `us` pods replaced by each release, and `./scripts/multicluster.sh
+  deploys` posts the matching deploys.
 - Findings page: search by service, metric, cluster, connection or finding number (`#57`), sort by
   latest (the new default), oldest, importance or investigation priority, and every finding in the
   window is listed, 20 at a time - before, only the 5 most important were shown. Search and sort are

@@ -542,6 +542,8 @@ class ChangeEventEntity(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     version: Mapped[str | None] = mapped_column(Text, nullable=True)
     env: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Where the deploy went, when CI says so. NULL means every cluster (a global or single-cluster deploy).
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     author: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str | None] = mapped_column(Text, nullable=True)

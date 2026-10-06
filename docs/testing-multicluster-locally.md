@@ -19,11 +19,13 @@ metrics-staging ► prometheus-staging (cluster=staging)            ─┘ tenan
 | Clusters `eu` and `us` in tenant `team-a` | The same services (`checkout`, `payments`, `search`) in two clusters, told apart only by the `cluster` label. |
 | `eu` is an HA pair | Two Prometheus servers scrape the same target, so Mimir stores every `eu` series twice (`prometheus_replica` a and b). Mimir's own HA dedup is off on purpose, so Ops Signals' replica handling is what gets tested. |
 | A recurring incident in `us` only | `checkout` in `us` gets 3x slower for 15 minutes every 8 hours (00:00, 08:00 and 16:00 UTC). `eu` stays healthy, so findings should appear for `us` only. |
+| Pods and deploys for `checkout` in `us` | `checkout` in `us` runs 3 pods. Each incident is a new release replacing 2 of them (a canary), and only those 2 are slow. `./scripts/multicluster.sh deploys` posts the matching deploy to `us` a minute before each incident, and the same version to `eu` 10 minutes earlier, so the `us` finding should name the `us` deploy and its 2 new pods, never the `eu` one. |
 | Tenant `team-b` with cluster `staging` | Kept separate from `team-a`, read through its own named connection. |
 | 72 hours of history | Written straight into Mimir on the first start, so analyzers have a baseline from the first minute. |
 
 Metrics: `request_latency_p95`, `error_rate`, `cpu_usage` (gauges) and `http_requests_total`
 (counter), all with a daily cycle and labels `service`, `env="prod"`, `job`, `instance`, `cluster`.
+The gauges of `checkout` in `us` also have `pod`.
 
 Needs Docker and about 1 GB of free memory.
 
@@ -57,6 +59,24 @@ If your `.env` already sets `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE`, comment t
 `run_all.sh` loads `.env` and it would win. (`OPS_SIGNALS_PROMETHEUS_URL` in `.env` doesn't matter:
 the connections file replaces it.) Run `./scripts/multicluster.sh check` again: the last
 check now goes through the app.
+
+## Pods and deploys
+
+With the app running, post the deploy events that go with the `us` incidents:
+
+```bash
+./scripts/multicluster.sh deploys
+```
+
+It is safe to run again; events already there are skipped. `app` turns on the pod breakdown
+(`OPS_SIGNALS_DRILLDOWN_ENABLED=true`). Run an autonomous analysis of `checkout` over a window that
+contains an incident, then open the `us` finding: it shows **After deploy v2.N.0**, "What changed"
+names "deploy v2.N.0 to us" only, and the pod breakdown says the 2 new pods started with that deploy
+while 1 older pod is still running. The `eu` deploy of the same version, 10 minutes earlier, is not
+listed: it went to another cluster.
+
+If you started this setup before pods were added, its history has no `pod` label and `check` says
+so: run `./scripts/multicluster.sh reset`, then `up` (this deletes the stored data).
 
 ## What to look at in the UI
 
@@ -93,6 +113,7 @@ The first is twice the second: summing both replica copies doubles the traffic.
 | Command | Does |
 |---|---|
 | `./scripts/multicluster.sh status` | Containers, and series and clusters per tenant |
+| `./scripts/multicluster.sh deploys` | Post the deploy events for the `us` incidents to the running app |
 | `./scripts/multicluster.sh logs mimir` | Follow one service's logs (any service name from `status`) |
 | `./scripts/multicluster.sh down` | Stop, keep the data. `up` resumes, and live data continues the history. |
 | `./scripts/multicluster.sh reset` | Stop and delete everything; the next `up` backfills fresh history |

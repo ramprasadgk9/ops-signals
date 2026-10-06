@@ -47,10 +47,11 @@ def test_cluster_columns_are_added_to_an_existing_database() -> None:
         connection.execute(text("CREATE TABLE ops_normalized_timeseries_points (id INTEGER PRIMARY KEY, metric_name TEXT)"))
         connection.execute(text("CREATE TABLE ops_operational_signals (id INTEGER PRIMARY KEY, metric_name TEXT)"))
         connection.execute(text("CREATE TABLE ops_operational_findings (id INTEGER PRIMARY KEY, metric_name TEXT)"))
+        connection.execute(text("CREATE TABLE ops_change_events (id INTEGER PRIMARY KEY, service TEXT)"))
 
     ensure_cluster_schema(engine)
     ensure_cluster_schema(engine)
 
     inspector = inspect(engine)
-    for table in ("ops_normalized_timeseries_points", "ops_operational_signals", "ops_operational_findings"):
+    for table in ("ops_normalized_timeseries_points", "ops_operational_signals", "ops_operational_findings", "ops_change_events"):
         assert "cluster" in {column["name"] for column in inspector.get_columns(table)}

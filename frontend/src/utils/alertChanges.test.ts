@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AlertItem } from '../types';
-import { whatChanged } from './alertChanges';
+import { changeLabel, whatChanged } from './alertChanges';
 
 function alert(overrides: Partial<AlertItem>): AlertItem {
   return {
@@ -57,5 +57,13 @@ describe('whatChanged', () => {
   it('shows nothing for an alert that is not enriched yet or has no service', () => {
     expect(whatChanged(alert({ service_has_change_events: null }))).toBeNull();
     expect(whatChanged(alert({ service: null }))).toBeNull();
+  });
+});
+
+describe('changeLabel', () => {
+  it('names the cluster a deploy went to, and nothing for a deploy to every cluster', () => {
+    expect(changeLabel({ ...deploy('v2.4.38', 1), cluster: 'us' })).toBe('deploy v2.4.38 to us by demo');
+    expect(changeLabel({ ...deploy('v2.4.38', 1), cluster: null })).toBe('deploy v2.4.38 by demo');
+    expect(changeLabel(deploy('v2.4.38', 1))).toBe('deploy v2.4.38 by demo');
   });
 });

@@ -4,6 +4,7 @@
 #
 #   ./scripts/multicluster.sh up        start Mimir + 4 Prometheus "clusters", backfill 72h history
 #   ./scripts/multicluster.sh app       start Ops Signals (run_all.sh) with one connection per Mimir tenant
+#   ./scripts/multicluster.sh deploys   post the deploy events that go with the us incidents (app must be running)
 #   ./scripts/multicluster.sh check     verify clusters, replicas, tenants, history (and the app, if running)
 #   ./scripts/multicluster.sh status    containers and what is in Mimir
 #   ./scripts/multicluster.sh env       print the OPS_SIGNALS_* lines for pointing the backend at Mimir
@@ -79,6 +80,7 @@ wait_for_backfill() {
 print_env() {
   cat <<EOF
 OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE=$ROOT_DIR/dev/multicluster/connections.yaml
+OPS_SIGNALS_DRILLDOWN_ENABLED=true
 EOF
 }
 
@@ -94,12 +96,27 @@ cmd_up() {
   say "  Prometheus UIs    eu-a http://localhost:9191  eu-b http://localhost:9192"
   say "                    us   http://localhost:9193  staging http://localhost:9194"
   say ""
-  say "  tenant team-a  cluster eu (HA pair, prometheus_replica a/b) + cluster us (checkout 3x slower for 15m every 8h)"
+  say "  tenant team-a  cluster eu (HA pair, prometheus_replica a/b) + cluster us (checkout 3x slower for 15m every 8h,"
+  say "                 on the 2 of its 3 pods that a new release replaced)"
   say "  tenant team-b  cluster staging"
   say ""
   say "Next:"
   say "  ./scripts/multicluster.sh check   verify the data"
   say "  ./scripts/multicluster.sh app     start Ops Signals reading from Mimir (stop your usual run_all.sh first)"
+  say "  ./scripts/multicluster.sh deploys post the matching deploy events, once the app is up"
+}
+
+# The incident settings must match metrics-us in dev/multicluster/docker-compose.yml.
+cmd_deploys() {
+  if ! curl -sf "$BACKEND_URL/api/health" >/dev/null 2>&1; then
+    say "Ops Signals is not running at $BACKEND_URL. Start it first: ./scripts/multicluster.sh app"
+    exit 1
+  fi
+  CLUSTER=us INCIDENT_SERVICE=checkout INCIDENT_EVERY_MINUTES=480 INCIDENT_FOR_MINUTES=15 \
+    OPS_SIGNALS_URL="$BACKEND_URL" BACKFILL_HOURS="${BACKFILL_HOURS:-72}" \
+    python3 "$ROOT_DIR/dev/multicluster/cluster_metrics.py" deploys
+  say "Each us incident now has a us deploy a minute before it, and the same version went to eu 10 min earlier."
+  say "Findings for checkout in us show only the us deploy and the 2 new pods it started."
 }
 
 cmd_app() {
@@ -157,9 +174,17 @@ cmd_check() {
   (( hours >= 60 )) && ok "history: ${hours}h of data queryable" || bad "only ${hours}h of history queryable, expected about 72"
 
   local peak_us peak_eu
-  peak_us="$(mimir_get team-a query --data-urlencode 'query=max_over_time(request_latency_p95{cluster="us",service="checkout"}[24h])' | json "$FIRST_VALUE")"
+  peak_us="$(mimir_get team-a query --data-urlencode 'query=max(max_over_time(request_latency_p95{cluster="us",service="checkout"}[24h]))' | json "$FIRST_VALUE")"
   peak_eu="$(mimir_get team-a query --data-urlencode 'query=max(max_over_time(request_latency_p95{cluster="eu",service="checkout"}[24h]))' | json "$FIRST_VALUE")"
   [[ "$peak_us" != none && "$peak_eu" != none ]] && (( ${peak_us%.*} > 2 * ${peak_eu%.*} )) && ok "incident only in us: checkout p95 peak ${peak_us}ms in us vs ${peak_eu}ms in eu" || bad "expected a us-only incident; peaks us=${peak_us} eu=${peak_eu}"
+
+  local pods
+  pods="$(mimir_get team-a query --data-urlencode 'query=count(count by (pod) (last_over_time(request_latency_p95{cluster="us",service="checkout"}[24h])))' | json "data['data']['result'][0]['value'][1] if data['data']['result'] else 0")"
+  if (( pods > 3 )); then
+    ok "checkout in us has pods, replaced by each release (${pods} pods in 24h)"
+  else
+    bad "checkout in us has ${pods} pods in 24h, expected more than 3 - data from before pods were added? ./scripts/multicluster.sh reset, then up"
+  fi
 
   local live
   live="$(mimir_get team-a query --data-urlencode 'query=count(up{job="cluster-metrics"} == 1)' | json "data['data']['result'][0]['value'][1] if data['data']['result'] else 0")"
@@ -197,6 +222,14 @@ cmd_check() {
     else
       bad "backend connection team-b sees clusters '$staging', expected staging"
     fi
+    local deploys
+    deploys="$(curl -s "$BACKEND_URL/api/events?service=checkout&type=deploy&limit=500" \
+      | json "'%d us, %d eu' % (sum(e.get('cluster') == 'us' for e in data), sum(e.get('cluster') == 'eu' for e in data)) if isinstance(data, list) else 'error'")"
+    if [[ "$deploys" == "0 us, 0 eu" || "$deploys" == error ]]; then
+      note "no checkout deploy events yet - ./scripts/multicluster.sh deploys"
+    else
+      ok "checkout deploy events by cluster: $deploys"
+    fi
   fi
 
   say ""
@@ -220,13 +253,14 @@ case "${1:-}" in
   up) cmd_up ;;
   app) cmd_app ;;
   check) cmd_check ;;
+  deploys) cmd_deploys ;;
   status) cmd_status ;;
   env) print_env ;;
   logs) shift; require_docker; compose logs -f --tail 100 "$@" ;;
   down) require_docker; compose down ;;
   reset) require_docker; compose down -v ;;
   *)
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

@@ -105,6 +105,9 @@ ALTER TABLE IF EXISTS ops_operational_signals
 ALTER TABLE IF EXISTS ops_operational_findings
     ADD COLUMN IF NOT EXISTS cluster TEXT;
 
+ALTER TABLE IF EXISTS ops_change_events
+    ADD COLUMN IF NOT EXISTS cluster TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_ops_finding_metric
     ON ops_operational_findings (metric_name, created_at);
 

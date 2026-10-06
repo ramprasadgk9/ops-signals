@@ -98,3 +98,65 @@ def test_incident_slows_only_the_configured_service_inside_its_window(monkeypatc
     assert metrics.in_incident("checkout", during) and not metrics.in_incident("checkout", after)
     assert not metrics.in_incident("payments", during)
     assert metrics.values_at(during)["request_latency_p95"]["checkout"] > 2 * metrics.values_at(after)["request_latency_p95"]["checkout"]
+
+
+EVERY = 8 * 3600
+
+
+def _us(monkeypatch):
+    return _load(monkeypatch, CLUSTER="us", INCIDENT_SERVICE="checkout", INCIDENT_EVERY_MINUTES="480", INCIDENT_FOR_MINUTES="15")
+
+
+def test_incident_service_runs_three_pods_and_a_release_replaces_two_of_them(monkeypatch) -> None:
+    metrics = _us(monkeypatch)
+    release_start = 213 * EVERY
+    before, during, after = release_start - 600, release_start + 300, release_start + 3600
+
+    old = metrics.pods_at("checkout", before)
+    canary = metrics.pods_at("checkout", during)
+    rolled_out = metrics.pods_at("checkout", after)
+
+    assert len(old) == len(canary) == len(rolled_out) == 3
+    assert [name for name, slow in canary if not slow] == [old[0][0]]
+    new = [name for name, slow in canary if slow]
+    assert len(new) == 2 and not set(new) & {name for name, _ in old}
+    assert set(new) <= {name for name, _ in rolled_out}
+    assert not any(slow for _, slow in rolled_out)
+    assert metrics.pods_at("payments", during) == []
+
+
+def test_only_the_slow_new_pods_carry_the_incident(monkeypatch) -> None:
+    metrics = _us(monkeypatch)
+    during = 213 * EVERY + 300
+    latency = {labels["pod"]: value for metric, labels, value in metrics.samples_at(during)
+               if metric == "request_latency_p95" and labels["service"] == "checkout"}
+    slow = {name for name, is_slow in metrics.pods_at("checkout", during) if is_slow}
+    healthy = (set(latency) - slow).pop()
+
+    assert all(latency[name] > 2 * latency[healthy] for name in slow)
+
+
+def test_other_services_clusters_and_counters_have_no_pod_label(monkeypatch) -> None:
+    us = _us(monkeypatch).samples_at(213 * EVERY + 300)
+    eu = _load(monkeypatch, CLUSTER="eu", INCIDENT_SERVICE="").samples_at(213 * EVERY + 300)
+
+    with_pod = {(metric, labels["service"]) for metric, labels, _ in us if "pod" in labels}
+    assert with_pod == {("request_latency_p95", "checkout"), ("error_rate", "checkout"), ("cpu_usage", "checkout")}
+    assert not any("pod" in labels for _, labels, _ in eu)
+    assert "pod=" not in _load(monkeypatch, CLUSTER="eu", INCIDENT_SERVICE="").exposition(213 * EVERY)
+    assert 'pod="' in _us(monkeypatch).exposition(213 * EVERY + 300)
+
+
+def test_deploy_events_go_to_us_just_before_each_incident_and_to_eu_earlier(monkeypatch) -> None:
+    metrics = _us(monkeypatch)
+    start = 213 * EVERY
+
+    events = metrics.deploy_events(start - 1, start + 2 * EVERY - 1)
+
+    us = [event for event in events if event["cluster"] == "us"]
+    eu = [event for event in events if event["cluster"] == "eu"]
+    assert len(us) == len(eu) == 2
+    assert {event["service"] for event in events} == {"checkout"}
+    assert us[0]["timestamp"] == start - 60 and eu[0]["timestamp"] == start - 10 * 60
+    assert us[0]["version"] == eu[0]["version"] != us[1]["version"]
+    assert _load(monkeypatch, CLUSTER="us", INCIDENT_SERVICE="").deploy_events(start - 1, start + EVERY) == []

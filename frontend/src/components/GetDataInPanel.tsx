@@ -302,7 +302,7 @@ function DeployEventsTile({ status }: { status: IngestionStatus }) {
       <CopyableEndpoint url={url} label="Copy deploy events URL" />
       <Snippet>{curl}</Snippet>
       <Typography variant="body2" color="text.secondary">
-        <code>type</code> is one of deploy, config, feature_flag, scale, rollback or other. Optional: <code>author</code>, <code>url</code>, <code>description</code>, <code>timestamp</code>.
+        <code>type</code> is one of deploy, config, feature_flag, scale, rollback or other. Optional: <code>author</code>, <code>url</code>, <code>description</code>, <code>timestamp</code>, <code>env</code>, and <code>cluster</code> when several clusters share one Prometheus or Mimir, so a deploy to one cluster isn’t shown on another’s findings.
         {events?.token_required ? <> The token is <code>OPS_SIGNALS_EVENTS_TOKEN</code> (or the API token) on the backend.</> : null}
       </Typography>
     </SourceTile>

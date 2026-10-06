@@ -8,6 +8,14 @@ Two modes, both computing every value from the clock alone, so history and live 
                                        the remote-write protocol, labelled exactly as the live
                                        Prometheus pipeline labels it, so analyzers have a baseline
                                        from the first minute.
+  python cluster_metrics.py deploys    Posts the deploy events that go with the incidents to Ops
+                                       Signals ($OPS_SIGNALS_URL/api/events), for the last
+                                       $BACKFILL_HOURS. Safe to run again: events already there are skipped.
+
+The incident service runs 3 pods. Each incident is a release: 2 pods are replaced by the new
+version (a canary), and those 2 are the slow ones; when the incident ends the rollout finishes.
+Its deploy goes to that cluster only, and the same version went to eu 10 minutes earlier without
+trouble, so a finding in us should name the us deploy and never the eu one.
 
 Standard library only (runs in python:3.12-alpine). The remote-write body is hand-encoded
 protobuf, compressed with snappy's literal-only encoding, which every snappy decoder accepts.
@@ -22,6 +30,8 @@ Environment:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 import random
@@ -40,6 +50,10 @@ SERVICES = {
 }
 CLUSTER_SCALE = {"eu": 1.0, "us": 0.6, "staging": 0.1}
 DAY = 86400.0
+PODS = 3
+# Gauges are split by pod; the request counter stays per service (a new pod's counter would start at 0).
+POD_METRICS = ("request_latency_p95", "error_rate", "cpu_usage")
+EARLIER_CLUSTER = "eu"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -72,6 +86,31 @@ def _daily(t: float) -> float:
 
 def in_incident(service: str, t: float) -> bool:
     return bool(INCIDENT_SERVICE) and service == INCIDENT_SERVICE and (t % INCIDENT_EVERY) < INCIDENT_FOR
+
+
+def _release(t: float) -> int:
+    return int(t // INCIDENT_EVERY)
+
+
+def release_version(release: int) -> str:
+    return f"v2.{release % 100}.0"
+
+
+def _pod(service: str, release: int, index: int) -> str:
+    template = hashlib.sha1(f"{service}:{release}".encode()).hexdigest()[:8]
+    suffix = hashlib.sha1(f"{service}:{release}:{index}".encode()).hexdigest()[:5]
+    return f"{service}-{template}-{suffix}"
+
+
+def pods_at(service: str, t: float) -> list[tuple[str, bool]]:
+    """(pod, slow) for the incident service, [] for every other service. During an incident pod 0
+    still runs the previous release and pods 1 and 2 the new, slow one."""
+    if not INCIDENT_SERVICE or service != INCIDENT_SERVICE:
+        return []
+    release = _release(t)
+    if in_incident(service, t):
+        return [(_pod(service, release - 1, 0), False), *((_pod(service, release, index), True) for index in range(1, PODS))]
+    return [(_pod(service, release, index), False) for index in range(PODS)]
 
 
 def values_at(t: float) -> dict[str, dict[str, float]]:
@@ -110,13 +149,60 @@ METRIC_TYPES = {
 }
 
 
+def samples_at(t: float) -> list[tuple[str, dict[str, str], float]]:
+    """(metric, labels, value) at unix time t, one per series - per pod where the service has pods.
+    A pod reports the service value, or the healthy one if it isn't on the slow release."""
+    values = values_at(t)
+    samples: list[tuple[str, dict[str, str], float]] = []
+    for metric, by_service in values.items():
+        for service, value in by_service.items():
+            labels = {"service": service, "env": "prod"}
+            pods = pods_at(service, t) if metric in POD_METRICS else []
+            if not pods:
+                samples.append((metric, labels, value))
+                continue
+            for name, slow in pods:
+                pod_value = value if slow else _healthy(metric, service, t)
+                pod_value *= 1 + _noise(service, f"{metric}:{name}", t, 0.03)
+                samples.append((metric, {**labels, "pod": name}, round(pod_value, 5)))
+    return samples
+
+
+def _healthy(metric: str, service: str, t: float) -> float:
+    global INCIDENT_SERVICE
+    saved, INCIDENT_SERVICE = INCIDENT_SERVICE, ""
+    try:
+        return values_at(t)[metric][service]
+    finally:
+        INCIDENT_SERVICE = saved
+
+
 def exposition(t: float) -> str:
     lines: list[str] = []
-    for metric, by_service in values_at(t).items():
-        lines.append(f"# TYPE {metric} {METRIC_TYPES[metric]}")
-        for service, value in by_service.items():
-            lines.append(f'{metric}{{service="{service}",env="prod"}} {value}')
+    typed: set[str] = set()
+    for metric, labels, value in samples_at(t):
+        if metric not in typed:
+            typed.add(metric)
+            lines.append(f"# TYPE {metric} {METRIC_TYPES[metric]}")
+        rendered = ",".join(f'{name}="{text}"' for name, text in labels.items())
+        lines.append(f"{metric}{{{rendered}}} {value}")
     return "\n".join(lines) + "\n"
+
+
+def deploy_events(start: float, end: float) -> list[dict[str, object]]:
+    """The deploys that go with the incidents starting in (start, end]: the release reaches
+    EARLIER_CLUSTER 10 minutes ahead without trouble, then this cluster a minute before its incident."""
+    if not INCIDENT_SERVICE:
+        return []
+    events: list[dict[str, object]] = []
+    for release in range(_release(start) + 1, _release(end) + 1):
+        begins = release * INCIDENT_EVERY
+        version = release_version(release)
+        for cluster, lead in ((EARLIER_CLUSTER, 10 * 60), (CLUSTER, 60)):
+            events.append({"service": INCIDENT_SERVICE, "type": "deploy", "version": version, "cluster": cluster,
+                           "timestamp": begins - lead, "source": "multicluster-dev",
+                           "description": f"{INCIDENT_SERVICE} {version} to {cluster}"})
+    return events
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -245,14 +331,16 @@ def backfill() -> None:
         # One request per 6h of data keeps each push small.
         for window_start in range(start, end, 6 * 3600):
             window = range(window_start, min(window_start + 6 * 3600, end), step)
-            points = [(t, values_at(t)) for t in window]
+            by_series: dict[tuple[tuple[str, str], ...], list[tuple[int, float]]] = {}
+            for t in window:
+                for metric, labels, value in samples_at(t):
+                    key = tuple(sorted({"__name__": metric, **labels}.items()))
+                    by_series.setdefault(key, []).append((t * 1000, value))
             series = []
-            for metric in METRIC_TYPES:
-                for service in SERVICES:
-                    samples = [(t * 1000, values[metric][service]) for t, values in points]
-                    for replica in replicas:
-                        labels = {"__name__": metric, "service": service, "env": "prod", "job": job, "instance": instance, "cluster": cluster, **replica}
-                        series.append((labels, samples))
+            for key, samples in by_series.items():
+                for replica in replicas:
+                    labels = {**dict(key), "job": job, "instance": instance, "cluster": cluster, **replica}
+                    series.append((labels, samples))
             _push(f"{mimir}/api/v1/push", tenant, encode_write_request(series))
             total += sum(len(samples) for _, samples in series)
         print(f"backfill: cluster={cluster} tenant={tenant} replicas={len(replicas)} incident={incident or 'none'} done", flush=True)
@@ -262,11 +350,39 @@ def backfill() -> None:
     print(f"backfill: wrote {total} samples covering the last {hours}h", flush=True)
 
 
+def post_deploys() -> None:
+    """Posts deploy_events for the last $BACKFILL_HOURS to $OPS_SIGNALS_URL, skipping ones already there."""
+    from datetime import datetime, timezone
+
+    base = os.environ.get("OPS_SIGNALS_URL", "http://localhost:8001").rstrip("/")
+    token = os.environ.get("OPS_SIGNALS_EVENTS_TOKEN", "").strip()
+    headers = {"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
+    end = time.time()
+    events = deploy_events(end - _env_int("BACKFILL_HOURS", 72) * 3600, end)
+    if not events:
+        print("deploys: no incident service set, nothing to post", flush=True)
+        return
+    listing = urllib.request.Request(f"{base}/api/events?service={INCIDENT_SERVICE}&type=deploy&limit=500", headers=headers)
+    with urllib.request.urlopen(listing, timeout=30) as response:
+        existing = {(item.get("version"), item.get("cluster")) for item in json.load(response)}
+    new = [event for event in events if (event["version"], event["cluster"]) not in existing]
+    for event in new:
+        event["timestamp"] = datetime.fromtimestamp(float(event["timestamp"]), timezone.utc).isoformat()
+    for start in range(0, len(new), 100):
+        request = urllib.request.Request(f"{base}/api/events", data=json.dumps(new[start : start + 100]).encode(),
+                                         method="POST", headers=headers)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            response.read()
+    print(f"deploys: posted {len(new)} deploy events ({len(events) - len(new)} were already there)", flush=True)
+
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "serve"
     if mode == "serve":
         serve()
     elif mode == "backfill":
         backfill()
+    elif mode == "deploys":
+        post_deploys()
     else:
-        raise SystemExit(f"unknown mode {mode!r}; use serve or backfill")
+        raise SystemExit(f"unknown mode {mode!r}; use serve, backfill or deploys")

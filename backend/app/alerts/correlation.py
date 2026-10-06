@@ -25,6 +25,7 @@ class ChangeMatch:
     url: str | None
     description: str | None
     minutes_before_anchor: float  # positive: the change happened before the anchor
+    cluster: str | None = None
 
 
 @dataclass
@@ -64,8 +65,10 @@ def correlate_changes(
     limit: int = 3,
     env: str | None = None,
     aliases: list[list[str]] | None = None,
+    cluster: str | None = None,
 ) -> ChangeCorrelation:
-    """With `env`, events from another environment are skipped; events that name none still match.
+    """With `env` or `cluster`, events from another environment or cluster are skipped; events that
+    name none still match (a deploy without a cluster counts for every cluster).
     `aliases` lists names that mean the same service (AlertEnrichmentConfig.service_aliases)."""
     anchor = as_utc(anchor)
     correlation = ChangeCorrelation(
@@ -91,6 +94,10 @@ def correlate_changes(
     )
     if env:
         query = query.where(or_(ChangeEventEntity.env.is_(None), ChangeEventEntity.env == "", func.lower(ChangeEventEntity.env) == env.lower()))
+    if cluster:
+        query = query.where(
+            or_(ChangeEventEntity.cluster.is_(None), ChangeEventEntity.cluster == "", func.lower(ChangeEventEntity.cluster) == cluster.lower())
+        )
     rows = db.execute(query).scalars().all()
     matches = [
         ChangeMatch(
@@ -102,6 +109,7 @@ def correlate_changes(
             url=row.url,
             description=row.description,
             minutes_before_anchor=(anchor - as_utc(row.timestamp)).total_seconds() / 60.0,
+            cluster=row.cluster or None,
         )
         for row in rows
     ]
@@ -129,6 +137,7 @@ def changes_to_dict(changes: ChangeCorrelation | None) -> dict[str, Any] | None:
                 "url": match.url,
                 "description": match.description,
                 "minutes_before_anchor": round(match.minutes_before_anchor, 1),
+                "cluster": match.cluster,
             }
             for match in changes.matches
         ],

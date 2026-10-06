@@ -374,7 +374,7 @@ questions:
   - id: deploy-join
     category: docs
     question: How are deploys joined to a finding?
-    contains: ["service, environment and time"]
+    contains: ["service, environment, cluster and time"]
     expect:
       - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
 
@@ -397,7 +397,7 @@ questions:
   - id: deploy-match-metrics-product
     category: known_gap
     question: How does Ops Signals match deploy events with metrics?
-    contains: ["service, environment and time"]
+    contains: ["service, environment, cluster and time"]
     expect:
       - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
 

@@ -227,7 +227,7 @@ class AlertEnrichmentService:
                 analysis = self._analysis(db, alert, decision, metric_key, connection)
                 timing = analysis.setdefault("timing", StartTime(ALERT_TIME).to_dict())
                 anchor = _parse_iso(timing.get("time")) or alert.starts_at
-                changes = self._changes(db, alert, anchor)
+                changes = self._changes(db, alert, anchor, connection)
 
                 enrichment.update(
                     alert=_alert_dict(alert, metric_key),
@@ -275,7 +275,10 @@ class AlertEnrichmentService:
             db.rollback()
             return None, str(exc)
 
-    def _changes(self, db: Session, alert: NormalizedAlert, anchor: datetime) -> ChangeCorrelation | None:
+    def _changes(self, db: Session, alert: NormalizedAlert, anchor: datetime, connection: _Connection) -> ChangeCorrelation | None:
+        # A deploy to another cluster isn't news for this alert; one without a cluster still is.
+        cluster_label = connection.config.cluster_label
+        cluster = (alert.labels.get(cluster_label) or "").strip() or None if cluster_label else None
         try:
             return correlate_changes(
                 db,
@@ -285,6 +288,7 @@ class AlertEnrichmentService:
                 after=timedelta(seconds=self.config.correlation_after_seconds),
                 env=_alert_env(alert.labels) if self.config.match_env else None,
                 aliases=self.config.service_aliases,
+                cluster=cluster,
             )
         except Exception as exc:
             logger.warning("Change correlation failed for %s: %s", alert.service, exc)

@@ -239,7 +239,9 @@ the alert wins. A change point counts as a step only if the metric stays shifted
 median afterwards is at least half way to its peak); change-point analyzers also mark a short
 spike that has already ended, and that is treated as a spike. Change events from a different environment than the alert are skipped: the alert's
 `env`, `environment` or `deployment_environment` label is compared with the event's `env`, and
-events that name no environment still match.
+events that name no environment still match. In the same way, change events for another cluster are
+skipped: the alert's cluster label (the connection's `cluster_label`, `cluster` by default) is
+compared with the event's `cluster`, and events with no cluster still match.
 
 | Setting | Default | Effect |
 |---|---|---|

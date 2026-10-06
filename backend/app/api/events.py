@@ -30,11 +30,18 @@ class ChangeEventIn(BaseModel):
     timestamp: datetime | None = None
     version: str | None = None
     env: str | None = None
+    cluster: str | None = None
     author: str | None = None
     source: str | None = None
     url: str | None = None
     description: str | None = None
     attributes: dict = Field(default_factory=dict)
+
+    @field_validator("cluster")
+    @classmethod
+    def cluster_or_none(cls, value: str | None) -> str | None:
+        # Blank means "not cluster-specific", same as leaving it out.
+        return value.strip() or None if value else None
 
     @field_validator("service")
     @classmethod
@@ -58,6 +65,7 @@ class ChangeEventOut(BaseModel):
     timestamp: datetime
     version: str | None = None
     env: str | None = None
+    cluster: str | None = None
     author: str | None = None
     source: str | None = None
     url: str | None = None
@@ -81,6 +89,7 @@ def _to_out(row: ChangeEventEntity) -> ChangeEventOut:
         timestamp=as_utc(row.timestamp),
         version=row.version,
         env=row.env,
+        cluster=row.cluster,
         author=row.author,
         source=row.source,
         url=row.url,
@@ -115,6 +124,7 @@ def create_events(
                 timestamp=timestamp,
                 version=event.version,
                 env=event.env,
+                cluster=event.cluster,
                 author=event.author,
                 source=event.source,
                 url=event.url,
@@ -132,6 +142,7 @@ def create_events(
 def list_events(
     service: str | None = None,
     type: EventType | None = None,
+    cluster: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = Query(default=50, ge=1, le=500),
@@ -142,6 +153,8 @@ def list_events(
         query = query.where(ChangeEventEntity.service == service)
     if type:
         query = query.where(ChangeEventEntity.event_type == type)
+    if cluster:
+        query = query.where(ChangeEventEntity.cluster == cluster)
     if since:
         query = query.where(ChangeEventEntity.timestamp >= as_utc(since))
     if until:
