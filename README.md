@@ -101,6 +101,9 @@ See [`docs/01-vision.md`](docs/01-vision.md) for the fuller five-layer narrative
   High-importance findings can go to Slack too - see [Slack Notifications](#94-slack-notifications).
 - **Tracks investigations as cases**: a finding or behavior finding becomes a case with
   investigation, RCA, corrective action and outcome. Resolved cases are indexed into Qdrant.
+- **Connects to external issue trackers (Jira Cloud)**: links cases to tickets with bi-directional
+  status and activity synchronization, 1-click comment promotion, and zero-click AI relevance triage
+  that elevates operational clues into investigation notes - see [Pluggable Case Ticketing](#96-pluggable-case-ticketing-jira-cloud).
 - **Remembers**: similar-case search over past cases, and `GET /api/alert-context`, which lets an
   external system ask for prior outcomes, similar resolved cases and recurrence before it acts.
 - **Answers questions**: Ask Ops Signals, a chat over cases, findings, behaviors, analyzers and
@@ -600,6 +603,19 @@ For a live demo with pods and deploys, run [`./scripts/demo_live.py`](docs/live-
 same Prometheus, and (optionally) sending deploy events from CI. Full guide - why it matters,
 architecture, Alertmanager config, per-rule annotations, Slack controls and troubleshooting:
 [`docs/alert-enrichment.md`](docs/alert-enrichment.md).
+
+### 9.6 Pluggable Case Ticketing (Jira Cloud)
+
+Ops Signals bridges internal investigations with enterprise ticketing systems through a pluggable provider architecture with a **Jira Cloud REST API v3** reference implementation:
+
+- **Durable Transactional Outbox**: Ticket creation and synchronization run asynchronously via an outbox table (`ticket_operations`) with randomized lease tokens, automatic retries, and circuit breakers for uncertain network/HTTP 5xx outcomes.
+- **Bi-Directional Status & Activity**: Links cases to Jira issues with remote status tracking and an append-only timeline of external comments and changelogs.
+- **1-Click Comment Promotion**: Elevate external diagnostic comments directly into official investigation notes with provenance stamping (`[JIRA note from <Author>]: ...`).
+- **Zero-Click AI Relevance Triage**: Automatically evaluates new Jira comments against incident telemetry, elevating substantive clues into case notes (`[JIRA clue from <Author> (AI auto-promoted)]: ...`) while filtering administrative chatter.
+- **AI RCA & Resolution Enrichment**: Generated root-cause hypotheses and resolution drafts automatically ingest active external clues from ticketing.
+- **Webhook Security**: Inbound webhooks (`POST /api/integrations/ticketing/jira/webhook`) are cryptographically verified using HMAC-SHA256 signatures (`OPS_SIGNALS_JIRA_WEBHOOK_SECRET`).
+
+See [`docs/07-operational-cases.md`](docs/07-operational-cases.md) and [`docs/15-configuration.md`](docs/15-configuration.md).
 
 ## 10. Examples
 

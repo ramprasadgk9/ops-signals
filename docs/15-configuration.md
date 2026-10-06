@@ -55,6 +55,57 @@ memory:
 `OPS_SIGNALS_QDRANT_URL` and `OPS_SIGNALS_QDRANT_API_KEY` override the vector store's `url` and
 `api_key`.
 
+## Pluggable Ticketing Integration (Jira Cloud)
+
+Ops Signals provides a pluggable architecture for bidirectional ticketing integration. The reference implementation integrates with Jira Cloud REST API v3 using a transactional outbox, distributed leases, and Atlassian Document Format (ADF) translation.
+
+Ticketing can be enabled in `config.yaml` or overridden via environment variables.
+
+### YAML Configuration
+
+```yaml
+ticketing:
+  enabled: true
+  active_provider: jira
+  worker_poll_interval_seconds: 5.0
+  outbox_lease_seconds: 60.0
+  outbox_max_attempts: 5
+  automatic_on_case_creation: false
+  jira:
+    base_url: https://your-domain.atlassian.net
+    email: your-service-account@example.com
+    api_token: your-jira-api-token
+    project_key: OPS
+    issue_type: Task
+    webhook_secret: your-webhook-secret
+    request_timeout_seconds: 10.0
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `OPS_SIGNALS_TICKETING_ENABLED` | Enables the ticketing subsystem and API routes | `false` |
+| `OPS_SIGNALS_TICKETING_ACTIVE_PROVIDER` | Active issue-tracking provider (`jira`) | `jira` |
+| `OPS_SIGNALS_TICKETING_WORKER_ENABLED` | Runs the background outbox worker loop in the API process | `true` |
+| `OPS_SIGNALS_TICKETING_WORKER_POLL_INTERVAL_SECONDS` | Outbox polling frequency in seconds | `5` |
+| `OPS_SIGNALS_TICKETING_AUTOMATIC_ON_CASE_CREATION` | Automatically creates tickets when new cases are opened | `false` |
+| `OPS_SIGNALS_JIRA_BASE_URL` | Jira Cloud instance base URL | `None` |
+| `OPS_SIGNALS_JIRA_EMAIL` | Service account email associated with the Atlassian API token | `None` |
+| `OPS_SIGNALS_JIRA_API_TOKEN` | Jira Cloud API token (generated from Atlassian Account Settings) | `None` |
+| `OPS_SIGNALS_JIRA_PROJECT_KEY` | Target Jira Project Key (e.g. `OPS`, `INCIDENT`) | `None` |
+| `OPS_SIGNALS_JIRA_ISSUE_TYPE` | Jira issue type name | `Task` |
+| `OPS_SIGNALS_JIRA_WEBHOOK_SECRET` | Secret key for verifying inbound Jira HMAC-SHA256 signatures | `None` |
+| `OPS_SIGNALS_JIRA_TIMEOUT_SECONDS` | HTTP request timeout for Jira Cloud API calls | `10.0` |
+
+### Jira Webhook Setup
+
+To receive real-time updates when comments or issue statuses change without waiting for polling sync:
+1. In Jira Settings, navigate to **System > Webhooks**.
+2. Create a webhook pointing to: `https://<your-ops-signals-host>/api/integrations/ticketing/jira/webhook`.
+3. Select events: **Issue: updated** and **Comment: created**.
+4. Set a secret in Jira and configure `OPS_SIGNALS_JIRA_WEBHOOK_SECRET` in Ops Signals. Inbound payloads will be validated using HMAC-SHA256 signatures.
+
 ## Backward Compatibility
 
 Legacy flat configs still work.
