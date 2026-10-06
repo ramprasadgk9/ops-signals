@@ -223,11 +223,25 @@ The uploaded files themselves are not kept; only the mapped fields are stored.
   there are no resolved outcomes for the service and metric but past incidents match, the verdict
   reads **Seen before** and quotes the closest incident's cause and fix.
 - **Ask Ops Signals:** questions like "have we seen high CPU on checkout before?"
+- **Operational Memory → Recurring problems:** imported and detected cases grouped into problems
+  that happened three or more times in the chosen window, by symptom or by cause. Postmortems group
+  with the detected cases of the same problem, because both are compared on what was seen.
+- **Case Details → Similar Cases → Same fix elsewhere:** other incidents, imported or detected, that
+  the same cause and fix resolved, and whether the fix held.
+
+Seen before? and Similar Cases also say how familiar the problem is: **New pattern**, **First time
+on <service>**, **Seen before**, or **Recurring** when three or more past cases on the same service
+match.
 
 Matches on the same service are listed first; matches on other services are folded away and
-labelled. Each match is marked **strong** (70% or more) or **possible** (40-70%). A detected
-finding and a postmortem about the same problem usually score in the possible range, because one is
-written by Ops Signals and the other by a person, so possible matches are worth reading.
+labelled. Within each group, matches are ordered by similarity plus small bonuses for sharing exact
+words with the alert or finding (an error code, a service name), a verified root cause, and being
+recent; together the bonuses are worth at most 25 points, so a much more similar case is never
+pushed down. Each match is marked **strong** (70% or more) or **possible** (40-70%), always on plain
+similarity. A finding is compared with each past case's symptom - what was seen, not why - so a
+detected finding and a postmortem about the same problem usually score as a strong match even though
+one is written by Ops Signals and the other by a person. Repeats of the same incident (same service,
+symptom, cause and fix) fold under one match as **+N more like this**.
 - Resolving one never asks for a learning outcome: learning outcomes score the analyzers behind a
   detection, and an imported case has none. Analyzer scores and Overview counts are unaffected.
 

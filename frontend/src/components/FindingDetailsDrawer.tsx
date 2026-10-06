@@ -5,6 +5,8 @@ import { api } from '../api/queries';
 import { useConnectionName } from '../api/useConnectionName';
 import { LinkedAlerts } from './AlertComponents';
 import { FindingBreakdown } from './FindingBreakdown';
+import { NoveltyBadge } from './NoveltyBadge';
+import { SuggestedFixes } from './FixHistory';
 import { PastCaseMatches } from './PastCaseMatches';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
@@ -135,6 +137,8 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
             {seenBeforeQuery.data && !seenBeforeQuery.data.available ? (
               <Typography variant="body2" color="text.secondary">{seenBeforeQuery.data.reason}</Typography>
             ) : null}
+            {seenBeforeQuery.data?.available ? <NoveltyBadge novelty={seenBeforeQuery.data.novelty} /> : null}
+            {seenBeforeQuery.data?.available && seenBeforeQuery.data.matches.length ? <SuggestedFixes findingId={finding.id} /> : null}
             {seenBeforeQuery.data?.available ? (
               <PastCaseMatches
                 matches={seenBeforeQuery.data.matches}

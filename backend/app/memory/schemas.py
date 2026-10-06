@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.app.memory.novelty import Novelty
+
 
 class MemoryIndexResponse(BaseModel):
     """Response when indexing a case into operational memory."""
@@ -75,6 +77,9 @@ class SimilarCaseMatch(BaseModel):
     corrective_action: str | None = None
     outcome_status: str | None = None
     outcome_summary: str | None = None
+    # Near-copies of this match (same service, same symptom, cause and fix), folded under it so
+    # one recurring incident can't fill every slot (diversity.collapse_near_copies).
+    more_like_this: list["SimilarCaseMatch"] = Field(default_factory=list)
 
 
 class SimilarCasesResponse(BaseModel):
@@ -83,6 +88,7 @@ class SimilarCasesResponse(BaseModel):
     source_case_id: int
     similarity_type: str = "finding_similarity"
     matches: list[SimilarCaseMatch]
+    novelty: Novelty | None = None
 
 
 class MemoryChatRequest(BaseModel):
@@ -148,6 +154,8 @@ class AlertContextSimilarCase(BaseModel):
     source: str | None = None
     source_id: str | None = None
     reference: str
+    # Near-copies folded under this case (diversity.collapse_near_copies), counted, not listed.
+    more_like_this: int = 0
 
 
 class PastIncidentMatch(BaseModel):
@@ -169,6 +177,9 @@ class PastIncidentMatch(BaseModel):
     outcome_summary: str | None = None
     resolved_at: datetime | None = None
     reference: str
+    # Near-copies of this match (same service, same symptom, cause and fix), folded under it so
+    # one recurring incident can't fill every slot (diversity.collapse_near_copies).
+    more_like_this: list["PastIncidentMatch"] = Field(default_factory=list)
 
 
 class SeenBeforeResponse(BaseModel):
@@ -179,6 +190,7 @@ class SeenBeforeResponse(BaseModel):
     reason: str | None = None
     service: str | None = None
     matches: list[PastIncidentMatch] = Field(default_factory=list)
+    novelty: Novelty | None = None
 
 
 class AlertContextHistory(BaseModel):

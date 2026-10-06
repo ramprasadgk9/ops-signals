@@ -17,7 +17,7 @@ class _FakeVectorSearch:
         self.results = results
         self.calls = 0
 
-    def search(self, vector, limit=5, score_threshold=0.0, filters=None):
+    def search(self, vector, limit=5, score_threshold=0.0, filters=None, **_kwargs):
         self.calls += 1
         return self.results
 
@@ -38,7 +38,7 @@ class _FakeEmbedder:
 
 
 class _FakeDocsStore:
-    def search(self, vector, limit=5, score_threshold=0.0, filters=None):
+    def search(self, vector, limit=5, score_threshold=0.0, filters=None, **_kwargs):
         return []
 
 
@@ -258,7 +258,7 @@ def test_document_search_score_floor_does_not_exclude_a_genuinely_relevant_short
             self.results = results
             self.last_score_threshold: float | None = None
 
-        def search(self, vector, limit=5, score_threshold=0.0, filters=None):
+        def search(self, vector, limit=5, score_threshold=0.0, filters=None, **_kwargs):
             self.last_score_threshold = score_threshold
             return [row for row in self.results if row["score"] >= score_threshold]
 

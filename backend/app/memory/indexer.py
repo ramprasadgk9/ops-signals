@@ -4,12 +4,15 @@ import logging
 from datetime import datetime
 from uuid import UUID, uuid5, NAMESPACE_URL
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import MemoryConfig
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.embedder import Embedder
+from backend.app.memory.recall_scoring import service_key
 from backend.app.memory.schemas import MemoryIndexResponse
+from backend.app.memory.vector_names import RESOLUTION_VECTOR, SYMPTOM_VECTOR
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import OperationalCaseEntity
 
@@ -83,7 +86,7 @@ class CaseMemoryIndexer:
 
             # Step 5: Upsert into vector store
             point_id = self._generate_point_id(case.id)
-            self.vector_store.upsert(point_id, vector, payload)
+            self.vector_store.upsert(point_id, vector, payload, text=document, vectors=self._view_vectors(case))
             logger.info(f"Case {case.id}: Upserted to Qdrant (point_id={point_id})")
 
             # Step 6-8: Update case metadata
@@ -116,6 +119,59 @@ class CaseMemoryIndexer:
                 logger.error(f"Case {case.id}: Failed to update error status: {db_error}")
 
             raise RuntimeError(f"Failed to index case {case.id}: {e}")
+
+    def _view_vectors(self, case: OperationalCaseEntity) -> dict[str, list[float] | None]:
+        """The symptom and resolution vectors (vector_names); resolution only once there is one."""
+        resolution = CaseDocumentBuilder.build_resolution(case)
+        return {
+            SYMPTOM_VECTOR: self.embedder.encode(CaseDocumentBuilder.build_symptom(case)),
+            RESOLUTION_VECTOR: self.embedder.encode(resolution) if resolution else None,
+        }
+
+    def backfill_vectors(self, db: Session) -> int:
+        """Add the symptom, resolution and keyword vectors to points indexed before they existed
+        (or copied over by QdrantInitializer's migration), with the payload fields the ranking
+        formula reads. The full-document vector is kept, so each case costs two embeddings, not
+        three. It does nothing once every point has a symptom vector, so it runs at every startup.
+
+        Returns:
+            Number of points backfilled
+        """
+        filled = 0
+        while True:
+            points = self.vector_store.points_missing(SYMPTOM_VECTOR)
+            case_ids = [point["payload"].get("case_id") for point in points if point["payload"].get("case_id")]
+            if not case_ids:
+                break
+            cases = {
+                case.id: case
+                for case in db.execute(
+                    select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(case_ids))
+                ).scalars()
+            }
+            progressed = False
+            for point in points:
+                case = cases.get(point["payload"].get("case_id"))
+                if case is None:
+                    continue
+                try:
+                    self.vector_store.set_vectors(
+                        point["point_id"],
+                        self._view_vectors(case),
+                        text=CaseDocumentBuilder.build(case),
+                        payload={"service_key": service_key((case.finding_snapshot or {}).get("service"))},
+                    )
+                    filled += 1
+                    progressed = True
+                except Exception as e:
+                    logger.warning(f"Case {case.id}: Failed to backfill vectors: {e}")
+            # Points whose case is gone (or that keep failing) stay as they are; stop rather
+            # than re-reading the same page forever.
+            if not progressed:
+                break
+        if filled:
+            logger.info(f"Backfilled symptom, resolution and keyword vectors for {filled} indexed cases")
+        return filled
 
     def mark_stale(self, case: OperationalCaseEntity, db: Session) -> None:
         """Mark case memory as stale after case updates.
@@ -184,12 +240,13 @@ class CaseMemoryIndexer:
             Dictionary with payload fields for Qdrant
         """
         finding = case.finding_snapshot or {}
-        
-        return {
+
+        payload = {
             "case_id": case.id,
             "finding_id": case.finding_id,
             "analysis_run_id": case.analysis_run_id,
             "service": finding.get("service"),
+            "service_key": service_key(finding.get("service")),
             "metric_name": finding.get("metric_name"),
             "provider": finding.get("provider", "generic"),
             "category": finding.get("category"),
@@ -208,3 +265,7 @@ class CaseMemoryIndexer:
             "created_at": case.created_at.isoformat() if case.created_at else None,
             "updated_at": case.updated_at.isoformat() if case.updated_at else None,
         }
+        # The recency bonus treats a missing created_at as current, but a null one fails the query.
+        if payload["created_at"] is None:
+            del payload["created_at"]
+        return payload

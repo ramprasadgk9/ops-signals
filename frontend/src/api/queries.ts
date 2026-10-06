@@ -40,6 +40,10 @@ import type {
   TimeseriesPoint,
   OverviewSummaryResponse,
   MemoryStatsResponse,
+  RecurringProblemsResponse,
+  RunbookDraft,
+  SameFixResponse,
+  SuggestedFixesResponse,
   AlertItem,
   AlertListParams,
   AlertReceipt,
@@ -259,6 +263,12 @@ export const api = {
       '/api/memory/health'
     ),
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
+  recurringProblems: (days = 90, minOccurrences = 3, groupBy: 'symptom' | 'cause' = 'symptom') =>
+    getJson<RecurringProblemsResponse>(`/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}`),
+  suggestedFixes: (findingId: number) => getJson<SuggestedFixesResponse>(`/api/findings/${findingId}/suggested-fixes`),
+  runbookDraft: (findingId: number) =>
+    postJson<Record<string, never>, RunbookDraft>(`/api/findings/${findingId}/suggested-fixes/runbook-draft`, {}),
+  sameFix: (caseId: number) => getJson<SameFixResponse>(`/api/cases/${caseId}/same-fix`),
   caseImportProfiles: () => getJson<CaseImportProfiles>('/api/case-imports/profiles'),
   caseImportTemplateUrl: (name: string) => `${import.meta.env.VITE_API_BASE ?? ''}/api/case-imports/templates/${encodeURIComponent(name)}`,
   previewCaseImport: (payload: FormData) => postForm<CaseImportPreview>('/api/case-imports/preview', payload),

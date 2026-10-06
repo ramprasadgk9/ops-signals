@@ -4,7 +4,10 @@ import logging
 from typing import Optional
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, Modifier, PayloadSchemaType, PointStruct, SparseVectorParams, VectorParams
+
+from backend.app.memory.sparse_encoder import TEXT_VECTOR
+from backend.app.memory.vector_names import DENSE_VECTORS, FULL_VECTOR
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +18,7 @@ class QdrantInitializer:
     COLLECTION_NAME = "operational_cases"
     VECTOR_SIZE = 384
     DISTANCE = Distance.COSINE
+    MIGRATION_BATCH = 256
 
     @staticmethod
     def initialize(client: QdrantClient) -> dict:
@@ -67,6 +71,14 @@ class QdrantInitializer:
                                 f"Expected {QdrantInitializer.VECTOR_SIZE}."
                             )
 
+                migrated = False
+                if not QdrantInitializer._is_current(collection_info.config.params):
+                    QdrantInitializer._migrate(client)
+                    migrated = True
+                else:
+                    # Indexes added in later versions; creating an existing index is a no-op.
+                    QdrantInitializer._create_payload_indexes(client)
+
                 logger.info(
                     f"Collection {QdrantInitializer.COLLECTION_NAME} already exists"
                 )
@@ -74,6 +86,7 @@ class QdrantInitializer:
                     "status": "ready",
                     "collection": QdrantInitializer.COLLECTION_NAME,
                     "existing": True,
+                    "migrated": migrated,
                 }
 
             # Create collection
@@ -82,16 +95,7 @@ class QdrantInitializer:
                 f"with {QdrantInitializer.VECTOR_SIZE}-dimensional vectors"
             )
             
-            client.create_collection(
-                collection_name=QdrantInitializer.COLLECTION_NAME,
-                vectors_config=VectorParams(
-                    size=QdrantInitializer.VECTOR_SIZE,
-                    distance=QdrantInitializer.DISTANCE,
-                ),
-            )
-
-            # Create payload indexes for efficient filtering
-            QdrantInitializer._create_payload_indexes(client)
+            QdrantInitializer._create_collection(client)
 
             logger.info(f"Collection {QdrantInitializer.COLLECTION_NAME} created successfully")
             
@@ -109,6 +113,62 @@ class QdrantInitializer:
             }
 
     @staticmethod
+    def _is_current(params) -> bool:
+        """Every named dense vector (vector_names) and the keyword vector are there."""
+        named = params.vectors if isinstance(params.vectors, dict) else {}
+        return all(name in named for name in DENSE_VECTORS) and TEXT_VECTOR in (params.sparse_vectors or {})
+
+    @staticmethod
+    def _create_collection(client: QdrantClient) -> None:
+        """One named dense vector per view of a case - full document, symptom, resolution
+        (vector_names) - plus the keyword vector for hybrid recall (sparse_encoder). IDF is
+        computed by Qdrant, so the keyword vector needs no corpus stats."""
+        client.create_collection(
+            collection_name=QdrantInitializer.COLLECTION_NAME,
+            vectors_config={
+                name: VectorParams(size=QdrantInitializer.VECTOR_SIZE, distance=QdrantInitializer.DISTANCE)
+                for name in DENSE_VECTORS
+            },
+            sparse_vectors_config={TEXT_VECTOR: SparseVectorParams(modifier=Modifier.IDF)},
+        )
+
+        # Create payload indexes for efficient filtering
+        QdrantInitializer._create_payload_indexes(client)
+
+    @staticmethod
+    def _migrate(client: QdrantClient) -> None:
+        """Recreate an older collection with every current vector, keeping every point.
+
+        Qdrant can't add a vector to an existing collection, so the points are read out, the
+        collection is recreated and the points written back: the old single vector becomes `full`,
+        with the payload. Recall keeps working on the full document straight away;
+        CaseMemoryIndexer.backfill_vectors then adds the symptom, resolution and keyword vectors
+        from the cases in PostgreSQL. Everything here is derived from PostgreSQL, so a failure
+        part-way loses nothing that re-indexing the cases can't rebuild."""
+        name = QdrantInitializer.COLLECTION_NAME
+        points: list[PointStruct] = []
+        offset = None
+        while True:
+            records, offset = client.scroll(
+                collection_name=name,
+                limit=QdrantInitializer.MIGRATION_BATCH,
+                offset=offset,
+                with_payload=True,
+                with_vectors=True,
+            )
+            points.extend(
+                PointStruct(id=record.id, vector=_as_named(record.vector), payload=_without_null_created_at(record.payload))
+                for record in records
+            )
+            if offset is None:
+                break
+        logger.info(f"Migrating {name} to named and keyword vectors: recreating with {len(points)} points")
+        client.delete_collection(name)
+        QdrantInitializer._create_collection(client)
+        for start in range(0, len(points), QdrantInitializer.MIGRATION_BATCH):
+            client.upsert(collection_name=name, points=points[start:start + QdrantInitializer.MIGRATION_BATCH])
+
+    @staticmethod
     def _create_payload_indexes(client: QdrantClient) -> None:
         """Create payload indexes for efficient filtering.
 
@@ -116,22 +176,25 @@ class QdrantInitializer:
             client: QdrantClient instance
         """
         try:
-            # Index fields for faster filtering
-            index_fields = [
-                "metric_name",
-                "service",
-                "case_id",
-                "case_status",
-                "rca_verified",
-                "category",
-            ]
-            
-            for field in index_fields:
+            # Index fields for faster filtering and for the recall_scoring formula
+            index_fields = {
+                "metric_name": PayloadSchemaType.KEYWORD,
+                "service": PayloadSchemaType.KEYWORD,
+                "service_key": PayloadSchemaType.KEYWORD,
+                "origin": PayloadSchemaType.KEYWORD,
+                "case_id": PayloadSchemaType.INTEGER,
+                "case_status": PayloadSchemaType.KEYWORD,
+                "rca_verified": PayloadSchemaType.BOOL,
+                "category": PayloadSchemaType.KEYWORD,
+                "created_at": PayloadSchemaType.DATETIME,
+            }
+
+            for field, schema in index_fields.items():
                 try:
                     client.create_payload_index(
                         collection_name=QdrantInitializer.COLLECTION_NAME,
                         field_name=field,
-                        field_schema="keyword",
+                        field_schema=schema,
                     )
                     logger.debug(f"Created payload index for {field}")
                 except Exception as e:
@@ -183,3 +246,18 @@ class QdrantInitializer:
                 "status": "unhealthy",
                 "error": str(e),
             }
+
+
+def _without_null_created_at(payload: dict | None) -> dict:
+    """Older indexers wrote created_at: null, which fails the recency bonus; a missing one doesn't."""
+    payload = dict(payload or {})
+    if payload.get("created_at", "") is None:
+        del payload["created_at"]
+    return payload
+
+
+def _as_named(vector) -> dict:
+    """An older point's vectors under the current names: its single (or unnamed) vector is `full`."""
+    if isinstance(vector, dict):
+        return {(FULL_VECTOR if name == "" else name): value for name, value in vector.items()}
+    return {FULL_VECTOR: vector}

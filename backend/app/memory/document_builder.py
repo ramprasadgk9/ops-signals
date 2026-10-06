@@ -129,6 +129,31 @@ class CaseDocumentBuilder:
         return parts
 
     @staticmethod
+    def build_symptom(case: OperationalCaseEntity) -> str:
+        """What was seen, and nothing about why: the case's `symptom` vector. Same shape as the text
+        a new finding searches with (seen_before.finding_query_text), so a finding is compared like
+        for like - and a postmortem's symptom against a detected case's, without the template and
+        resolution text that kept those two apart."""
+        finding = case.finding_snapshot or {}
+        if finding.get('source_type') == 'imported':
+            services = ", ".join(finding.get('services') or [finding.get('service') or ''])
+            return f"{services}: {case.case_title}. {finding.get('summary') or ''}".strip()
+        metric = ", ".join(finding.get('metric_names', [])) or finding.get('metric_name') or ''
+        title = finding.get('title') or case.case_title
+        return f"{finding.get('service') or ''} {metric}: {title}. {finding.get('summary') or ''}".strip()
+
+    @staticmethod
+    def build_resolution(case: OperationalCaseEntity) -> str | None:
+        """Why it happened and what fixed it: the case's `resolution` vector. None until the case
+        has a root cause or a corrective action, so unresolved cases never match on fixes."""
+        parts = []
+        if case.root_cause_summary:
+            parts.append(f"Cause: {case.root_cause_summary.strip()}")
+        if case.corrective_action:
+            parts.append(f"Fix: {case.corrective_action.strip()}")
+        return " ".join(parts) or None
+
+    @staticmethod
     def get_content_version() -> int:
         """Get current content version.
 

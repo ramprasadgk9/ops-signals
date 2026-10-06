@@ -7,8 +7,13 @@ from sqlalchemy.orm import Session
 
 from backend.app.config import MemoryConfig
 from backend.app.memory.document_builder import CaseDocumentBuilder
+from backend.app.memory.diversity import collapse_near_copies
 from backend.app.memory.embedder import Embedder
+from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.memory.novelty import assess_novelty
+from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import SimilarCaseMatch, SimilarCasesResponse
+from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import OperationalCaseEntity
 
@@ -75,7 +80,7 @@ class SimilarityService:
         2. Build document for current case
         3. Generate embedding
         4. Build Qdrant filters
-        5. Search Qdrant
+        5. Search Qdrant (meaning + keywords, ranked with the recall_scoring boosts)
         6. Exclude current case
         7. Load matching cases from PostgreSQL
         8. Preserve Qdrant ranking
@@ -104,11 +109,14 @@ class SimilarityService:
             raise ValueError(f"Case {case_id} not found")
 
         try:
-            # Step 2: Build document
-            document = CaseDocumentBuilder.build(current_case)
-
-            # Step 3: Generate embedding
-            vector = self.embedder.encode(document)
+            # Step 2-3: What the case saw, as a vector. An up-to-date indexed case already has its
+            # symptom vector in Qdrant; otherwise (stale, not indexed, older store) embed it.
+            symptom = CaseDocumentBuilder.build_symptom(current_case)
+            vector = None
+            if current_case.memory_status == "indexed":
+                vector = self.vector_store.get_vector(CaseMemoryIndexer._generate_point_id(case_id), SYMPTOM_VECTOR)
+            if vector is None:
+                vector = self.embedder.encode(symptom)
 
             # Use configured defaults if not overridden
             search_top_k = top_k or self.config.search.top_k
@@ -129,27 +137,31 @@ class SimilarityService:
                 search_same_service,
             )
 
-            # Step 5: Search Qdrant
+            # Step 5: Search Qdrant, symptom against symptom
             logger.debug(f"Case {case_id}: Searching for similar cases (top_k={search_top_k})")
             search_results = self.vector_store.search(
                 vector=vector,
                 filters=filters,
-                limit=search_top_k * 2,  # Fetch extra to account for exclusions
+                limit=search_top_k * 3,  # Fetch extra to account for exclusions and folded near-copies
                 score_threshold=search_minimum_score,
+                text=symptom,
+                boost=RecallBoost(service=(current_case.finding_snapshot or {}).get("service")),
+                using=SYMPTOM_VECTOR,
             )
 
-            # Step 6: Exclude current case and limit results
+            # Step 6: Exclude current case
             filtered_results = [
                 result
                 for result in search_results
                 if result["payload"].get("case_id") != case_id
-            ][:search_top_k]
+            ]
 
             # Step 7: Load matching cases from PostgreSQL
             match_case_ids = [result["payload"]["case_id"] for result in filtered_results]
+            service = (current_case.finding_snapshot or {}).get("service")
             if not match_case_ids:
                 logger.info(f"Case {case_id}: No similar cases found")
-                return SimilarCasesResponse(source_case_id=case_id, matches=[])
+                return SimilarCasesResponse(source_case_id=case_id, matches=[], novelty=assess_novelty([], service))
 
             # Retrieve full cases in one query
             matched_cases = db.execute(
@@ -160,14 +172,11 @@ class SimilarityService:
 
             case_by_id = {case.id: case for case in matched_cases}
 
-            # Step 8-9: Build response preserving Qdrant ranking
-            matches: list[SimilarCaseMatch] = []
-            for result in filtered_results:
+            def to_match(result: dict) -> SimilarCaseMatch | None:
                 matched_case = case_by_id.get(result["payload"]["case_id"])
                 if not matched_case:
-                    continue
-
-                match = SimilarCaseMatch(
+                    return None
+                return SimilarCaseMatch(
                     case_id=matched_case.id,
                     similarity_score=result["score"],
                     title=matched_case.case_title,
@@ -187,7 +196,19 @@ class SimilarityService:
                     outcome_status=matched_case.outcome_status,
                     outcome_summary=matched_case.outcome_summary,
                 )
+
+            # Step 8-9: Build response preserving Qdrant ranking, near-copies folded under the
+            # match they copy (diversity), then limited to top_k distinct matches
+            matches: list[SimilarCaseMatch] = []
+            every_match: list[SimilarCaseMatch] = []
+            for leader, copies in collapse_near_copies(filtered_results):
+                match = to_match(leader)
+                if match is None:
+                    continue
+                match.more_like_this = [copy for copy in map(to_match, copies) if copy is not None]
                 matches.append(match)
+                every_match.extend([match, *match.more_like_this])
+            matches = matches[:search_top_k]
 
             logger.info(f"Case {case_id}: Found {len(matches)} similar cases")
 
@@ -195,6 +216,7 @@ class SimilarityService:
                 source_case_id=case_id,
                 similarity_type="finding_similarity",
                 matches=matches,
+                novelty=assess_novelty(every_match, service),
             )
 
         except Exception as e:

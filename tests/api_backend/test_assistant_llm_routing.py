@@ -32,7 +32,7 @@ class _FakeDocsStore:
     def __init__(self, results: list[dict]) -> None:
         self.results = results
 
-    def search(self, vector, limit, score_threshold=None, filters=None):
+    def search(self, vector, limit, score_threshold=None, filters=None, **_kwargs):
         return self.results
 
 

@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.assistant.service import OperationalIntelligenceAssistant
+from backend.app.memory.diversity import collapse_near_copies
 from backend.app.memory.embedder import Embedder
+from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import (
     AlertContextHistory,
     AlertContextOutcome,
@@ -92,15 +94,22 @@ def build_alert_context(
             filters = {"must": [same_metric_or_imported(metric_name)]}
             if service:
                 filters["must"].append({"key": "service", "match": {"value": service}})
-            results = similarity.vector_store.search(vector=vector, filters=filters, limit=5, score_threshold=0.3)
-            case_ids = [result["payload"].get("case_id") for result in results if result["payload"].get("case_id")]
+            # Against the whole case document, not just symptoms: an alert message is free text that
+            # can name a likely cause ("db connections maxed out"), and that should pull the case
+            # with that cause first. A finding says only what was seen, so Seen before? uses symptoms.
+            results = similarity.vector_store.search(
+                vector=vector, filters=filters, limit=15, score_threshold=0.3,
+                text=message.strip(), boost=RecallBoost(service=service),
+            )
+            groups = collapse_near_copies(results)[:5]
+            case_ids = [result["payload"].get("case_id") for leader, copies in groups for result in [leader, *copies] if result["payload"].get("case_id")]
             case_by_id = {}
             if case_ids:
                 matched_cases = db.execute(
                     select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(case_ids))
                 ).scalars().all()
                 case_by_id = {case.id: case for case in matched_cases}
-            for result in results:
+            for result, copies in groups:
                 case = case_by_id.get(result["payload"].get("case_id"))
                 if not case:
                     continue
@@ -118,6 +127,7 @@ def build_alert_context(
                         source=case.source,
                         source_id=case.source_id,
                         reference=f"/cases/{case.id}",
+                        more_like_this=sum(1 for copy in copies if copy["payload"].get("case_id") in case_by_id),
                     )
                 )
         except Exception as e:

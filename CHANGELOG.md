@@ -2,6 +2,51 @@
 
 ## 0.3.0 - Unreleased
 
+- **Symptom and fix vectors**: each case in Qdrant now has a `symptom` vector (what was seen) and a
+  `resolution` vector (cause and fix, once recorded) next to the whole-document one. Seen before?
+  and Similar Cases compare a finding's symptom with past symptoms, so an imported postmortem about
+  the same problem as a detected finding is now usually a **strong** match (0.57 → 0.77 on the test
+  catalogue) while unrelated cases stay low. Alert messages and chat questions still search the whole
+  document, so a cause named in an alert ("db connections maxed out") still ranks that case first.
+- **Did the fix hold?** is inferred: a fix held if no case with the same symptom was opened on the
+  same service within 30 days; otherwise it **came back after N days**; before 30 days it is **too
+  early to tell**. Shown in **Same fix elsewhere** on a case's Similar Cases tab (other incidents,
+  on any service, resolved by the same cause and fix: `GET /api/cases/{id}/same-fix`) and in
+  **What fixed this before** on a finding's Seen before? (past fixes merged where they say the same
+  thing, ranked by how often they held: `GET /api/findings/{id}/suggested-fixes`). **Draft a
+  runbook** writes numbered steps from those fixes, citing the cases, with the configured LLM; it is
+  a draft and never saved (`POST /api/findings/{id}/suggested-fixes/runbook-draft`).
+- **Recurring problems** can group **by cause** as well as by symptom, and are drawn rather than
+  listed: a ranked bar per problem (how often it happened; click to jump to it) and a timeline per
+  problem with a dot for each occurrence - still open, fixed with a verified cause, or fixed without
+  one - linking to its case. Causes show the first two, the rest one click away.
+- Repeats of the same incident (same service, symptom, cause and fix) fold under one match as **+N
+  more like this** on Similar Cases and Seen before?, so one recurring incident can't fill every
+  slot; Slack says "+N more like this"; the assistant lists each past problem once.
+- The `operational_cases` collection is recreated once on startup with the new vectors (points kept,
+  the old vector becomes `full`), and the new vectors are filled in from PostgreSQL in the
+  background; until then symptom searches use the whole document.
+- **Recurring problems** on Operational Memory: past cases from the last 30, 90, 180 or 365 days
+  grouped into the problems that keep coming back ("6 times in 90 days"), with the services, how
+  many causes were verified, how many cases are still open, and the causes and fixes found each
+  time. Groups come from Qdrant's distance matrix; every case in a group is at least 80% like the
+  group's central case, so loosely related cases don't chain together. With an LLM configured the
+  groups are named by it, otherwise after their central case. `GET
+  /api/memory/recurring-problems?days=&min_occurrences=`.
+- **New pattern / Recurring badge** on a finding's Seen before? and a case's Similar Cases: **New
+  pattern** (nothing in memory looks like it), **First time on <service>** (only other services
+  have had it), **Seen before**, or **Recurring · N past cases** (3 or more on the same service).
+  Counted from the matches already shown, so no extra search runs; returned as `novelty` on both
+  APIs.
+- Recall ranks past cases on exact words and context, not only meaning. Each case is indexed in
+  Qdrant with a keyword vector next to its embedding, so a past case naming the same error, service
+  or metric (`OOMKilled`, `5xx`, `checkout-api`) ranks above one that is only about something
+  similar. Matches are then ordered by similarity plus small bonuses for the same service, a
+  verified root cause and recency - at most 0.25 together, so a much more similar case always stays
+  on top. Applies to Similar Cases, Seen before?, alert context and Slack enrichment, Ask Ops
+  Signals and MCP memory chat. Shown similarity, the strong/possible labels and score thresholds are
+  unchanged. The keyword vector arrives with the one-time collection migration described above; if
+  the ranking query ever fails, recall falls back to plain similarity.
 - Cluster-aware deploy events: `POST /api/events` takes an optional `cluster`, and `GET
   /api/events` filters by it. A finding or an alert is matched only to change events from its own
   cluster, or with no cluster (a deploy everywhere, or a single-cluster setup), so a deploy to `eu`
