@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
 from uuid import uuid4
@@ -188,13 +189,17 @@ class CaseTicketing:
         self,
         case_id: int,
         provider: str | None = None,
+        session: Session | None = None,
     ) -> TicketOperationView | None:
         """Enqueues an asynchronous resolve_ticket operation if a linked ticket exists.
 
         Deep module invariant:
         - If ticketing is disabled or provider is not configured, returns None (fail-safe no-op).
         - If no linked ticket exists for this case, returns None (fail-safe no-op).
+        - Validates that case is resolved or mitigated.
         - Enqueues operation with deterministic idempotency key based on resolution payload.
+        - When an existing session is provided, enqueues within that session's transaction without committing,
+          ensuring transactional atomicity with the caller's persistence boundary.
         """
         provider_name = provider or self.config.active_provider
         if not self.config.enabled:
@@ -204,67 +209,91 @@ class CaseTicketing:
         if not provider_obj or not getattr(provider_obj, "is_configured", True):
             return None
 
-        with self._session_factory() as session:
-            # 1. Check if an active link exists for this case and provider
-            link = (
-                session.query(CaseTicketLinkEntity)
-                .filter_by(case_id=case_id, provider=provider_name)
-                .first()
+        if session is not None:
+            return self._enqueue_resolve_in_session(session, case_id, provider_name, should_commit=False)
+
+        with self._session_factory() as local_session:
+            return self._enqueue_resolve_in_session(local_session, case_id, provider_name, should_commit=True)
+
+    def _enqueue_resolve_in_session(
+        self,
+        session: Session,
+        case_id: int,
+        provider_name: str,
+        should_commit: bool,
+    ) -> TicketOperationView | None:
+        # 1. Check if an active link exists for this case and provider
+        link = (
+            session.query(CaseTicketLinkEntity)
+            .filter_by(case_id=case_id, provider=provider_name)
+            .first()
+        )
+        if not link:
+            return None
+
+        # 2. Check if case exists
+        case = session.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        if not case:
+            return None
+
+        if case.outcome_status not in {"resolved", "mitigated"}:
+            raise TicketingError(
+                f"Cannot resolve ticket: case #{case_id} status is '{case.outcome_status}', "
+                "expected 'resolved' or 'mitigated'"
             )
-            if not link:
-                return None
 
-            # 2. Check if case exists
-            case = session.query(OperationalCaseEntity).filter_by(id=case_id).first()
-            if not case:
-                return None
+        # 3. Deterministic idempotency key based on resolution state
+        content_bytes = (
+            f"{case.outcome_status}:{case.outcome_summary or ''}:"
+            f"{case.corrective_action or ''}:{case.root_cause_summary or ''}"
+        ).encode("utf-8")
+        content_hash = hashlib.sha256(content_bytes).hexdigest()[:12]
+        idem_key = f"resolve_{case_id}_{content_hash}"
 
-            # 3. Deterministic idempotency key based on resolution state
-            content_bytes = (
-                f"{case.outcome_status}:{case.outcome_summary or ''}:"
-                f"{case.corrective_action or ''}:{case.root_cause_summary or ''}"
-            ).encode("utf-8")
-            content_hash = hashlib.sha256(content_bytes).hexdigest()[:12]
-            idem_key = f"resolve_{case_id}_{content_hash}"
-
-            # 4. Check for existing operation with this idempotency key
-            existing_op = (
-                session.query(TicketOperationEntity)
-                .filter_by(provider=provider_name, idempotency_key=idem_key)
-                .first()
-            )
-            if existing_op:
-                if existing_op.status == "failed":
-                    now = datetime.now(timezone.utc)
-                    existing_op.status = "pending"
-                    existing_op.attempts = 0
-                    existing_op.available_at = now
-                    existing_op.error_message = None
-                    existing_op.lease_token = None
-                    existing_op.lease_expires_at = None
-                    existing_op.updated_at = now
+        # 4. Check for existing operation with this idempotency key
+        existing_op = (
+            session.query(TicketOperationEntity)
+            .filter_by(provider=provider_name, idempotency_key=idem_key)
+            .first()
+        )
+        if existing_op:
+            if existing_op.status == "failed":
+                now = datetime.now(timezone.utc)
+                existing_op.status = "pending"
+                existing_op.attempts = 0
+                existing_op.available_at = now
+                existing_op.error_message = None
+                existing_op.lease_token = None
+                existing_op.lease_expires_at = None
+                existing_op.updated_at = now
+                if should_commit:
                     session.commit()
                     session.refresh(existing_op)
-                return self._to_operation_view(existing_op)
+                else:
+                    session.flush()
+            return self._to_operation_view(existing_op)
 
-            now = datetime.now(timezone.utc)
-            op = TicketOperationEntity(
-                id=f"op_{uuid4().hex[:16]}",
-                case_id=case_id,
-                provider=provider_name,
-                operation_type="resolve_ticket",
-                idempotency_key=idem_key,
-                status="pending",
-                attempts=0,
-                max_attempts=self.config.outbox_max_attempts,
-                available_at=now,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(op)
+        now = datetime.now(timezone.utc)
+        op = TicketOperationEntity(
+            id=f"op_{uuid4().hex[:16]}",
+            case_id=case_id,
+            provider=provider_name,
+            operation_type="resolve_ticket",
+            idempotency_key=idem_key,
+            status="pending",
+            attempts=0,
+            max_attempts=self.config.outbox_max_attempts,
+            available_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(op)
+        if should_commit:
             session.commit()
             session.refresh(op)
-            return self._to_operation_view(op)
+        else:
+            session.flush()
+        return self._to_operation_view(op)
 
     def retry_operation(self, operation_id: str) -> TicketOperationView:
         """Reopens a failed or ambiguous operation for execution."""
@@ -851,6 +880,34 @@ class CaseTicketing:
         elif op_type == "resolve_ticket":
             self._execute_resolve_operation(op_id, lease_token, case_id, provider_name, provider)
 
+    def _complete_operation_under_lease(
+        self,
+        session: Session,
+        op_id: str,
+        lease_token: str,
+        now: datetime,
+    ) -> TicketOperationEntity:
+        """Verifies lease ownership and transitions operation to completed status."""
+        op = (
+            session.query(TicketOperationEntity)
+            .filter(
+                TicketOperationEntity.id == op_id,
+                TicketOperationEntity.lease_token == lease_token,
+                TicketOperationEntity.status == "processing",
+                TicketOperationEntity.lease_expires_at > now,
+            )
+            .first()
+        )
+        if not op:
+            session.rollback()
+            raise LeaseLostError(f"Lease lost for operation {op_id}")
+
+        op.status = "completed"
+        op.lease_token = None
+        op.lease_expires_at = None
+        op.updated_at = now
+        return op
+
     def _execute_create_operation(
         self, op_id: str, lease_token: str, case_id: int, provider: Any
     ) -> None:
@@ -861,25 +918,7 @@ class CaseTicketing:
             # Single atomic completion transaction
             with self._session_factory() as session:
                 now = datetime.now(timezone.utc)
-                # Verify lease ownership, active processing status, and valid expiration
-                op = (
-                    session.query(TicketOperationEntity)
-                    .filter(
-                        TicketOperationEntity.id == op_id,
-                        TicketOperationEntity.lease_token == lease_token,
-                        TicketOperationEntity.status == "processing",
-                        TicketOperationEntity.lease_expires_at > now,
-                    )
-                    .first()
-                )
-                if not op:
-                    session.rollback()
-                    raise LeaseLostError(f"Lease lost for operation {op_id}")
-
-                op.status = "completed"
-                op.lease_token = None
-                op.lease_expires_at = None
-                op.updated_at = now
+                op = self._complete_operation_under_lease(session, op_id, lease_token, now)
 
                 # Upsert link
                 link = (
@@ -1048,6 +1087,7 @@ class CaseTicketing:
 
                 remote_id = link.remote_id
                 display_key = link.display_key
+                ui_base = os.getenv("OPS_SIGNALS_UI_BASE_URL", "http://localhost:3000").rstrip("/")
                 resolution = TicketResolutionDraft(
                     case_id=case.id,
                     display_key=link.display_key,
@@ -1056,7 +1096,7 @@ class CaseTicketing:
                     corrective_action=case.corrective_action,
                     outcome_status=case.outcome_status or "resolved",
                     outcome_summary=case.outcome_summary,
-                    deep_link_url=f"/cases/{case.id}",
+                    deep_link_url=f"{ui_base}/cases/{case.id}",
                 )
 
             if not hasattr(provider, "resolve_ticket"):
@@ -1071,24 +1111,7 @@ class CaseTicketing:
 
             with self._session_factory() as session:
                 now = datetime.now(timezone.utc)
-                op = (
-                    session.query(TicketOperationEntity)
-                    .filter(
-                        TicketOperationEntity.id == op_id,
-                        TicketOperationEntity.lease_token == lease_token,
-                        TicketOperationEntity.status == "processing",
-                        TicketOperationEntity.lease_expires_at > now,
-                    )
-                    .first()
-                )
-                if not op:
-                    session.rollback()
-                    raise LeaseLostError(f"Lease lost for resolve op {op_id}")
-
-                op.status = "completed"
-                op.lease_token = None
-                op.lease_expires_at = None
-                op.updated_at = now
+                op = self._complete_operation_under_lease(session, op_id, lease_token, now)
 
                 link = (
                     session.query(CaseTicketLinkEntity)
@@ -1261,9 +1284,21 @@ class CaseTicketing:
             )
             last_delivery_at = last_delivery.processed_at if last_delivery else None
 
+        webhook_base = (
+            os.getenv("OPS_SIGNALS_WEBHOOK_BASE_URL")
+            or os.getenv("OPS_SIGNALS_BASE_URL")
+            or os.getenv("OPS_SIGNALS_API_BASE_URL")
+            or ""
+        ).rstrip("/")
+        webhook_url = (
+            f"{webhook_base}/api/integrations/ticketing/{provider}/webhook"
+            if webhook_base
+            else f"/api/integrations/ticketing/{provider}/webhook"
+        )
+
         return WebhookInfoView(
             provider=provider,
-            webhook_url=f"/api/integrations/ticketing/{provider}/webhook",
+            webhook_url=webhook_url,
             is_secret_configured=is_secret_configured,
             deliveries_count=deliveries_count,
             last_delivery_at=last_delivery_at,
@@ -1278,21 +1313,22 @@ class CaseTicketing:
             finding_snapshot = case.finding_snapshot or {}
             service = finding_snapshot.get("service") or "unknown-service"
             metric = finding_snapshot.get("metric_name") or "unknown-metric"
-            health = finding_snapshot.get("health_status") or "warning"
+            health_status = finding_snapshot.get("health_status") or "warning"
             importance = float(finding_snapshot.get("importance_score") or 0.5)
 
+            ui_base = os.getenv("OPS_SIGNALS_UI_BASE_URL", "http://localhost:3000").rstrip("/")
             return TicketDraft(
                 case_id=case.id,
                 case_title=case.case_title,
                 summary=finding_snapshot.get("summary") or case.case_title,
                 service=service,
                 metric_name=metric,
-                health_status=health,
+                health_status=health_status,
                 importance_score=importance,
                 analysis_run_id=case.analysis_run_id,
                 rca_summary=case.root_cause_summary,
                 outcome_summary=case.outcome_summary,
-                deep_link_url=f"/cases/{case.id}",
+                deep_link_url=f"{ui_base}/cases/{case.id}",
                 raw_findings=[finding_snapshot],
             )
 

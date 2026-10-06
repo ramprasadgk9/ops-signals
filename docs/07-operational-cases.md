@@ -55,6 +55,15 @@ When an operational case is linked to an external ticketing provider (e.g., Jira
    - On-demand triage: Operators can trigger immediate AI triage at any time via `POST /api/cases/{case_id}/ticket/triage-comments` or the `[⚡ AI Triage]` button in the UI.
    - Graceful degradation: If AI services are unavailable or fail, comment triage fails closed, leaving comments unpromoted for manual operator review without breaking ticket synchronization.
 
+5. **Outbound Resolution Synchronization**:
+   - When an operator approves and verifies an RCA and resolves/mitigates an operational case, Ops Signals atomically enqueues a transactional outbox operation (`resolve_ticket`).
+   - The Jira adapter formats an Atlassian Document Format (ADF) closing resolution comment containing the verified root cause, corrective action, outcome summary, and deep link back to Ops Signals.
+   - Fail-safely transitions the linked Jira ticket to "Done" / "Resolved" if an eligible transition exists in the Jira project workflow.
+   - Operators can also manually trigger outbound resolution sync at any time via `POST /api/cases/{case_id}/ticket/resolve`.
+6. **Instant Webhook Ingestion & Configuration**:
+   - Operators can retrieve setup details and delivery health via `GET /api/integrations/ticketing/{provider}/webhook-info`.
+   - Incoming Jira webhooks (`POST /api/integrations/ticketing/{provider}/webhook`) process comments and status changes instantaneously with zero polling latency, verified via HMAC-SHA256 signatures and deduped against `ticket_webhook_deliveries`.
+
 ## Current State
 
 Case tracking exists in the backend models, standalone web frontend, and operational memory pipeline.

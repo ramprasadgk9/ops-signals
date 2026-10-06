@@ -973,6 +973,8 @@ def test_request_resolve_and_outbox_processing():
     assert call_args["display_key"] == "OPS-99"
     assert call_args["resolution"].root_cause_verified is True
     assert call_args["resolution"].corrective_action == "Added row-level lock"
+    assert call_args["resolution"].deep_link_url.startswith("http")
+    assert f"/cases/{case_id}" in call_args["resolution"].deep_link_url
 
     # Verify link updated and event recorded
     with session_local() as db:
@@ -1068,6 +1070,8 @@ def test_patch_resolution_triggers_request_resolve(client, monkeypatch):
     now = datetime.now(timezone.utc)
     with session_local() as db:
         case_id = _setup_test_case(db)
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        case.root_cause_verified = True
         link = CaseTicketLinkEntity(
             case_id=case_id,
             provider="jira",
@@ -1106,12 +1110,144 @@ def test_patch_resolution_triggers_request_resolve(client, monkeypatch):
     assert patch_res.status_code == 200
     assert patch_res.json()["outcome_status"] == "resolved"
 
-    # Check outbox has resolve_ticket operation queued!
+    # Check outbox has resolve_ticket operation queued atomically!
     with session_local() as db:
         op = db.query(TicketOperationEntity).filter_by(case_id=case_id, operation_type="resolve_ticket").first()
         assert op is not None
         assert op.status == "pending"
         assert "resolve_" in op.idempotency_key
+
+
+def test_unverified_rca_does_not_trigger_auto_resolve(client, monkeypatch):
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        case.root_cause_verified = False
+        link = CaseTicketLinkEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_id="10099",
+            display_key="OPS-99",
+            ticket_url="https://jira.example.com/browse/OPS-99",
+            observed_remote_status="In Progress",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(link)
+        db.commit()
+
+    from backend.app.api import ticketing
+    provider = DummyJiraProvider()
+    test_svc = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(enabled=True),
+        providers={"jira": provider},
+    )
+    monkeypatch.setattr(ticketing, "_ticketing_service", test_svc)
+
+    # When RCA is unverified, resolving should not queue Jira closing comment
+    patch_res = client.patch(
+        f"/api/cases/{case_id}/resolution",
+        json={
+            "outcome_status": "resolved",
+            "outcome_summary": "Issue resolved without confirmed RCA",
+            "learning_outcome_status": "confirmed",
+            "root_cause_category": "configuration",
+            "resolved_by": "alice",
+        },
+    )
+    assert patch_res.status_code == 200
+
+    with session_local() as db:
+        op = db.query(TicketOperationEntity).filter_by(case_id=case_id, operation_type="resolve_ticket").first()
+        assert op is None
+
+
+def test_rca_verification_triggers_resolve_on_resolved_case(client, monkeypatch):
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        case.outcome_status = "resolved"
+        case.root_cause_verified = False
+        link = CaseTicketLinkEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_id="10099",
+            display_key="OPS-99",
+            ticket_url="https://jira.example.com/browse/OPS-99",
+            observed_remote_status="In Progress",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(link)
+        db.commit()
+
+    from backend.app.api import ticketing
+    provider = DummyJiraProvider()
+    test_svc = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(enabled=True),
+        providers={"jira": provider},
+    )
+    monkeypatch.setattr(ticketing, "_ticketing_service", test_svc)
+
+    # When RCA is verified after resolution, outbox resolve_ticket is queued atomically
+    patch_res = client.patch(
+        f"/api/cases/{case_id}/rca",
+        json={
+            "root_cause_status": "confirmed",
+            "root_cause_summary": "Root cause confirmed as bug #123",
+            "root_cause_confidence": 0.95,
+            "root_cause_verified": True,
+        },
+    )
+    assert patch_res.status_code == 200
+
+    with session_local() as db:
+        op = db.query(TicketOperationEntity).filter_by(case_id=case_id, operation_type="resolve_ticket").first()
+        assert op is not None
+        assert op.status == "pending"
+
+
+def test_manual_resolve_fails_when_case_not_resolved(client, monkeypatch):
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    with session_local() as db:
+        case_id = _setup_test_case(db)
+        case = db.query(OperationalCaseEntity).filter_by(id=case_id).first()
+        case.outcome_status = "investigating"
+        link = CaseTicketLinkEntity(
+            case_id=case_id,
+            provider="jira",
+            remote_id="10099",
+            display_key="OPS-99",
+            ticket_url="https://jira.example.com/browse/OPS-99",
+            observed_remote_status="In Progress",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(link)
+        db.commit()
+
+    from backend.app.api import ticketing
+    provider = DummyJiraProvider()
+    test_svc = CaseTicketing(
+        session_factory=lambda: get_session_local()(),
+        config=TicketingConfig(enabled=True),
+        providers={"jira": provider},
+    )
+    monkeypatch.setattr(ticketing, "_ticketing_service", test_svc)
+
+    resolve_res = client.post(f"/api/cases/{case_id}/ticket/resolve")
+    assert resolve_res.status_code == 400
+    assert "expected 'resolved' or 'mitigated'" in resolve_res.json()["detail"]
 
 
 

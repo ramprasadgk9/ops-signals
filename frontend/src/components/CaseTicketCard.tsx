@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Alert,
   AlertTitle,
@@ -214,10 +214,31 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
     },
   });
 
-  const handleCopyWebhookUrl = () => {
+  const ticket = ticketQuery.data;
+
+  const webhookTargetUrl = useMemo(() => {
+    const backendUrl = webhookQuery.data?.webhook_url;
+    if (backendUrl && (backendUrl.startsWith('http://') || backendUrl.startsWith('https://'))) {
+      return backendUrl;
+    }
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const fullUrl = `${origin}${webhookQuery.data?.webhook_url || '/api/integrations/ticketing/jira/webhook'}`;
-    navigator.clipboard.writeText(fullUrl);
+    return `${origin}${backendUrl || '/api/integrations/ticketing/jira/webhook'}`;
+  }, [webhookQuery.data?.webhook_url]);
+
+  const jiraWebhookAdminUrl = useMemo(() => {
+    if (ticket?.ticket_url) {
+      try {
+        const origin = new URL(ticket.ticket_url).origin;
+        return `${origin}/plugins/servlet/webhooks`;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [ticket?.ticket_url]);
+
+  const handleCopyWebhookUrl = () => {
+    navigator.clipboard.writeText(webhookTargetUrl);
     setCopiedUrl(true);
     setTimeout(() => setCopiedUrl(false), 2000);
   };
@@ -228,8 +249,6 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
       remote_key: resolutionAction === 'link_existing' ? remoteKeyInput.trim() : undefined,
     });
   };
-
-  const ticket = ticketQuery.data;
   const isOperating =
     createMutation.isPending ||
     syncMutation.isPending ||
@@ -612,11 +631,7 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
                 <TextField
                   fullWidth
                   size="small"
-                  value={
-                    typeof window !== 'undefined'
-                      ? `${window.location.origin}${webhookQuery.data?.webhook_url || '/api/integrations/ticketing/jira/webhook'}`
-                      : '/api/integrations/ticketing/jira/webhook'
-                  }
+                  value={webhookTargetUrl}
                   slotProps={{ input: { readOnly: true } }}
                   sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
                 />
@@ -660,12 +675,33 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
             </Box>
 
             <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Setup Steps in Atlassian Jira Cloud:
-              </Typography>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                <Typography variant="subtitle2">
+                  Setup Steps in Atlassian Jira Cloud:
+                </Typography>
+                {jiraWebhookAdminUrl && (
+                  <Button
+                    component="a"
+                    href={jiraWebhookAdminUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    size="small"
+                    variant="outlined"
+                    startIcon={<OpenInNewRoundedIcon fontSize="small" />}
+                    sx={{ textTransform: 'none', fontSize: '0.8rem', py: 0.25 }}
+                  >
+                    Open Jira Webhooks Console
+                  </Button>
+                )}
+              </Stack>
               <Stack spacing={1} component="ol" sx={{ pl: 2.5, m: 0, fontSize: '0.875rem' }}>
                 <Typography component="li" variant="body2">
-                  Open Jira Settings ➔ <strong>System</strong> ➔ <strong>Webhooks</strong>.
+                  Open Jira Settings ➔ <strong>System</strong> ➔ <strong>Webhooks</strong>
+                  {!jiraWebhookAdminUrl && (
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      (direct path: <code>https://&lt;your-domain&gt;.atlassian.net/plugins/servlet/webhooks</code>)
+                    </Typography>
+                  )}.
                 </Typography>
                 <Typography component="li" variant="body2">
                   Click <strong>Create a Webhook</strong> and paste the target URL above.

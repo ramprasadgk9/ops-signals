@@ -196,7 +196,7 @@ Shown as dashed, muted boxes in Figure 1 — explicitly **not** current capabili
 
 - **Kubernetes** ingestion (kube-state-metrics, cAdvisor)
 - **Cloud provider** metrics (AWS CloudWatch, GCP Monitoring, Azure Monitor)
-- **ITSM / automation** consumer (Jira, ServiceNow — create/update tickets, trigger workflows)
+- **ITSM / automation** consumers (Jira Cloud ticketing integration is implemented with transactional outbox ticket creation, comment sync, outbound resolution closing comments, and webhooks; ServiceNow and generic workflow automation remain roadmap)
 - Generic **external-system** consumer (arbitrary webhooks, BI/reporting export). Slack is implemented
   (see [Consume](#6-consume)); a general-purpose outbound webhook is not.
 

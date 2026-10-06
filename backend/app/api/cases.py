@@ -378,6 +378,15 @@ def update_root_cause_analysis(
     case.root_cause_confidence = payload.root_cause_confidence
     case.root_cause_verified = payload.root_cause_verified
     case.updated_at = datetime.utcnow()
+
+    # Outbound resolution sync: when RCA is approved/verified AND case is resolved/mitigated
+    if payload.root_cause_verified and case.outcome_status in {"resolved", "mitigated"}:
+        try:
+            ticketing_svc = get_ticketing_service()
+            ticketing_svc.request_resolve(case_id=case.id, session=db)
+        except Exception as ticketing_exc:
+            logger.warning("Optional ticket resolution sync failed to enqueue for case %s: %s", case.id, ticketing_exc)
+
     db.commit()
     db.refresh(case)
 
@@ -563,16 +572,17 @@ def update_resolution(
                 status_code = 404
             raise HTTPException(status_code=status_code, detail=str(exc))
 
+    # Outbound resolution sync: when case is resolved/mitigated AND RCA is approved/verified
+    if case.root_cause_verified and payload.outcome_status in {"resolved", "mitigated"}:
+        try:
+            ticketing_svc = get_ticketing_service()
+            ticketing_svc.request_resolve(case_id=case.id, session=db)
+        except Exception as ticketing_exc:
+            logger.warning("Optional ticket resolution sync failed to enqueue for case %s: %s", case.id, ticketing_exc)
+
     db.commit()
     db.refresh(case)
 
     _refresh_case_memory(case, db, indexer, config)
-
-    if payload.outcome_status in {"resolved", "mitigated"}:
-        try:
-            ticketing_svc = get_ticketing_service()
-            ticketing_svc.request_resolve(case_id=case.id)
-        except Exception as ticketing_exc:
-            logger.warning("Optional ticket resolution sync failed to enqueue for case %s: %s", case.id, ticketing_exc)
 
     return _to_case_out(case)

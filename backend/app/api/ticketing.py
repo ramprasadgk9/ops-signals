@@ -59,6 +59,10 @@ class LinkTicketRequest(BaseModel):
     provider: str | None = None
 
 
+class ResolveTicketRequest(BaseModel):
+    provider: str | None = None
+
+
 class OperationIdRequest(BaseModel):
     operation_id: str
 
@@ -260,7 +264,7 @@ def get_ticket_operation(
 )
 def resolve_case_ticket(
     case_id: int,
-    payload: CreateTicketRequest | None = None,
+    payload: ResolveTicketRequest | None = None,
     service: CaseTicketing = Depends(get_ticketing_service),
 ) -> TicketOperationView | None:
     try:
