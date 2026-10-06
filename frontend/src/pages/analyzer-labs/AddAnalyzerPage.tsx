@@ -37,6 +37,7 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
 import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
+import PlayCircleOutlineRoundedIcon from '@mui/icons-material/PlayCircleOutlineRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import VerifiedRoundedIcon from '@mui/icons-material/VerifiedRounded';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -188,6 +189,10 @@ type YamlPreview = {
 
 type WorkflowState = 'done' | 'current' | 'waiting' | 'blocked';
 
+// Recorded from the real page by scripts/record_analyzer_walkthrough.sh.
+const WALKTHROUGH_VIDEO_PATH = 'walkthroughs/add-analyzer.webm';
+const WALKTHROUGH_POSTER_PATH = 'walkthroughs/add-analyzer-poster.png';
+
 const profileOptions = ['seasonal', 'motif', 'repeating_pattern', 'trend', 'baseline_shift', 'regime_change', 'anomaly', 'outlier', 'spike', 'forecast', 'mixed'];
 const metricOptions = ['sample_count', 'regular_sampling', 'seasonality_strength', 'trend_strength', 'shift_index', 'spikiness', 'missing_percentage', 'irregular_sampling_percentage', 'constant_value_percentage', 'calendar_seasonality_strength', 'behavior_mix'];
 const runtimeTypeOptions: RuntimeDesign['type'][] = ['not_implemented', 'internal_python', 'external_http'];
@@ -238,6 +243,7 @@ function adapterClassName(analyzerId: string) {
 export function AddAnalyzerPage() {
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false);
   const [scoringRulesExpanded, setScoringRulesExpanded] = useState(false);
   const [entryChoice, setEntryChoice] = useState<'python' | 'api' | null>(null);
   const [form, setForm] = useState<AnalyzerConfig>(motifTemplate);
@@ -461,6 +467,16 @@ export function AddAnalyzerPage() {
     enabled: Boolean(backendSupportAdded && currentDraft),
   });
   const promoteIsNext = !draftPromoted && (nextStep.title === 'Next step: save to custom analyzers' || nextStep.title === 'Ready for promotion review');
+  const openNewAnalyzerDrawer = () => {
+    setForm(motifTemplate);
+    setImportName(motifTemplate.library);
+    setTestResult(null);
+    setLabRoutingResult(null);
+    setExecutionTestStatus('not_run');
+    setLibraryCheckResult(null);
+    setEntryChoice(null);
+    setDrawerOpen(true);
+  };
   const toggleCompletedStep = (stepId: string) => {
     setExpandedCompletedSteps((current) => ({ ...current, [stepId]: !current[stepId] }));
   };
@@ -485,23 +501,24 @@ export function AddAnalyzerPage() {
               Save a draft — it's validated automatically. Optionally test it, then promote to make it live.
             </Typography>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<AddRoundedIcon />}
-            onClick={() => {
-              setForm(motifTemplate);
-              setImportName(motifTemplate.library);
-              setTestResult(null);
-              setLabRoutingResult(null);
-              setExecutionTestStatus('not_run');
-              setLibraryCheckResult(null);
-              setEntryChoice(null);
-              setDrawerOpen(true);
-            }}
-            sx={{ textTransform: 'none', fontWeight: 850 }}
-          >
-            Add Analyzer
-          </Button>
+          <Stack direction="row" spacing={1} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+            <Button
+              variant="outlined"
+              startIcon={<PlayCircleOutlineRoundedIcon />}
+              onClick={() => setWalkthroughOpen(true)}
+              sx={{ textTransform: 'none', fontWeight: 850 }}
+            >
+              Watch how (1 min)
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddRoundedIcon />}
+              onClick={openNewAnalyzerDrawer}
+              sx={{ textTransform: 'none', fontWeight: 850 }}
+            >
+              Add Analyzer
+            </Button>
+          </Stack>
         </Stack>
 
         <Alert severity={nextStep.severity} sx={{ mt: 2 }}>
@@ -993,6 +1010,40 @@ export function AddAnalyzerPage() {
           </TableBody>
         </Table>
       </WorkspacePanel>
+
+      <Dialog open={walkthroughOpen} onClose={() => setWalkthroughOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ fontWeight: 900 }}>How to add an analyzer</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 1.5 }}>
+            Save a draft, test it on lab data, review the YAML, then promote. Recorded on this page.
+          </DialogContentText>
+          <Box
+            component="video"
+            src={`${import.meta.env.BASE_URL}${WALKTHROUGH_VIDEO_PATH}`}
+            poster={`${import.meta.env.BASE_URL}${WALKTHROUGH_POSTER_PATH}`}
+            controls
+            autoPlay
+            aria-label="Add analyzer walkthrough video"
+            sx={{ display: 'block', width: '100%', maxHeight: '65vh', borderRadius: 2, bgcolor: '#0b1020' }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWalkthroughOpen(false)} sx={{ textTransform: 'none', fontWeight: 800 }}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddRoundedIcon />}
+            onClick={() => {
+              setWalkthroughOpen(false);
+              openNewAnalyzerDrawer();
+            }}
+            sx={{ textTransform: 'none', fontWeight: 850 }}
+          >
+            Try it now
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)} PaperProps={{ sx: { width: 760, maxWidth: '100vw' } }}>
         <Stack spacing={2.4} sx={{ p: 3 }}>
