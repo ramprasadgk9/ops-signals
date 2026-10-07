@@ -174,14 +174,19 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats }: P
         >
           View Details
         </Button>
-        <Button 
-          size="small" 
-          variant="outlined"
-          onClick={handleCreateCase}
-          disabled={createCaseMutation.isPending}
-        >
-          {createCaseMutation.isPending ? 'Creating...' : 'Create Case'}
-        </Button>
+        {/* The span keeps the tooltip working while the button is disabled. */}
+        <Tooltip title="Opens a case for this finding. From the case you can also create a Jira ticket.">
+          <span>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={handleCreateCase}
+              disabled={createCaseMutation.isPending}
+            >
+              {createCaseMutation.isPending ? 'Creating...' : 'Create Case'}
+            </Button>
+          </span>
+        </Tooltip>
       </CardActions>
     </Card>
   );

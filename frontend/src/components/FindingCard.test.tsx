@@ -105,3 +105,15 @@ describe('FindingCard connection', () => {
     expect(screen.queryByText(/Default Prometheus/)).not.toBeInTheDocument();
   });
 });
+
+describe('FindingCard Create Case', () => {
+  it('says on hover that a Jira ticket can be created from the case', async () => {
+    renderCard(newPodsFinding);
+
+    fireEvent.mouseOver(screen.getByRole('button', { name: 'Create Case' }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Opens a case for this finding. From the case you can also create a Jira ticket.'
+    );
+  });
+});

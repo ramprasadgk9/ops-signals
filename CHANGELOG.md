@@ -7,7 +7,8 @@
   send the resolution to Jira, webhook setup. The External Ticketing card links it from its header.
   While ticketing is off, a blue banner at the top of the Cases list and of every case says Jira
   ticketing exists, with Watch how and How to turn it on (the settings). It can't be dismissed, so
-  everyone sees it; once ticketing is on it gives way to the case's External Ticketing card.
+  everyone sees it; once ticketing is on it gives way to the case's External Ticketing card. A
+  finding's Create Case button says on hover that a Jira ticket can be created from the case.
   Re-recorded by `scripts/record_jira_walkthrough.sh` against the demo stack and a Jira Cloud
   project. Also fixed: the card's header buttons ran out of the card in narrow windows; they wrap now.
 - **Monitoring coverage** on Operational Memory: each imported past incident checked against what
