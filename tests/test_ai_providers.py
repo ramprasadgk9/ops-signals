@@ -6,6 +6,7 @@ a faked SDK client, so the real request building and response parsing run withou
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import urllib.error
@@ -19,6 +20,7 @@ from backend.app.ai.factory import build_llm_client, build_optional_ai_services
 from backend.app.ai.interfaces import LLMMessage, LLMRequest
 from backend.app.ai.providers import anthropic as anthropic_provider
 from backend.app.ai.providers import openai_compatible
+from backend.app.ai.providers import ollama as ollama_provider
 from backend.app.ai.providers.anthropic import AnthropicLLMClient
 from backend.app.ai.providers.noop import NoOpLLMClient
 from backend.app.ai.providers.ollama import OllamaLLMClient
@@ -273,3 +275,19 @@ def test_env_overrides_configure_each_provider(monkeypatch) -> None:
     assert config.openai_compatible.api_key_header == "api-key"
     assert config.anthropic.model == "claude-sonnet-5"
     assert config.anthropic.api_key == "anthropic-secret"
+
+
+def test_ollama_sends_the_callers_token_limit_and_timeout_unchanged(monkeypatch) -> None:
+    """Short calls (alert-enrichment summaries, intent classification) rely on their own small
+    limits to fail fast; callers that need room, like comment triage, ask for it themselves."""
+    captured: dict = {}
+    body = {"message": {"role": "assistant", "content": "deploy regression"}, "prompt_eval_count": 12, "eval_count": 3}
+    monkeypatch.setattr(ollama_provider.urllib.request, "urlopen", _fake_urlopen(captured, body))
+    client = OllamaLLMClient(base_url="http://ollama:11434", model="qwen2.5", timeout_seconds=30.0)
+
+    response = client.generate(dataclasses.replace(_request(), max_tokens=120, timeout_seconds=10))
+
+    assert captured["url"] == "http://ollama:11434/api/chat"
+    assert captured["body"]["options"]["num_predict"] == 120
+    assert captured["timeout"] == 10
+    assert response.content == "deploy regression"

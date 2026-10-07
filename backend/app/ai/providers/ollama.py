@@ -28,7 +28,7 @@ class OllamaLLMClient(LLMClient):
             },
         }
         if request.max_tokens is not None:
-            payload["options"]["num_predict"] = max(request.max_tokens, 1000)
+            payload["options"]["num_predict"] = request.max_tokens
         if request.response_format == "json":
             payload["format"] = "json"
 
@@ -39,9 +39,8 @@ class OllamaLLMClient(LLMClient):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        effective_timeout = max(request.timeout_seconds or 0, self.timeout_seconds, 60.0)
         try:
-            with urllib.request.urlopen(req, timeout=effective_timeout) as response:
+            with urllib.request.urlopen(req, timeout=request.timeout_seconds or self.timeout_seconds) as response:
                 raw = response.read().decode("utf-8")
             data = json.loads(raw)
             content = ""
