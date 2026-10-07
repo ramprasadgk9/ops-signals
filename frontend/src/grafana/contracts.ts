@@ -332,6 +332,13 @@ export type AutonomousRunResponse = {
   warnings: string[];
 };
 
+export type TicketingStatus = {
+  enabled: boolean;
+  provider: string;
+  provider_configured: boolean;
+  webhook_secret_configured: boolean;
+};
+
 export type CaseTicketLink = {
   case_id: number;
   provider: string;

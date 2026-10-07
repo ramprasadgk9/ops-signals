@@ -34,6 +34,7 @@ import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { AmbiguousResolutionPayload, CaseTicketOperation } from '../types';
+import { shouldShowTicketCard } from '../utils/ticketingVisibility';
 
 interface CaseTicketCardProps {
   caseId: number;
@@ -50,6 +51,13 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
   const [triageFeedback, setTriageFeedback] = useState<string | null>(null);
   const [isWebhookGuideOpen, setIsWebhookGuideOpen] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+
+  // Ticketing is off on most installs: hide the card there unless the case already has a linked ticket.
+  const statusQuery = useQuery({
+    queryKey: ['ticketingStatus'],
+    queryFn: () => api.ticketingStatus(),
+    staleTime: 60_000,
+  });
 
   // 1. Fetch active ticket link
   const ticketQuery = useQuery({
@@ -260,6 +268,8 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
   const resolutionPostedEvent = eventsQuery.data?.find(
     (e) => e.event_type === 'resolution_posted'
   );
+
+  if (!shouldShowTicketCard(statusQuery.data, statusQuery.isError, ticketQuery.data)) return null;
 
   return (
     <Card variant="outlined" sx={{ mt: 2 }}>

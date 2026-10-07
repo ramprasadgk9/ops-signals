@@ -16,6 +16,7 @@ from backend.app.integrations.ticketing.models import (
     TicketEventView,
     TicketOperationView,
     TicketView,
+    TicketingStatusView,
     WebhookInfoView,
 )
 from backend.app.integrations.ticketing.protocols import (
@@ -274,6 +275,15 @@ def resolve_case_ticket(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except TicketingError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/api/integrations/ticketing/status",
+    status_code=status.HTTP_200_OK,
+    response_model=TicketingStatusView,
+)
+def get_ticketing_status(service: CaseTicketing = Depends(get_ticketing_service)) -> TicketingStatusView:
+    return service.get_status()
 
 
 @router.get(

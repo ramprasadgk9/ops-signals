@@ -137,6 +137,14 @@ class TicketResolutionResult(BaseModel):
     success: bool = True
 
 
+class TicketingStatusView(BaseModel):
+    """Whether ticketing is on, so the UI shows ticket actions only where they can work."""
+    enabled: bool
+    provider: str
+    provider_configured: bool
+    webhook_secret_configured: bool
+
+
 class WebhookInfoView(BaseModel):
     """Configuration and delivery health status of the incoming webhook."""
     provider: str

@@ -85,9 +85,9 @@ ticketing:
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `OPS_SIGNALS_TICKETING_ENABLED` | Enables the ticketing subsystem and API routes | `false` |
+| `OPS_SIGNALS_TICKETING_ENABLED` | Enables the ticketing subsystem and API routes. While it is off, the web UI and Grafana plugin hide ticket actions on cases that have no linked ticket (`GET /api/integrations/ticketing/status`) | `false` |
 | `OPS_SIGNALS_TICKETING_ACTIVE_PROVIDER` | Active issue-tracking provider (`jira`) | `jira` |
-| `OPS_SIGNALS_TICKETING_WORKER_ENABLED` | Runs the background outbox worker loop in the API process | `true` |
+| `OPS_SIGNALS_TICKETING_WORKER_ENABLED` | Runs the background outbox worker loop in the API process, only while ticketing is enabled; `false` stops it even then | `true` |
 | `OPS_SIGNALS_TICKETING_WORKER_POLL_INTERVAL_SECONDS` | Outbox polling frequency in seconds | `5` |
 | `OPS_SIGNALS_TICKETING_AUTOMATIC_ON_CASE_CREATION` | Automatically creates tickets when new cases are opened | `false` |
 | `OPS_SIGNALS_JIRA_BASE_URL` | Jira Cloud instance base URL | `None` |

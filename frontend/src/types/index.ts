@@ -1256,6 +1256,14 @@ export type AmbiguousResolutionPayload = {
   remote_key?: string;
 };
 
+/** GET /api/integrations/ticketing/status: whether ticketing is on, so ticket actions show only where they can work. */
+export type TicketingStatus = {
+  enabled: boolean;
+  provider: string;
+  provider_configured: boolean;
+  webhook_secret_configured: boolean;
+};
+
 export type WebhookInfoView = {
   provider: string;
   webhook_url: string;

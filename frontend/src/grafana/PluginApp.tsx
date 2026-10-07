@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -14,6 +14,7 @@ import { InvestigationDrawer, PanelPreview } from './PanelPreview';
 import { Card, Field, styles } from './plainUi';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginSeenBefore } from './PluginSeenBefore';
+import { shouldShowTicketCard } from '../utils/ticketingVisibility';
 import { findingBreakdown } from '../utils/findingBreakdown';
 import { findingLevel } from '../utils/findingLevel';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
@@ -2267,6 +2268,23 @@ function AutonomousInvestigationPanel({
   const [isTicketLoading, setIsTicketLoading] = useState(false);
   const [ticketOperation, setTicketOperation] = useState<CaseTicketOperation | null>(null);
   const [ticketError, setTicketError] = useState('');
+  const [ticketingStatus, setTicketingStatus] = useState<{ enabled: boolean } | null>(null);
+  const [ticketingStatusFailed, setTicketingStatusFailed] = useState(false);
+
+  useEffect(() => {
+    if (!backendUrl) return;
+    let isMounted = true;
+    getTicketingStatus(backendUrl)
+      .then((status) => {
+        if (isMounted) setTicketingStatus(status);
+      })
+      .catch(() => {
+        if (isMounted) setTicketingStatusFailed(true);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [backendUrl]);
 
   useEffect(() => {
     if (!activeCaseId || !backendUrl) {
@@ -2367,7 +2385,7 @@ function AutonomousInvestigationPanel({
               <p style={{ ...styles.muted, margin: '6px 0 0' }}>Continue investigation, RCA, resolution, and knowledge publishing in the existing case flow.</p>
             </div>
           ) : null}
-          {activeCaseId ? (
+          {activeCaseId && shouldShowTicketCard(ticketingStatus, ticketingStatusFailed, ticket) ? (
             <div style={{ borderTop: '1px solid rgba(204, 204, 220, 0.12)', paddingTop: 10, marginTop: 10 }}>
               <div style={styles.helperText}>External Ticketing</div>
               {ticket ? (

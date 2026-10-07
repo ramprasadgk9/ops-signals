@@ -17,6 +17,7 @@ import type {
   GrafanaQuestion,
   GrafanaQuestionAnswer,
   CaseTicketLink,
+  TicketingStatus,
   CaseTicketOperation,
   CaseTicketEvent,
   AmbiguousResolutionPayload,
@@ -624,6 +625,10 @@ export async function indexCaseMemory(baseUrl: string, caseId: number) {
 
 export async function createCaseTicket(baseUrl: string, caseId: number, provider?: string) {
   return postJson<CaseTicketOperation>(baseUrl, `/api/cases/${caseId}/ticket/create`, { provider });
+}
+
+export async function getTicketingStatus(baseUrl: string) {
+  return fetchJson<TicketingStatus>(baseUrl, '/api/integrations/ticketing/status');
 }
 
 export async function getCaseTicket(baseUrl: string, caseId: number, provider?: string) {

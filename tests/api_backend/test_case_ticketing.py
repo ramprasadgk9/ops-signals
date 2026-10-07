@@ -1286,3 +1286,26 @@ def test_ticketing_worker_only_runs_when_ticketing_is_enabled(monkeypatch, enabl
         monkeypatch.setenv("OPS_SIGNALS_TICKETING_WORKER_ENABLED", worker_env)
 
     assert ticketing_worker_enabled(TicketingConfig(enabled=enabled)) is expected
+
+
+def test_ticketing_status_reports_enabled_provider_and_secret(db_session):
+    on = CaseTicketing(session_factory=lambda: db_session, config=TicketingConfig(enabled=True), providers={"jira": DummyJiraProvider()})
+    assert on.get_status().model_dump() == {
+        "enabled": True,
+        "provider": "jira",
+        "provider_configured": True,
+        "webhook_secret_configured": True,
+    }
+
+    off = CaseTicketing(session_factory=lambda: db_session, config=TicketingConfig(enabled=False), providers={})
+    status = off.get_status()
+    assert (status.enabled, status.provider_configured, status.webhook_secret_configured) == (False, False, False)
+
+
+def test_ticketing_status_endpoint_is_off_by_default(client):
+    res = client.get("/api/integrations/ticketing/status")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["enabled"] is False
+    assert body["provider"] == "jira"

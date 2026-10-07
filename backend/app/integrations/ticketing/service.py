@@ -30,6 +30,7 @@ from backend.app.integrations.ticketing.models import (
     TicketResolutionDraft,
     TicketResolutionResult,
     TicketView,
+    TicketingStatusView,
     WebhookInfoView,
 )
 from backend.app.integrations.ticketing.protocols import (
@@ -1268,6 +1269,18 @@ class CaseTicketing:
                 self._trigger_auto_triage(case_id, "webhook processing")
 
             return (200, {"status": "processed", "case_id": case_id})
+
+    def get_status(self) -> TicketingStatusView:
+        """Ticketing on/off and whether the active provider has the settings it needs."""
+        provider_name = self.config.active_provider
+        provider_obj = self.providers.get(provider_name)
+        secret = getattr(getattr(provider_obj, "config", None), "webhook_secret", None) if provider_obj else None
+        return TicketingStatusView(
+            enabled=self.config.enabled,
+            provider=provider_name,
+            provider_configured=bool(provider_obj and getattr(provider_obj, "is_configured", True)),
+            webhook_secret_configured=bool(secret and secret.strip()),
+        )
 
     def get_webhook_info(self, provider: str = "jira") -> WebhookInfoView:
         """Returns configuration details and delivery metrics for the incoming webhook."""

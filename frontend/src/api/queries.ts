@@ -52,6 +52,7 @@ import type {
   CaseNotePromoteResult,
   CommentTriageResult,
   AmbiguousResolutionPayload,
+  TicketingStatus,
   WebhookInfoView,
   IngestionStatus,
   OtlpStatus,
@@ -272,6 +273,7 @@ export const api = {
     getJson<CaseTicketOperation>(`/api/cases/${caseId}/ticket/operations/${encodeURIComponent(operationId)}`),
   resolveCaseTicket: (caseId: number, provider?: string) =>
     postJson<{ provider?: string }, CaseTicketOperation | null>(`/api/cases/${caseId}/ticket/resolve`, { provider }),
+  ticketingStatus: () => getJson<TicketingStatus>('/api/integrations/ticketing/status'),
   getTicketingWebhookInfo: (provider: string = 'jira') =>
     getJson<WebhookInfoView>(`/api/integrations/ticketing/${encodeURIComponent(provider)}/webhook-info`),
 
