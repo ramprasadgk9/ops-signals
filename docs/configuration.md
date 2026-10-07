@@ -95,7 +95,7 @@ ticketing:
 | `OPS_SIGNALS_JIRA_API_TOKEN` | Jira Cloud API token (generated from Atlassian Account Settings) | `None` |
 | `OPS_SIGNALS_JIRA_PROJECT_KEY` | Target Jira Project Key (e.g. `OPS`, `INCIDENT`) | `None` |
 | `OPS_SIGNALS_JIRA_ISSUE_TYPE` | Jira issue type name | `Task` |
-| `OPS_SIGNALS_JIRA_WEBHOOK_SECRET` | Secret key for verifying inbound Jira HMAC-SHA256 signatures | `None` |
+| `OPS_SIGNALS_JIRA_WEBHOOK_SECRET` | Secret key for verifying inbound Jira HMAC-SHA256 signatures. Required for the webhook: without it every webhook is refused (401), and status only syncs via Sync now | `None` |
 | `OPS_SIGNALS_JIRA_TIMEOUT_SECONDS` | HTTP request timeout for Jira Cloud API calls | `10.0` |
 
 ### Jira Webhook Setup

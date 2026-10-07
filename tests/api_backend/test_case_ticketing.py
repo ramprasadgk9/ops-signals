@@ -1251,3 +1251,38 @@ def test_manual_resolve_fails_when_case_not_resolved(client, monkeypatch):
 
 
 
+
+
+@pytest.mark.parametrize("secret", [None, "", "   "])
+def test_webhook_refused_when_no_secret_is_configured(db_session, secret):
+    """The webhook route skips the API token, so without a secret nothing proves the sender:
+    refuse instead of storing unsigned comments (they can reach case notes and AI drafts)."""
+    case_id = _setup_test_case(db_session)
+    provider = DummyJiraProvider(
+        JiraConfig(base_url="https://example.atlassian.net", email="eng@example.com", api_token="tok", project_key="OPS", webhook_secret=secret)
+    )
+    service = CaseTicketing(session_factory=lambda: db_session, config=TicketingConfig(enabled=True), providers={"jira": provider})
+    service.link_existing_ticket(case_id, "jira", "OPS-101")
+
+    raw_body = b'{"event_id": "wh_forged", "issue": {"id": "10101", "key": "OPS-101"}}'
+    code, body = service.accept_webhook("jira", raw_body, {"X-Atlassian-Webhook-Identifier": "deliv-forged"})
+
+    assert code == 401
+    assert "secret is not configured" in body["error"]
+    assert db_session.query(TicketWebhookDeliveryEntity).filter_by(delivery_id="deliv-forged").count() == 0
+    assert service.get_ticket_view(case_id).observed_remote_status != "Resolved"
+
+
+@pytest.mark.parametrize(
+    ("enabled", "worker_env", "expected"),
+    [(False, None, False), (False, "true", False), (True, None, True), (True, "false", False)],
+)
+def test_ticketing_worker_only_runs_when_ticketing_is_enabled(monkeypatch, enabled, worker_env, expected):
+    from backend.app.main import ticketing_worker_enabled
+
+    if worker_env is None:
+        monkeypatch.delenv("OPS_SIGNALS_TICKETING_WORKER_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("OPS_SIGNALS_TICKETING_WORKER_ENABLED", worker_env)
+
+    assert ticketing_worker_enabled(TicketingConfig(enabled=enabled)) is expected

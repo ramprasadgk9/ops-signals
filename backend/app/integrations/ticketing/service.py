@@ -1186,8 +1186,13 @@ class CaseTicketing:
         if not provider or not getattr(provider, "is_configured", True):
             return (400, {"error": f"Provider {provider_name} is not configured"})
 
+        # The webhook route is exempt from the API token, so the signature is the only proof the
+        # request came from the provider. Without a secret there is nothing to check: refuse rather
+        # than accept unsigned comments, which can reach case notes and AI drafts.
         secret = getattr(provider.config, "webhook_secret", None)
-        if secret and not provider.verify_signature(raw_body, headers, secret):
+        if not secret or not secret.strip():
+            return (401, {"error": f"Webhook secret is not configured for {provider_name}; unsigned webhooks are refused"})
+        if not provider.verify_signature(raw_body, headers, secret):
             return (401, {"error": "Invalid webhook cryptographic signature"})
 
         delivery_id = provider.extract_delivery_id(headers) or f"del_{uuid4().hex}"

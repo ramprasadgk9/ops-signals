@@ -46,7 +46,7 @@ from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
 from backend.app.config import MemoryConfig, get_prometheus_connections, get_security_config, get_settings, get_slack_config
-from backend.app.config import AIConfig
+from backend.app.config import AIConfig, TicketingConfig, get_ticketing_config
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
@@ -206,6 +206,13 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
         return None, None, None, None, None, None
 
 
+def ticketing_worker_enabled(config: TicketingConfig) -> bool:
+    """The outbox worker only runs when ticketing is on; OPS_SIGNALS_TICKETING_WORKER_ENABLED=false
+    turns it off even then (e.g. to run the worker in a separate process)."""
+    worker_switch = os.getenv("OPS_SIGNALS_TICKETING_WORKER_ENABLED", "true").strip().lower() != "false"
+    return config.enabled and worker_switch
+
+
 def _needs_backfill(indexer: CaseMemoryIndexer) -> bool:
     try:
         return bool(indexer.vector_store.points_missing(SYMPTOM_VECTOR, limit=1))
@@ -313,12 +320,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
             logger.info("Autonomous policy scheduler disabled via OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED")
 
         ticketing_task: asyncio.Task | None = None
-        if os.getenv("OPS_SIGNALS_TICKETING_WORKER_ENABLED", "true").lower() != "false":
-            ticketing_service = get_ticketing_service()
-            poll_interval = int(os.getenv("OPS_SIGNALS_TICKETING_WORKER_POLL_INTERVAL_SECONDS", "5"))
-            ticketing_task = asyncio.create_task(run_ticketing_worker_loop(ticketing_service, poll_interval))
+        ticketing_config = get_ticketing_config()
+        if ticketing_worker_enabled(ticketing_config):
+            ticketing_service = get_ticketing_service(ticketing_config)
+            ticketing_task = asyncio.create_task(
+                run_ticketing_worker_loop(ticketing_service, ticketing_config.worker_poll_interval_seconds)
+            )
         else:
-            logger.info("Ticketing outbox worker disabled via OPS_SIGNALS_TICKETING_WORKER_ENABLED")
+            logger.info("Ticketing outbox worker not started (ticketing disabled or OPS_SIGNALS_TICKETING_WORKER_ENABLED=false)")
 
         yield
 

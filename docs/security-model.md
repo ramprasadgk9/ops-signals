@@ -39,7 +39,8 @@ After that, every request needs `Authorization: Bearer <token>`, except:
   External SaaS providers (e.g. Jira Cloud) cannot provide internal Ops Signals Bearer tokens.
   Instead, incoming webhook requests are authenticated cryptographically via HMAC-SHA256 signature
   verification (`X-Hub-Signature` or `X-Atlassian-Webhook-Signature`) using the configured provider secret
-  (e.g., `OPS_SIGNALS_JIRA_WEBHOOK_SECRET`). Requests failing signature verification are rejected with HTTP 401.
+  (e.g., `OPS_SIGNALS_JIRA_WEBHOOK_SECRET`). Requests failing signature verification are rejected with HTTP 401,
+  and so is every webhook while no secret is configured: without one there is nothing to verify.
 
 The token also covers `GET /api/metrics`. If Prometheus scrapes the backend, give the scrape job the
 token (`authorization: { credentials: <token> }`).
