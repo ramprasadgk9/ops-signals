@@ -53,6 +53,14 @@ Findings can be promoted into cases where users capture investigation notes, roo
 
 ![Case Investigation](screenshots/images/web/05-case-details.png)
 
+### Case External Ticketing (Jira Cloud Integration)
+
+Cases can be linked directly to external ticketing systems like Jira Cloud. Operators can create a new tracking ticket or link an existing issue directly from the Cases overview or the investigation workbench, with bi-directional status synchronization and an external activity timeline.
+
+![Case External Ticketing - Create Ticket](screenshots/images/web/11-case-ticketing-create.png)
+
+![Case External Ticketing - Linked Ticket](screenshots/images/web/12-case-ticketing-linked.png)
+
 ### Behavior Intelligence
 
 Behavior intelligence combines related signals and metrics to identify higher-level operational patterns.

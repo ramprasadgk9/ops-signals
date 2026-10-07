@@ -25,6 +25,7 @@ import { ErrorState } from '../components/ErrorState';
 import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
 import { filterCaseRows, toCaseRows } from '../standalone/casesService';
+import { CaseTicketCard } from '../components/CaseTicketCard';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 
 export function CasesPage() {
@@ -32,6 +33,7 @@ export function CasesPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [severity, setSeverity] = useState('all');
+  const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
   const [searchParams] = useSearchParams();
   const originParam = searchParams.get('origin');
   const [origin, setOrigin] = useState<'all' | 'detected' | 'imported'>(
@@ -42,7 +44,13 @@ export function CasesPage() {
   const filtered = useMemo(() => {
     return filterCaseRows(rows, { search, status, severity, origin });
   }, [rows, search, severity, status, origin]);
-  const selected = filtered[0] ?? rows[0];
+  const selected = useMemo(() => {
+    if (selectedCaseId != null) {
+      const match = filtered.find((item) => item.id === selectedCaseId);
+      if (match) return match;
+    }
+    return filtered[0] ?? rows[0];
+  }, [filtered, rows, selectedCaseId]);
 
   if (casesQuery.isLoading) return <LoadingSkeleton />;
   if (casesQuery.error) return <ErrorState message="Failed to load cases" onRetry={() => void casesQuery.refetch()} />;
@@ -88,23 +96,46 @@ export function CasesPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filtered.map((item) => (
-                  <TableRow key={item.id} hover sx={{ '& td': { py: 2, borderColor: '#f1f5f9' } }}>
-                    <TableCell sx={{ fontWeight: 850 }}>{item.caseId}</TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                        <Button component={RouterLink} to={`/cases/${item.id}`} sx={{ p: 0, color: ui.text, textTransform: 'none', fontWeight: 850 }}>{item.title}</Button>
-                        <CaseOriginBadge source={item.source} sourceId={item.sourceId} sourceUrl={item.sourceUrl} />
-                      </Stack>
-                    </TableCell>
-                    <TableCell><Pill label={item.severity} tone="severity" /></TableCell>
-                    <TableCell><Pill label={item.status} /></TableCell>
-                    <TableCell sx={{ color: ui.muted }}>Assignment not supported</TableCell>
-                    <TableCell>{formatDateTime(item.createdAt)}</TableCell>
-                    <TableCell>{relativeTime(item.updatedAt)}</TableCell>
-                    <TableCell>{item.outcome === 'resolved' ? <Pill label="verified" /> : '--'}</TableCell>
-                  </TableRow>
-                ))}
+                {filtered.map((item) => {
+                  const isSelected = selected?.id === item.id;
+                  return (
+                    <TableRow
+                      key={item.id}
+                      hover
+                      selected={isSelected}
+                      onClick={() => setSelectedCaseId(item.id)}
+                      sx={{
+                        cursor: 'pointer',
+                        bgcolor: isSelected ? 'rgba(79, 70, 229, 0.05)' : 'inherit',
+                        '& td': { py: 2, borderColor: '#f1f5f9' },
+                      }}
+                    >
+                      <TableCell sx={{ fontWeight: 850 }}>{item.caseId}</TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                          <Button
+                            component={RouterLink}
+                            to={`/cases/${item.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCaseId(item.id);
+                            }}
+                            sx={{ p: 0, color: ui.text, textTransform: 'none', fontWeight: 850, textAlign: 'left' }}
+                          >
+                            {item.title}
+                          </Button>
+                          <CaseOriginBadge source={item.source} sourceId={item.sourceId} sourceUrl={item.sourceUrl} />
+                        </Stack>
+                      </TableCell>
+                      <TableCell><Pill label={item.severity} tone="severity" /></TableCell>
+                      <TableCell><Pill label={item.status} /></TableCell>
+                      <TableCell sx={{ color: ui.muted }}>Assignment not supported</TableCell>
+                      <TableCell>{formatDateTime(item.createdAt)}</TableCell>
+                      <TableCell>{relativeTime(item.updatedAt)}</TableCell>
+                      <TableCell>{item.outcome === 'resolved' ? <Pill label="verified" /> : '--'}</TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
             <Typography sx={{ p: 2.2, color: ui.muted, fontWeight: 650 }}>Showing {filtered.length} of {cases.length} cases</Typography>
@@ -121,6 +152,7 @@ export function CasesPage() {
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Outcome</Typography><Pill label={selected.outcome} /></Stack>
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Resolved At</Typography><Typography>{selected.resolvedAt ? formatDateTime(selected.resolvedAt) : 'Not resolved'}</Typography></Stack>
                 <Button component={RouterLink} to={`/cases/${selected.id}`} endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ borderColor: ui.border, color: '#334155', textTransform: 'none', fontWeight: 850 }}>View Case Details</Button>
+                <CaseTicketCard caseId={selected.id} />
               </Stack>
             ) : <Typography color="text.secondary">No cases returned yet.</Typography>}
           </WorkspacePanel>

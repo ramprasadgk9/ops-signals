@@ -1197,6 +1197,81 @@ export type OtlpStatus = {
   last_analysis_cycle_groups_processed: number;
 };
 
+export type CaseTicketLink = {
+  case_id: number;
+  provider: string;
+  remote_id: string;
+  display_key: string;
+  ticket_url: string;
+  observed_remote_status?: string | null;
+  last_synced_at?: string | null;
+  sync_status: string;
+};
+
+export type CaseTicketOperation = {
+  operation_id: string;
+  case_id: number;
+  provider: string;
+  operation_type: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'ambiguous_outcome' | 'superseded';
+  attempts: number;
+  last_error?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CaseTicketEvent = {
+  id: number;
+  case_id: number;
+  provider: string;
+  remote_event_id: string;
+  event_type: string;
+  author?: string | null;
+  summary: string;
+  occurred_at: string;
+  created_at: string;
+  promoted_to_note?: boolean;
+  auto_promoted?: boolean;
+};
+
+export type CaseNotePromoteResult = {
+  success: boolean;
+  case_id: number;
+  event_id: number;
+  note: string;
+  investigation_status: string;
+  already_promoted: boolean;
+  auto_promoted?: boolean;
+};
+
+export type CommentTriageResult = {
+  case_id: number;
+  evaluated_count: number;
+  promoted_count: number;
+  promoted_notes: string[];
+};
+
+export type AmbiguousResolutionPayload = {
+  action: 'check_again' | 'link_existing' | 'force_create_new';
+  remote_key?: string;
+};
+
+/** GET /api/integrations/ticketing/status: whether ticketing is on, so ticket actions show only where they can work. */
+export type TicketingStatus = {
+  enabled: boolean;
+  provider: string;
+  provider_configured: boolean;
+  webhook_secret_configured: boolean;
+};
+
+export type WebhookInfoView = {
+  provider: string;
+  webhook_url: string;
+  is_secret_configured: boolean;
+  deliveries_count: number;
+  last_delivery_at?: string | null;
+};
+
 // GET /api/ai/status: the AI provider the backend started with, and whether it is in use.
 export type AIStatus = {
   enabled: boolean;

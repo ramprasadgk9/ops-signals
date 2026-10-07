@@ -44,6 +44,7 @@ import { isImportedCase } from '../standalone/casesService';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+import { CaseTicketCard } from '../components/CaseTicketCard';
 import { findingLevel } from '../utils/findingLevel';
 
 interface TabPanelProps {
@@ -539,6 +540,7 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
+              <CaseTicketCard caseId={caseData.id} />
             </Grid>
           </Grid>
         </TabPanel>
@@ -653,6 +655,7 @@ export function CaseDetailsPage() {
                   )}
                 </CardContent>
               </Card>
+              <CaseTicketCard caseId={caseData.id} />
             </Grid>
           </Grid>
         </TabPanel>

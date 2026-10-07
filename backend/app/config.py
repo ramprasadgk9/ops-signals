@@ -540,5 +540,64 @@ def get_security_config() -> SecurityConfig:
     return config
 
 
+class JiraConfig(BaseModel):
+    base_url: str | None = None
+    email: str | None = None
+    api_token: str | None = None
+    project_key: str | None = None
+    issue_type: str = "Task"
+    webhook_secret: str | None = None
+    request_timeout_seconds: float = 10.0
+
+    def validate_configuration(self) -> tuple[bool, list[str]]:
+        """Validates all required Jira settings.
+        Returns (True, []) if complete, or (False, missing_fields) to fail closed.
+        """
+        missing = []
+        if not self.base_url:
+            missing.append("base_url")
+        if not self.email:
+            missing.append("email")
+        if not self.api_token:
+            missing.append("api_token")
+        if not self.project_key:
+            missing.append("project_key")
+        if not self.issue_type:
+            missing.append("issue_type")
+        return (len(missing) == 0, missing)
+
+
+class TicketingConfig(BaseModel):
+    enabled: bool = False
+    active_provider: str = "jira"
+    automatic_on_case_creation: bool = False
+    outbox_lease_seconds: int = 60
+    outbox_max_attempts: int = 5
+    worker_poll_interval_seconds: int = 5
+    jira: JiraConfig = Field(default_factory=JiraConfig)
+
+
+def get_ticketing_config() -> TicketingConfig:
+    jira_config = JiraConfig(
+        base_url=_env("OPS_SIGNALS_JIRA_BASE_URL"),
+        email=_env("OPS_SIGNALS_JIRA_EMAIL"),
+        api_token=_env("OPS_SIGNALS_JIRA_API_TOKEN"),
+        project_key=_env("OPS_SIGNALS_JIRA_PROJECT_KEY"),
+        issue_type=_env("OPS_SIGNALS_JIRA_ISSUE_TYPE") or "Task",
+        webhook_secret=_env("OPS_SIGNALS_JIRA_WEBHOOK_SECRET"),
+        request_timeout_seconds=float(_env("OPS_SIGNALS_JIRA_TIMEOUT_SECONDS") or "10.0"),
+    )
+    return TicketingConfig(
+        enabled=_parse_bool(_env("OPS_SIGNALS_TICKETING_ENABLED"), False),
+        active_provider=_env("OPS_SIGNALS_TICKETING_ACTIVE_PROVIDER") or "jira",
+        automatic_on_case_creation=_parse_bool(_env("OPS_SIGNALS_TICKETING_AUTOMATIC_ON_CASE_CREATION"), False),
+        outbox_lease_seconds=int(_env("OPS_SIGNALS_TICKETING_OUTBOX_LEASE_SECONDS") or "60"),
+        outbox_max_attempts=int(_env("OPS_SIGNALS_TICKETING_OUTBOX_MAX_ATTEMPTS") or "5"),
+        worker_poll_interval_seconds=int(_env("OPS_SIGNALS_TICKETING_WORKER_POLL_INTERVAL_SECONDS") or "5"),
+        jira=jira_config,
+    )
+
+
 def get_settings() -> Settings:
     return Settings()
+

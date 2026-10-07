@@ -105,8 +105,9 @@ you're changing the feature, not to learn how to use it.
   metrics ingestion (implemented).
 - [`design/alert-enrichment-plan.md`](design/alert-enrichment-plan.md) - Alertmanager receiver and
   change-event correlation (implemented, except the read API and retention cleanup).
-- [`design/proposals/`](design/proposals/) - proposals that are not built yet, such as
-  [`jira-integration-plan.md`](design/proposals/jira-integration-plan.md).
+- [`design/proposals/jira-integration-plan.md`](design/proposals/jira-integration-plan.md) - Pluggable
+  case ticketing integration with Jira Cloud reference implementation (implemented).
+- [`design/proposals/`](design/proposals/) - active architectural proposals.
 
 ---
 

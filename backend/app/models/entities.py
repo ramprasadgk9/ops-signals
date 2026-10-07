@@ -609,3 +609,81 @@ class AssistantFeedbackEntity(Base):
     # open | added_as_test | dismissed
     status: Mapped[str] = mapped_column(String(16), default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class TicketOperationEntity(Base):
+    __tablename__ = "ticket_operations"
+    __table_args__ = (
+        Index("idx_ticket_ops_claim", "status", "available_at"),
+        Index("idx_ticket_ops_case_type", "case_id", "operation_type"),
+        UniqueConstraint("provider", "idempotency_key", name="uq_ticket_ops_provider_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("ops_operational_cases.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    operation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    lease_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    supersedes_operation_id: Mapped[str | None] = mapped_column(ForeignKey("ticket_operations.id"), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CaseTicketLinkEntity(Base):
+    __tablename__ = "case_ticket_links"
+    __table_args__ = (
+        UniqueConstraint("case_id", "provider", name="uq_case_ticket_links_case_provider"),
+        Index("idx_ticket_links_provider_remote", "provider", "remote_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("ops_operational_cases.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    remote_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    display_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    ticket_url: Mapped[str] = mapped_column(Text, nullable=False)
+    observed_remote_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sync_cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CaseTicketEventEntity(Base):
+    __tablename__ = "case_ticket_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "remote_event_id", name="uq_ticket_events_prov_remote_id"),
+        Index("idx_ticket_events_case_occ", "case_id", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("ops_operational_cases.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    remote_event_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    author: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class TicketWebhookDeliveryEntity(Base):
+    __tablename__ = "ticket_webhook_deliveries"
+    __table_args__ = (
+        UniqueConstraint("provider", "delivery_id", name="uq_webhook_deliv_prov_delivery"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    delivery_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+

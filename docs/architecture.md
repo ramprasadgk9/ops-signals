@@ -112,6 +112,8 @@ downstream consumers query.
 - `backend/app/api/cases.py`, `OperationalCaseEntity`
 - `backend/app/services/analyzer_learning_service.py`, `AnalyzerLearningOutcomeEntity`
 
+**Pluggable Ticketing Integration**: Cases can be linked to external issue tracking platforms (reference provider: Jira Cloud REST API v3) via a durable transactional outbox (`ticket_operations`). External comments and status changes sync bidirectionally into `case_ticket_events`. Operators can promote diagnostic clues into `investigation_notes` with 1 click, or enable zero-click AI triage to automatically elevate substantive operational observations into case notes. See [`docs/07-operational-cases.md`](07-operational-cases.md).
+
 ### 5. Persist
 
 **PostgreSQL** is the system of record: normalized points, signals, findings, cases, and learning
@@ -219,7 +221,7 @@ Shown as dashed, muted boxes in Figure 1 — explicitly **not** current capabili
 
 - **Kubernetes** ingestion (kube-state-metrics, cAdvisor)
 - **Cloud provider** metrics (AWS CloudWatch, GCP Monitoring, Azure Monitor)
-- **ITSM / automation** consumer (Jira, ServiceNow — create/update tickets, trigger workflows)
+- **ITSM / automation** consumers (Jira Cloud ticketing integration is implemented with transactional outbox ticket creation, comment sync, outbound resolution closing comments, and webhooks; ServiceNow and generic workflow automation remain roadmap)
 - Generic **external-system** consumer (arbitrary webhooks, BI/reporting export). Slack is implemented
   (see [Consume](#6-consume)); a general-purpose outbound webhook is not.
 

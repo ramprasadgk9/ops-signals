@@ -16,6 +16,11 @@ import type {
   GrafanaCaseCreateResponse,
   GrafanaQuestion,
   GrafanaQuestionAnswer,
+  CaseTicketLink,
+  TicketingStatus,
+  CaseTicketOperation,
+  CaseTicketEvent,
+  AmbiguousResolutionPayload,
 } from './contracts';
 import type { MetricSample } from './prometheusFrameNormalizer';
 
@@ -617,3 +622,29 @@ export async function getFindingSeenBefore(baseUrl: string, findingId: number) {
 export async function indexCaseMemory(baseUrl: string, caseId: number) {
   return postJson<{ case_id: number; memory_status: string; indexed_at?: string }>(baseUrl, `/api/cases/${caseId}/memory/index`);
 }
+
+export async function createCaseTicket(baseUrl: string, caseId: number, provider?: string) {
+  return postJson<CaseTicketOperation>(baseUrl, `/api/cases/${caseId}/ticket/create`, { provider });
+}
+
+export async function getTicketingStatus(baseUrl: string) {
+  return fetchJson<TicketingStatus>(baseUrl, '/api/integrations/ticketing/status');
+}
+
+export async function getCaseTicket(baseUrl: string, caseId: number, provider?: string) {
+  const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+  return fetchJson<CaseTicketLink | null>(baseUrl, `/api/cases/${caseId}/ticket${query}`);
+}
+
+export async function syncCaseTicket(baseUrl: string, caseId: number, provider?: string) {
+  return postJson<CaseTicketOperation>(baseUrl, `/api/cases/${caseId}/ticket/sync`, { provider });
+}
+
+export async function resolveCaseTicketAmbiguity(baseUrl: string, caseId: number, payload: AmbiguousResolutionPayload) {
+  return postJson<any>(baseUrl, `/api/cases/${caseId}/ticket/resolve-ambiguity`, payload);
+}
+
+export async function getCaseTicketEvents(baseUrl: string, caseId: number) {
+  return fetchJson<CaseTicketEvent[]>(baseUrl, `/api/cases/${caseId}/ticket/events`);
+}
+

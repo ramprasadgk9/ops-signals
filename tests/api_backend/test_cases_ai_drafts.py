@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -281,3 +281,74 @@ def test_existing_rca_and_resolution_patch_endpoints_are_unaffected(client_facto
     assert rca_response.json()["root_cause_summary"] == "Deploy caused CPU regression."
     assert resolution_response.status_code == 200
     assert resolution_response.json()["outcome_summary"] == "Rolled back the deploy."
+
+
+def test_suggest_rca_includes_external_ticket_comments(client_factory) -> None:
+    fake_client = _ScriptedClient(response_text="Suggested root cause from ticket notes.")
+    assistant = _assistant_with(fake_client)
+    app = client_factory(assistant=assistant)
+
+    with TestClient(app) as client:
+        _seed_case(510, 510)
+        now = datetime.now(timezone.utc)
+        session_local = get_session_local()
+        with session_local() as db:
+            from backend.app.models.entities import CaseTicketEventEntity
+            db.add(
+                CaseTicketEventEntity(
+                    case_id=510,
+                    provider="jira",
+                    remote_event_id="comm-510",
+                    event_type="comment_added",
+                    occurred_at=now,
+                    created_at=now,
+                    author="Senior SRE",
+                    summary="Connection pool leak verified in production auth service.",
+                )
+            )
+            db.commit()
+
+        response = client.post("/api/cases/510/rca/suggest")
+
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+    assert len(fake_client.calls) == 1
+    evidence_sent = "\n".join(m.content for m in fake_client.calls[0].messages)
+    assert "External team notes from Jira/ticketing:" in evidence_sent
+    assert "[Senior SRE]: Connection pool leak verified" in evidence_sent
+
+
+def test_suggest_resolution_includes_external_ticket_comments(client_factory) -> None:
+    fake_client = _ScriptedClient(response_text="Suggested resolution from ticket notes.")
+    assistant = _assistant_with(fake_client)
+    app = client_factory(assistant=assistant)
+
+    with TestClient(app) as client:
+        _seed_case(511, 511)
+        now = datetime.now(timezone.utc)
+        session_local = get_session_local()
+        with session_local() as db:
+            from backend.app.models.entities import CaseTicketEventEntity
+            db.add(
+                CaseTicketEventEntity(
+                    case_id=511,
+                    provider="jira",
+                    remote_event_id="comm-511",
+                    event_type="comment_added",
+                    occurred_at=now,
+                    created_at=now,
+                    author="OnCall Engineer",
+                    summary="Applied hotfix PR #123 and restarted connection poolers.",
+                )
+            )
+            db.commit()
+
+        response = client.post("/api/cases/511/resolution/suggest")
+
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+    assert len(fake_client.calls) == 1
+    evidence_sent = "\n".join(m.content for m in fake_client.calls[0].messages)
+    assert "External team notes from Jira/ticketing:" in evidence_sent
+    assert "[OnCall Engineer]: Applied hotfix PR #123" in evidence_sent
+
