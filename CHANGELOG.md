@@ -2,6 +2,13 @@
 
 ## 0.3.0 - Unreleased
 
+- **Monitoring coverage** on Operational Memory: each imported past incident checked against what
+  Ops Signals analysed and flagged while it happened - **Detected** (a finding on that service, with
+  an anomaly overlapping the incident, reads like the postmortem's symptom), **Flagged something
+  else** (shown by title, to judge), **Missed** (the service was analysed and nothing was flagged: a
+  detection gap) or **Not watched** (nothing analysed the service then: a coverage gap). A miss also
+  says whether the same problem has been detected on that service at another time. Counts, a bar
+  per service, and the gaps listed first. `GET /api/memory/coverage?days=`.
 - **Symptom and fix vectors**: each case in Qdrant now has a `symptom` vector (what was seen) and a
   `resolution` vector (cause and fix, once recorded) next to the whole-document one. Seen before?
   and Similar Cases compare a finding's symptom with past symptoms, so an imported postmortem about

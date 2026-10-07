@@ -329,6 +329,31 @@ export type RecurringProblem = {
   }[];
 };
 
+export type CoverageStatus = 'detected' | 'flagged_other' | 'missed' | 'not_watched' | 'unknown';
+
+/** Which imported past incidents Ops Signals detected while they happened (backend/app/memory/coverage.py). */
+export type CoverageReport = {
+  available: boolean;
+  reason?: string | null;
+  window_days: number;
+  incidents_considered: number;
+  counts: Partial<Record<CoverageStatus, number>>;
+  services: { service: string; counts: Partial<Record<CoverageStatus, number>> }[];
+  incidents: {
+    case_id: number;
+    title: string;
+    service?: string | null;
+    started_at?: string | null;
+    status: CoverageStatus;
+    label: string;
+    explanation: string;
+    evidence: { kind: 'finding' | 'behavior'; id: number; title: string; similarity: number; at?: string | null }[];
+    seen_elsewhere: number;
+    seen_elsewhere_case_id?: number | null;
+    seen_elsewhere_at?: string | null;
+  }[];
+};
+
 export type RecurringProblemsResponse = {
   available: boolean;
   reason?: string | null;

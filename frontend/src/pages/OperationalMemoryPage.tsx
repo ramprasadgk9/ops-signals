@@ -12,6 +12,7 @@ import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ImportIncidentsDialog } from '../components/ImportIncidentsDialog';
 import { RecurringProblemsPanel } from '../components/RecurringProblemsPanel';
+import { CoveragePanel } from '../components/CoveragePanel';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, statusTone, ui } from '../standalone/theme';
@@ -102,6 +103,7 @@ export function OperationalMemoryPage() {
       ) : null}
 
       {memoryUnavailable ? null : <RecurringProblemsPanel />}
+      {memoryUnavailable ? null : <CoveragePanel />}
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2} sx={{ mb: 2 }}>

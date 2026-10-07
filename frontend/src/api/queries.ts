@@ -41,6 +41,7 @@ import type {
   OverviewSummaryResponse,
   MemoryStatsResponse,
   RecurringProblemsResponse,
+  CoverageReport,
   RunbookDraft,
   SameFixResponse,
   SuggestedFixesResponse,
@@ -265,6 +266,7 @@ export const api = {
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
   recurringProblems: (days = 90, minOccurrences = 3, groupBy: 'symptom' | 'cause' = 'symptom') =>
     getJson<RecurringProblemsResponse>(`/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}`),
+  monitoringCoverage: (days = 365) => getJson<CoverageReport>(`/api/memory/coverage?days=${days}`),
   suggestedFixes: (findingId: number) => getJson<SuggestedFixesResponse>(`/api/findings/${findingId}/suggested-fixes`),
   runbookDraft: (findingId: number) =>
     postJson<Record<string, never>, RunbookDraft>(`/api/findings/${findingId}/suggested-fixes/runbook-draft`, {}),
