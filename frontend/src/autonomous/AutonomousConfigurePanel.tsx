@@ -2,8 +2,7 @@ import { Alert, Box, Button, Checkbox, Chip, FormControlLabel, MenuItem, Paper, 
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import PreviewRoundedIcon from '@mui/icons-material/PreviewRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
-import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
+import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
@@ -67,14 +66,13 @@ type Props = {
   onPreviewNowStateChange?: (isLoading: boolean) => void;
 };
 
-function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume, onViewOverview, isTogglingStatus }: {
+function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume, isTogglingStatus }: {
   policy: AutonomousPolicy;
   /** Shown only when there is more than one Prometheus connection. */
   connectionName?: string | null;
   onEdit: () => void;
   onPause: () => void;
   onResume: () => void;
-  onViewOverview: () => void;
   isTogglingStatus: boolean;
 }) {
   const categoryTitles = policy.monitoring_selection.categories
@@ -105,11 +103,10 @@ function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume
         <Stack direction="row" gap={1}>
           <Button size="small" startIcon={<EditRoundedIcon />} variant="outlined" onClick={onEdit}>Edit</Button>
           {policy.enabled ? (
-            <Button size="small" startIcon={<DeleteOutlineRoundedIcon />} color="error" variant="outlined" disabled={isTogglingStatus} onClick={onPause}>Remove</Button>
+            <Button size="small" startIcon={<PauseRoundedIcon />} variant="outlined" disabled={isTogglingStatus} onClick={onPause} title="Stop scheduled runs. The schedule is kept and can be resumed.">Pause</Button>
           ) : (
             <Button size="small" variant="outlined" disabled={isTogglingStatus} onClick={onResume}>Resume</Button>
           )}
-          <Button size="small" endIcon={<ArrowForwardRoundedIcon />} variant="contained" onClick={onViewOverview}>View Overview</Button>
         </Stack>
       </Stack>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
@@ -292,10 +289,6 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     setSelectedCategories((current) => current.includes(category) ? current.filter((item) => item !== category) : [...current, category]);
   };
 
-  const scrollToOverview = () => {
-    document.getElementById('autonomous-overview')?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   useEffect(() => {
     if (!enableCategoryRequest) return;
     if (activePolicy && !isEditing) {
@@ -331,7 +324,6 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
         }}
         onPause={() => statusMutation.mutate(false)}
         onResume={() => statusMutation.mutate(true)}
-        onViewOverview={scrollToOverview}
         isTogglingStatus={statusMutation.isPending}
       />
     );

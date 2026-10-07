@@ -9,6 +9,21 @@
   detection gap) or **Not watched** (nothing analysed the service then: a coverage gap). A miss also
   says whether the same problem has been detected on that service at another time. Counts, a bar
   per service, and the gaps listed first. `GET /api/memory/coverage?days=`.
+- **Seen before? in the Grafana plugin**: the interactive result (below the selected finding) and
+  the autonomous Evidence / Investigation panel now list past cases from operational memory that
+  look like the finding - same service first, other services folded away, each with strong or
+  possible match, score, cause and fix, and the familiarity badge (New pattern / Seen before /
+  Recurring). Same endpoint and ordering as the web UI (`GET /api/findings/{id}/seen-before`).
+- **Fixed: cases in the Grafana plugin's Recent Cases from History did nothing when clicked.** A
+  click now opens the case in the plugin's case workflow drawer (Finding → Investigation → Root
+  Cause → Resolution → Publish Knowledge), the same one Interactive Analysis uses, with the Finding
+  step read from the case's stored snapshot. The list refreshes on close when something was saved.
+  Save failures now also show inside the drawer.
+- **Schedule card (Grafana plugin and web UI)**: **Remove** is now **Pause**, which is what it
+  always did (the schedule is kept and shows Resume), and **View Overview** is gone - in the plugin
+  the Overview tab above the card opens the same page, and in the web UI the overview is directly
+  below the card (the button only scrolled to it, and was easy to confuse with the sidebar's
+  Overview page).
 - **Symptom and fix vectors**: each case in Qdrant now has a `symptom` vector (what was seen) and a
   `resolution` vector (cause and fix, once recorded) next to the whole-document one. Seen before?
   and Similar Cases compare a finding's symptom with past symptoms, so an imported postmortem about
