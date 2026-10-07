@@ -22,12 +22,11 @@ automatically exist in the other.
 | **Behavior Lab** | `/behavior-intelligence/lab` | A sandbox for testing behavior definitions against sample data before enabling them for real. |
 | **Operational Memory** | `/operational-memory` | Qdrant-backed semantic search over past cases, plus the alert-context preview an external alert manager would see. See [`docs/operational-memory.md`](operational-memory.md). |
 | **Ask Ops Signals** *(Beta)* | `/assistant` | Grounded conversational Q&A over cases, findings, and behaviors. See [`docs/ask-ops-signals-assistant.md`](ask-ops-signals-assistant.md). |
-| **Experiments** | `/experiments` | Compares analyzer runs against each other on the same data, and is the home for the [Analyzer Workbench](#analyzer-workbench) below. |
 | **New Analysis** | `/validate-data` | Upload a CSV or point at a Prometheus datasource to run a one-off analysis outside the autonomous scheduler. See [`docs/standalone-prometheus-analysis.md`](standalone-prometheus-analysis.md). |
 
 ### Analyzer Workbench
 
-A grouping inside **Experiments**, not a separate top-level tab:
+Its own group in the sidebar, below the main pages:
 
 - **Labs** — one page per analyzer (Z-Score Anomaly, PyOD Outlier, Prophet Forecast, Ruptures Change
   Point, STUMPY Motif, Trend) for running that analyzer directly against sample data and inspecting

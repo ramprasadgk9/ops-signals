@@ -13,6 +13,7 @@ from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import MemoryConfig
 from backend.app.memory.diversity import leaders_only
+from backend.app.memory.coverage import CoverageReport, build_coverage_report
 from backend.app.memory.fix_outcomes import SameFixResponse, find_same_fix
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.recall_scoring import RecallBoost
@@ -592,6 +593,21 @@ def get_recurring_problems(
         store = None
     ai_services = assistant.services.ai_services if assistant else None
     return find_recurring_problems(db, store, days=days, min_occurrences=min_occurrences, group_by=group_by, ai_services=ai_services)
+
+
+@router.get("/memory/coverage", response_model=CoverageReport)
+def get_monitoring_coverage(
+    days: Annotated[int, Query(ge=7, le=3650)] = 365,
+    db: Session = Depends(get_db),
+    store: VectorStore | None = Depends(get_vector_store),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> CoverageReport:
+    """Which imported past incidents Ops Signals detected while they happened, and which it missed
+    or wasn't watching - with what was flagged instead, and whether a similar problem has been
+    detected on that service since."""
+    enabled = bool(config and config.enabled)
+    return build_coverage_report(db, embedder if enabled else None, store if enabled else None, days=days)
 
 
 @router.get("/alert-context", response_model=AlertContextResponse)

@@ -329,6 +329,31 @@ export type RecurringProblem = {
   }[];
 };
 
+export type CoverageStatus = 'detected' | 'flagged_other' | 'missed' | 'not_watched' | 'unknown';
+
+/** Which imported past incidents Ops Signals detected while they happened (backend/app/memory/coverage.py). */
+export type CoverageReport = {
+  available: boolean;
+  reason?: string | null;
+  window_days: number;
+  incidents_considered: number;
+  counts: Partial<Record<CoverageStatus, number>>;
+  services: { service: string; counts: Partial<Record<CoverageStatus, number>> }[];
+  incidents: {
+    case_id: number;
+    title: string;
+    service?: string | null;
+    started_at?: string | null;
+    status: CoverageStatus;
+    label: string;
+    explanation: string;
+    evidence: { kind: 'finding' | 'behavior'; id: number; title: string; similarity: number; at?: string | null }[];
+    seen_elsewhere: number;
+    seen_elsewhere_case_id?: number | null;
+    seen_elsewhere_at?: string | null;
+  }[];
+};
+
 export type RecurringProblemsResponse = {
   available: boolean;
   reason?: string | null;
@@ -596,90 +621,6 @@ export type AnalysisRun = {
   }> | null;
   generated_findings_json?: Array<Record<string, unknown>> | null;
   created_at: string;
-};
-
-export type ExperimentEvent = {
-  event_id: string;
-  event_type: string;
-  index?: number | null;
-  timestamp?: string | null;
-  value?: number | null;
-  severity?: string | null;
-  score?: number | null;
-  window_start?: string | null;
-  window_end?: string | null;
-  details: Record<string, unknown>;
-  interpretation?: string | null;
-  technical_summary?: string | null;
-};
-
-export type ExperimentResult = {
-  experiment_id: string;
-  dataset: {
-    name: string;
-    file_path: string;
-    rows: number;
-    columns: number;
-    timestamp_column: string;
-    value_column: string;
-    sampling_interval_seconds?: number | null;
-    start_time?: string | null;
-    end_time?: string | null;
-    min_value?: number | null;
-    max_value?: number | null;
-    missing_values: number;
-    duplicate_timestamps: number;
-    timestamps_sorted: boolean;
-  };
-  analyzer: {
-    name: string;
-    algorithm?: string | null;
-    model?: string | null;
-    parameters: Record<string, unknown>;
-  };
-  preprocessing: { normalization: string };
-  execution: {
-    status: string;
-    started_at?: string | null;
-    completed_at?: string | null;
-    execution_time_seconds?: number | null;
-  };
-  results: {
-    event_type: string;
-    event_count: number;
-    events: ExperimentEvent[];
-  };
-  metrics: {
-    precision?: number | null;
-    recall?: number | null;
-    f1_score?: number | null;
-  };
-  artifacts: {
-    raw_plot?: string | null;
-    result_plot?: string | null;
-    comparison_plot?: string | null;
-  };
-  observations: string[];
-  recommendation: {
-    title?: string | null;
-    summary?: string | null;
-    recommended_configuration?: string | null;
-    suitable_for: string[];
-    not_suitable_for: string[];
-    limitations: string[];
-  };
-  created_at: string;
-  plain_language_summary?: string | null;
-  event_summaries: string[];
-};
-
-export type ExperimentComparison = {
-  analyzer: string;
-  comparison_summary: string;
-  shared_event_count: number;
-  unique_event_count: number;
-  experiment_ids: string[];
-  items: Array<{ experiment_id: string; penalty?: number | null; event_count: number; summary?: string | null }>;
 };
 
 export type RouterDecision = {

@@ -223,6 +223,13 @@ The uploaded files themselves are not kept; only the mapped fields are stored.
   there are no resolved outcomes for the service and metric but past incidents match, the verdict
   reads **Seen before** and quotes the closest incident's cause and fix.
 - **Ask Ops Signals:** questions like "have we seen high CPU on checkout before?"
+- **Operational Memory → Monitoring coverage:** each imported incident checked against what Ops
+  Signals analysed and flagged while it happened: **Detected**, **Flagged something else**,
+  **Missed** (the service was analysed, nothing was flagged) or **Not watched** (nothing analysed
+  that service then). This needs the postmortem's service and start time, and the service named as
+  it is in your metrics - use aliases when importing. Analyzer findings are worded generically, so a
+  different problem on the same service can score close; anything under the 60% bar is listed as
+  flagged something else, by title, for you to judge.
 - **Operational Memory → Recurring problems:** imported and detected cases grouped into problems
   that happened three or more times in the chosen window, by symptom or by cause. Postmortems group
   with the detected cases of the same problem, because both are compared on what was seen.
