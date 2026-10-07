@@ -77,7 +77,7 @@ def main() -> int:
         ("deploy v2.14.0 correlated", "deploy `v2.14.0`" in text),
         ("verdict from past outcomes", "Verdict: *likely real*" in text),
         ("similar past case matched", "Most similar case:" in text),
-        ("past fix surfaced", "Rolled back v2.9.0" in text),
+        ("past fix surfaced", "Fix: Roll back the deploy" in text),
     ]
 
     try:
