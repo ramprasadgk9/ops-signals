@@ -23,6 +23,7 @@ import type {
   GrafanaQuestionAnswer,
 } from './contracts';
 import type { AssistantChatResponse } from '../types';
+import { findingLevel } from '../utils/findingLevel';
 
 const steps = ['Finding', 'Investigation', 'Root Cause', 'Resolution', 'Publish Knowledge'] as const;
 type DrawerStep = typeof steps[number];
@@ -535,7 +536,7 @@ function PrimaryFindingCard({
       <div style={styles.findingIcon}>⌁</div>
       <div style={styles.stack}>
         <div style={styles.rowBetween}>
-          <StatusPill tone={statusTone(finding.health_status)}>{humanize(finding.health_status).toUpperCase()}</StatusPill>
+          <StatusPill tone={({ error: 'danger', warning: 'warning', default: 'neutral' } as const)[findingLevel(finding.health_status).chip]}>{`${findingLevel(finding.health_status).label} importance`.toUpperCase()}</StatusPill>
           <button type="button" style={buttonStyle()}>...</button>
         </div>
         <h2 style={{ margin: 0 }}>{finding.title}</h2>
@@ -994,7 +995,7 @@ function InvestigationDrawer({
               <h3 style={{ margin: 0 }}>{finding?.title ?? 'Finding snapshot'}</h3>
               <p style={{ ...styles.muted, margin: 0 }}>{finding?.summary}</p>
               <div style={styles.detailGrid}>
-                <span>Severity</span><strong>{humanize(finding?.health_status)}</strong>
+                <span>Importance</span><strong>{findingLevel(finding?.health_status).label}</strong>
                 <span>Metric</span><strong>{result.metric}</strong>
                 <span>Time range</span><strong>{result.from || result.to ? `${result.from} - ${result.to}` : 'Selected window'}</strong>
                 <span>Importance</span><strong>{formatNumber(finding?.importance_score)}</strong>

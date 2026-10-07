@@ -1,0 +1,18 @@
+# Two named Prometheus connections, one per Mimir tenant in this local setup.
+# Used by ./scripts/multicluster.sh app (OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE).
+default: team-a
+connections:
+  - id: team-a
+    name: Mimir team-a (eu, us)
+    base_url: http://localhost:9009/prometheus
+    headers:
+      X-Scope-OrgID: team-a
+    match_labels:
+      tenant: team-a
+  - id: team-b
+    name: Mimir team-b (staging)
+    base_url: http://localhost:9009/prometheus
+    headers:
+      X-Scope-OrgID: team-b
+    match_labels:
+      tenant: team-b

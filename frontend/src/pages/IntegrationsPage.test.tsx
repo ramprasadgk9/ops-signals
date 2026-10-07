@@ -13,6 +13,9 @@ vi.mock('../api/queries', () => ({
     otlpStatus: vi.fn(),
     sendTestAlert: vi.fn(),
     runCsvUpload: vi.fn(),
+    caseImports: vi.fn(async () => []),
+    aiStatus: vi.fn(async () => ({ enabled: false, provider: 'ollama', model: null, endpoint: null, api_key_set: null, active: false, issue: null })),
+    testAiConnection: vi.fn(),
   },
 }));
 

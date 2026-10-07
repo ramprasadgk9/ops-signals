@@ -186,6 +186,6 @@ it is skipped when there is none. To record it from the development stack, run
 ## Learn More
 
 - [README](../README.md)
-- [Standalone Overview API](17-standalone-overview-api.md)
-- [Standalone Prometheus Analysis](18-standalone-prometheus-analysis.md)
-- [Release Process](13-release-process.md)
+- [Standalone Overview API](standalone-overview-api.md)
+- [Standalone Prometheus Analysis](standalone-prometheus-analysis.md)
+- [Release Process](release-process.md)

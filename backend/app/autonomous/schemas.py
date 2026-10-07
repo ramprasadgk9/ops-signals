@@ -66,6 +66,10 @@ class AnalysisScope(BaseModel):
     namespaces: list[str] = Field(default_factory=list)
     all_namespaces: bool = True
     namespace_label: str | None = "namespace"
+    # None = the connection's cluster label (OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL).
+    cluster_label: str | None = None
+    clusters: list[str] = Field(default_factory=list)
+    all_clusters: bool = True
     max_series_per_metric: int = Field(default=10, ge=1, le=5000)
     metadata_limit: int = Field(default=5000, ge=10, le=50000)
 
@@ -101,6 +105,7 @@ class AutonomousAnalysisPolicy(BaseModel):
     name: str = "Preview policy"
     datasource: str = "prometheus"
     backend: str = "grafana-stack"
+    connection_id: str = "default"
     scope: AnalysisScope = Field(default_factory=AnalysisScope)
     monitoring_selection: MonitoringSelection = Field(
         default_factory=lambda: MonitoringSelection(categories=[MonitoringCategory.performance])
@@ -118,6 +123,8 @@ class AutonomousAnalysisPolicy(BaseModel):
 class AutonomousPreviewRequest(BaseModel):
     datasource: str = "prometheus"
     backend: str = "grafana-stack"
+    # Which Prometheus connection (Mimir tenant) to plan against; `default` is the default connection.
+    connection_id: str = "default"
     scope: AnalysisScope = Field(default_factory=AnalysisScope)
     monitoring_selection: MonitoringSelection | None = None
     # Backward-compatible fields used by the current plugin build.
@@ -166,6 +173,7 @@ class DiscoveredMetric(BaseModel):
     service: str | None = None
     namespace: str | None = None
     environment: str | None = None
+    cluster: str | None = None
     last_seen: datetime | None = None
     source: str = "prometheus"
     estimated_series_count: int | None = None
@@ -201,11 +209,15 @@ class MetricDiscoveryResult(BaseModel):
     series_discovered: int = 0
     truncated: bool = False
     starved_metrics: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ResolvedAnalysisScope(BaseModel):
     resolved_services: list[str] = Field(default_factory=list)
     resolved_namespaces: list[str] = Field(default_factory=list)
+    resolved_clusters: list[str] = Field(default_factory=list)
+    # The connection's HA replica labels; planned queries keep one copy per replica pair.
+    replica_labels: list[str] = Field(default_factory=list)
     resolved_environment: str | None = None
     discovered_metric_count: int = 0
     series_discovered: int = 0
@@ -256,6 +268,7 @@ class MetricPlanItem(BaseModel):
     service: str | None = None
     namespace: str | None = None
     environment: str | None = None
+    cluster: str | None = None
     metric_name: str
     category: MonitoringCategory | None = None
     concept: MetricConcept | None = None

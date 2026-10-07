@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import OrderedDict, defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -22,6 +23,7 @@ from backend.app.autonomous.schemas import (
     QueryStrategy,
     ResolvedAnalysisScope,
 )
+from backend.app.config import PrometheusConnectionConfig
 
 LABEL_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
@@ -36,6 +38,8 @@ class MetricMetadataProvider(Protocol):
         limit: int,
         scope_selector: str = "",
         max_series_per_metric: int = 10,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> list[DiscoveredMetric] | MetricDiscoveryResult:
         ...
 
@@ -69,11 +73,12 @@ def build_label_matcher(label: str | None, values: list[str], *, all_values: boo
     return f'{label}=~"{escape_label_value(escaped)}"'
 
 
-def build_scope_selector(scope: AnalysisScope) -> str:
+def build_scope_selector(scope: AnalysisScope, cluster_label: str | None = None) -> str:
     matchers = [
         build_label_matcher(scope.environment_label, [scope.environment or ""], all_values=not scope.environment or scope.environment.lower() == "all"),
         build_label_matcher(scope.service_label, scope.services, all_values=scope.all_services),
         build_label_matcher(scope.namespace_label, scope.namespaces, all_values=scope.all_namespaces),
+        build_label_matcher(cluster_label, scope.clusters, all_values=scope.all_clusters),
     ]
     return "{" + ",".join(matcher for matcher in matchers if matcher) + "}"
 
@@ -133,16 +138,30 @@ class MetricDiscoveryService:
         self.provider = provider
         self.metadata_limit = metadata_limit
 
-    def discover(self, scope: AnalysisScope) -> tuple[ResolvedAnalysisScope, list[DiscoveredMetric]]:
+    def discover(
+        self,
+        scope: AnalysisScope,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> tuple[ResolvedAnalysisScope, list[DiscoveredMetric]]:
+        """start/end bound the series and label lookups to the analysis window, so long-retention
+        backends (Thanos, Mimir) don't search all history and stale series don't use up the budget."""
         warnings: list[str] = []
         try:
             validate_label_name(scope.service_label, "service_label")
             validate_label_name(scope.namespace_label, "namespace_label")
             validate_label_name(scope.environment_label, "environment_label")
+            validate_label_name(scope.cluster_label, "cluster_label")
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 
-        scope_selector = build_scope_selector(scope)
+        connection = getattr(self.provider, "config", None)
+        if not isinstance(connection, PrometheusConnectionConfig):
+            connection = PrometheusConnectionConfig()
+        cluster_label = scope.cluster_label or connection.cluster_label
+        replica_labels = list(connection.replica_labels)
+        scope_selector = build_scope_selector(scope, cluster_label)
         effective_limit = scope.metadata_limit if scope.metadata_limit else self.metadata_limit
         max_series_per_metric = scope.max_series_per_metric if scope.max_series_per_metric else 10
 
@@ -154,6 +173,8 @@ class MetricDiscoveryService:
                 limit=effective_limit,
                 scope_selector=scope_selector,
                 max_series_per_metric=max_series_per_metric,
+                start=start,
+                end=end,
             )
         except TypeError:
             discovery_output = self.provider.discover_metric_metadata(
@@ -169,6 +190,7 @@ class MetricDiscoveryService:
             series_available = discovery_output.series_available
             truncated = discovery_output.truncated
             starved_metrics = discovery_output.starved_metrics
+            warnings.extend(discovery_output.warnings)
         else:
             discovered = discovery_output
             series_discovered = len(discovered)
@@ -196,11 +218,15 @@ class MetricDiscoveryService:
                     starved_metrics=starved_metrics[:50],
                     warnings=warnings + ["No metric metadata was discovered for the selected datasource."],
                     filters_applied=self._filters(scope),
-                    label_mapping=self._label_mapping(scope),
+                    label_mapping=self._label_mapping(scope, cluster_label),
                     selector=scope_selector,
+                    replica_labels=replica_labels,
                 ),
                 [],
             )
+
+        if cluster_label:
+            discovered = [metric.model_copy(update={"cluster": metric.labels.get(cluster_label)}) for metric in discovered]
 
         services = sorted({value for metric in discovered for value in (metric.services or ([metric.service] if metric.service else [])) if value})
         namespaces = sorted({value for metric in discovered for value in (metric.namespaces or ([metric.namespace] if metric.namespace else [])) if value})
@@ -221,12 +247,16 @@ class MetricDiscoveryService:
         if not scope.all_namespaces:
             selected_namespaces = set(scope.namespaces)
             filtered = [metric for metric in filtered if selected_namespaces.intersection(metric.namespaces or ([metric.namespace] if metric.namespace else []))]
+        if cluster_label and not scope.all_clusters:
+            selected_clusters = set(scope.clusters)
+            filtered = [metric for metric in filtered if metric.cluster in selected_clusters]
 
         filtered = self._deduplicate(filtered)
         if not filtered:
             warnings.append("No metrics matched the selected scope.")
         resolved_services = sorted({value for metric in filtered for value in (metric.services or ([metric.service] if metric.service else [])) if value})
         resolved_namespaces = sorted({value for metric in filtered for value in (metric.namespaces or ([metric.namespace] if metric.namespace else [])) if value})
+        resolved_clusters = sorted({metric.cluster for metric in filtered if metric.cluster})
         return (
             ResolvedAnalysisScope(
                 resolved_services=resolved_services,
@@ -240,17 +270,19 @@ class MetricDiscoveryService:
                 starved_metrics=starved_metrics[:50],
                 warnings=warnings,
                 filters_applied=self._filters(scope),
-                label_mapping=self._label_mapping(scope),
+                label_mapping=self._label_mapping(scope, cluster_label),
                 selector=scope_selector,
+                resolved_clusters=resolved_clusters,
+                replica_labels=replica_labels,
             ),
             filtered,
         )
 
     @staticmethod
     def _deduplicate(metrics: list[DiscoveredMetric]) -> list[DiscoveredMetric]:
-        deduped: OrderedDict[tuple[str, str | None, str | None, str | None], DiscoveredMetric] = OrderedDict()
+        deduped: OrderedDict[tuple[str, str | None, str | None, str | None, str | None], DiscoveredMetric] = OrderedDict()
         for metric in metrics:
-            key = (metric.metric_name, metric.service, metric.namespace, metric.environment)
+            key = (metric.metric_name, metric.service, metric.namespace, metric.environment, metric.cluster)
             if key not in deduped:
                 deduped[key] = metric
             else:
@@ -265,14 +297,16 @@ class MetricDiscoveryService:
             "environment": scope.environment,
             "services": "all" if scope.all_services else scope.services,
             "namespaces": "all" if scope.all_namespaces else scope.namespaces,
+            "clusters": "all" if scope.all_clusters else scope.clusters,
         }
 
     @staticmethod
-    def _label_mapping(scope: AnalysisScope) -> dict[str, str | None]:
+    def _label_mapping(scope: AnalysisScope, cluster_label: str | None) -> dict[str, str | None]:
         return {
             "environment": scope.environment_label,
             "service": scope.service_label,
             "namespace": scope.namespace_label,
+            "cluster": cluster_label,
         }
 
 
@@ -430,25 +464,34 @@ class MetricQueryStrategyResolver:
         group_by = [label for label in strategy.group_by if validate_label_name(label)]
         if not group_by:
             group_by = ["service"]
+        cluster_matchers = self._cluster_matchers(metric, resolved_scope)
+        cluster_label = resolved_scope.label_mapping.get("cluster")
+        if cluster_matchers and cluster_label and cluster_label not in group_by:
+            group_by = [*group_by, cluster_label]
         aggregation = self._aggregation_name(strategy.aggregation, group_by)
         transformation = self._resolve_transformation(strategy.transformation, metric)
+        # HA pairs report each series twice; keep one copy before aggregating so sums aren't doubled.
+        replicas = [label for label in resolved_scope.replica_labels if label in metric.labels]
 
+        def dedupe(expression: str) -> str:
+            return f"max without ({', '.join(replicas)}) ({expression})" if replicas else expression
+
+        labels = ", ".join(group_by)
+        window = strategy.range or "5m"
         if transformation == "histogram_quantile":
             quantile = strategy.quantile or 0.95
-            bucket_selector = self._selector(self._bucket_metric_name(metric.metric_name), resolved_scope.selector)
-            promql = (
-                f"histogram_quantile({quantile}, "
-                f"sum by (le, {', '.join(group_by)}) (rate({bucket_selector}[{strategy.range or '5m'}])))"
-            )
+            bucket_scope = _merge_selector_matchers(resolved_scope.selector, cluster_matchers) if cluster_matchers else resolved_scope.selector
+            bucket_selector = self._selector(self._bucket_metric_name(metric.metric_name), bucket_scope)
+            promql = f"histogram_quantile({quantile}, sum by (le, {labels}) ({dedupe(f'rate({bucket_selector}[{window}])')}))"
         elif transformation == "rate":
-            promql = f"{strategy.aggregation} by ({', '.join(group_by)}) (rate({selector}[{strategy.range or '5m'}]))"
+            promql = f"{strategy.aggregation} by ({labels}) ({dedupe(f'rate({selector}[{window}])')})"
         elif transformation == "increase":
-            promql = f"{strategy.aggregation} by ({', '.join(group_by)}) (increase({selector}[{strategy.range or '5m'}]))"
+            promql = f"{strategy.aggregation} by ({labels}) ({dedupe(f'increase({selector}[{window}])')})"
         elif strategy.aggregation == "service_level":
-            promql = f"avg by ({', '.join(group_by)}) ({selector})"
+            promql = f"avg by ({labels}) ({dedupe(selector)})"
             aggregation = self._aggregation_name("avg", group_by)
         else:
-            promql = f"{strategy.aggregation} by ({', '.join(group_by)}) ({selector})"
+            promql = f"{strategy.aggregation} by ({labels}) ({dedupe(selector)})"
 
         return promql, transformation, aggregation, group_by
 
@@ -465,7 +508,15 @@ class MetricQueryStrategyResolver:
             matchers.append(f'{namespace_label}="{escape_label_value(metric.namespace)}"')
         if environment_label and metric.environment and metric.labels.get(environment_label) == metric.environment:
             matchers.append(f'{environment_label}="{escape_label_value(metric.environment)}"')
+        matchers.extend(MetricQueryStrategyResolver._cluster_matchers(metric, resolved_scope))
         return _merge_selector_matchers(resolved_scope.selector, matchers)
+
+    @staticmethod
+    def _cluster_matchers(metric: DiscoveredMetric, resolved_scope: ResolvedAnalysisScope) -> list[str]:
+        cluster_label = resolved_scope.label_mapping.get("cluster")
+        if cluster_label and metric.cluster and metric.labels.get(cluster_label) == metric.cluster:
+            return [f'{cluster_label}="{escape_label_value(metric.cluster)}"']
+        return []
 
     @staticmethod
     def _selector(metric_name: str, scope_selector: str) -> str:
@@ -577,6 +628,7 @@ class MetricPlanBuilder:
                     service=metric.service,
                     namespace=metric.namespace,
                     environment=metric.environment or resolved_scope.resolved_environment,
+                    cluster=metric.cluster,
                     metric_name=metric.metric_name,
                     category=category,
                     concept=concept,
@@ -620,6 +672,7 @@ class MetricPlanBuilder:
                 "environment": resolved_scope.resolved_environment,
                 "services_resolved": resolved_scope.resolved_services,
                 "namespaces_resolved": resolved_scope.resolved_namespaces,
+                "clusters_resolved": resolved_scope.resolved_clusters,
                 "services": len(resolved_scope.resolved_services),
                 "namespaces": len(resolved_scope.resolved_namespaces),
                 "label_mapping": resolved_scope.label_mapping,
@@ -665,7 +718,7 @@ class MetricPlanBuilder:
     def _logical_key(metric: DiscoveredMetric, classification: MetricClassification) -> tuple:
         concept = classification.concepts[0].value if classification.concepts else metric.metric_name
         category = classification.categories[0].value if classification.categories else "unclassified"
-        return (metric.environment, metric.namespace, metric.service, category, concept)
+        return (metric.environment, metric.namespace, metric.service, metric.cluster, category, concept)
 
     @staticmethod
     def _row_id(metric: DiscoveredMetric, classification: MetricClassification) -> tuple:
@@ -674,6 +727,7 @@ class MetricPlanBuilder:
             metric.environment,
             metric.namespace,
             metric.service,
+            metric.cluster,
             tuple(category.value for category in classification.categories),
             tuple(concept.value for concept in classification.concepts),
         )

@@ -147,6 +147,7 @@ export type Signal = {
   analyzer_id?: string;
   metric_name: string;
   service?: string;
+  cluster?: string | null;
   severity?: string;
   confidence?: number;
   importance_score: number;
@@ -161,6 +162,10 @@ export type Finding = {
   id?: number;
   service?: string;
   metric_name: string;
+  /** External cluster label (Mimir/Thanos multi-cluster); null for single-cluster data. */
+  cluster?: string | null;
+  /** Prometheus connection (Mimir tenant) the finding's run queried; null for CSV/OTLP runs. */
+  connection_id?: string | null;
   title: string;
   summary: string;
   ai_summary?: string | null;
@@ -185,7 +190,7 @@ export type OperationalCase = {
   case_status: string;
   finding_snapshot: Finding;
   investigation_status: string;
-  investigation_notes: Array<{ timestamp?: string; note: string }>;
+  investigation_notes: Array<{ timestamp?: string; note: string; source?: string }>;
   root_cause_status: string;
   root_cause_summary?: string;
   root_cause_confidence?: number;
@@ -197,6 +202,211 @@ export type OperationalCase = {
   created_at: string;
   updated_at: string;
   resolved_at?: string;
+  /** "detected" for cases Ops Signals opened; otherwise the tool an imported case came from. */
+  source?: string;
+  source_id?: string | null;
+  source_url?: string | null;
+  import_batch_id?: string | null;
+};
+
+/** A past case that resembles something current: a finding ("Seen before?") or a case (Similar Cases). */
+export type PastCaseMatch = {
+  case_id: number;
+  title: string;
+  similarity_score: number;
+  strength?: 'strong' | 'possible' | string;
+  same_service?: boolean;
+  service?: string | null;
+  metric_name?: string | null;
+  origin?: 'detected' | 'imported' | string;
+  source?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
+  case_status?: string;
+  root_cause_summary?: string | null;
+  corrective_action?: string | null;
+  outcome_summary?: string | null;
+  /** Near-copies folded under this match (same service, symptom, cause and fix). */
+  more_like_this?: PastCaseMatch[];
+};
+
+/** Did a fix hold? Inferred: the same symptom didn't come back on the service within 30 days. */
+export type FixOutcome = {
+  status: 'held' | 'came_back' | 'too_early' | 'not_fixed' | 'unknown';
+  label: string;
+  came_back_case_id?: number | null;
+  came_back_after_days?: number | null;
+};
+
+export type SuggestedFix = {
+  fix: string;
+  root_cause?: string | null;
+  held: number;
+  came_back: number;
+  too_early: number;
+  label: string;
+  verified: number;
+  sources: { case_id: number; title: string; service?: string | null; corrective_action: string; outcome: FixOutcome }[];
+};
+
+export type SuggestedFixesResponse = {
+  finding_id: number;
+  available: boolean;
+  reason?: string | null;
+  based_on_cases: number;
+  fixes: SuggestedFix[];
+};
+
+export type RunbookDraft = {
+  available: boolean;
+  draft?: string | null;
+  reason?: string | null;
+  based_on_cases: number[];
+};
+
+export type SameFixResponse = {
+  case_id: number;
+  available: boolean;
+  reason?: string | null;
+  outcome?: FixOutcome | null;
+  matches: {
+    case_id: number;
+    title: string;
+    service?: string | null;
+    similarity_score: number;
+    root_cause_summary?: string | null;
+    corrective_action?: string | null;
+    rca_verified: boolean;
+    outcome: FixOutcome;
+  }[];
+};
+
+/** How familiar a finding or case is, read off its past-case matches (backend/app/memory/novelty.py). */
+export type Novelty = {
+  level: 'new' | 'new_on_service' | 'seen_before' | 'recurring';
+  label: string;
+  explanation: string;
+  matching_cases: number;
+  all_matching_cases: number;
+  best_score?: number | null;
+};
+
+export type SeenBeforeResponse = {
+  finding_id: number;
+  available: boolean;
+  reason?: string | null;
+  service?: string | null;
+  matches: PastCaseMatch[];
+  novelty?: Novelty | null;
+};
+
+export type SimilarCasesResponse = {
+  source_case_id: number;
+  matches: PastCaseMatch[];
+  novelty?: Novelty | null;
+};
+
+export type RecurringProblem = {
+  name: string;
+  named_by: 'ai' | 'central_case';
+  central_case_id: number;
+  occurrences: number;
+  services: string[];
+  first_seen?: string | null;
+  last_seen?: string | null;
+  verified_root_causes: number;
+  open_cases: number;
+  causes: { case_id: number; root_cause: string; fix?: string | null; verified: boolean }[];
+  cases: {
+    case_id: number;
+    title: string;
+    service?: string | null;
+    created_at?: string | null;
+    origin: string;
+    case_status: string;
+    rca_verified: boolean;
+    similarity_to_central: number;
+  }[];
+};
+
+export type RecurringProblemsResponse = {
+  available: boolean;
+  reason?: string | null;
+  window_days: number;
+  min_occurrences: number;
+  group_by: 'symptom' | 'cause';
+  group_similarity: number;
+  cases_considered: number;
+  sampled: boolean;
+  problems: RecurringProblem[];
+};
+
+export type CaseImportProfile = {
+  id: string;
+  label: string;
+  kind: 'csv' | 'markdown';
+  default_source: string;
+  checklist: string[];
+};
+
+export type CaseImportProfiles = {
+  profiles: CaseImportProfile[];
+  fields: string[];
+  required_fields: string[];
+  templates: string[];
+};
+
+export type CaseImportSettings = {
+  profile?: string;
+  source?: string;
+  column_map?: Record<string, string>;
+  service_aliases?: Record<string, string>;
+};
+
+export type CaseImportCounts = {
+  new: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  duplicate_rows: number;
+};
+
+export type CaseImportRecord = {
+  ref: string;
+  source: string;
+  source_id: string | null;
+  title: string;
+  service: string;
+  started_at: string | null;
+  action: 'new' | 'updated' | 'unchanged' | 'skipped' | 'duplicate';
+  problems: string[];
+  redactions: number;
+  case_id: number | null;
+};
+
+export type CaseImportPreview = {
+  file_profiles: Record<string, string>;
+  warnings: string[];
+  counts: CaseImportCounts;
+  redactions: number;
+  records: CaseImportRecord[];
+};
+
+export type CaseImportResult = CaseImportPreview & {
+  batch_id: string;
+  indexed: number;
+  index_failed: number;
+};
+
+export type CaseImportBatch = {
+  id: string;
+  sources: string[];
+  file_profiles: Record<string, string>;
+  counts: Partial<CaseImportCounts>;
+  indexed: number;
+  status: 'running' | 'completed' | 'undone';
+  created_at: string;
+  undone_at: string | null;
 };
 
 export type SeverityTrendPoint = {
@@ -241,6 +451,10 @@ export type PrometheusConnection = {
   name: string;
   base_url?: string | null;
   configured: boolean;
+  is_default?: boolean;
+  match_labels?: Record<string, string>;
+  /** The label that tells clusters apart on this connection; null when turned off. */
+  cluster_label?: string | null;
 };
 
 export type PrometheusConnectionsResponse = {
@@ -742,7 +956,11 @@ export type AlertContextSimilarCase = {
   case_status: string;
   outcome_status?: string | null;
   root_cause_summary?: string | null;
+  corrective_action?: string | null;
   outcome_summary?: string | null;
+  origin?: 'detected' | 'imported' | string;
+  source?: string | null;
+  source_id?: string | null;
   reference: string;
 };
 
@@ -977,6 +1195,8 @@ export type AlertChange = {
   timestamp: string | null;
   /** Positive: the change came before the start time (or the alert, when there is no start time). */
   minutes_before_anchor: number | null;
+  /** Cluster the change went to; absent or null when it went to every cluster. */
+  cluster?: string | null;
 };
 
 export type AlertReceipt = {
@@ -1103,3 +1323,23 @@ export type WebhookInfoView = {
   last_delivery_at?: string | null;
 };
 
+// GET /api/ai/status: the AI provider the backend started with, and whether it is in use.
+export type AIStatus = {
+  enabled: boolean;
+  provider: string;
+  model: string | null;
+  endpoint: string | null;
+  api_key_set: boolean | null;
+  active: boolean;
+  issue: string | null;
+};
+
+// POST /api/ai/test: one short request through the configured provider.
+export type AITestResult = {
+  ok: boolean;
+  provider: string | null;
+  model: string | null;
+  latency_ms: number | null;
+  reply: string | null;
+  error: string | null;
+};

@@ -17,7 +17,7 @@ import {
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import FilterAltRoundedIcon from '@mui/icons-material/FilterAltRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -26,6 +26,7 @@ import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
 import { filterCaseRows, toCaseRows } from '../standalone/casesService';
 import { CaseTicketCard } from '../components/CaseTicketCard';
+import { CaseOriginBadge } from '../components/CaseOriginBadge';
 
 export function CasesPage() {
   const casesQuery = useQuery({ queryKey: ['cases'], queryFn: () => api.cases(200) });
@@ -33,11 +34,16 @@ export function CasesPage() {
   const [status, setStatus] = useState('all');
   const [severity, setSeverity] = useState('all');
   const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
+  const [searchParams] = useSearchParams();
+  const originParam = searchParams.get('origin');
+  const [origin, setOrigin] = useState<'all' | 'detected' | 'imported'>(
+    originParam === 'imported' || originParam === 'detected' ? originParam : 'all'
+  );
   const cases = casesQuery.data ?? [];
   const rows = toCaseRows(cases);
   const filtered = useMemo(() => {
-    return filterCaseRows(rows, { search, status, severity });
-  }, [rows, search, severity, status]);
+    return filterCaseRows(rows, { search, status, severity, origin });
+  }, [rows, search, severity, status, origin]);
   const selected = useMemo(() => {
     if (selectedCaseId != null) {
       const match = filtered.find((item) => item.id === selectedCaseId);
@@ -65,6 +71,11 @@ export function CasesPage() {
         <TextField select size="small" value={severity} onChange={(event) => setSeverity(event.target.value)} sx={{ minWidth: 150, bgcolor: '#fff' }}>
           <MenuItem value="all">All Severity</MenuItem>
           {['critical', 'high', 'medium', 'low', 'significant', 'normal'].map((value) => <MenuItem key={value} value={value}>{titleCase(value)}</MenuItem>)}
+        </TextField>
+        <TextField select size="small" value={origin} onChange={(event) => setOrigin(event.target.value as typeof origin)} sx={{ minWidth: 150, bgcolor: '#fff' }} inputProps={{ 'aria-label': 'Case origin' }}>
+          <MenuItem value="all">Detected and imported</MenuItem>
+          <MenuItem value="detected">Detected only</MenuItem>
+          <MenuItem value="imported">Imported only</MenuItem>
         </TextField>
         <Button startIcon={<FilterAltRoundedIcon />} variant="outlined" disabled sx={{ borderColor: ui.border, color: '#334155', bgcolor: '#fff', textTransform: 'none', fontWeight: 750 }}>Additional Filters Unavailable</Button>
       </Stack>
@@ -101,17 +112,20 @@ export function CasesPage() {
                     >
                       <TableCell sx={{ fontWeight: 850 }}>{item.caseId}</TableCell>
                       <TableCell>
-                        <Button
-                          component={RouterLink}
-                          to={`/cases/${item.id}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedCaseId(item.id);
-                          }}
-                          sx={{ p: 0, color: ui.text, textTransform: 'none', fontWeight: 850, textAlign: 'left' }}
-                        >
-                          {item.title}
-                        </Button>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                          <Button
+                            component={RouterLink}
+                            to={`/cases/${item.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCaseId(item.id);
+                            }}
+                            sx={{ p: 0, color: ui.text, textTransform: 'none', fontWeight: 850, textAlign: 'left' }}
+                          >
+                            {item.title}
+                          </Button>
+                          <CaseOriginBadge source={item.source} sourceId={item.sourceId} sourceUrl={item.sourceUrl} />
+                        </Stack>
                       </TableCell>
                       <TableCell><Pill label={item.severity} tone="severity" /></TableCell>
                       <TableCell><Pill label={item.status} /></TableCell>

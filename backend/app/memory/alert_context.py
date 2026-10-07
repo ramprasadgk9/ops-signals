@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.assistant.service import OperationalIntelligenceAssistant
+from backend.app.memory.diversity import collapse_near_copies
 from backend.app.memory.embedder import Embedder
+from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import (
     AlertContextHistory,
     AlertContextOutcome,
@@ -18,7 +20,7 @@ from backend.app.memory.schemas import (
     AlertContextResponse,
     AlertContextSimilarCase,
 )
-from backend.app.memory.similarity_service import SimilarityService
+from backend.app.memory.similarity_service import SimilarityService, same_metric_or_imported
 from backend.app.models.entities import AnalyzerLearningOutcomeEntity, BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 
 logger = logging.getLogger(__name__)
@@ -89,18 +91,25 @@ def build_alert_context(
     if message and message.strip() and similarity and embedder:
         try:
             vector = embedder.encode(message.strip())
-            filters = {"must": [{"key": "metric_name", "match": {"value": metric_name}}]}
+            filters = {"must": [same_metric_or_imported(metric_name)]}
             if service:
                 filters["must"].append({"key": "service", "match": {"value": service}})
-            results = similarity.vector_store.search(vector=vector, filters=filters, limit=5, score_threshold=0.3)
-            case_ids = [result["payload"].get("case_id") for result in results if result["payload"].get("case_id")]
+            # Against the whole case document, not just symptoms: an alert message is free text that
+            # can name a likely cause ("db connections maxed out"), and that should pull the case
+            # with that cause first. A finding says only what was seen, so Seen before? uses symptoms.
+            results = similarity.vector_store.search(
+                vector=vector, filters=filters, limit=15, score_threshold=0.3,
+                text=message.strip(), boost=RecallBoost(service=service),
+            )
+            groups = collapse_near_copies(results)[:5]
+            case_ids = [result["payload"].get("case_id") for leader, copies in groups for result in [leader, *copies] if result["payload"].get("case_id")]
             case_by_id = {}
             if case_ids:
                 matched_cases = db.execute(
                     select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(case_ids))
                 ).scalars().all()
                 case_by_id = {case.id: case for case in matched_cases}
-            for result in results:
+            for result, copies in groups:
                 case = case_by_id.get(result["payload"].get("case_id"))
                 if not case:
                     continue
@@ -112,8 +121,13 @@ def build_alert_context(
                         case_status=case.case_status,
                         outcome_status=case.outcome_status,
                         root_cause_summary=case.root_cause_summary,
+                        corrective_action=case.corrective_action,
                         outcome_summary=case.outcome_summary,
+                        origin="imported" if case.is_imported else "detected",
+                        source=case.source,
+                        source_id=case.source_id,
                         reference=f"/cases/{case.id}",
+                        more_like_this=sum(1 for copy in copies if copy["payload"].get("case_id") in case_by_id),
                     )
                 )
         except Exception as e:
@@ -197,11 +211,10 @@ def build_alert_context(
         else:
             recommendation_basis = "No prior learning outcomes, similar cases, or raw activity found for this service/metric."
     elif total == 0 and similar_cases:
+        # Still no real-vs-noise verdict (that needs resolved outcomes on this service+metric), but
+        # say plainly that it has been seen before and what fixed it, rather than "insufficient".
         recommendation = "insufficient_history"
-        recommendation_basis = (
-            f"No exact-match learning outcomes recorded for this service/metric, but {len(similar_cases)} "
-            "semantically similar case(s) were found - review them below."
-        )
+        recommendation_basis = seen_before_basis(similar_cases)
     elif confirmed_rate is not None and confirmed_rate >= 0.6:
         recommendation = "likely_real"
         recommendation_basis = (
@@ -227,3 +240,24 @@ def build_alert_context(
         recommendation=recommendation,
         recommendation_basis=recommendation_basis,
     )
+
+
+def seen_before_basis(similar_cases: list[AlertContextSimilarCase]) -> str:
+    imported = sum(1 for case in similar_cases if case.origin == "imported")
+    count = len(similar_cases)
+    found = f"{count} similar past incident{'s' if count != 1 else ''}"
+    if imported:
+        found += f" ({imported} imported from incident records)" if imported != count else " imported from incident records"
+    top = similar_cases[0]
+    lines = [f"Seen before: {found}, no real-vs-noise verdict yet. Closest: \"{top.title}\"."]
+    fix = top.corrective_action or top.outcome_summary
+    if top.root_cause_summary:
+        lines.append(_sentence(f"Root cause then: {top.root_cause_summary}"))
+    if fix:
+        lines.append(_sentence(f"Fixed by: {fix}"))
+    return " ".join(lines)
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "!", "?")) else text + "."

@@ -84,6 +84,7 @@ def test_fresh_install_reports_no_data_and_every_source_idle(client: TestClient)
         "reachable": None,
         "scheduled_policies": 0,
         "alert_enrichment_enabled": False,
+        "connections": [{"id": "default", "name": "Default Prometheus", "configured": False, "url": None, "reachable": None}],
     }
     assert body["sources"]["events"] == {
         "endpoint_path": "/api/events",
@@ -229,7 +230,7 @@ def test_events_token_is_reported_as_required(client: TestClient, monkeypatch: p
 
 def test_prometheus_shows_its_url_without_credentials_and_whether_it_answers(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPS_SIGNALS_PROMETHEUS_URL", "https://reader:hunter2@prom.example.com:9090/prometheus")
-    monkeypatch.setattr(ingestion_status, "_prometheus_check", None)
+    monkeypatch.setattr(ingestion_status, "_prometheus_checks", {})
     calls = []
     monkeypatch.setattr(PrometheusQueryService, "test_connection", lambda self: calls.append(self.config.timeout_seconds) or (True, "2.54.1", 12, "ok"))
 
@@ -244,7 +245,7 @@ def test_prometheus_shows_its_url_without_credentials_and_whether_it_answers(cli
 
 def test_unreachable_prometheus_is_reported_not_raised(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPS_SIGNALS_PROMETHEUS_URL", "http://prometheus.invalid:9090")
-    monkeypatch.setattr(ingestion_status, "_prometheus_check", None)
+    monkeypatch.setattr(ingestion_status, "_prometheus_checks", {})
 
     def boom(self):
         raise OSError("connection refused")

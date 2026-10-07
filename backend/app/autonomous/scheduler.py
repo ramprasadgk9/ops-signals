@@ -22,12 +22,11 @@ from backend.app.autonomous.execution import execute_autonomous_plan_once
 from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
 from backend.app.autonomous.repository import AutonomousPolicyRepository
 from backend.app.autonomous.schemas import AnalysisScope, AutonomousRunRequest, ExecutionPolicy, MonitoringSelection
-from backend.app.config import get_prometheus_config
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import AutonomousPolicyEntity, OtlpPendingPointEntity
 from backend.app.otlp.limits import MAX_BACKLOG_PER_CYCLE
 from backend.app.otlp.metrics import OTLP_ANALYSIS_CYCLE_DURATION_SECONDS, OTLP_ANALYSIS_CYCLE_GROUPS_PROCESSED
-from backend.app.services.prometheus_service import PrometheusQueryService
+from backend.app.services.prometheus_service import PrometheusQueryService, resolve_prometheus_connection
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 
 logger = logging.getLogger(__name__)
@@ -39,6 +38,7 @@ def _build_run_request(policy: AutonomousPolicyEntity) -> AutonomousRunRequest:
     return AutonomousRunRequest(
         datasource=policy.datasource,
         backend=policy.backend,
+        connection_id=policy.connection_id,
         scope=AnalysisScope(**policy.scope_json),
         monitoring_selection=MonitoringSelection(**policy.monitoring_categories_json),
         execution=ExecutionPolicy(**policy.execution_policy_json),
@@ -51,11 +51,12 @@ def _run_one_policy(db: Session, repo: AutonomousPolicyRepository, policy: Auton
     # imports from this package's repository/schemas modules already.
     from backend.app.api.autonomous import preview_autonomous_plan
 
-    config = get_prometheus_config()
-    prometheus = PrometheusQueryService(config)
     request = _build_run_request(policy)
     status = "failed"
     try:
+        # The policy's own connection, never the default: a removed connection fails the run.
+        config = resolve_prometheus_connection(policy.connection_id)
+        prometheus = PrometheusQueryService(config)
         preview = preview_autonomous_plan(request, prometheus)
         result = execute_autonomous_plan_once(
             preview=preview,

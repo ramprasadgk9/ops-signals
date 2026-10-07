@@ -1,0 +1,17 @@
+# Several Prometheus connections (one per Mimir tenant) for the packaged deployment. Use it on top of
+# docker-compose.packaged.yml:
+#
+#   cp examples/prometheus-connections.yaml prometheus-connections.yaml   # then edit it
+#   docker compose -f docker-compose.packaged.yml -f docker-compose.connections.yml up -d
+#
+# Tokens referenced in the file as ${NAME} go in prometheus-connections.env (NAME=value lines).
+# Both files are git-ignored. See docs/standalone-prometheus-analysis.md.
+services:
+  backend:
+    environment:
+      OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE: /etc/ops-signals/prometheus/connections.yaml
+    env_file:
+      - path: prometheus-connections.env
+        required: false
+    volumes:
+      - ${OPS_SIGNALS_PROMETHEUS_CONNECTIONS_PATH:-./prometheus-connections.yaml}:/etc/ops-signals/prometheus/connections.yaml:ro

@@ -42,6 +42,8 @@ class AnalyzerLearningService:
         ).scalar_one_or_none()
         if case is None:
             raise LearningOutcomeError("case not found")
+        if case.is_imported:
+            raise LearningOutcomeError("imported cases have no analyzer findings to learn from")
 
         if case.outcome_status not in {"resolved", "mitigated", "won_t_fix"}:
             raise LearningOutcomeError("case is not in a final resolution state")

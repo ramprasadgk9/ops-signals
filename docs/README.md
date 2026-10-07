@@ -8,14 +8,14 @@ just orders them.
 
 What the project is, and how to get it running.
 
-- [`01-vision.md`](01-vision.md) - the fuller product vision, including the MTTR framing referenced
+- [`vision.md`](vision.md) - the fuller product vision, including the MTTR framing referenced
   throughout these docs.
 - [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with an incident already
   in progress (a deploy, a latency shift, an enriched alert, a matching past case). Start here to
   see it working before installing anything.
 - [`live-demo.md`](live-demo.md) - a live, menu-driven demo next to `run_all.sh`: rollouts, slow
   rises, spikes and staging deploys, with real alerts and pod breakdowns.
-- **[Quick Start](../README.md#6-quick-start)** (root `README.md`) - clone, setup script, run script,
+- **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,
   open the UI. Start here to actually install it.
 - [`comparison.md`](comparison.md) - how Ops Signals relates to Robusta/HolmesGPT, Keep and
   Grafana Sift, including where those tools are ahead.
@@ -29,14 +29,17 @@ What the project is, and how to get it running.
 
 How the pieces fit together, what talks to what, and why the two storage layers exist.
 
-- [`02-architecture.md`](02-architecture.md) - **start here for architecture.** The full pipeline
+- [`architecture.md`](architecture.md) - **start here for architecture.** The full pipeline
   (ingest → route/analyze → find/correlate → case lifecycle → persist → consume), a diagram, and a
   "Why This Reduces MTTR" section connecting the pipeline to actual operational outcomes.
-- [`03-core-domain-model.md`](03-core-domain-model.md) - the data model: canonical points, signals,
+- [`core-domain-model.md`](core-domain-model.md) - the data model: canonical points, signals,
   and the fields on each.
-- [`08-operational-memory.md`](08-operational-memory.md) - how a resolved Case becomes a Qdrant
+- [`operational-memory.md`](operational-memory.md) - how a resolved Case becomes a Qdrant
   embedding, and how semantic similarity search over past cases works.
-- [`09-design-decisions.md`](09-design-decisions.md) and [`adr/`](adr/) - the "why," in short
+- [`importing-incident-history.md`](importing-incident-history.md) - filling operational memory on
+  day one by importing past postmortems and incidents from Jira, PagerDuty, incident.io or CSV and
+  Markdown files: what to export, how fields map, and why re-importing never duplicates.
+- [`design-decisions.md`](design-decisions.md) and [`adr/`](adr/) - the "why," in short
   ADR-style writeups: why Postgres is the system of record, why Qdrant is a retrieval index and not
   the source of truth, why answer composition is deterministic by default, and more.
 - [`design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md) - the OTLP/HTTP metrics
@@ -52,19 +55,24 @@ How the pieces fit together, what talks to what, and why the two storage layers 
 **External integration**: if you're plugging Ops Signals into your own alerting or automation, the
 consumer surface is `POST /api/integrations/alertmanager` (enrich alerts as they fire - see
 [`alert-enrichment.md`](alert-enrichment.md)), `GET /api/alert-context` (pre-page decision support) and
-`POST /api/assistant/chat` (conversational Q&A) - the last two documented in `02-architecture.md`'s
-"Consume" section.
+`POST /api/assistant/chat` (conversational Q&A) - the last two documented in `architecture.md`'s
+"Consume" section. [`integrations.md`](integrations.md) is the full index: every data-in, data-out,
+pluggable-surface and "where you work" integration in one table, each with what it's for and how it's
+wired.
 
 ## 3. Analyzers
 
 What analyzers are, why a given one gets picked for a given metric, and how much to trust that pick.
 
-- [`04-analyzer-plugin-framework.md`](04-analyzer-plugin-framework.md) - what an analyzer is, the
+- [`analyzer-plugin-framework.md`](analyzer-plugin-framework.md) - what an analyzer is, the
   two-registry model (pipeline vs. router), and how to add your own.
-- [`16-analyzer-recommendation.md`](16-analyzer-recommendation.md) - **the** reference for routing:
+- [`http-analyzer-contract.md`](http-analyzer-contract.md) - connect your own model or detection
+  service over HTTP: the request and reply format, a runnable example, and what happens when the
+  service is down.
+- [`analyzer-recommendation.md`](analyzer-recommendation.md) - **the** reference for routing:
   how the Universal Router scores and picks analyzers, eligibility vs. suitability, and the
   weighting behind the scores.
-- [`26-analyzer-methodology.md`](26-analyzer-methodology.md) - which analyzers are published,
+- [`analyzer-methodology.md`](analyzer-methodology.md) - which analyzers are published,
   validated methods versus which parts (the router's scoring weights) are heuristic and
   not yet validated against real outcomes. Read this before trusting a recommendation blindly.
 
@@ -78,13 +86,13 @@ What analyzers are, why a given one gets picked for a given metric, and how much
 
 ## 5. Behavioral Intelligence
 
-- [`14-behavior-intelligence.md`](14-behavior-intelligence.md) - why cross-metric reasoning exists
+- [`behavior-intelligence.md`](behavior-intelligence.md) - why cross-metric reasoning exists
   (some problems only show up when you look at two metrics together, e.g. CPU anomaly + rising
   throttling), the declarative YAML model, and a full worked example of configuring one.
 
 ## 6. Analyzer Workbench
 
-- [`04-analyzer-plugin-framework.md#analyzer-workbench-ui`](04-analyzer-plugin-framework.md#analyzer-workbench-ui) -
+- [`analyzer-plugin-framework.md#analyzer-workbench-ui`](analyzer-plugin-framework.md#analyzer-workbench-ui) -
   the Labs (run any analyzer directly against sample data), Add Analyzer wizard, and Recommendations
   preview, all grouped under Experiments in the web UI.
 

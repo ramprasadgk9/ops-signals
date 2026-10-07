@@ -1,0 +1,24 @@
+# Roadmap
+
+## Near-Term
+
+- broaden analyzer coverage
+- refine case lifecycle UX
+- improve retrieval filtering
+- expand documentation around evaluation and releases
+
+## Mid-Term
+
+- more reusable operational memory patterns
+- richer case comparison
+- better review flows for investigation and RCA
+- multi-source Prometheus backends (Mimir, Thanos):
+  - ~~scope analysis by cluster, and tell apart series that differ only by `cluster` or other external labels~~ (done)
+  - ~~ignore HA replica labels (`__replica__`, `prometheus_replica`) so duplicated series aren't counted twice~~ (done)
+  - ~~several connections, one per Mimir tenant, with a connection picker in the Configure panel~~ (done)
+
+## Long-Term
+
+- deeper evaluation tooling
+- richer extensibility for analyzers and capabilities
+- better support for iterative operational learning

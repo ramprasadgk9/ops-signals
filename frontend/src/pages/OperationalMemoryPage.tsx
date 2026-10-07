@@ -4,11 +4,15 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import React from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { ImportIncidentsDialog } from '../components/ImportIncidentsDialog';
+import { RecurringProblemsPanel } from '../components/RecurringProblemsPanel';
+import { CaseOriginBadge } from '../components/CaseOriginBadge';
 import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, statusTone, ui } from '../standalone/theme';
 import { toCaseRows } from '../standalone/casesService';
@@ -27,6 +31,7 @@ export function OperationalMemoryPage() {
   const casesQuery = useQuery({ queryKey: ['operational-memory-cases'], queryFn: () => api.cases(200) });
   const memoryStatsQuery = useQuery({ queryKey: ['memory-stats'], queryFn: api.memoryStats });
   const [activeFilter, setActiveFilter] = React.useState('indexed');
+  const [importOpen, setImportOpen] = React.useState(false);
 
   if (casesQuery.isLoading || memoryStatsQuery.isLoading) return <LoadingSkeleton />;
 
@@ -47,19 +52,30 @@ export function OperationalMemoryPage() {
         title="Operational Memory"
         subtitle="Case knowledge indexed for retrieval, grounded in the existing cases and memory statistics APIs."
         action={
-          <Button
-            onClick={() => {
-              void casesQuery.refetch();
-              void memoryStatsQuery.refetch();
-            }}
-            startIcon={<RefreshRoundedIcon />}
-            variant="outlined"
-            sx={{ textTransform: 'none', fontWeight: 800 }}
-          >
-            Retry
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              onClick={() => setImportOpen(true)}
+              startIcon={<UploadFileRoundedIcon />}
+              variant="contained"
+              sx={{ textTransform: 'none', fontWeight: 800 }}
+            >
+              Import past incidents
+            </Button>
+            <Button
+              onClick={() => {
+                void casesQuery.refetch();
+                void memoryStatsQuery.refetch();
+              }}
+              startIcon={<RefreshRoundedIcon />}
+              variant="outlined"
+              sx={{ textTransform: 'none', fontWeight: 800 }}
+            >
+              Retry
+            </Button>
+          </Stack>
         }
       />
+      <ImportIncidentsDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -85,6 +101,8 @@ export function OperationalMemoryPage() {
         </WorkspacePanel>
       ) : null}
 
+      {memoryUnavailable ? null : <RecurringProblemsPanel />}
+
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2} sx={{ mb: 2 }}>
           <Box>
@@ -107,6 +125,16 @@ export function OperationalMemoryPage() {
 
         {casesQuery.error ? (
           <Typography color="error">Cases unavailable. Memory inventory could not be loaded.</Typography>
+        ) : !rows.length ? (
+          <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: '#f8fafc' }}>
+            <Typography sx={{ fontWeight: 900 }}>Memory is empty, so "have we seen this before?" has nothing to search yet.</Typography>
+            <Typography sx={{ mt: 0.75, color: ui.muted, maxWidth: 560, mx: 'auto' }}>
+              Import postmortems or incidents from Jira, PagerDuty, incident.io or a folder of CSV and Markdown files. They become resolved cases that similar-case search can match from day one.
+            </Typography>
+            <Button onClick={() => setImportOpen(true)} startIcon={<UploadFileRoundedIcon />} variant="contained" sx={{ mt: 2, textTransform: 'none', fontWeight: 800 }}>
+              Import past incidents
+            </Button>
+          </Box>
         ) : !visibleRows.length ? (
           <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: '#f8fafc' }}>
             <Typography sx={{ fontWeight: 900 }}>No {filters.find((filter) => filter.id === activeFilter)?.label.toLowerCase()} cases returned.</Typography>
@@ -132,7 +160,7 @@ export function OperationalMemoryPage() {
                     <Typography sx={{ color: ui.muted, fontSize: 12 }}>{row.caseId} • {row.summary}</Typography>
                   </TableCell>
                   <TableCell>{row.service}</TableCell>
-                  <TableCell>{row.metric}</TableCell>
+                  <TableCell>{row.imported ? <CaseOriginBadge source={row.source} sourceId={row.sourceId} sourceUrl={row.sourceUrl} /> : row.metric}</TableCell>
                   <TableCell><Pill label={row.memoryStatus} /></TableCell>
                   <TableCell>
                     <Typography sx={{ fontWeight: 750 }}>{relativeTime(row.updatedAt)}</Typography>
@@ -155,16 +183,26 @@ export function OperationalMemoryPage() {
   );
 }
 
-function recommendationTone(recommendation: AlertContextResponse['recommendation']) {
+function recommendationTone(recommendation: AlertContextResponse['recommendation'], similarCount = 0) {
   if (recommendation === 'likely_real') return { color: '#059669', bg: '#ecfdf5', border: '#bbf7d0', label: 'Likely real' };
   if (recommendation === 'likely_noise') return { color: '#64748b', bg: '#f8fafc', border: '#e2e8f0', label: 'Likely noise' };
+  // No real-vs-noise verdict yet, but it has happened before: say that, not "insufficient".
+  if (similarCount > 0) return { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', label: 'Seen before' };
   return { color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Insufficient history' };
 }
 
+export const ALERT_CONTEXT_PANEL_ID = 'alert-context-preview';
+
 function AlertContextPanel() {
+  // The import wizard links here with ?service=&message= so a new import can be checked right away.
+  const [searchParams] = useSearchParams();
   const [metricName, setMetricName] = React.useState('cpu_usage');
-  const [service, setService] = React.useState('');
-  const [message, setMessage] = React.useState('');
+  const [service, setService] = React.useState(searchParams.get('service') ?? '');
+  const [message, setMessage] = React.useState(searchParams.get('message') ?? '');
+  const prefilled = Boolean(searchParams.get('service') || searchParams.get('message'));
+  React.useEffect(() => {
+    if (prefilled) document.getElementById(ALERT_CONTEXT_PANEL_ID)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [prefilled]);
 
   const mutation = useMutation({
     mutationFn: () => api.alertContext(metricName.trim(), service.trim() || undefined, message.trim() || undefined),
@@ -178,10 +216,16 @@ function AlertContextPanel() {
   }, [metricName, service, message]);
 
   const result = mutation.data;
-  const tone = result ? recommendationTone(result.recommendation) : null;
+  const tone = result ? recommendationTone(result.recommendation, result.similar_cases.length) : null;
 
   return (
+    <Box id={ALERT_CONTEXT_PANEL_ID}>
     <WorkspacePanel sx={{ p: 2.5 }}>
+      {prefilled ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Filled in from your import. Click <b>Check Alert Context</b>: imported incidents on this service should appear under similar cases.
+        </Alert>
+      ) : null}
       <Box sx={{ mb: 2 }}>
         <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 900 }}>Alert Context Preview</Typography>
         <Typography sx={{ color: ui.muted, fontSize: 13 }}>
@@ -311,11 +355,17 @@ function AlertContextPanel() {
                   {result.similar_cases.map((match) => (
                     <Box key={match.case_id} sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px' }}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ fontWeight: 800 }}>{match.title}</Typography>
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                          <Typography sx={{ fontWeight: 800 }}>{match.title}</Typography>
+                          <CaseOriginBadge source={match.source} sourceId={match.source_id} />
+                        </Stack>
                         <Chip label={`score ${match.similarity_score.toFixed(2)}`} size="small" />
                       </Stack>
                       {match.root_cause_summary ? (
-                        <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.5 }}>{match.root_cause_summary}</Typography>
+                        <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.5 }}><b>Cause:</b> {match.root_cause_summary}</Typography>
+                      ) : null}
+                      {match.corrective_action || match.outcome_summary ? (
+                        <Typography sx={{ color: ui.muted, fontSize: 13, mt: 0.25 }}><b>Fix:</b> {match.corrective_action || match.outcome_summary}</Typography>
                       ) : null}
                       <Button component={RouterLink} to={match.reference} size="small" sx={{ mt: 0.5, textTransform: 'none', fontWeight: 800, pl: 0 }}>
                         Open case #{match.case_id}
@@ -364,6 +414,7 @@ function AlertContextPanel() {
         </Stack>
       ) : null}
     </WorkspacePanel>
+    </Box>
   );
 }
 

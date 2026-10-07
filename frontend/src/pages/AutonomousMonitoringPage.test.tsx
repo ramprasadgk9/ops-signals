@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
@@ -21,8 +21,16 @@ vi.mock('../api/queries', () => ({
     autonomousScopeOptions: vi.fn().mockResolvedValue({ services: ['checkout'], namespaces: [], environments: ['production'] }),
     autonomousPreview: vi.fn(),
     autonomousRunOnce: vi.fn(),
+    prometheusConnections: vi.fn().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] }),
   },
 }));
+
+const TWO_CONNECTIONS = {
+  connections: [
+    { id: 'mimir-a', name: 'Mimir team A', configured: true, is_default: true },
+    { id: 'mimir-b', name: 'Mimir team B', configured: true, is_default: false },
+  ],
+};
 
 function renderRoute(path = '/autonomous-monitoring') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -168,5 +176,110 @@ describe('AutonomousMonitoringPage', () => {
 
     expect(await screen.findByRole('link', { name: 'cpu_usage' })).toBeInTheDocument();
     expect(screen.queryByText('No autonomous analysis has been completed yet.')).not.toBeInTheDocument();
+  });
+
+  it('offers a cluster picker only when Prometheus has more than one cluster', async () => {
+    renderRoute();
+    expect(await screen.findByText('Configure Autonomous Analysis')).toBeInTheDocument();
+    expect(screen.queryByLabelText('All clusters')).not.toBeInTheDocument();
+  });
+
+  it('sends the cluster scope with a preview', async () => {
+    vi.mocked(api.autonomousScopeOptions).mockResolvedValue({
+      services: ['checkout'],
+      namespaces: [],
+      environments: ['production'],
+      clusters: ['eu', 'us'],
+      cluster_label: 'cluster',
+    });
+    vi.mocked(api.autonomousPreview).mockResolvedValue({
+      scope_summary: {},
+      metrics_discovered: 0,
+      metrics_matched: 0,
+      metrics_excluded: 0,
+      planned_jobs: 0,
+      budget_limited: 0,
+      warnings: [],
+      items: [],
+    } as never);
+    renderRoute();
+
+    fireEvent.click(await screen.findByLabelText('All clusters'));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(api.autonomousPreview).toHaveBeenCalled());
+    expect(await screen.findByText(/Each cluster is analysed separately/)).toBeInTheDocument();
+    expect(vi.mocked(api.autonomousPreview).mock.calls.at(-1)?.[0].scope).toMatchObject({ all_clusters: false, clusters: [] });
+  });
+
+  it('offers a connection picker only when there is more than one Prometheus connection', async () => {
+    renderRoute();
+    expect(await screen.findByText('Configure Autonomous Analysis')).toBeInTheDocument();
+    await waitFor(() => expect(api.prometheusConnections).toHaveBeenCalled());
+    expect(screen.queryByLabelText('Prometheus connection')).not.toBeInTheDocument();
+  });
+
+  it('sends the chosen connection with scope lookups and a preview', async () => {
+    vi.mocked(api.prometheusConnections).mockResolvedValue(TWO_CONNECTIONS);
+    vi.mocked(api.autonomousPreview).mockResolvedValue({
+      scope_summary: {},
+      metrics_discovered: 0,
+      metrics_matched: 0,
+      metrics_excluded: 0,
+      planned_jobs: 0,
+      budget_limited: 0,
+      warnings: [],
+      items: [],
+    } as never);
+    renderRoute();
+
+    fireEvent.mouseDown(await screen.findByLabelText('Prometheus connection'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Mimir team B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(api.autonomousPreview).toHaveBeenCalled());
+    expect(vi.mocked(api.autonomousPreview).mock.calls.at(-1)?.[0].connection_id).toBe('mimir-b');
+    await waitFor(() =>
+      expect(vi.mocked(api.autonomousScopeOptions).mock.calls.some(([options]) => options?.connection_id === 'mimir-b')).toBe(true)
+    );
+  });
+
+  it('shows the backend error message when a preview fails', async () => {
+    vi.mocked(api.autonomousPreview).mockRejectedValue(
+      new Error('Prometheus HTTP error: 422: the query exceeded the maximum number of series (limit: 10000)')
+    );
+    renderRoute();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
+
+    expect(
+      await screen.findByText(
+        'Autonomous request failed: Prometheus HTTP error: 422: the query exceeded the maximum number of series (limit: 10000)'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('shows warnings returned by a preview', async () => {
+    vi.mocked(api.autonomousPreview).mockResolvedValue({
+      scope_summary: {},
+      metrics_discovered: 3,
+      metrics_matched: 1,
+      metrics_excluded: 2,
+      planned_jobs: 1,
+      budget_limited: 0,
+      warnings: [
+        'Prometheus warning: partial response: store unavailable',
+        ...Array.from({ length: 6 }, (_, index) => `Discovery warning ${index + 1}`),
+      ],
+      items: [],
+    });
+    renderRoute();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
+
+    expect(await screen.findByText('Prometheus warning: partial response: store unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Discovery warning 4')).toBeInTheDocument();
+    expect(screen.queryByText('Discovery warning 5')).not.toBeInTheDocument();
+    expect(screen.getByText('+2 more warnings')).toBeInTheDocument();
   });
 });

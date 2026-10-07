@@ -25,6 +25,7 @@ class NormalizedPoint(Base):
     pod: Mapped[str | None] = mapped_column(Text, nullable=True)
     unit: Mapped[str | None] = mapped_column(Text, nullable=True)
     metric_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     analysis_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
@@ -40,6 +41,7 @@ class SignalEntity(Base):
     metric_name: Mapped[str] = mapped_column(Text, nullable=False)
     service: Mapped[str | None] = mapped_column(Text, nullable=True)
     env: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     severity: Mapped[str | None] = mapped_column(Text, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -112,6 +114,8 @@ class AnalysisRunEntity(Base):
     router_decisions_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     executed_analyzers_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     generated_findings_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    # The Prometheus connection (Mimir tenant) a run queried; None for CSV, OTLP and older runs.
+    connection_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -166,6 +170,7 @@ class AutonomousPolicyEntity(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     datasource: Mapped[str] = mapped_column(String(64), nullable=False)
     backend: Mapped[str] = mapped_column(String(128), nullable=False)
+    connection_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default", server_default="default")
     scope_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     monitoring_categories_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     execution_policy_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
@@ -254,6 +259,7 @@ class FindingEntity(Base):
     analysis_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     service: Mapped[str | None] = mapped_column(Text, nullable=True)
     metric_name: Mapped[str] = mapped_column(Text, nullable=False)
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -293,13 +299,19 @@ class QuestionAnswerEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+CASE_SOURCE_LINK_CHECK = (
+    "(source = 'detected' AND ((finding_id IS NOT NULL) != (behavior_finding_id IS NOT NULL))) "
+    "OR (source <> 'detected' AND finding_id IS NULL AND behavior_finding_id IS NULL AND source_id IS NOT NULL)"
+)
+
+
 class OperationalCaseEntity(Base):
     __tablename__ = "ops_operational_cases"
     __table_args__ = (
-        CheckConstraint(
-            "(finding_id IS NOT NULL) != (behavior_finding_id IS NOT NULL)",
-            name="ck_case_exactly_one_source",
-        ),
+        # A detected case links to exactly one finding or behavior; an imported case
+        # (docs/importing-incident-history.md) links to neither and carries its source's record ID.
+        CheckConstraint(CASE_SOURCE_LINK_CHECK, name="ck_case_source_link"),
+        Index("uq_case_source_record", "source", "source_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -331,6 +343,33 @@ class OperationalCaseEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "detected" for cases Ops Signals opened itself; otherwise the system an imported case came
+    # from (jira, pagerduty, csv, markdown, or a label the importer chose).
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="detected", server_default="detected")
+    source_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    import_batch_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    @property
+    def is_imported(self) -> bool:
+        return (self.source or "detected") != "detected"
+
+
+class CaseImportBatchEntity(Base):
+    """One run of the incident-history importer: what was uploaded and what it did, so the
+    Integrations page can show import status and a whole batch can be undone."""
+
+    __tablename__ = "ops_case_imports"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sources: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    file_profiles: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    counts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    indexed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AnalyzerLearningOutcomeEntity(Base):
@@ -503,6 +542,8 @@ class ChangeEventEntity(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     version: Mapped[str | None] = mapped_column(Text, nullable=True)
     env: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Where the deploy went, when CI says so. NULL means every cluster (a global or single-cluster deploy).
+    cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     author: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str | None] = mapped_column(Text, nullable=True)

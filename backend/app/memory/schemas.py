@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.app.memory.novelty import Novelty
+
 
 class MemoryIndexResponse(BaseModel):
     """Response when indexing a case into operational memory."""
@@ -59,8 +61,15 @@ class SimilarCaseMatch(BaseModel):
     similarity_score: float = Field(description="Score between 0 and 1")
     title: str
     service: str | None = None
-    metric_name: str
+    # None for an imported incident, which comes from a postmortem rather than a metric.
+    metric_name: str | None = None
     category: str | None = None
+    origin: str = "detected"
+    source: str | None = None
+    source_id: str | None = None
+    # "strong" (>= 0.70) or "possible" (>= 0.40); see similarity_service.match_strength.
+    strength: str = "strong"
+    same_service: bool = False
     case_status: str
     investigation_status: str
     rca_verified: bool
@@ -68,6 +77,9 @@ class SimilarCaseMatch(BaseModel):
     corrective_action: str | None = None
     outcome_status: str | None = None
     outcome_summary: str | None = None
+    # Near-copies of this match (same service, same symptom, cause and fix), folded under it so
+    # one recurring incident can't fill every slot (diversity.collapse_near_copies).
+    more_like_this: list["SimilarCaseMatch"] = Field(default_factory=list)
 
 
 class SimilarCasesResponse(BaseModel):
@@ -76,6 +88,7 @@ class SimilarCasesResponse(BaseModel):
     source_case_id: int
     similarity_type: str = "finding_similarity"
     matches: list[SimilarCaseMatch]
+    novelty: Novelty | None = None
 
 
 class MemoryChatRequest(BaseModel):
@@ -135,8 +148,49 @@ class AlertContextSimilarCase(BaseModel):
     case_status: str
     outcome_status: str | None = None
     root_cause_summary: str | None = None
+    corrective_action: str | None = None
     outcome_summary: str | None = None
+    origin: str = "detected"
+    source: str | None = None
+    source_id: str | None = None
     reference: str
+    # Near-copies folded under this case (diversity.collapse_near_copies), counted, not listed.
+    more_like_this: int = 0
+
+
+class PastIncidentMatch(BaseModel):
+    """A past case that looks like a finding, for the finding's "Seen before?" panel."""
+
+    case_id: int
+    title: str
+    similarity_score: float
+    strength: str
+    same_service: bool
+    service: str | None = None
+    metric_name: str | None = None
+    origin: str = "detected"
+    source: str | None = None
+    source_id: str | None = None
+    source_url: str | None = None
+    root_cause_summary: str | None = None
+    corrective_action: str | None = None
+    outcome_summary: str | None = None
+    resolved_at: datetime | None = None
+    reference: str
+    # Near-copies of this match (same service, same symptom, cause and fix), folded under it so
+    # one recurring incident can't fill every slot (diversity.collapse_near_copies).
+    more_like_this: list["PastIncidentMatch"] = Field(default_factory=list)
+
+
+class SeenBeforeResponse(BaseModel):
+    """Past cases resembling a finding, found without opening a case for it."""
+
+    finding_id: int
+    available: bool
+    reason: str | None = None
+    service: str | None = None
+    matches: list[PastIncidentMatch] = Field(default_factory=list)
+    novelty: Novelty | None = None
 
 
 class AlertContextHistory(BaseModel):

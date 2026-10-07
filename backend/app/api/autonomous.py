@@ -29,10 +29,10 @@ from backend.app.autonomous.schemas import (
     MonitoringSelection,
 )
 from backend.app.autonomous.services import MetricClassificationService, MetricDiscoveryService, MetricPlanBuilder
-from backend.app.config import PrometheusConnectionConfig, get_prometheus_config
+from backend.app.config import PrometheusConnectionConfig, parse_duration_seconds
 from backend.app.models.db import get_db
 from backend.app.models.entities import AutonomousPolicyEntity, FindingEntity, OperationalCaseEntity
-from backend.app.services.prometheus_service import PrometheusQueryService
+from backend.app.services.prometheus_service import PrometheusQueryService, get_prometheus_connection, resolve_prometheus_connection
 
 router = APIRouter(prefix="/api/autonomous", tags=["autonomous"])
 AnswerWindow = Literal["1h", "6h", "24h", "7d"]
@@ -57,7 +57,7 @@ class AutonomousQuestionAnswer(BaseModel):
 
 
 def get_prometheus_query_service(
-    config: PrometheusConnectionConfig = Depends(get_prometheus_config),
+    config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> PrometheusQueryService:
     return PrometheusQueryService(config)
 
@@ -71,8 +71,10 @@ def preview_autonomous_plan(
         raise HTTPException(status_code=422, detail="At least one monitoring category is required.")
 
     try:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(seconds=parse_duration_seconds(payload.execution.analysis_window))
         discovery = MetricDiscoveryService(prometheus)
-        resolved_scope, discovered_metrics = discovery.discover(payload.scope)
+        resolved_scope, discovered_metrics = discovery.discover(payload.scope, start=start, end=end)
         classifier = MetricClassificationService()
         plan = MetricPlanBuilder().build(
             resolved_scope=resolved_scope,
@@ -114,7 +116,7 @@ def run_autonomous_once(
     payload: AutonomousRunRequest,
     prometheus: PrometheusQueryService = Depends(get_prometheus_query_service),
     db: Session = Depends(get_db),
-    config: PrometheusConnectionConfig = Depends(get_prometheus_config),
+    config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> AutonomousRunResponse:
     preview = preview_autonomous_plan(payload, prometheus)
     try:
@@ -135,6 +137,7 @@ class AutonomousPolicySaveRequest(BaseModel):
     name: str = "Autonomous policy"
     datasource: str = "prometheus"
     backend: str = "grafana-stack"
+    connection_id: str = "default"
     scope: AnalysisScope = Field(default_factory=AnalysisScope)
     monitoring_selection: MonitoringSelection
     execution: ExecutionPolicy = Field(default_factory=ExecutionPolicy)
@@ -151,6 +154,7 @@ def _policy_to_response(policy: AutonomousPolicyEntity) -> AutonomousAnalysisPol
         name=policy.name,
         datasource=policy.datasource,
         backend=policy.backend,
+        connection_id=policy.connection_id,
         scope=AnalysisScope(**policy.scope_json),
         monitoring_selection=MonitoringSelection(**policy.monitoring_categories_json),
         execution=ExecutionPolicy(**policy.execution_policy_json),
@@ -166,8 +170,10 @@ def _policy_to_response(policy: AutonomousPolicyEntity) -> AutonomousAnalysisPol
 
 @router.post("/policies", response_model=AutonomousAnalysisPolicy)
 def create_autonomous_policy(payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+    resolve_prometheus_connection(payload.connection_id)
     policy = AutonomousPolicyRepository(db).create(
         name=payload.name,
+        connection_id=payload.connection_id,
         datasource=payload.datasource,
         backend=payload.backend,
         scope=payload.scope.model_dump(),
@@ -186,9 +192,11 @@ def list_autonomous_policies(limit: int = Query(default=50, ge=1, le=200), db: S
 
 @router.patch("/policies/{policy_id}", response_model=AutonomousAnalysisPolicy)
 def update_autonomous_policy(policy_id: str, payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+    resolve_prometheus_connection(payload.connection_id)
     try:
         policy = AutonomousPolicyRepository(db).update_config(
             policy_id,
+            connection_id=payload.connection_id,
             scope=payload.scope.model_dump(),
             monitoring_categories=payload.monitoring_selection.model_dump(),
             execution_policy=payload.execution.model_dump(),
@@ -323,12 +331,26 @@ def autonomous_scope_options(
     service_label: str = Query(default="service"),
     namespace_label: str = Query(default="namespace"),
     environment_label: str = Query(default="env"),
+    cluster_label: str | None = Query(default=None, description="Defaults to the connection's cluster label."),
+    window: str = Query(default="24h", description="Only list values seen in this recent window, e.g. 24h or 7d."),
+    connection_id: str = Query(default="default", description="Which Prometheus connection to list values from."),
     prometheus: PrometheusQueryService = Depends(get_prometheus_query_service),
-) -> dict[str, list[str]]:
+) -> dict[str, object]:
+    try:
+        window_seconds = parse_duration_seconds(window)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="window must be a duration like 24h or 7d") from exc
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(seconds=window_seconds)
+    connection = getattr(prometheus, "config", None)
+    resolved_cluster_label = cluster_label or (connection.cluster_label if isinstance(connection, PrometheusConnectionConfig) else "cluster")
     return {
-        "services": prometheus.label_values(service_label),
-        "namespaces": prometheus.label_values(namespace_label),
-        "environments": prometheus.label_values(environment_label),
+        "services": prometheus.label_values(service_label, start=start, end=end),
+        "namespaces": prometheus.label_values(namespace_label, start=start, end=end),
+        "environments": prometheus.label_values(environment_label, start=start, end=end),
+        # [] for single-cluster data, which hides the cluster picker in the UI.
+        "clusters": prometheus.label_values(resolved_cluster_label, start=start, end=end) if resolved_cluster_label else [],
+        "cluster_label": resolved_cluster_label,
     }
 
 

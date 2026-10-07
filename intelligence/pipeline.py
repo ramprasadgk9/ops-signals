@@ -17,6 +17,7 @@ from intelligence.finding_aggregator import FindingAggregator
 from intelligence.embeddings.embedder import SummaryEmbedder
 from intelligence.importance_score import score_signals
 from intelligence.normalize.normalizer import normalize_timeseries
+from intelligence.series_identity import run_analyzer_by_cluster
 from intelligence.findings.schema import OperationalFinding
 from intelligence.signals.schema import OperationalSignal
 from intelligence.storage.postgres_store import PostgresStore
@@ -178,7 +179,7 @@ class SignalPipeline(RegistryAnalyzerSelection):
         for analyzer in analyzers:
             analyzer_id = str(analyzer.analyzer_id)
             try:
-                generated = analyzer.analyze(normalized)
+                generated = run_analyzer_by_cluster(analyzer, normalized)
             except Exception as exc:  # pragma: no cover - exact analyzer failures vary by dependency
                 logger.exception("Analyzer %s failed during execution", analyzer_id)
                 failed_analyzers[analyzer_id] = f"{type(exc).__name__}: {exc}"
@@ -245,6 +246,7 @@ class SignalPipeline(RegistryAnalyzerSelection):
             "end_time": pd.to_datetime(normalized["timestamp"], utc=True, errors="coerce").max().to_pydatetime(),
             "sample_count": int(len(normalized)),
             "status": "running",
+            "connection_id": str(run_metadata["connection_id"]) if run_metadata and run_metadata.get("connection_id") else None,
             "created_at": datetime.utcnow(),
         }
         self.store.create_analysis_run(payload)

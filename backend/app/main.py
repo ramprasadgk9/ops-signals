@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
+from backend.app.api.ai import router as ai_router
 from backend.app.api.alerts import router as alerts_router
 from backend.app.api.analysis_runs import router as analysis_runs_router
 from backend.app.api.admin_analyzers import router as admin_analyzers_router
@@ -27,6 +28,7 @@ from backend.app.api.behavior_definitions import router as behavior_definitions_
 from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
 from backend.app.api.behavior_lab import router as behavior_lab_router
 from backend.app.api.capabilities import router as capabilities_router
+from backend.app.api.case_imports import router as case_imports_router
 from backend.app.api.cases import router as cases_router
 from backend.app.api.findings import router as findings_router
 from backend.app.api.ingestion import router as ingestion_router
@@ -44,14 +46,16 @@ from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
-from backend.app.config import MemoryConfig, get_security_config, get_settings, get_slack_config
+from backend.app.config import MemoryConfig, get_prometheus_connections, get_security_config, get_settings, get_slack_config
 from backend.app.config import AIConfig
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.notifications.slack_client import SlackNotifier
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
+from backend.app.ai.config import apply_ai_env_overrides
 from backend.app.ai.factory import build_optional_ai_services
 from backend.app.memory.qdrant_initializer import QdrantInitializer
 from backend.app.memory.similarity_service import SimilarityService
@@ -64,6 +68,8 @@ from backend.app.models.schema_compat import (
     ensure_ai_narrative_schema,
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
+    ensure_case_import_schema,
+    ensure_cluster_schema,
     ensure_learning_schema,
     ensure_ticketing_schema,
 )
@@ -96,15 +102,7 @@ def load_ai_config() -> AIConfig | None:
         with open("config.yaml") as f:
             config_data = yaml.safe_load(f)
             ai_config = AIConfig(**config_data["ai"]) if config_data and "ai" in config_data else AIConfig()
-            if os.getenv("OPS_SIGNALS_AI_ENABLED"):
-                ai_config.enabled = os.environ["OPS_SIGNALS_AI_ENABLED"].strip().lower() in {"1", "true", "yes", "on"}
-            if os.getenv("OPS_SIGNALS_AI_PROVIDER"):
-                ai_config.provider = os.environ["OPS_SIGNALS_AI_PROVIDER"]
-            if os.getenv("OPS_SIGNALS_OLLAMA_URL"):
-                ai_config.ollama.base_url = os.environ["OPS_SIGNALS_OLLAMA_URL"]
-            if os.getenv("OPS_SIGNALS_OLLAMA_MODEL"):
-                ai_config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
-            return ai_config
+            return apply_ai_env_overrides(ai_config)
     except Exception as e:
         logger.warning(f"Failed to load AI configuration: {e}")
     return None
@@ -209,6 +207,22 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
         return None, None, None, None, None, None
 
 
+def _needs_backfill(indexer: CaseMemoryIndexer) -> bool:
+    try:
+        return bool(indexer.vector_store.points_missing(SYMPTOM_VECTOR, limit=1))
+    except Exception as e:
+        logger.warning(f"Could not check for cases needing vector backfill: {e}")
+        return False
+
+
+def _backfill_vectors(indexer: CaseMemoryIndexer, session_local) -> None:
+    try:
+        with session_local() as db:
+            indexer.backfill_vectors(db)
+    except Exception as e:
+        logger.warning(f"Vector backfill failed; older cases keep full-document recall until re-indexed: {e}")
+
+
 def create_app(database_url: str | None = None) -> FastAPI:
     settings = get_settings()
     
@@ -226,18 +240,23 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # A broken connections file stops startup instead of failing (or misrouting) a later query.
+        get_prometheus_connections()
         init_engine(database_url)
         Base.metadata.create_all(bind=get_engine())
         ensure_learning_schema(get_engine())
         ensure_ai_narrative_schema(get_engine())
         ensure_case_behavior_link_schema(get_engine())
+        ensure_case_import_schema(get_engine())
         ensure_autonomous_policy_scheduling_schema(get_engine())
         ensure_ticketing_schema(get_engine())
+        ensure_cluster_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
 
         # Load memory config at startup
+        backfill_task: asyncio.Task | None = None
         memory_config = load_memory_config()
         memory_services["ai_config"] = load_ai_config()
         memory_services["config"] = memory_config
@@ -253,6 +272,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 memory_services["assistant"],
                 memory_services["knowledge_bootstrap"],
             ) = initialize_memory_services(memory_config)
+            indexer = memory_services["indexer"]
+            if indexer is not None and _needs_backfill(indexer):
+                # Cases indexed before symptom/resolution/keyword vectors get them, in the background:
+                # it embeds each older case, and recall uses the full document until it is done.
+                # Started only when there is something to fill, so a normal startup runs nothing.
+                backfill_task = asyncio.create_task(asyncio.to_thread(_backfill_vectors, indexer, session_local))
             logger.info(f"✓ Memory services initialized successfully")
         else:
             logger.info(f"Memory services disabled")
@@ -267,6 +292,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
         from backend.app.api import assistant as assistant_module
         assistant_module._services["assistant"] = memory_services["assistant"]
         assistant_module._services["knowledge_bootstrap"] = memory_services["knowledge_bootstrap"]
+        from backend.app.api import ai as ai_module
+        ai_module._services["config"] = memory_services["ai_config"]
 
         # Slack notifications: config-driven, disabled unless OPS_SIGNALS_SLACK_ENABLED=true
         # and a webhook URL are both set. SlackNotifier no-ops internally when disabled, so
@@ -296,11 +323,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         yield
 
+        if backfill_task is not None and not backfill_task.done():
+            backfill_task.cancel()
+
         if ticketing_task is not None:
             ticketing_task.cancel()
             with suppress(asyncio.CancelledError):
                 await ticketing_task
-
         if scheduler_task is not None:
             scheduler_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -339,6 +368,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(questions_router)
     app.include_router(signals_router)
     app.include_router(findings_router)
+    app.include_router(case_imports_router)
     app.include_router(cases_router)
     app.include_router(ticketing_router)
     app.include_router(timeseries_router)
@@ -357,6 +387,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(assistant_router)
     app.include_router(mcp_router)
     app.include_router(alerts_router)
+    app.include_router(ai_router)
     app.include_router(events_router)
     
     # Register memory router

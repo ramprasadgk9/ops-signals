@@ -14,6 +14,7 @@ import { PanelPreview } from './PanelPreview';
 import { Card, Field, styles } from './plainUi';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { findingBreakdown } from '../utils/findingBreakdown';
+import { findingLevel } from '../utils/findingLevel';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
 import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, CaseTicketLink, CaseTicketOperation, GrafanaAnalysisResult, GrafanaCase, GrafanaCaseCreateResponse, GrafanaQueryTarget, MonitoringCategory } from './contracts';
@@ -275,7 +276,7 @@ export function PluginApp(_props: unknown) {
   useEffect(() => {
     let active = true;
     if (activeMode !== 'autonomous' || !backendUrl) return;
-    listAutonomousScopeOptions(backendUrl, { serviceLabel, namespaceLabel, environmentLabel })
+    listAutonomousScopeOptions(backendUrl, { serviceLabel, namespaceLabel, environmentLabel, window: analysisWindow })
       .then((options) => {
         if (!active) return;
         setServices(options.services);
@@ -287,7 +288,7 @@ export function PluginApp(_props: unknown) {
     return () => {
       active = false;
     };
-  }, [activeMode, backendUrl, serviceLabel, namespaceLabel, environmentLabel]);
+  }, [activeMode, backendUrl, serviceLabel, namespaceLabel, environmentLabel, analysisWindow]);
 
   const selectedDatasource = useMemo(
     () => prometheusDatasources.find((datasource) => datasource.uid === selectedPrometheusUid),
@@ -2476,13 +2477,10 @@ function BehaviorPill({ label }: { label: string }) {
 }
 
 function SeverityPill({ severity }: { severity: string }) {
-  const normalized = severity.toLowerCase();
-  const tone = normalized.includes('critical') || normalized.includes('significant')
-    ? '#f2495c'
-    : normalized.includes('warning') || normalized.includes('medium')
-      ? '#ffb357'
-      : '#3fcf8e';
-  return <span style={{ ...styles.chip, width: 'fit-content', color: tone, borderColor: `${tone}66` }}>{humanize(severity)}</span>;
+  // A finding's level: "normal" is low importance, not healthy, so it is grey rather than green.
+  const level = findingLevel(severity);
+  const tone = level.chip === 'error' ? '#f2495c' : level.chip === 'warning' ? '#ffb357' : '#8a95a5';
+  return <span style={{ ...styles.chip, width: 'fit-content', color: tone, borderColor: `${tone}66` }}>{level.label}</span>;
 }
 
 function BehaviorDonut({ items, total }: { items: Array<{ label: string; count: number }>; total: number }) {

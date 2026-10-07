@@ -134,3 +134,178 @@ describe('FindingsPage category legend', () => {
     expect(screen.getByText('Short spikes or dips that don’t fit the usual pattern')).toBeInTheDocument();
   });
 });
+
+describe('FindingsPage cluster filter', () => {
+  const inCluster = (id: number, cluster: string | null): Finding => ({ ...finding, id, cluster, title: `Latency shift in ${cluster ?? 'single cluster'}` });
+
+  beforeEach(() => {
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z',
+      window: '24h',
+      active_findings: 2,
+      open_cases: 0,
+      behavior_changes: 0,
+      impacted_services: 1,
+      memory_items: 0,
+      severity_trend: [],
+      category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.signalsByRunIds).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows each cluster on its finding and filters by cluster', async () => {
+    vi.mocked(api.findings).mockResolvedValue([inCluster(1, 'eu'), inCluster(2, 'us')]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('checkout-api · latency_p95 · eu')).toBeInTheDocument();
+    expect(screen.getByText('checkout-api · latency_p95 · us')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'us' }));
+
+    await waitFor(() => expect(screen.queryByText('Latency shift in eu')).not.toBeInTheDocument());
+    expect(screen.getByText('Latency shift in us')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('cluster=us');
+
+    fireEvent.click(screen.getByRole('button', { name: 'All clusters' }));
+    expect(await screen.findByText('Latency shift in eu')).toBeInTheDocument();
+  });
+
+  it('hides the cluster filter for single-cluster data', async () => {
+    vi.mocked(api.findings).mockResolvedValue([inCluster(1, null)]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('checkout-api · latency_p95')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'All clusters' })).not.toBeInTheDocument();
+  });
+});
+
+describe('FindingsPage search and sort', () => {
+  const make = (id: number, service: string, metric: string, createdAt: string, importance: number): Finding => ({
+    ...finding, id, service, metric_name: metric, title: `Finding ${id}`, created_at: createdAt, importance_score: importance,
+  });
+
+  beforeEach(() => {
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z',
+      window: '24h',
+      active_findings: 0,
+      open_cases: 0,
+      behavior_changes: 0,
+      impacted_services: 0,
+      memory_items: 0,
+      severity_trend: [],
+      category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.signalsByRunIds).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const titles = () => screen.getAllByText(/^Finding \d+$/).map((element) => element.textContent);
+
+  it('lists the latest first, and sorts by importance on request', async () => {
+    vi.mocked(api.findings).mockResolvedValue([
+      make(1, 'checkout', 'cpu_usage', '2026-10-04T08:00:00Z', 0.9),
+      make(2, 'payments', 'error_rate', '2026-10-04T10:00:00Z', 0.2),
+      make(3, 'search', 'request_latency_p95', '2026-10-04T09:00:00Z', 0.5),
+    ]);
+
+    renderAt('/findings');
+
+    await screen.findByText('Finding 1');
+    expect(titles()).toEqual(['Finding 2', 'Finding 3', 'Finding 1']);
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Sort by' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Most important' }));
+
+    await waitFor(() => expect(titles()).toEqual(['Finding 1', 'Finding 3', 'Finding 2']));
+    expect(screen.getByTestId('location')).toHaveTextContent('sort=importance');
+  });
+
+  it('searches by service, metric or finding number and keeps the search in the URL', async () => {
+    vi.mocked(api.findings).mockResolvedValue([
+      make(1, 'checkout', 'cpu_usage', '2026-10-04T08:00:00Z', 0.9),
+      make(57, 'checkout', 'request_latency_p95', '2026-10-04T10:00:00Z', 0.2),
+      make(3, 'payments', 'error_rate', '2026-10-04T09:00:00Z', 0.5),
+    ]);
+
+    renderAt('/findings');
+    const search = await screen.findByRole('textbox', { name: 'Search findings' });
+
+    fireEvent.change(search, { target: { value: 'checkout' } });
+    await waitFor(() => expect(titles()).toEqual(['Finding 57', 'Finding 1']));
+    expect(screen.getByText('Showing 2 of 2 · 3 in window')).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'latency' } });
+    await waitFor(() => expect(titles()).toEqual(['Finding 57']));
+
+    fireEvent.change(search, { target: { value: '#57' } });
+    await waitFor(() => expect(titles()).toEqual(['Finding 57']));
+    expect(screen.getByTestId('location')).toHaveTextContent('q=%2357');
+  });
+
+  it('offers to open a finding number that is outside the window', async () => {
+    vi.mocked(api.findings).mockResolvedValue([make(1, 'checkout', 'cpu_usage', '2026-10-04T08:00:00Z', 0.9)]);
+    vi.mocked(api.getFinding).mockResolvedValue({ ...finding, id: 400, title: 'An older finding' });
+
+    renderAt('/findings?q=%23400');
+
+    expect(await screen.findByText('No findings in this window match "#400".')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Open finding #400' }));
+
+    expect(await screen.findByRole('heading', { name: 'An older finding' })).toBeInTheDocument();
+    expect(api.getFinding).toHaveBeenCalledWith(400);
+  });
+
+  it('shows a finding repeated across runs once, and lists each run on request', async () => {
+    const repeat = (id: number, createdAt: string): Finding => ({
+      ...finding, id, service: 'checkout', metric_name: 'request_latency_p95', cluster: 'eu', title: 'Latency trending up', created_at: createdAt,
+    });
+    vi.mocked(api.findings).mockResolvedValue([
+      repeat(1, '2026-10-04T08:00:00Z'),
+      repeat(2, '2026-10-04T10:00:00Z'),
+      repeat(3, '2026-10-04T09:00:00Z'),
+      make(4, 'payments', 'error_rate', '2026-10-04T07:00:00Z', 0.5),
+    ]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('Seen in 3 runs')).toBeInTheDocument();
+    expect(screen.getAllByText('Latency trending up')).toHaveLength(1);
+    expect(screen.getByText('Showing 2 of 2 (4 findings, repeats grouped)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Seen in 3 runs'));
+
+    await waitFor(() => expect(screen.getAllByText('Latency trending up')).toHaveLength(3));
+    expect(screen.queryByText('Finding 4')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('group=off');
+    expect(screen.getByRole('checkbox', { name: 'Group repeats' })).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group repeats' }));
+    await waitFor(() => expect(screen.getAllByText('Latency trending up')).toHaveLength(1));
+  });
+
+  it('shows every finding, a page at a time', async () => {
+    vi.mocked(api.findings).mockResolvedValue(
+      Array.from({ length: 25 }, (_, index) => make(index + 1, 'checkout', 'cpu_usage', `2026-10-04T${String(index % 24).padStart(2, '0')}:00:00Z`, 0.5)),
+    );
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('Showing 20 of 25')).toBeInTheDocument();
+    expect(titles()).toHaveLength(20);
+    fireEvent.click(screen.getByRole('button', { name: 'Show 5 more' }));
+    await waitFor(() => expect(titles()).toHaveLength(25));
+    expect(screen.queryByRole('button', { name: /more$/ })).not.toBeInTheDocument();
+  });
+});

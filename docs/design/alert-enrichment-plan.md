@@ -607,8 +607,8 @@ That leaves Oct 6-12 for the other launch items (demo polish, README GIF, releas
 ## 10. Docs to update
 
 - README: new "Alert Enrichment" section under Integrations (9.x) + TOC; Current Capabilities; Limitations.
-- `docs/02-architecture.md`: receiver + change events in the architecture.
-- `docs/15-configuration.md`: `alert_enrichment` block and env vars.
+- `docs/architecture.md`: receiver + change events in the architecture.
+- `docs/configuration.md`: `alert_enrichment` block and env vars.
 - New recipes: `docs/recipes/alertmanager.md`, `docs/recipes/change-events-ci.md`.
 - CHANGELOG entry.
 

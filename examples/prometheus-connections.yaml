@@ -1,0 +1,32 @@
+# Named Prometheus connections - one per Mimir tenant (or per Prometheus). Point
+# OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE at a copy of this file. Every field is described in
+# docs/standalone-prometheus-analysis.md ("Several tenants: named connections").
+#
+# Secrets stay out of the file: bearer_token, username, password and header values may use
+# ${ENV_VAR}, which is read from the backend's environment. Startup fails if one is not set.
+
+# The connection used when a request names none, and for alerts that match no connection.
+# Optional - the first connection otherwise.
+default: team-a
+
+connections:
+  - id: team-a
+    name: Mimir team A
+    base_url: https://mimir.example.com/prometheus
+    bearer_token: ${MIMIR_TEAM_A_TOKEN}
+    headers:
+      X-Scope-OrgID: team-a
+    # Alerts carrying all of these labels are analysed on this connection.
+    match_labels:
+      tenant: team-a
+
+  - id: team-b
+    name: Mimir team B
+    base_url: https://mimir.example.com/prometheus
+    bearer_token: ${MIMIR_TEAM_B_TOKEN}
+    headers:
+      X-Scope-OrgID: team-b
+    match_labels:
+      tenant: team-b
+    # Any per-connection setting can differ, e.g. a different cluster label:
+    # cluster_label: k8s_cluster

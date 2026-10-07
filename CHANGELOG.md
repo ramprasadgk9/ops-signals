@@ -2,6 +2,152 @@
 
 ## 0.3.0 - Unreleased
 
+- **Symptom and fix vectors**: each case in Qdrant now has a `symptom` vector (what was seen) and a
+  `resolution` vector (cause and fix, once recorded) next to the whole-document one. Seen before?
+  and Similar Cases compare a finding's symptom with past symptoms, so an imported postmortem about
+  the same problem as a detected finding is now usually a **strong** match (0.57 → 0.77 on the test
+  catalogue) while unrelated cases stay low. Alert messages and chat questions still search the whole
+  document, so a cause named in an alert ("db connections maxed out") still ranks that case first.
+- **Did the fix hold?** is inferred: a fix held if no case with the same symptom was opened on the
+  same service within 30 days; otherwise it **came back after N days**; before 30 days it is **too
+  early to tell**. Shown in **Same fix elsewhere** on a case's Similar Cases tab (other incidents,
+  on any service, resolved by the same cause and fix: `GET /api/cases/{id}/same-fix`) and in
+  **What fixed this before** on a finding's Seen before? (past fixes merged where they say the same
+  thing, ranked by how often they held: `GET /api/findings/{id}/suggested-fixes`). **Draft a
+  runbook** writes numbered steps from those fixes, citing the cases, with the configured LLM; it is
+  a draft and never saved (`POST /api/findings/{id}/suggested-fixes/runbook-draft`).
+- **Recurring problems** can group **by cause** as well as by symptom, and are drawn rather than
+  listed: a ranked bar per problem (how often it happened; click to jump to it) and a timeline per
+  problem with a dot for each occurrence - still open, fixed with a verified cause, or fixed without
+  one - linking to its case. Causes show the first two, the rest one click away.
+- Repeats of the same incident (same service, symptom, cause and fix) fold under one match as **+N
+  more like this** on Similar Cases and Seen before?, so one recurring incident can't fill every
+  slot; Slack says "+N more like this"; the assistant lists each past problem once.
+- The `operational_cases` collection is recreated once on startup with the new vectors (points kept,
+  the old vector becomes `full`), and the new vectors are filled in from PostgreSQL in the
+  background; until then symptom searches use the whole document.
+- **Recurring problems** on Operational Memory: past cases from the last 30, 90, 180 or 365 days
+  grouped into the problems that keep coming back ("6 times in 90 days"), with the services, how
+  many causes were verified, how many cases are still open, and the causes and fixes found each
+  time. Groups come from Qdrant's distance matrix; every case in a group is at least 80% like the
+  group's central case, so loosely related cases don't chain together. With an LLM configured the
+  groups are named by it, otherwise after their central case. `GET
+  /api/memory/recurring-problems?days=&min_occurrences=`.
+- **New pattern / Recurring badge** on a finding's Seen before? and a case's Similar Cases: **New
+  pattern** (nothing in memory looks like it), **First time on <service>** (only other services
+  have had it), **Seen before**, or **Recurring · N past cases** (3 or more on the same service).
+  Counted from the matches already shown, so no extra search runs; returned as `novelty` on both
+  APIs.
+- Recall ranks past cases on exact words and context, not only meaning. Each case is indexed in
+  Qdrant with a keyword vector next to its embedding, so a past case naming the same error, service
+  or metric (`OOMKilled`, `5xx`, `checkout-api`) ranks above one that is only about something
+  similar. Matches are then ordered by similarity plus small bonuses for the same service, a
+  verified root cause and recency - at most 0.25 together, so a much more similar case always stays
+  on top. Applies to Similar Cases, Seen before?, alert context and Slack enrichment, Ask Ops
+  Signals and MCP memory chat. Shown similarity, the strong/possible labels and score thresholds are
+  unchanged. The keyword vector arrives with the one-time collection migration described above; if
+  the ranking query ever fails, recall falls back to plain similarity.
+- Cluster-aware deploy events: `POST /api/events` takes an optional `cluster`, and `GET
+  /api/events` filters by it. A finding or an alert is matched only to change events from its own
+  cluster, or with no cluster (a deploy everywhere, or a single-cluster setup), so a deploy to `eu`
+  is no longer shown as "After deploy" on a `us` finding. The UI and Slack name the cluster ("deploy
+  v1.4.2 to us"). The `ops_change_events.cluster` column is added on startup. The local multi-cluster
+  setup gives `checkout` in `us` pods replaced by each release, and `./scripts/multicluster.sh
+  deploys` posts the matching deploys.
+- Findings page: search by service, metric, cluster, connection or finding number (`#57`), sort by
+  latest (the new default), oldest, importance or investigation priority, and every finding in the
+  window is listed, 20 at a time - before, only the 5 most important were shown. Search and sort are
+  kept in the URL (`?q=`, `?sort=`). A `#number` outside the window can be opened directly. New
+  Analysis results show the finding number and link to it with **View in Findings**. A finding that
+  repeats across runs (same connection, service, metric, cluster, category and title) gets one card
+  with a **Seen in N runs** chip, giving the first and latest time; clicking it lists each run, and
+  **Group repeats** turns grouping off (`?group=off`).
+- Finding levels read as importance: `critical`, `significant` and `normal` are shown as **High**,
+  **Medium** and **Low** (grey, no longer a green "Normal" that looked like "all fine"), with a
+  tooltip giving the score range. Stored values and the API are unchanged.
+- Validate Data asks for a **Cluster** when the chosen service and metric exist in more than one
+  cluster, before running, instead of failing with "returned 2 series".
+- Named Prometheus connections, one per Mimir tenant. List them in a YAML or JSON file named by
+  `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE`, each with its own URL, tenant header, auth and cluster
+  settings; secrets come from `${ENV}` references. Every Prometheus API call takes a `connection_id`;
+  an unknown id is a 404, never a silent fallback, and `default` still means the default connection.
+  The Configure panel and Validate Data get a **Prometheus connection** picker when there is more than
+  one. Autonomous policies keep their connection, and a scheduled run for a removed connection fails
+  instead of querying another tenant. Alerts are analysed on the connection whose `match_labels` they
+  carry (otherwise the default), and never reuse a finding from another connection. Findings carry
+  `connection_id`, shown on cards and in the drawer. The Integrations status lists each connection's
+  reachability. A broken connections file stops startup. Without the file, the
+  `OPS_SIGNALS_PROMETHEUS_*` variables give one `default` connection, as before. New
+  `analysis_runs.connection_id` and `autonomous_policies.connection_id` columns are added on startup.
+  Docker Compose takes the file through the new `docker-compose.connections.yml` overlay, and the Helm
+  chart through `prometheusConnections` (file in a ConfigMap, tokens from a Secret); a starting file
+  is in `examples/prometheus-connections.yaml`. `docker-compose.packaged.yml` now reads
+  `OPS_SIGNALS_PROMETHEUS_URL` from the environment instead of hardcoding `http://prometheus:9090`.
+  The README's Quick Start says which way to run Ops Signals (demo, laptop, Docker Compose, Helm),
+  with a new **Deploy for Your Team** section.
+  See [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md#several-tenants-named-connections).
+- Multi-cluster Mimir and Thanos. When one endpoint holds several clusters' data, series that differ
+  only by the `cluster` label are now analysed separately instead of being added together. Autonomous
+  analysis plans one job per cluster (`by (service, cluster)` with a `cluster="…"` matcher), and the
+  Configure panel gets a **Clusters** picker when there is more than one cluster. Findings, signals
+  and stored points have a `cluster` field: cards and the details drawer show it, the Findings page
+  can filter by it, and `GET /api/findings?cluster=` filters too. An alert from one cluster never
+  reuses another cluster's finding. HA replica pairs count once: autonomous queries wrap series in
+  `max without (__replica__, prometheus_replica)`, and previews, direct analysis and alert analysis
+  keep one copy and say how many were dropped. Labels are set with
+  `OPS_SIGNALS_PROMETHEUS_CLUSTER_LABEL` and `OPS_SIGNALS_PROMETHEUS_REPLICA_LABELS`. Data without
+  these labels is analysed exactly as before. The new `cluster` columns are added on startup. See
+  [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md#mimir-thanos-and-other-multi-source-backends).
+- HTTP analyzers. An analyzer can now be your own web service: Ops Signals POSTs each metric window
+  to it and shows the findings it returns next to the built-in analyzers'. Add one with **Add
+  Analyzer → I have a hosted API or model** (no longer "coming soon") or an `http:` block in
+  `config/analyzer_registry.d/`. Execution Test calls the health check and the service. If the
+  service is down or slow, that run lists the analyzer as failed and the other analyzers still run.
+  API keys are read from an environment variable named in `api_key_env`. Built-in analyzers and
+  Python custom analyzers are unchanged, and nothing is called unless you register a service. See
+  [`docs/http-analyzer-contract.md`](docs/http-analyzer-contract.md), with a runnable example in
+  `examples/http_analyzer/service.py`.
+- AI provider choice. Besides Ollama, the optional AI layer can now use any OpenAI-compatible
+  endpoint (`OPS_SIGNALS_AI_PROVIDER=openai_compatible`: vLLM, Azure OpenAI, Bedrock gateways,
+  LiteLLM) or Anthropic (`anthropic`, default model `claude-opus-5`). AI is still off by default and
+  everything works without it; a misconfigured provider logs a warning and falls back to no LLM.
+  Adds the `anthropic` package as a dependency. **Integrations → AI provider** shows whether AI is
+  in use, which provider and model, why not when it's configured but not running, and a **Test
+  connection** button (`GET /api/ai/status`, `POST /api/ai/test`). See
+  [`docs/ask-ops-signals-assistant.md`](docs/ask-ops-signals-assistant.md#other-ai-providers).
+- Prometheus-compatible backends (Thanos, Mimir, VictoriaMetrics, Grafana Cloud) work more reliably
+  ([#67](https://github.com/ramprasadgk9/ops-signals/issues/67)). Autonomous discovery now asks
+  only for series seen in the policy's analysis window instead of all history, so long-retention
+  backends answer quickly and old series no longer use up "Max metrics per run". The Configure
+  panel's Service/Namespace lists show values seen in the selected window
+  (`GET /api/autonomous/scope-options?window=24h`). Errors now include the backend's own message
+  (e.g. "Prometheus HTTP error: 422: the query exceeded the maximum number of series") instead of
+  only the status code. Warnings in a response, such as partial data from an unreachable Thanos
+  store, are shown on the preview, run and job instead of being dropped. The connection test no
+  longer fails on backends that don't serve `/api/v1/status/buildinfo`; it falls back to a trivial
+  query. Series and range queries longer than 2 KB are sent as a POST form so gateways don't reject
+  them with 414.
+- Import past incidents. A new install's memory is empty, so "have we seen this before?" found
+  nothing for months. Postmortems and incidents can now be imported from Jira or PagerDuty CSV
+  exports, any CSV, or Markdown postmortems (also as a `.zip`), as resolved cases that similar-case
+  search and alert enrichment match from day one. Use **Import past incidents** on Operational Memory,
+  the **Incident history** card on Integrations, `ops-signals import-cases <folder>`, or
+  `POST /api/case-imports`. The preview shows what each record will do before anything is written.
+  Re-importing never duplicates: records are keyed by source and ID, unchanged ones are skipped and
+  changed ones update their case in place, keeping notes added in Ops Signals. Emails, IPs and
+  common secrets are masked before storage, and a whole import can be undone. Imported cases carry
+  an **Imported** badge, skip learning outcomes, and are recalled on service since they have no
+  metric. Adds columns to `ops_operational_cases` and an `ops_case_imports` table, applied at
+  startup (`backend/migrations/007_imported_cases.sql`). See
+  [`docs/importing-incident-history.md`](docs/importing-incident-history.md).
+- Past cases are visible where you look first. A finding's details now have a **Seen before?**
+  section listing past cases (detected or imported) that look like it, without opening a case; it
+  is backed by the new `GET /api/findings/{id}/seen-before`. Similar Cases and Seen before list
+  same-service matches first, fold other services away, and mark each match **strong** (70%+) or
+  **possible** (40-70%); Similar Cases previously hid everything under 70%, which hid every imported
+  postmortem from a detected case. When an alert has no outcome history but matches past incidents,
+  the alert preview and Slack message say **Seen before** with the closest incident's cause and fix
+  instead of "not enough history".
 - Findings show the deploy before their change. Deploy events from `POST /api/events` are looked up
   when a finding is shown, so findings from scheduled runs (not only alerts) get an "After deploy
   v1.4.2" chip and a **What changed** line. When the pod breakdown has new pods that first
@@ -83,7 +229,7 @@
   the web UI (they sent a stricter `minimum_score`); and questions routed to cases or findings,
   or mentioning "Ops Signals", never searched documentation. New golden question benchmark:
   `python -m benchmark.assistant_benchmark`; see
-  [`docs/23-ask-ops-signals-assistant.md`](docs/23-ask-ops-signals-assistant.md#quality-benchmarking).
+  [`docs/ask-ops-signals-assistant.md`](docs/ask-ops-signals-assistant.md#quality-benchmarking).
 - New or edited docs can be picked up without a restart: **Reindex docs** on the Ask Ops Signals
   page (or `POST /api/assistant/knowledge/bootstrap`) re-embeds only documents that were added,
   changed or removed, and reports which. Startup does the same, so a restart with no doc changes

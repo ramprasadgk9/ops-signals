@@ -1,0 +1,5 @@
+# Upload this together with jira-postmortems.csv so Jira component names
+# match the service labels in the local mock metrics (checkout, payments).
+service_aliases:
+  Checkout Service: checkout
+  Payments: payments

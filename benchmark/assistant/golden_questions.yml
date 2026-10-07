@@ -20,16 +20,16 @@ questions:
     question: Which Python versions does setup support?
     contains: ["3.13"]
     expect:
-      - {source: README.md, section: "6.1 Prerequisites"}
-      - {source: README.md, section: "6.8 Troubleshooting"}
+      - {source: README.md, section: "Prerequisites"}
+      - {source: README.md, section: "Troubleshooting"}
 
   - id: frontend-port
     category: docs
     question: What port does the web UI run on after run_all.sh?
     contains: ["5174"]
     expect:
-      - {source: README.md, section: "6.4 Start Ops Signals"}
-      - {source: README.md, section: "6.5 Open the Application"}
+      - {source: README.md, section: "Start Ops Signals"}
+      - {source: README.md, section: "Open the Application"}
       - {source: README.md, section: "Scripts Reference"}
 
   - id: grafana-backend-port
@@ -44,31 +44,31 @@ questions:
     question: Setup says postgres did not become ready in time. What should I check?
     contains: ["docker compose ps"]
     expect:
-      - {source: README.md, section: "6.8 Troubleshooting"}
+      - {source: README.md, section: "Troubleshooting"}
 
   - id: enable-local-ai
     category: docs
     question: How do I enable local AI answers?
     contains: ["--profile ai"]
     expect:
-      - {source: README.md, section: "6.7 Optional: Enable Local AI"}
-      - {source: docs/23-ask-ops-signals-assistant.md, section: "Enabling Local AI"}
+      - {source: README.md, section: "Optional: Enable Local AI"}
+      - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
 
   - id: default-ollama-model
     category: docs
     question: Which model does the ai compose profile pull by default?
     contains: ["qwen2.5:3b"]
     expect:
-      - {source: README.md, section: "6.7 Optional: Enable Local AI"}
+      - {source: README.md, section: "Optional: Enable Local AI"}
 
   - id: assistant-api-key
     category: docs
     question: Does Ask Ops Signals need an API key or cloud LLM?
     contains: ["no api key"]
     expect:
-      - {source: docs/23-ask-ops-signals-assistant.md, section: "Enabling Local AI"}
-      - {source: README.md, section: "6.7 Optional: Enable Local AI"}
-      - {source: README.md, section: "7.2 Operational Intelligence Assistant"}
+      - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
+      - {source: README.md, section: "Optional: Enable Local AI"}
+      - {source: README.md, section: "Operational Intelligence Assistant"}
 
   - id: test-mcp
     category: docs
@@ -84,7 +84,7 @@ questions:
     contains: ["no authentication"]
     expect:
       - {source: docs/security-model.md, section: "What's open by default"}
-      - {source: README.md, section: "6.9 Security model"}
+      - {source: README.md, section: "Security model"}
 
   - id: enable-auth
     category: docs
@@ -92,7 +92,7 @@ questions:
     contains: ["OPS_SIGNALS_API_TOKEN", "Bearer"]
     expect:
       - {source: docs/security-model.md, section: "Turning on authentication"}
-      - {source: README.md, section: "6.9 Security model"}
+      - {source: README.md, section: "Security model"}
 
   - id: file-writes-flag
     category: docs
@@ -107,7 +107,7 @@ questions:
     contains: ["OPS_SIGNALS_CORS_ORIGINS"]
     expect:
       - {source: docs/security-model.md, section: "CORS"}
-      - {source: README.md, section: "6.9 Security model"}
+      - {source: README.md, section: "Security model"}
 
   # --- Configuration ----------------------------------------------------------------------------
   - id: config-merge-order
@@ -115,21 +115,21 @@ questions:
     question: In what order are configuration files merged?
     contains: ["Provider overrides"]
     expect:
-      - {source: docs/15-configuration.md, section: "Merge Order"}
+      - {source: docs/configuration.md, section: "Merge Order"}
 
   - id: csv-upload-providers
     category: docs
     question: Which providers can I pick when uploading a CSV?
     contains: ["datadog"]
     expect:
-      - {source: docs/15-configuration.md, section: "Files"}
+      - {source: docs/configuration.md, section: "Files"}
 
   - id: behavior-definition-config
     category: docs
     question: How do I configure a behavior definition?
     contains: ["behavior_definitions.d"]
     expect:
-      - {source: docs/14-behavior-intelligence.md, section: "Configuring a Behavior Definition"}
+      - {source: docs/behavior-intelligence.md, section: "Configuring a Behavior Definition"}
 
   # --- Ingestion and integrations ---------------------------------------------------------------
   - id: otlp-endpoint
@@ -138,7 +138,7 @@ questions:
     contains: ["/api/otlp"]
     expect:
       - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
-      - {source: README.md, section: "9.3 OTLP Metrics Ingestion"}
+      - {source: README.md, section: "OTLP Metrics Ingestion"}
 
   - id: otlp-not-root-path
     category: docs
@@ -195,7 +195,7 @@ questions:
     question: What does the benchmark suite measure?
     contains: ["Router accuracy"]
     expect:
-      - {source: docs/24-benchmark-suite.md, section: "What's Covered"}
+      - {source: docs/benchmark-suite.md, section: "What's Covered"}
 
   - id: discovery-cap-vs-budget
     category: docs
@@ -216,7 +216,7 @@ questions:
     question: Are the analyzer router suitability scores validated?
     contains: ["heuristic"]
     expect:
-      - {source: docs/26-analyzer-methodology.md, section: "suitability scores"}
+      - {source: docs/analyzer-methodology.md, section: "suitability scores"}
 
   # --- Grafana plugin and release ---------------------------------------------------------------
   - id: plugin-missing
@@ -238,7 +238,7 @@ questions:
     question: How do I deploy Ops Signals to Kubernetes?
     contains: ["helm"]
     expect:
-      - {source: docs/22-release-packaging.md, section: "Kubernetes Deployment"}
+      - {source: docs/release-packaging.md, section: "Kubernetes Deployment"}
 
   # --- Analyzers (generated knowledge documents) ------------------------------------------------
   - id: data-health-gaps
@@ -268,7 +268,7 @@ questions:
     question: Where do I point my OTel Collector?
     contains: ["/api/otlp"]
     expect:
-      - {source: README.md, section: "9.3 OTLP Metrics Ingestion"}
+      - {source: README.md, section: "OTLP Metrics Ingestion"}
       - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
 
   - id: starter-behavior-intelligence
@@ -276,7 +276,7 @@ questions:
     question: How does Behavior Intelligence work?
     contains: ["behavior definitions"]
     expect:
-      - {source: docs/14-behavior-intelligence.md}
+      - {source: docs/behavior-intelligence.md}
 
   - id: starter-analyzer-catalog
     category: analyzers
@@ -292,8 +292,8 @@ questions:
     contains: ["analyz"]
     expect:
       - {source: "generated://application-overview"}
-      - {source: README.md, section: "1. In One Sentence"}
-      - {source: README.md, section: "3. What Ops Signals Does"}
+      - {source: README.md, section: "In One Sentence"}
+      - {source: README.md, section: "What Ops Signals Does"}
 
   - id: informal-slack
     category: informal
@@ -301,8 +301,8 @@ questions:
     contains: ["slack"]
     expect:
       - {source: docs/alert-enrichment.md}
-      - {source: README.md, section: "9.4 Slack Notifications"}
-      - {source: README.md, section: "9.5 Alert Enrichment"}
+      - {source: README.md, section: "Slack Notifications"}
+      - {source: README.md, section: "Alert Enrichment"}
 
   - id: informal-otel
     category: informal
@@ -310,7 +310,7 @@ questions:
     contains: ["/api/otlp"]
     expect:
       - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
-      - {source: README.md, section: "9.3 OTLP Metrics Ingestion"}
+      - {source: README.md, section: "OTLP Metrics Ingestion"}
 
   - id: informal-wipe-data
     category: informal
@@ -374,7 +374,7 @@ questions:
   - id: deploy-join
     category: docs
     question: How are deploys joined to a finding?
-    contains: ["service, environment and time"]
+    contains: ["service, environment, cluster and time"]
     expect:
       - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
 
@@ -397,7 +397,7 @@ questions:
   - id: deploy-match-metrics-product
     category: known_gap
     question: How does Ops Signals match deploy events with metrics?
-    contains: ["service, environment and time"]
+    contains: ["service, environment, cluster and time"]
     expect:
       - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
 

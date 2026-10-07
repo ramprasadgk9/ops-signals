@@ -146,7 +146,7 @@ def test_pipeline_records_recommended_analyzers_that_are_skipped() -> None:
 
 def test_recommended_threshold_selects_top_recommended_executable_analyzers() -> None:
     # "kats" scores higher than "stumpy" here (0.88 vs 0.79) but has no real pipeline analyzer
-    # behind it (see docs/16-analyzer-recommendation.md, "Router-to-pipeline mapping" - kats has no
+    # behind it (see docs/analyzer-recommendation.md, "Router-to-pipeline mapping" - kats has no
     # direct package). A non-executable recommendation must not consume one of the 3 execution
     # slots and crowd out "stumpy", which can actually run and produce a real finding.
     project_root = Path(__file__).resolve().parents[1]
@@ -256,7 +256,7 @@ def test_available_pipeline_analyzer_ids_matches_registered_builtins() -> None:
     available = pipeline._available_pipeline_analyzer_ids()
 
     # The 7 built-in registrations under config/analyzer_registry.d/ - see
-    # docs/16-analyzer-recommendation.md's analyzer library table for which router candidates
+    # docs/analyzer-recommendation.md's analyzer library table for which router candidates
     # (darts, adtk, pyod, kats, river, alibi_detect) have no entry here at all.
     assert {"baseline_shift", "ruptures", "anomaly_zscore", "pyod_outlier", "trend", "stumpy", "prophet"} <= available
     assert "darts" not in available

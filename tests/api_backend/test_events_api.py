@@ -41,6 +41,21 @@ def test_batch_create_and_filters(client: TestClient) -> None:
     assert [e["type"] for e in client.get("/api/events", params={"since": since}).json()] == ["config"]
 
 
+def test_cluster_is_stored_and_filterable(client: TestClient) -> None:
+    response = client.post(
+        "/api/events",
+        json=[
+            {"service": "checkout", "type": "deploy", "version": "v2", "cluster": " us "},
+            {"service": "checkout", "type": "deploy", "version": "v1"},
+        ],
+    )
+    assert response.status_code == 201
+    assert [event["cluster"] for event in response.json()] == ["us", None]
+
+    assert [e["version"] for e in client.get("/api/events", params={"cluster": "us"}).json()] == ["v2"]
+    assert client.post("/api/events", json={"service": "a", "type": "deploy", "cluster": "  "}).json()[0]["cluster"] is None
+
+
 def test_validation(client: TestClient) -> None:
     assert client.post("/api/events", json={"service": "a", "type": "bogus"}).status_code == 422
     assert client.post("/api/events", json={"service": " ", "type": "deploy"}).status_code == 422

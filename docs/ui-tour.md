@@ -4,7 +4,7 @@ A short guide to every tab in the standalone web UI and every mode in the Grafan
 each one is for, and where to read more.
 
 The two frontends are separate applications sharing the same backend (see
-[`docs/02-architecture.md`](02-architecture.md)); a feature that exists in one does not
+[`docs/architecture.md`](architecture.md)); a feature that exists in one does not
 automatically exist in the other.
 
 ## Standalone Web UI
@@ -16,14 +16,14 @@ automatically exist in the other.
 | **Integrations** | `/integrations` | Setup for every way data gets in: OTLP push, Prometheus (URL, reachable, what uses it), the Alertmanager webhook, and deploy events from CI, each with its URL, a snippet and whether data is arriving. |
 | **Autonomous Analysis Configure** | `/autonomous-monitoring` | Configure which services/metrics to watch and which monitoring categories to enable, preview the resulting plan, run it once, or save it as a recurring schedule. See [`docs/autonomous-analysis-preview.md`](autonomous-analysis-preview.md). |
 | **Investigations** | `/investigations` | Ad-hoc investigation view for digging into a specific metric or service outside the autonomous flow. |
-| **Findings** | `/findings` | Every single-metric Finding the system has produced, searchable and filterable. Each finding's detail view names which ingestion path produced it (CSV, Prometheus, Datadog, or OTLP) and charts the raw points behind it, for tracing a finding back to what was actually ingested. Cards can carry a pod chip ("2 new pods", "1 of 6 pods") and a deploy chip ("After deploy v1.4.2"); see [the chips on a finding card](finding-drilldown.md#the-chips-on-a-finding-card). See [`docs/06-operational-findings.md`](06-operational-findings.md). |
-| **Cases** | `/cases` | Every Case (an investigation promoted from a Finding or Behavior Finding), with its lifecycle state, RCA, and outcome. See [`docs/07-operational-cases.md`](07-operational-cases.md). |
-| **Behavior Intelligence** | `/behavior-intelligence` | Cross-metric Behavior Findings — conditions that only show up when multiple metrics are considered together. See [`docs/14-behavior-intelligence.md`](14-behavior-intelligence.md). |
+| **Findings** | `/findings` | Every single-metric Finding the system has produced, searchable and filterable. Each finding's detail view names which ingestion path produced it (CSV, Prometheus, Datadog, or OTLP) and charts the raw points behind it, for tracing a finding back to what was actually ingested. Cards can carry a pod chip ("2 new pods", "1 of 6 pods") and a deploy chip ("After deploy v1.4.2"); see [the chips on a finding card](finding-drilldown.md#the-chips-on-a-finding-card). See [`docs/operational-findings.md`](operational-findings.md). |
+| **Cases** | `/cases` | Every Case (an investigation promoted from a Finding or Behavior Finding), with its lifecycle state, RCA, and outcome. See [`docs/operational-cases.md`](operational-cases.md). |
+| **Behavior Intelligence** | `/behavior-intelligence` | Cross-metric Behavior Findings — conditions that only show up when multiple metrics are considered together. See [`docs/behavior-intelligence.md`](behavior-intelligence.md). |
 | **Behavior Lab** | `/behavior-intelligence/lab` | A sandbox for testing behavior definitions against sample data before enabling them for real. |
-| **Operational Memory** | `/operational-memory` | Qdrant-backed semantic search over past cases, plus the alert-context preview an external alert manager would see. See [`docs/08-operational-memory.md`](08-operational-memory.md). |
-| **Ask Ops Signals** *(Beta)* | `/assistant` | Grounded conversational Q&A over cases, findings, and behaviors. See [`docs/23-ask-ops-signals-assistant.md`](23-ask-ops-signals-assistant.md). |
+| **Operational Memory** | `/operational-memory` | Qdrant-backed semantic search over past cases, plus the alert-context preview an external alert manager would see. See [`docs/operational-memory.md`](operational-memory.md). |
+| **Ask Ops Signals** *(Beta)* | `/assistant` | Grounded conversational Q&A over cases, findings, and behaviors. See [`docs/ask-ops-signals-assistant.md`](ask-ops-signals-assistant.md). |
 | **Experiments** | `/experiments` | Compares analyzer runs against each other on the same data, and is the home for the [Analyzer Workbench](#analyzer-workbench) below. |
-| **New Analysis** | `/validate-data` | Upload a CSV or point at a Prometheus datasource to run a one-off analysis outside the autonomous scheduler. See [`docs/18-standalone-prometheus-analysis.md`](18-standalone-prometheus-analysis.md). |
+| **New Analysis** | `/validate-data` | Upload a CSV or point at a Prometheus datasource to run a one-off analysis outside the autonomous scheduler. See [`docs/standalone-prometheus-analysis.md`](standalone-prometheus-analysis.md). |
 
 ### Analyzer Workbench
 
@@ -32,10 +32,11 @@ A grouping inside **Experiments**, not a separate top-level tab:
 - **Labs** — one page per analyzer (Z-Score Anomaly, PyOD Outlier, Prophet Forecast, Ruptures Change
   Point, STUMPY Motif, Trend) for running that analyzer directly against sample data and inspecting
   its raw output.
-- **Add Analyzer** — the guided flow for registering a new analyzer. See
-  [`docs/04-analyzer-plugin-framework.md`](04-analyzer-plugin-framework.md#extensibility-model).
+- **Add Analyzer** — the guided flow for registering a new analyzer, either Python code or your own
+  HTTP service. See [`docs/analyzer-plugin-framework.md`](analyzer-plugin-framework.md#extensibility-model)
+  and [`docs/http-analyzer-contract.md`](http-analyzer-contract.md).
 - **Recommendations** — the Universal Router's live recommendation preview for a given series. See
-  [`docs/16-analyzer-recommendation.md`](16-analyzer-recommendation.md).
+  [`docs/analyzer-recommendation.md`](analyzer-recommendation.md).
 
 ### Not a page: alert enrichment and Slack
 

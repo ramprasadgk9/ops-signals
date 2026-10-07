@@ -91,6 +91,7 @@ def _finding_changes(
         after=timedelta(seconds=config.correlation_after_seconds),
         env=envs.get(finding.analysis_run_id or ""),
         aliases=config.service_aliases,
+        cluster=finding.cluster,
     )
     changes = changes_to_dict(correlation) or {}
     if not correlation.matches:

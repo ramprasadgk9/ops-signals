@@ -40,6 +40,10 @@ import type {
   TimeseriesPoint,
   OverviewSummaryResponse,
   MemoryStatsResponse,
+  RecurringProblemsResponse,
+  RunbookDraft,
+  SameFixResponse,
+  SuggestedFixesResponse,
   AlertItem,
   AlertListParams,
   AlertReceipt,
@@ -65,6 +69,14 @@ import type {
   DocQuestionEvaluation,
   NewDocTest,
   SaveDocTestsResult,
+  CaseImportBatch,
+  AIStatus,
+  AITestResult,
+  CaseImportPreview,
+  CaseImportProfiles,
+  CaseImportResult,
+  SeenBeforeResponse,
+  SimilarCasesResponse,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -191,12 +203,16 @@ export const api = {
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),
-  autonomousScopeOptions: (labels: { service_label?: string; namespace_label?: string; environment_label?: string } = {}) => {
+  autonomousScopeOptions: (labels: { service_label?: string; namespace_label?: string; environment_label?: string; window?: string; connection_id?: string } = {}) => {
     const params = new URLSearchParams();
+    if (labels.connection_id) params.append('connection_id', labels.connection_id);
     params.append('service_label', labels.service_label ?? 'service');
     params.append('namespace_label', labels.namespace_label ?? 'namespace');
     params.append('environment_label', labels.environment_label ?? 'env');
-    return getJson<{ services: string[]; namespaces: string[]; environments: string[] }>(`/api/autonomous/scope-options?${params.toString()}`);
+    params.append('window', labels.window ?? '24h');
+    return getJson<{ services: string[]; namespaces: string[]; environments: string[]; clusters?: string[]; cluster_label?: string | null }>(
+      `/api/autonomous/scope-options?${params.toString()}`
+    );
   },
   autonomousPreview: (payload: AutonomousPreviewRequest) =>
     postJson<AutonomousPreviewRequest, AutonomousPreviewResponse>('/api/autonomous/preview', payload),
@@ -271,8 +287,9 @@ export const api = {
     getJson<{ case_id: number; memory_status: string; memory_indexed_at?: string; memory_error?: string }>(
       `/api/cases/${caseId}/memory/status`
     ),
+  findingSeenBefore: (findingId: number) => getJson<SeenBeforeResponse>(`/api/findings/${findingId}/seen-before`),
   getSimilarCases: (caseId: number, topK?: number, minimumScore?: number) =>
-    getJson<any>(
+    getJson<SimilarCasesResponse>(
       `/api/cases/${caseId}/similar?top_k=${topK ?? 5}&minimum_score=${minimumScore ?? 0.7}`
     ),
   deleteMemory: (caseId: number) =>
@@ -284,6 +301,20 @@ export const api = {
       '/api/memory/health'
     ),
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
+  recurringProblems: (days = 90, minOccurrences = 3, groupBy: 'symptom' | 'cause' = 'symptom') =>
+    getJson<RecurringProblemsResponse>(`/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}`),
+  suggestedFixes: (findingId: number) => getJson<SuggestedFixesResponse>(`/api/findings/${findingId}/suggested-fixes`),
+  runbookDraft: (findingId: number) =>
+    postJson<Record<string, never>, RunbookDraft>(`/api/findings/${findingId}/suggested-fixes/runbook-draft`, {}),
+  sameFix: (caseId: number) => getJson<SameFixResponse>(`/api/cases/${caseId}/same-fix`),
+  caseImportProfiles: () => getJson<CaseImportProfiles>('/api/case-imports/profiles'),
+  caseImportTemplateUrl: (name: string) => `${import.meta.env.VITE_API_BASE ?? ''}/api/case-imports/templates/${encodeURIComponent(name)}`,
+  previewCaseImport: (payload: FormData) => postForm<CaseImportPreview>('/api/case-imports/preview', payload),
+  runCaseImport: (payload: FormData) => postForm<CaseImportResult>('/api/case-imports', payload),
+  caseImports: () => getJson<CaseImportBatch[]>('/api/case-imports'),
+  aiStatus: () => getJson<AIStatus>('/api/ai/status'),
+  testAiConnection: () => postJson<Record<string, never>, AITestResult>('/api/ai/test', {}),
+  undoCaseImport: (batchId: string) => deleteJson<{ batch_id: string; deleted_cases: number }>(`/api/case-imports/${batchId}`),
   alertContext: (metricName: string, service?: string, message?: string) => {
     const params = new URLSearchParams({ metric_name: metricName });
     if (service) params.append('service', service);
@@ -341,15 +372,21 @@ export const api = {
       `/api/analyzer-labs/config-suggestions${analyzerId ? `?analyzer_id=${encodeURIComponent(analyzerId)}` : ''}`
     ),
   
-  timeseries: (service: string, metric: string, runId: string) =>
-    getJson<TimeseriesPoint[]>(`/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}`),
+  timeseries: (service: string, metric: string, runId: string, cluster?: string | null) =>
+    getJson<TimeseriesPoint[]>(
+      `/api/timeseries?service=${encodeURIComponent(service)}&metric_name=${encodeURIComponent(metric)}&analysis_run_id=${encodeURIComponent(runId)}${cluster ? `&cluster=${encodeURIComponent(cluster)}` : ''}`
+    ),
   runCsvUpload: (payload: FormData) => postForm<CsvRunResult>('/api/ingestion/csv-run', payload),
   runCsvValidation: (payload: FormData) => postForm<CsvValidationResult>('/api/ingestion/csv-validate', payload),
   prometheusConnections: () => getJson<PrometheusConnectionsResponse>('/api/prometheus/connections'),
-  prometheusLabelValues: (label: string, connectionId = 'default') =>
-    getJson<PrometheusLabelValuesResponse>(
-      `/api/prometheus/label-values?label=${encodeURIComponent(label)}&connection_id=${encodeURIComponent(connectionId)}`
-    ),
+  prometheusLabelValues: (label: string, connectionId = 'default', filter?: { match?: string[]; start?: string; end?: string }) => {
+    const params = new URLSearchParams({ label, connection_id: connectionId });
+    // Only values on series these selectors match, within the time range.
+    (filter?.match ?? []).forEach((selector) => params.append('match', selector));
+    if (filter?.start) params.append('start', filter.start);
+    if (filter?.end) params.append('end', filter.end);
+    return getJson<PrometheusLabelValuesResponse>(`/api/prometheus/label-values?${params.toString()}`);
+  },
   testPrometheusConnection: (connectionId: string) =>
     postJson<{ connection_id: string }, PrometheusConnectionTestResponse>('/api/prometheus/test-connection', { connection_id: connectionId }),
   previewPrometheus: (payload: { connection_id: string; query: string; start: string; end: string; step: string }) =>

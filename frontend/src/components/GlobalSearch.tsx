@@ -4,7 +4,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import { severityTone, titleCase } from '../standalone/theme';
+import { findingLevel } from '../utils/findingLevel';
 import type { Finding } from '../types';
 
 const DEBOUNCE_MS = 250;
@@ -68,7 +68,7 @@ export function GlobalSearch() {
         }
       }}
       renderOption={(props, finding) => {
-        const tone = severityTone(finding.health_status);
+        const level = findingLevel(finding.health_status);
         return (
           <Box component="li" {...props} key={finding.id ?? `${finding.service}-${finding.metric_name}`}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, py: 0.25, width: '100%' }}>
@@ -76,7 +76,7 @@ export function GlobalSearch() {
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
                   {finding.service ?? 'unknown'} / {finding.metric_name}
                 </Typography>
-                <Chip size="small" label={titleCase(finding.health_status)} sx={{ color: tone.color, bgcolor: tone.bg, height: 20, fontSize: 11, fontWeight: 800 }} />
+                <Chip size="small" label={level.label} sx={{ color: level.tone.color, bgcolor: level.tone.bg, height: 20, fontSize: 11, fontWeight: 800 }} />
               </Box>
               <Typography variant="caption" color="text.secondary">
                 {finding.title}

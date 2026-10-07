@@ -178,6 +178,9 @@ Design details, decision tables and trade-offs: [`design/alert-enrichment-plan.m
                credentials: <OPS_SIGNALS_ALERT_RECEIVER_TOKEN>
    ```
 2. **Point Ops Signals at the same Prometheus** your rules run on: `OPS_SIGNALS_PROMETHEUS_URL`.
+   With several tenants, give each connection `match_labels` (e.g. `tenant: team-b`) so an alert is
+   analysed on its own tenant; alerts that match none go to the default connection. See
+   [named connections](standalone-prometheus-analysis.md#several-tenants-named-connections).
 3. **Make sure alerts carry a service label.** By default the first of `service`, `job`, `app`,
    `app_kubernetes_io_name` is used (`OPS_SIGNALS_ALERT_SERVICE_LABELS`).
 4. **Send deploy events from CI** (optional, but it's what fills "What changed"). Use the same
@@ -236,7 +239,9 @@ the alert wins. A change point counts as a step only if the metric stays shifted
 median afterwards is at least half way to its peak); change-point analyzers also mark a short
 spike that has already ended, and that is treated as a spike. Change events from a different environment than the alert are skipped: the alert's
 `env`, `environment` or `deployment_environment` label is compared with the event's `env`, and
-events that name no environment still match.
+events that name no environment still match. In the same way, change events for another cluster are
+skipped: the alert's cluster label (the connection's `cluster_label`, `cluster` by default) is
+compared with the event's `cluster`, and events with no cluster still match.
 
 | Setting | Default | Effect |
 |---|---|---|

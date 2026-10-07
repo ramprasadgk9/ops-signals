@@ -116,10 +116,18 @@ memory:
 
 ai:
   enabled: false
+  # ollama | openai_compatible | anthropic. See docs/ask-ops-signals-assistant.md#other-ai-providers
   provider: ollama
   ollama:
     base_url: http://localhost:11434
     model: llama3.2:latest
+  # openai_compatible:
+  #   base_url: http://localhost:8000/v1
+  #   model: Qwen/Qwen2.5-7B-Instruct
+  #   api_key_header: Authorization
+  #   json_mode: true
+  # anthropic:
+  #   model: claude-opus-5
 
 # Pluggable ticketing integration (Jira, etc.)
 # ticketing:
@@ -137,4 +145,3 @@ ai:
 #     issue_type: Task
 #     webhook_secret: your-webhook-secret
 #     request_timeout_seconds: 10.0
-

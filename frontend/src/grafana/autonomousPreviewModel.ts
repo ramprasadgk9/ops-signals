@@ -7,6 +7,8 @@ export type AutonomousPreviewForm = {
   selectedServices: string[];
   allNamespaces: boolean;
   selectedNamespaces: string[];
+  allClusters?: boolean;
+  selectedClusters?: string[];
   serviceLabel: string;
   namespaceLabel: string;
   environmentLabel: string;
@@ -18,6 +20,7 @@ export type AutonomousPreviewForm = {
   customExplicitMetrics: string;
   customIncludePatterns: string;
   customExcludePatterns: string;
+  connectionId?: string;
 };
 
 export function splitCsvList(value: string) {
@@ -37,6 +40,7 @@ export function buildAutonomousPreviewRequest(form: AutonomousPreviewForm): Auto
   return {
     datasource: 'prometheus',
     backend: form.backend,
+    ...(form.connectionId ? { connection_id: form.connectionId } : {}),
     scope: {
       environment: form.environment || null,
       services: form.allServices ? [] : form.selectedServices,
@@ -46,6 +50,8 @@ export function buildAutonomousPreviewRequest(form: AutonomousPreviewForm): Auto
       service_label: form.serviceLabel,
       namespace_label: form.namespaceLabel,
       environment_label: form.environmentLabel,
+      clusters: form.allClusters === false ? form.selectedClusters ?? [] : [],
+      all_clusters: form.allClusters ?? true,
     },
     monitoring_selection: {
       categories: form.selectedCategories,

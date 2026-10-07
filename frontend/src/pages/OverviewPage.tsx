@@ -16,7 +16,8 @@ import { GetDataInPanel, SourceStatusStrip } from '../components/GetDataInPanel'
 import { AlertBadge, alertsByFinding } from '../components/AlertComponents';
 import { AlertsOverviewPanel } from '../components/AlertTimeline';
 import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
-import { relativeTime, severityTone, titleCase, ui } from '../standalone/theme';
+import { relativeTime, titleCase, ui } from '../standalone/theme';
+import { findingLevel } from '../utils/findingLevel';
 import { toCaseRows } from '../standalone/casesService';
 import { buildAutonomousDashboardData, type AutonomousDashboardData, type AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AlertItem, Finding, OperationalCase } from '../types';
@@ -177,14 +178,14 @@ function NeedsAttentionPanel({ findings, cases, alertByFinding }: { findings: Fi
             // un-cased finding as belonging to any other case that happened to share a metric
             // name - even from a completely unrelated service.
             const matchingCase = cases.find((caseItem) => caseItem.finding_id === finding.id);
-            const tone = severityTone(finding.health_status);
+            const level = findingLevel(finding.health_status);
             const status = matchingCase ? `Case #${matchingCase.id}` : 'No case';
             return (
               <NeedsAttentionRow
                 key={`${finding.id ?? finding.metric_name}-${index}`}
-                priority={titleCase(finding.health_status)}
-                priorityColor={tone.color}
-                priorityBg={tone.bg}
+                priority={level.label}
+                priorityColor={level.tone.color}
+                priorityBg={level.tone.bg}
                 serviceMetric={`${finding.service ?? 'unknown'} / ${finding.metric_name}`}
                 issue={titleCase(finding.category)}
                 impact={finding.title}

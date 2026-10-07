@@ -14,6 +14,7 @@ function buildPreviewRequestFromPolicy(policy: AutonomousPolicy): AutonomousPrev
   return {
     datasource: 'prometheus',
     backend: policy.backend,
+    ...(policy.connection_id ? { connection_id: policy.connection_id } : {}),
     scope: policy.scope,
     monitoring_selection: policy.monitoring_selection,
     monitoring_categories: policy.monitoring_selection.categories,
@@ -39,6 +40,7 @@ const categories: Array<{ id: MonitoringCategory; title: string; detail: string 
 ];
 
 const schedulePresets = [5, 15, 30, 60, 360];
+const MAX_SHOWN_WARNINGS = 5;
 
 function formatSchedule(minutes: number): string {
   if (minutes % 60 === 0) return `${minutes / 60}h`;
@@ -65,8 +67,10 @@ type Props = {
   onPreviewNowStateChange?: (isLoading: boolean) => void;
 };
 
-function ScheduledPolicyCard({ policy, onEdit, onPause, onResume, onViewOverview, isTogglingStatus }: {
+function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume, onViewOverview, isTogglingStatus }: {
   policy: AutonomousPolicy;
+  /** Shown only when there is more than one Prometheus connection. */
+  connectionName?: string | null;
   onEdit: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -77,8 +81,10 @@ function ScheduledPolicyCard({ policy, onEdit, onPause, onResume, onViewOverview
     .map((id) => categories.find((c) => c.id === id)?.title ?? id)
     .join(', ');
   const scopeLabel = [
+    ...(connectionName ? [connectionName] : []),
     policy.scope.all_services ? 'all services' : `${policy.scope.services.length} service(s)`,
     policy.scope.all_namespaces ? 'all namespaces' : `${policy.scope.namespaces.length} namespace(s)`,
+    ...(policy.scope.all_clusters === false ? [`${policy.scope.clusters?.length ?? 0} cluster(s)`] : []),
   ].join(' · ');
 
   return (
@@ -140,6 +146,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
   const [allNamespaces, setAllNamespaces] = useState(true);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
+  const [allClusters, setAllClusters] = useState(true);
+  const [selectedClusters, setSelectedClusters] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<MonitoringCategory[]>(['performance', 'capacity', 'availability']);
   const [analysisWindow, setAnalysisWindow] = useState('24h');
   const [executionInterval, setExecutionInterval] = useState('1m');
@@ -151,8 +159,10 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
   const [scheduleMode, setScheduleMode] = useState<'run_once' | 'scheduled'>('run_once');
   const [scheduleMinutes, setScheduleMinutes] = useState(30);
   const [isEditing, setIsEditing] = useState(false);
+  const [connectionId, setConnectionId] = useState('default');
 
   const applyPolicyToForm = (policy: AutonomousPolicy) => {
+    setConnectionId(policy.connection_id ?? 'default');
     setEnvironment(policy.scope.environment ?? 'production');
     setServiceLabel(policy.scope.service_label);
     setNamespaceLabel(policy.scope.namespace_label);
@@ -161,6 +171,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     setSelectedServices(policy.scope.services);
     setAllNamespaces(policy.scope.all_namespaces);
     setSelectedNamespaces(policy.scope.namespaces);
+    setAllClusters(policy.scope.all_clusters ?? true);
+    setSelectedClusters(policy.scope.clusters ?? []);
     setSelectedCategories(policy.monitoring_selection.categories);
     setCustomExplicitMetrics((policy.monitoring_selection.custom_constraints?.explicit_metrics ?? []).join(','));
     setCustomIncludePatterns((policy.monitoring_selection.custom_constraints?.include_patterns ?? []).join(','));
@@ -173,9 +185,30 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     if (policy.schedule_minutes) setScheduleMinutes(policy.schedule_minutes);
   };
 
+  const connectionsQuery = useQuery({
+    queryKey: ['prometheus-connections'],
+    queryFn: () => api.prometheusConnections(),
+    retry: false,
+  });
+  const connections = connectionsQuery.data?.connections ?? [];
+  // `default` is the backend's alias for the default connection; show that connection by its own id.
+  const effectiveConnectionId = connectionId === 'default' ? connections.find((c) => c.is_default)?.id ?? 'default' : connectionId;
+  const connectionNameFor = (id: string | undefined) => {
+    if (connections.length < 2) return null;
+    const resolved = !id || id === 'default' ? connections.find((c) => c.is_default) : connections.find((c) => c.id === id);
+    return resolved?.name ?? id ?? null;
+  };
+  const changeConnection = (id: string) => {
+    // Another tenant has other services and clusters; keep no selection from the previous one.
+    setConnectionId(id);
+    setSelectedServices([]);
+    setSelectedNamespaces([]);
+    setSelectedClusters([]);
+  };
+
   const scopeQuery = useQuery({
-    queryKey: ['autonomous-scope-options', serviceLabel, namespaceLabel, environmentLabel],
-    queryFn: () => api.autonomousScopeOptions({ service_label: serviceLabel, namespace_label: namespaceLabel, environment_label: environmentLabel }),
+    queryKey: ['autonomous-scope-options', connectionId, serviceLabel, namespaceLabel, environmentLabel, analysisWindow],
+    queryFn: () => api.autonomousScopeOptions({ connection_id: connectionId, service_label: serviceLabel, namespace_label: namespaceLabel, environment_label: environmentLabel, window: analysisWindow }),
     retry: false,
   });
 
@@ -192,6 +225,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     selectedServices,
     allNamespaces,
     selectedNamespaces,
+    allClusters,
+    selectedClusters,
     serviceLabel,
     namespaceLabel,
     environmentLabel,
@@ -203,7 +238,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     customExplicitMetrics,
     customIncludePatterns,
     customExcludePatterns,
-  }), [environment, allServices, selectedServices, allNamespaces, selectedNamespaces, serviceLabel, namespaceLabel, environmentLabel, selectedCategories, executionInterval, analysisWindow, maxMetricsPerRun, maxParallelJobs, customExplicitMetrics, customIncludePatterns, customExcludePatterns]);
+    connectionId,
+  }), [connectionId, environment, allServices, selectedServices, allNamespaces, selectedNamespaces, allClusters, selectedClusters, serviceLabel, namespaceLabel, environmentLabel, selectedCategories, executionInterval, analysisWindow, maxMetricsPerRun, maxParallelJobs, customExplicitMetrics, customIncludePatterns, customExcludePatterns]);
 
   const previewMutation = useMutation({
     mutationFn: () => api.autonomousPreview(request),
@@ -218,12 +254,22 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     onSuccess: (result) => onRunComplete(result),
   });
 
+  // Backend warnings (e.g. partial data from a Thanos store, discovery truncation) from the latest
+  // run, or the latest preview when nothing has run yet. A run repeats its preview's warnings.
+  const resultWarnings = useMemo(() => {
+    const warnings = runMutation.data
+      ? [...runMutation.data.warnings, ...runMutation.data.results.flatMap((job) => job.warnings ?? [])]
+      : previewMutation.data?.warnings ?? [];
+    return [...new Set(warnings)];
+  }, [runMutation.data, previewMutation.data]);
+
   const saveMutation = useMutation({
     mutationFn: () => {
       const payload = {
         name: 'Production coverage',
         datasource: request.datasource,
         backend: request.backend,
+        connection_id: connectionId,
         scope: request.scope,
         monitoring_selection: request.monitoring_selection!,
         execution: request.execution,
@@ -278,6 +324,7 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     return (
       <ScheduledPolicyCard
         policy={activePolicy}
+        connectionName={connectionNameFor(activePolicy.connection_id)}
         onEdit={() => {
           applyPolicyToForm(activePolicy);
           setIsEditing(true);
@@ -289,6 +336,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
       />
     );
   }
+
+  const requestError = previewMutation.error ?? runMutation.error ?? saveMutation.error ?? scopeQuery.error;
 
   return (
     <Paper id="autonomous-configure" variant="outlined" sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
@@ -317,14 +366,36 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
         </Stack>
       </Stack>
 
-      {(previewMutation.error || runMutation.error || saveMutation.error || scopeQuery.error) ? <Alert severity="error" sx={{ mb: 2 }}>Autonomous request failed. Check Prometheus configuration and backend logs.</Alert> : null}
+      {requestError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Autonomous request failed{requestError.message ? `: ${requestError.message}` : '. Check Prometheus configuration and backend logs.'}
+        </Alert>
+      ) : null}
       {runMutation.data ? <Alert severity="success" sx={{ mb: 2 }}>Run {runMutation.data.status}: {runMutation.data.executed_jobs} executed, {runMutation.data.failed_jobs} failed.</Alert> : null}
       {previewMutation.data ? <Alert severity="info" sx={{ mb: 2 }}>Preview found {previewMutation.data.metrics_discovered} metrics and planned {previewMutation.data.planned_jobs} jobs.</Alert> : null}
+      {resultWarnings.length ? (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {resultWarnings.slice(0, MAX_SHOWN_WARNINGS).map((warning) => <div key={warning}>{warning}</div>)}
+          {resultWarnings.length > MAX_SHOWN_WARNINGS ? <div>+{resultWarnings.length - MAX_SHOWN_WARNINGS} more warnings</div> : null}
+        </Alert>
+      ) : null}
       {saveMutation.isSuccess ? <Alert severity="success" sx={{ mb: 2 }}>{scheduleMode === 'scheduled' ? 'Scheduled - this policy will now run automatically.' : 'Saved.'}</Alert> : null}
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1.4fr 1fr' }, gap: 2 }}>
         <Stack gap={1.2}>
           <Typography sx={{ fontWeight: 850 }}>1. Analysis Scope</Typography>
+          {connections.length > 1 ? (
+            <TextField
+              select
+              size="small"
+              label="Prometheus connection"
+              helperText="Which Prometheus / Mimir tenant to analyse."
+              value={effectiveConnectionId}
+              onChange={(e) => changeConnection(e.target.value)}
+            >
+              {connections.map((connection) => <MenuItem key={connection.id} value={connection.id}>{connection.name}</MenuItem>)}
+            </TextField>
+          ) : null}
           <TextField select size="small" label="Environment" value={environment} onChange={(e) => setEnvironment(e.target.value)}>
             <MenuItem value="production">Production</MenuItem>
             <MenuItem value="staging">Staging</MenuItem>
@@ -341,6 +412,23 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
           <TextField select size="small" label="Namespaces" SelectProps={{ multiple: true }} disabled={allNamespaces} value={selectedNamespaces} onChange={(e) => setSelectedNamespaces(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value as string[])}>
             {(scopeQuery.data?.namespaces ?? []).map((namespace) => <MenuItem key={namespace} value={namespace}>{namespace}</MenuItem>)}
           </TextField>
+          {(scopeQuery.data?.clusters ?? []).length > 1 || !allClusters ? (
+            <>
+              <FormControlLabel control={<Checkbox checked={allClusters} onChange={(e) => setAllClusters(e.target.checked)} />} label="All clusters" />
+              <TextField
+                select
+                size="small"
+                label="Clusters"
+                helperText={`Each cluster is analysed separately (label "${scopeQuery.data?.cluster_label ?? 'cluster'}").`}
+                SelectProps={{ multiple: true }}
+                disabled={allClusters}
+                value={selectedClusters}
+                onChange={(e) => setSelectedClusters(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value as string[])}
+              >
+                {(scopeQuery.data?.clusters ?? []).map((cluster) => <MenuItem key={cluster} value={cluster}>{cluster}</MenuItem>)}
+              </TextField>
+            </>
+          ) : null}
         </Stack>
 
         <Stack gap={1.2}>

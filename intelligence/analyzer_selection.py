@@ -50,7 +50,7 @@ class RegistryAnalyzerSelection:
     def _build_analyzers(self, analyzer_routing: list[dict[str, object]] | None = None) -> list[Analyzer]:
         """Loads every analyzer registration from config/analyzer_registry.d/ (including the 7
         built-ins, migrated here from a hardcoded if/elif chain, one analyzer at a time - see
-        docs/16-analyzer-recommendation.md) and constructs the ones that are enabled, selected by
+        docs/analyzer-recommendation.md) and constructs the ones that are enabled, selected by
         the router, and construct without error.
 
         config/analyzers.yaml's `analysis.analyzers` block is still consulted, but now only as an
@@ -182,7 +182,7 @@ class RegistryAnalyzerSelection:
         if execution_config.include_optional:
             allowed_recommendations.add("OPTIONAL")
         # A router candidate with no real pipeline analyzer behind it (e.g. darts, adtk - see
-        # docs/16-analyzer-recommendation.md, "Router-to-pipeline mapping") must not occupy one of
+        # docs/analyzer-recommendation.md, "Router-to-pipeline mapping") must not occupy one of
         # the limited max_analyzers execution slots: a top-scoring but non-executable recommendation
         # would otherwise silently crowd out a lower-scoring one that could actually run and produce
         # a real finding. Eligibility for a slot is filtered here, before ranking - such a candidate

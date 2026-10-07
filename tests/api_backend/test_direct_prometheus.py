@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from backend.app.api.direct_prometheus import _observed_interval, _prometheus_series_to_normalized, get_prometheus_query_service
+from backend.app.api.direct_prometheus import _multi_series_detail, _observed_interval, _prometheus_series_to_normalized, get_prometheus_query_service
 from backend.app.config import PrometheusConnectionConfig
 from backend.app.main import create_app
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
@@ -18,7 +18,7 @@ class FakePrometheusService:
     def test_connection(self):
         return True, "2.52.0", 7, "Connection successful"
 
-    def label_values(self, label: str):
+    def label_values(self, label: str, **kwargs):
         if label == "service":
             return ["drift-lab", "ruptures-lab", "trend-lab"]
         if label == "__name__":
@@ -179,7 +179,7 @@ def test_direct_prometheus_analysis_requires_single_series() -> None:
         )
 
     assert res.status_code == 400
-    assert "returned 2 series" in res.json()["detail"]
+    assert "matched 2 series" in res.json()["detail"]
 
 
 def test_prometheus_step_and_window_validation() -> None:
@@ -195,3 +195,41 @@ def test_prometheus_step_and_window_validation() -> None:
             300,
             config,
         )
+
+
+def _series(*label_sets: dict[str, str]) -> list[PrometheusSeriesOut]:
+    sample = PrometheusSeriesSample(timestamp=datetime(2026, 10, 1, tzinfo=timezone.utc), value=1.0)
+    return [PrometheusSeriesOut(labels=labels, samples=[sample]) for labels in label_sets]
+
+
+def test_multi_series_error_names_the_clusters_and_the_query_to_pick_one() -> None:
+    series = _series(
+        {"__name__": "request_latency_p95", "service": "checkout", "cluster": "eu", "instance": "a"},
+        {"__name__": "request_latency_p95", "service": "checkout", "cluster": "us", "instance": "b"},
+    )
+
+    detail = _multi_series_detail('request_latency_p95{service="checkout"}', series, "cluster")
+
+    assert detail == 'This query matched 2 clusters (eu, us). Add cluster="eu" to pick one: request_latency_p95{service="checkout",cluster="eu"}'
+
+
+def test_multi_series_error_for_other_labels_and_complex_promql() -> None:
+    series = _series({"pod": "p1"}, {"pod": "p2"})
+
+    assert _multi_series_detail("up", series, "cluster") == 'This query matched 2 series, which differ by pod (p1, p2). Add pod="p1" to pick one: up{pod="p1"}'
+    assert _multi_series_detail("sum by (pod) (rate(x[5m]))", series, "cluster").endswith('Add pod="p1" to pick one, or aggregate pod away.')
+
+
+def test_run_analysis_reports_why_several_series_came_back() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakePrometheusService(_preview(series_count=2))
+
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/analysis/prometheus",
+            json={"query": "cpu_usage", "service": "checkout", "metric": "cpu_usage",
+                  "start": "2026-07-26T10:00:00Z", "end": "2026-07-26T11:00:00Z", "step": "5m"},
+        )
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == 'This query matched 2 series, which differ by service (checkout-0, checkout-1). Add service="checkout-0" to pick one: cpu_usage{service="checkout-0"}'

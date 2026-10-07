@@ -1,0 +1,33 @@
+input:
+  source_type: csv
+  provider: generic
+  schema_version: v1
+  file_path: sample_data/behavior_test.csv
+  history: 7d
+  interval: 5m
+  service: checkout
+  metric_name: null
+  timestamp_column: timestamp
+  value_column: value
+  metric_column: metric_name
+  provider_mappings: {}
+  validation:
+    enforce_monotonic_timestamp: true
+    allow_negative_values: false
+    max_gap_minutes: 60
+    max_null_ratio: 0.1
+    # warn: keep a series with an oversized gap and record a warning; reject: refuse it
+    gap_policy: warn
+  required_columns:
+    - timestamp
+    - metric_name
+    - value
+  optional_columns:
+    - service
+    - env
+    - host
+    - namespace
+    - pod
+    - source
+    - unit
+    - metric_type

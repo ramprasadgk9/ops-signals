@@ -41,6 +41,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "sentence-transformers>=5.0.0",
     "qdrant-client>=1.18.0",
+    "anthropic>=1.11.0",
     "opentelemetry-proto>=1.30.0",
     "prometheus_client>=0.21.0",
 ]
@@ -63,7 +64,7 @@ ops-signals = "intelligence.cli:main"
 include = ["intelligence*", "backend*", "experiments", "experiments.analyzer_router"]
 
 [tool.setuptools.package-data]
-backend = ["migrations/*.sql"]
+backend = ["migrations/*.sql", "app/case_import/templates/*"]
 "experiments.analyzer_router" = ["*.yaml"]
 
 [tool.pytest.ini_options]

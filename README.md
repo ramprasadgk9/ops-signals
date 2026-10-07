@@ -25,17 +25,17 @@ no Python, Node, Slack workspace or data of your own. See [`docs/demo.md`](docs/
 running and how it works.
 
 > **Run it on a trusted network.** The API has no authentication unless you set
-> `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [Security model](#69-security-model).
+> `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [Security model](#security-model).
 
 Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer.
 
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
 
-## 1. In One Sentence
+## In One Sentence
 
 Upload a metric time series, let the analyzers explain what changed, promote important findings into cases, and reuse prior cases as searchable operational memory.
 
-## 2. The Problem
+## The Problem
 
 Raw time-series points are noisy, high-volume, and hard to reason about directly. A dashboard can
 plot them, but plotting them isn't the same as explaining them - and today those two get treated as
@@ -64,7 +64,7 @@ Ops Signals is built to close each of those gaps, one to one:
    swappable, not a fixed threshold buried in dashboard JSON.
 2. **A written explanation, not just a number.** Every finding carries a plain-language summary
    ("CPU spike on payments-api ... sustained elevated utilization") alongside the raw score - see
-   [Example Operational Finding](#101-example-operational-finding).
+   [Example Operational Finding](#example-operational-finding).
 3. **A case gives you the next step.** A finding can be promoted into a case with investigation,
    RCA, and resolution fields - so "something's wrong" turns into "here's what to check and track."
 4. **A resolved case becomes golden data, not a dead ticket.** Once a case is resolved, it's
@@ -73,11 +73,11 @@ Ops Signals is built to close each of those gaps, one to one:
 5. **That golden data feeds back into the loop.** `GET /api/alert-context` lets an external
    system such as an alert manager ask "has this happened before, was it real, how was it resolved"
    *before* it pages anyone, instead of starting from zero every time - see
-   [`docs/02-architecture.md`](docs/02-architecture.md).
+   [`docs/architecture.md`](docs/architecture.md).
 
-See [`docs/01-vision.md`](docs/01-vision.md) for the fuller five-layer narrative behind this.
+See [`docs/vision.md`](docs/vision.md) for the fuller five-layer narrative behind this.
 
-## 3. What Ops Signals Does
+## What Ops Signals Does
 
 - **Takes data in from where it already is**: Prometheus (on a schedule or on demand), OTLP pushed
   from an OTel SDK or Collector, CSV upload, and Alertmanager alerts. Deploy and config events come
@@ -85,7 +85,7 @@ See [`docs/01-vision.md`](docs/01-vision.md) for the fuller five-layer narrative
 - **Runs analyzers picked for each metric**: baseline shift, change point, anomaly and outlier
   detection, trend, pattern discovery, forecasting and data health. A config-driven router picks
   them, and new analyzers are added through config without touching core code (see
-  [Analyzers](#71-where-to-find-each-feature)). An optional AI second opinion can flag disagreement
+  [Analyzers](#where-to-find-each-feature)). An optional AI second opinion can flag disagreement
   with the router but never overrides its pick.
 - **Turns analyzer signals into findings**: a title, a plain-language summary, a category, a health
   status and an importance score. Declarative rules across several metrics produce behavior findings.
@@ -97,13 +97,13 @@ See [`docs/01-vision.md`](docs/01-vision.md) for the fuller five-layer narrative
   results inline.
 - **Enriches alerts**: when a Prometheus alert fires, Ops Signals analyzes the alerting series,
   matches recent deploys, looks up past cases, and posts one Slack message answering "what happened,
-  what changed, have we seen it before" - see [Alert Enrichment](#95-alert-enrichment-alertmanager-to-slack).
-  High-importance findings can go to Slack too - see [Slack Notifications](#94-slack-notifications).
+  what changed, have we seen it before" - see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack).
+  High-importance findings can go to Slack too - see [Slack Notifications](#slack-notifications).
 - **Tracks investigations as cases**: a finding or behavior finding becomes a case with
   investigation, RCA, corrective action and outcome. Resolved cases are indexed into Qdrant.
 - **Connects to external issue trackers (Jira Cloud)**: links cases to tickets with bi-directional
   status and activity synchronization, 1-click comment promotion, and zero-click AI relevance triage
-  that elevates operational clues into investigation notes - see [Pluggable Case Ticketing](#96-pluggable-case-ticketing-jira-cloud).
+  that elevates operational clues into investigation notes - see [Pluggable Case Ticketing](#pluggable-case-ticketing-jira-cloud).
 - **Remembers**: similar-case search over past cases, and `GET /api/alert-context`, which lets an
   external system ask for prior outcomes, similar resolved cases and recurrence before it acts.
 - **Answers questions**: Ask Ops Signals, a chat over cases, findings, behaviors, analyzers and
@@ -113,11 +113,11 @@ See [`docs/01-vision.md`](docs/01-vision.md) for the fuller five-layer narrative
   behavior intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md).
 
 Every detection analyzer is a published, peer-reviewed method, not invented here - see
-[`docs/26-analyzer-methodology.md`](docs/26-analyzer-methodology.md) for citations. The router's
+[`docs/analyzer-methodology.md`](docs/analyzer-methodology.md) for citations. The router's
 suitability *scores* are heuristic and not yet validated against outcomes; that same document says
 so plainly and links to the tracking infrastructure built to close that gap.
 
-### 3.1 What Makes It Different
+### What Makes It Different
 
 - It's open and self-hostable, not a closed black box
 - It treats detector output as input to higher-level operational interpretation, not the end product
@@ -132,7 +132,7 @@ Ops Signals needs no Kubernetes and no LLM: it explains the alerting metric itse
 past resolved cases. It can run alongside any of them. See [`docs/comparison.md`](docs/comparison.md),
 including where those tools are ahead.
 
-### 3.2 How It Works
+### How It Works
 
 ```mermaid
 flowchart LR
@@ -154,10 +154,196 @@ This is not a replacement for Prometheus, Datadog, Grafana, or incident-manageme
 It does not currently perform autonomous remediation.
 Historical similarity does not prove two cases share the same root cause.
 
-## 4. Product Overview
+## Quick Start
+
+### Choose How to Run It
+
+| You want to | Use | Needs |
+| --- | --- | --- |
+| See it working in a minute, with a scripted incident | `docker compose -f docker-compose.demo.yml up` ([demo](docs/demo.md)) | Docker |
+| Try it on your laptop, with sample metrics or your own Prometheus | `./scripts/setup.sh`, then `./scripts/run_all.sh` (the steps below) | Docker, Python, Node |
+| Run it for your team on one server | `docker compose -f docker-compose.packaged.yml up -d` ([Deploy for Your Team](#deploy-for-your-team)) | Docker |
+| Run it in Kubernetes | `helm upgrade --install ops-signals ./helm/ops-signals` ([Deploy for Your Team](#deploy-for-your-team)) | Kubernetes, Helm |
+| Use it inside Grafana | the Grafana plugin ([Grafana Plugin](#grafana-plugin)) | Grafana, plus one of the two above |
+
+The demo doesn't read your data. The laptop install starts its own Prometheus with mock metrics, so
+it works before you connect anything. The team installs read only from the Prometheus you point
+them at.
+
+### Try It on Your Laptop
+
+The steps below set up a development install that you can point at your own data.
+
+### Prerequisites
+
+- **Git**
+- **Docker**, with Compose v2 (the `docker compose` command, not the older standalone `docker-compose`) - runs PostgreSQL/TimescaleDB and Qdrant for you
+- **Python 3.11, 3.12, or 3.14** - 3.13 is explicitly not supported by `scripts/setup.sh`
+- **Node.js 20+** and npm - for the React frontend
+- *(Optional)* **Ollama** - only needed for local AI-assisted answers (see [Enable Local AI](#optional-enable-local-ai)); everything works without it
+- macOS or Linux (the scripts are bash-based; on Windows, use WSL)
+
+Check what you already have installed:
+
+```bash
+docker compose version
+python3 --version
+node --version
+```
+
+### Clone the Repository
+
+```bash
+git clone https://github.com/ramprasadgk9/ops-signals.git
+cd ops-signals
+```
+
+### Run Setup
+
+```bash
+./scripts/setup.sh
+```
+
+This creates a Python virtualenv and installs dependencies, runs `npm install` for the frontend, starts PostgreSQL and Qdrant in Docker, waits for both to report healthy, and initializes the database schema. First run pulls Docker images and packages, so expect it to take a few minutes. You'll see `Setup complete.` printed at the end.
+
+### Start Ops Signals
+
+```bash
+./scripts/run_all.sh
+```
+
+This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command.
+
+### Open the Application
+
+Go to **http://localhost:5174** in your browser. You should see the Overview dashboard:
+
+![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
+
+### Connect a Data Source
+
+Findings will be empty on a fresh install - that's expected, nothing has been analyzed yet. Until
+the first data arrives, the Overview shows a **Get data in** panel with every way in:
+
+- **OTLP** - the endpoint to point an OTel Collector or SDK at, with a config snippet (see [OTLP](#otlp)).
+- **Alertmanager** - the webhook URL and a `receivers:` snippet; **Send test alert** proves the
+  whole path once alert enrichment is on (see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack)).
+- **Prometheus** - pulled on a schedule once `OPS_SIGNALS_PROMETHEUS_URL` is set in `.env`, or
+  `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE` for several Mimir tenants (see [Prometheus](#prometheus)).
+- **Deploy events** - the URL and a `curl` step for your CI pipeline, so alerts and findings can say
+  which deploy came just before a change (see [Deploy and change events](#deploy-and-change-events)).
+- **Load demo data** - analyzes a bundled checkout series in seconds, or upload your own CSV from
+  **New Analysis** (see [CSV Input](#csv-input)).
+
+The same sources, with whether each is receiving, live on the **Integrations** page
+(`/integrations`) afterwards; received alerts are on the **Alerts** page (`/alerts`). The APIs behind
+them are `GET /api/ingestion/status` and `GET /api/alerts`.
+
+### Optional: Enable Local AI
+
+By default, Ask Ops Signals and the analyzer recommendation advisor run on deterministic retrieval and templates - no AI, no API key, no network calls out. To add local LLM-assisted answers on top of that (never instead of it - the deterministic behavior stays the fallback):
+
+```bash
+docker compose --profile ai up -d
+```
+
+This starts a local Ollama container and pulls a small default model (`qwen2.5:3b`, ~2GB, one-time download). Then point the backend at it:
+
+```bash
+OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh
+```
+
+See [Operational Intelligence Assistant](#operational-intelligence-assistant) for exactly what changes when this is on.
+
+Prefer a model you already run or pay for? Set `OPS_SIGNALS_AI_PROVIDER=openai_compatible` (vLLM, Azure OpenAI, Bedrock gateways, LiteLLM) or `anthropic` instead. See [Other AI Providers](docs/ask-ops-signals-assistant.md#other-ai-providers).
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `docker is required` | Docker isn't installed, or the daemon isn't running | Install/start Docker Desktop (or Docker Engine on Linux) |
+| `Unsupported Python version selected: 3.13` | System Python is 3.13, which `setup.sh` rejects | Install 3.11, 3.12, or 3.14, then run `PYTHON_BIN=python3.12 ./scripts/setup.sh` |
+| `npm is required to install frontend dependencies` | Node.js/npm isn't installed | Install Node.js 20+ |
+| `postgres did not become ready in time` or `qdrant did not become ready in time` | Docker is still starting, or the port is already taken | `docker compose ps` and `docker compose logs postgres` (or `qdrant`); confirm ports `5432`/`6333` are free |
+| A port (`8001`, `5174`, `9090`) is already in use | Another process is bound to it | Stop that process, or see `scripts/run_all.sh` for the ports it uses |
+| `permission denied` running a script | The script isn't marked executable | `chmod +x scripts/*.sh` |
+
+### Security model
+
+Ops Signals is meant to run inside a trusted network, next to your Prometheus and Grafana:
+
+- **No authentication by default.** Set `OPS_SIGNALS_API_TOKEN` and every endpoint except
+  `/api/health` requires `Authorization: Bearer <token>`. The alert and event receivers accept their
+  own token, or the API token if they don't have one.
+- **Dangerous endpoints are off by default.** `OPS_SIGNALS_ENABLE_TESTING_API=true` turns on the
+  endpoint that wipes all data. `OPS_SIGNALS_ALLOW_FILE_WRITES=true` lets the analyzer and behavior
+  labs write files on the server. The dev scripts turn both on.
+- **CORS** is limited to local dev origins. Add your Grafana URL with `OPS_SIGNALS_CORS_ORIGINS`.
+
+[`docs/security-model.md`](docs/security-model.md) covers how each client (web UI, Grafana plugin,
+Alertmanager) sends the token, the Helm and Compose settings, and the known limitations.
+
+### Scripts Reference
+
+| Script | What it does | When to use it | Ports |
+| --- | --- | --- | --- |
+| `./scripts/setup.sh` | Installs Python and frontend deps, starts Postgres and Qdrant, and initializes the database. | First-time setup or after a clean checkout. | Postgres `5432`, Qdrant `6333` |
+| `./scripts/run_all.sh` | Starts the standalone backend, frontend, Postgres, Qdrant, Prometheus, and mock metrics for the app. | Daily local development outside Grafana. | Backend `8001`, frontend `5174`, Prometheus `9090` |
+| `./scripts/multicluster.sh up`, then `app` | Starts a local Grafana Mimir with several clusters, an HA pair and two tenants, then the app with one connection per tenant. | Testing multi-cluster and multi-tenant behaviour; not for real deployments. See [`docs/testing-multicluster-locally.md`](docs/testing-multicluster-locally.md). | Mimir `9009`, plus the `run_all.sh` ports |
+| `./scripts/run_grafana_stack.sh` | Builds the Grafana plugin, starts Grafana, Prometheus, mock metrics, and the plugin backend. | Testing the Grafana plugin experience. | Grafana `3000`, Prometheus `9090`, backend `8002` |
+| `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
+| `MCP_MODE=mcp-write ./scripts/test_mcp.sh` | Verifies the write-enabled MCP tool list. | Confirming write-capable tools are exposed. | None; stdio only |
+
+`3000` is reserved for Grafana, `8002` for the Grafana/plugin backend - they don't conflict with the standalone app's `8001`/`5174`.
+
+## Deploy for Your Team
+
+`run_all.sh` is for trying Ops Signals out: it runs from source and starts mock metrics. For a team,
+run the backend, web UI and MCP server as containers, pointed at your real Prometheus. Set
+`OPS_SIGNALS_API_TOKEN` for anything others can reach (see [Security model](#security-model)).
+
+### One Server: Docker Compose
+
+```bash
+git clone https://github.com/ramprasadgk9/ops-signals.git
+cd ops-signals
+echo 'OPS_SIGNALS_PROMETHEUS_URL=http://host.docker.internal:9090' >> .env
+docker compose -f docker-compose.packaged.yml up -d
+```
+
+The web UI is at **http://localhost:8080** and the API at `http://localhost:8000`. Set
+`OPS_SIGNALS_PROMETHEUS_URL` to your Prometheus as the backend container sees it:
+`host.docker.internal` is the machine Docker runs on.
+
+**Several Mimir tenants:** list them in a connections file and add the connections overlay.
+Tokens go in `prometheus-connections.env`, never in the YAML:
+
+```bash
+cp examples/prometheus-connections.yaml prometheus-connections.yaml
+printf 'MIMIR_TEAM_A_TOKEN=...\nMIMIR_TEAM_B_TOKEN=...\n' > prometheus-connections.env
+docker compose -f docker-compose.packaged.yml -f docker-compose.connections.yml up -d
+```
+
+### Kubernetes: Helm
+
+```bash
+kubectl create secret generic ops-signals-db \
+  --from-literal=database-url='postgresql+psycopg://USER:PASSWORD@HOST:5432/ops_signals'
+
+helm upgrade --install ops-signals ./helm/ops-signals \
+  --set database.urlSecret.name=ops-signals-db \
+  --set backend.env.OPS_SIGNALS_PROMETHEUS_URL=http://prometheus-server.monitoring:9090
+```
+
+**Several Mimir tenants:** put the connections file under `prometheusConnections.config` in your
+values and the tokens in a Secret named by `prometheusConnections.secretName`.
+
+Both paths, with every value to set, are in [`docs/release-packaging.md`](docs/release-packaging.md).
+
+## Product Overview
 
 Ops Signals ships as a standalone operational intelligence workspace and a Grafana plugin. This
-section is what each surface looks like and produces; [Using Ops Signals](#7-using-ops-signals)
+section is what each surface looks like and produces; [Using Ops Signals](#using-ops-signals)
 below is how to actually work with each piece.
 
 **[View the complete screenshot gallery](docs/screenshots.md)**
@@ -190,7 +376,7 @@ for a different next step.
 
 When a Prometheus alert fires, Ops Signals posts one message that says what happened, what changed,
 and whether it has been seen before. This one is from the [demo](docs/demo.md), shown in its Slack
-stand-in; see [Alert Enrichment](#95-alert-enrichment-alertmanager-to-slack) for real Slack.
+stand-in; see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack) for real Slack.
 
 ![Enriched alert: a latency shift, the deploy before it, and a matching past incident with its fix](docs/screenshots/images/slack/enriched-alert-demo.png)
 
@@ -202,12 +388,12 @@ stand-in; see [Alert Enrichment](#95-alert-enrichment-alertmanager-to-slack) for
 Alert enrichment and finding notifications have no page of their own: their output is the Slack
 message.
 
-## 5. Architecture
+## Architecture
 
 Data goes through one pipeline: validation, normalization into PostgreSQL, router-selected
 analyzers, signals, then findings (and, separately, cross-metric behavior findings), which can be
-promoted to cases. The [diagram above](#32-how-it-works) shows the flow;
-[`docs/02-architecture.md`](docs/02-architecture.md) has the detailed version with per-stage code
+promoted to cases. The [diagram above](#how-it-works) shows the flow;
+[`docs/architecture.md`](docs/architecture.md) has the detailed version with per-stage code
 references.
 
 Two pipelines run the same analyzers and routing: **Interactive Analysis** (`SignalPipeline`, used
@@ -221,159 +407,36 @@ in sync on case create and update; nothing is written to Qdrant that isn't in Po
 
 More detail:
 
-- [`docs/02-architecture.md`](docs/02-architecture.md) - the full pipeline, a diagram, and a "Why
+- [`docs/architecture.md`](docs/architecture.md) - the full pipeline, a diagram, and a "Why
   This Reduces MTTR" section connecting it to operational outcomes.
-- [`docs/03-core-domain-model.md`](docs/03-core-domain-model.md) - the data model: canonical
+- [`docs/core-domain-model.md`](docs/core-domain-model.md) - the data model: canonical
   points, signals, and the fields on each.
-- [`docs/09-design-decisions.md`](docs/09-design-decisions.md) - the "why," in short ADR-style
+- [`docs/design-decisions.md`](docs/design-decisions.md) - the "why," in short ADR-style
   writeups, including why PostgreSQL and Qdrant are split this way.
-- [`docs/17-standalone-overview-api.md`](docs/17-standalone-overview-api.md) - the Overview
+- [`docs/standalone-overview-api.md`](docs/standalone-overview-api.md) - the Overview
   summary and memory statistics endpoint contracts.
-- [`docs/18-standalone-prometheus-analysis.md`](docs/18-standalone-prometheus-analysis.md) - the
+- [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md) - the
   direct Prometheus query flow and how it differs from Grafana datasource-based analysis.
 
-## 6. Quick Start
-
-Just want to see it working? The [one-command demo](docs/demo.md) needs only Docker. The steps below
-set up a development install that you can point at your own data.
-
-### 6.1 Prerequisites
-
-- **Git**
-- **Docker**, with Compose v2 (the `docker compose` command, not the older standalone `docker-compose`) - runs PostgreSQL/TimescaleDB and Qdrant for you
-- **Python 3.11, 3.12, or 3.14** - 3.13 is explicitly not supported by `scripts/setup.sh`
-- **Node.js 20+** and npm - for the React frontend
-- *(Optional)* **Ollama** - only needed for local AI-assisted answers (see [Enable Local AI](#67-optional-enable-local-ai)); everything works without it
-- macOS or Linux (the scripts are bash-based; on Windows, use WSL)
-
-Check what you already have installed:
-
-```bash
-docker compose version
-python3 --version
-node --version
-```
-
-### 6.2 Clone the Repository
-
-```bash
-git clone https://github.com/ramprasadgk9/ops-signals.git
-cd ops-signals
-```
-
-### 6.3 Run Setup
-
-```bash
-./scripts/setup.sh
-```
-
-This creates a Python virtualenv and installs dependencies, runs `npm install` for the frontend, starts PostgreSQL and Qdrant in Docker, waits for both to report healthy, and initializes the database schema. First run pulls Docker images and packages, so expect it to take a few minutes. You'll see `Setup complete.` printed at the end.
-
-### 6.4 Start Ops Signals
-
-```bash
-./scripts/run_all.sh
-```
-
-This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command.
-
-### 6.5 Open the Application
-
-Go to **http://localhost:5174** in your browser. You should see the Overview dashboard:
-
-![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
-
-### 6.6 Connect a Data Source
-
-Findings will be empty on a fresh install - that's expected, nothing has been analyzed yet. Until
-the first data arrives, the Overview shows a **Get data in** panel with every way in:
-
-- **OTLP** - the endpoint to point an OTel Collector or SDK at, with a config snippet (see [OTLP](#813-otlp)).
-- **Alertmanager** - the webhook URL and a `receivers:` snippet; **Send test alert** proves the
-  whole path once alert enrichment is on (see [Alert Enrichment](#95-alert-enrichment-alertmanager-to-slack)).
-- **Prometheus** - pulled on a schedule once `OPS_SIGNALS_PROMETHEUS_URL` is set (see [Prometheus](#811-prometheus)).
-- **Deploy events** - the URL and a `curl` step for your CI pipeline, so alerts and findings can say
-  which deploy came just before a change (see [Deploy and change events](#814-deploy-and-change-events)).
-- **Load demo data** - analyzes a bundled checkout series in seconds, or upload your own CSV from
-  **New Analysis** (see [CSV Input](#812-csv-input)).
-
-The same sources, with whether each is receiving, live on the **Integrations** page
-(`/integrations`) afterwards; received alerts are on the **Alerts** page (`/alerts`). The APIs behind
-them are `GET /api/ingestion/status` and `GET /api/alerts`.
-
-### 6.7 Optional: Enable Local AI
-
-By default, Ask Ops Signals and the analyzer recommendation advisor run on deterministic retrieval and templates - no AI, no API key, no network calls out. To add local LLM-assisted answers on top of that (never instead of it - the deterministic behavior stays the fallback):
-
-```bash
-docker compose --profile ai up -d
-```
-
-This starts a local Ollama container and pulls a small default model (`qwen2.5:3b`, ~2GB, one-time download). Then point the backend at it:
-
-```bash
-OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh
-```
-
-See [Operational Intelligence Assistant](#72-operational-intelligence-assistant) for exactly what changes when this is on.
-
-### 6.8 Troubleshooting
-
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| `docker is required` | Docker isn't installed, or the daemon isn't running | Install/start Docker Desktop (or Docker Engine on Linux) |
-| `Unsupported Python version selected: 3.13` | System Python is 3.13, which `setup.sh` rejects | Install 3.11, 3.12, or 3.14, then run `PYTHON_BIN=python3.12 ./scripts/setup.sh` |
-| `npm is required to install frontend dependencies` | Node.js/npm isn't installed | Install Node.js 20+ |
-| `postgres did not become ready in time` or `qdrant did not become ready in time` | Docker is still starting, or the port is already taken | `docker compose ps` and `docker compose logs postgres` (or `qdrant`); confirm ports `5432`/`6333` are free |
-| A port (`8001`, `5174`, `9090`) is already in use | Another process is bound to it | Stop that process, or see `scripts/run_all.sh` for the ports it uses |
-| `permission denied` running a script | The script isn't marked executable | `chmod +x scripts/*.sh` |
-
-### 6.9 Security model
-
-Ops Signals is meant to run inside a trusted network, next to your Prometheus and Grafana:
-
-- **No authentication by default.** Set `OPS_SIGNALS_API_TOKEN` and every endpoint except
-  `/api/health` requires `Authorization: Bearer <token>`. The alert and event receivers accept their
-  own token, or the API token if they don't have one.
-- **Dangerous endpoints are off by default.** `OPS_SIGNALS_ENABLE_TESTING_API=true` turns on the
-  endpoint that wipes all data. `OPS_SIGNALS_ALLOW_FILE_WRITES=true` lets the analyzer and behavior
-  labs write files on the server. The dev scripts turn both on.
-- **CORS** is limited to local dev origins. Add your Grafana URL with `OPS_SIGNALS_CORS_ORIGINS`.
-
-[`docs/security-model.md`](docs/security-model.md) covers how each client (web UI, Grafana plugin,
-Alertmanager) sends the token, the Helm and Compose settings, and the known limitations.
-
-### Scripts Reference
-
-| Script | What it does | When to use it | Ports |
-| --- | --- | --- | --- |
-| `./scripts/setup.sh` | Installs Python and frontend deps, starts Postgres and Qdrant, and initializes the database. | First-time setup or after a clean checkout. | Postgres `5432`, Qdrant `6333` |
-| `./scripts/run_all.sh` | Starts the standalone backend, frontend, Postgres, Qdrant, Prometheus, and mock metrics for the app. | Daily local development outside Grafana. | Backend `8001`, frontend `5174`, Prometheus `9090` |
-| `./scripts/run_grafana_stack.sh` | Builds the Grafana plugin, starts Grafana, Prometheus, mock metrics, and the plugin backend. | Testing the Grafana plugin experience. | Grafana `3000`, Prometheus `9090`, backend `8002` |
-| `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
-| `MCP_MODE=mcp-write ./scripts/test_mcp.sh` | Verifies the write-enabled MCP tool list. | Confirming write-capable tools are exposed. | None; stdio only |
-
-`3000` is reserved for Grafana, `8002` for the Grafana/plugin backend - they don't conflict with the standalone app's `8001`/`5174`.
-
-## 7. Using Ops Signals
+## Using Ops Signals
 
 Where to find each capability once the app is running.
 
-### 7.1 Where to Find Each Feature
+### Where to Find Each Feature
 
 | Feature | Where | Read more |
 | --- | --- | --- |
 | **UI tour**: every tab of the web UI (13) and both Grafana plugin modes, one line each | - | [`docs/ui-tour.md`](docs/ui-tour.md) |
-| **Interactive analysis**: one metric at a time, from a Prometheus query or a CSV, findings right away | **New Analysis**; Grafana **Interactive Analysis** | [`docs/18-standalone-prometheus-analysis.md`](docs/18-standalone-prometheus-analysis.md) |
-| **Analyzers**: 7 built in (Baseline Shift, Ruptures Change Point, Z-Score Anomaly, PyOD Outlier, Trend, STUMPY Motif, Prophet Forecast) plus Data Health, added through config; how the router picks and how far to trust it. Seasonal Anomaly is registered but the router doesn't pick it | **Experiments** → **Recommendations** | [`docs/04-analyzer-plugin-framework.md`](docs/04-analyzer-plugin-framework.md), [`docs/16-analyzer-recommendation.md`](docs/16-analyzer-recommendation.md) |
-| **Behavior intelligence**: rules across several metrics, with a worked memory-pressure example | **Behavior Intelligence**, **Behavior Lab** | [`docs/14-behavior-intelligence.md`](docs/14-behavior-intelligence.md) |
-| **Analyzer workbench**: run any analyzer on sample data (**Labs**), register a new one (**Add Analyzer**), preview router scores (**Recommendations**) | **Experiments** | [`docs/04-analyzer-plugin-framework.md`](docs/04-analyzer-plugin-framework.md#analyzer-workbench-ui) |
-| **Findings**: drill-down by pod, the deploy before a change | **Findings** | [`docs/06-operational-findings.md`](docs/06-operational-findings.md), [`docs/finding-drilldown.md`](docs/finding-drilldown.md) |
-| **Investigations and cases**: ad-hoc digging into one metric or service; every case with its lifecycle (`open -> investigating -> rca_in_progress -> resolved -> closed`), RCA and outcome | **Investigations**, **Cases** | [`docs/07-operational-cases.md`](docs/07-operational-cases.md) |
-| **Historical analysis**: semantic search over past cases and findings, and the alert-context preview an external alert manager would see | **Operational Memory** | [`docs/08-operational-memory.md`](docs/08-operational-memory.md) |
-| **Autonomous analysis**: what to watch, run once or on a schedule | **Autonomous Analysis Configure**; Grafana **Autonomous Analysis** | [Autonomous Analysis](#82-autonomous-analysis) |
+| **Interactive analysis**: one metric at a time, from a Prometheus query or a CSV, findings right away | **New Analysis**; Grafana **Interactive Analysis** | [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md) |
+| **Analyzers**: 7 built in (Baseline Shift, Ruptures Change Point, Z-Score Anomaly, PyOD Outlier, Trend, STUMPY Motif, Prophet Forecast) plus Data Health, added through config; how the router picks and how far to trust it. Seasonal Anomaly is registered but the router doesn't pick it | **Experiments** → **Recommendations** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md), [`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md) |
+| **Behavior intelligence**: rules across several metrics, with a worked memory-pressure example | **Behavior Intelligence**, **Behavior Lab** | [`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) |
+| **Analyzer workbench**: run any analyzer on sample data (**Labs**), register a new one in Python or as your own HTTP service (**Add Analyzer**), preview router scores (**Recommendations**) | **Experiments** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md#analyzer-workbench-ui), [`docs/http-analyzer-contract.md`](docs/http-analyzer-contract.md) |
+| **Findings**: drill-down by pod, the deploy before a change | **Findings** | [`docs/operational-findings.md`](docs/operational-findings.md), [`docs/finding-drilldown.md`](docs/finding-drilldown.md) |
+| **Investigations and cases**: ad-hoc digging into one metric or service; every case with its lifecycle (`open -> investigating -> rca_in_progress -> resolved -> closed`), RCA and outcome | **Investigations**, **Cases** | [`docs/operational-cases.md`](docs/operational-cases.md) |
+| **Historical analysis**: semantic search over past cases and findings, the alert-context preview an external alert manager would see, and importing past postmortems so it works on day one | **Operational Memory** | [`docs/operational-memory.md`](docs/operational-memory.md), [`docs/importing-incident-history.md`](docs/importing-incident-history.md) |
+| **Autonomous analysis**: what to watch, run once or on a schedule | **Autonomous Analysis Configure**; Grafana **Autonomous Analysis** | [Autonomous Analysis](#autonomous-analysis) |
 
-### 7.2 Operational Intelligence Assistant
+### Operational Intelligence Assistant
 
 Ops Signals includes a single chat interface ("Ask Ops Signals") that routes questions across
 historical cases, current findings, behaviors, analyzers, and application documentation. The
@@ -407,19 +470,28 @@ whether an answer came from a model or from a template.
 - Answers that go beyond the stored data, docs, and retrieval context
 - Replacement for the underlying analyzers, rules, or source observability tools
 
-## 8. Data, Automation & Configuration
+## Data, Automation & Configuration
 
 How data gets in, how autonomous scanning decides what to watch, and how to tune analyzer and
 behavior config.
 
-### 8.1 Data Sources
+### Data Sources
 
-#### 8.1.1 Prometheus
+#### Prometheus
 
 Connect Ops Signals to an existing Prometheus datasource for direct or autonomous analysis. See
-[`docs/18-standalone-prometheus-analysis.md`](docs/18-standalone-prometheus-analysis.md).
+[`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md).
 
-#### 8.1.2 CSV Input
+One Prometheus is set with `OPS_SIGNALS_PROMETHEUS_URL`. For Grafana Mimir with several tenants (or
+several Prometheus servers), list them as named connections in a file set by
+`OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE` - start from
+[`examples/prometheus-connections.yaml`](examples/prometheus-connections.yaml). The Configure panel and
+Validate Data then get a connection picker, each autonomous policy keeps its connection, and alerts
+are analysed on the tenant their labels match. Series from several clusters behind one endpoint are
+analysed per cluster, and HA replica copies count once. See
+[Mimir, Thanos and other multi-source backends](docs/standalone-prometheus-analysis.md#mimir-thanos-and-other-multi-source-backends).
+
+#### CSV Input
 
 ```csv
 timestamp,service,metric_name,value,env,host,namespace,pod,unit,metric_type
@@ -427,13 +499,14 @@ timestamp,service,metric_name,value,env,host,namespace,pod,unit,metric_type
 2026-07-12T14:01:00Z,payments-api,cpu_usage,84.6,prod,ip-10-0-1-5,,payments-7d8c9,percent,gauge
 ```
 
-#### 8.1.3 OTLP
+#### OTLP
 
 Prometheus and CSV are both pull/upload - Ops Signals asks for the data. OTLP is the reverse: an
-OTel SDK or Collector pushes metrics to Ops Signals. See [§9.3 OTLP Metrics
-Ingestion](#93-otlp-metrics-ingestion) for the endpoint, setup, and guardrails.
+OTel SDK or Collector pushes metrics to Ops Signals: point its `otlphttp` exporter at
+`http://localhost:8001/api/otlp`. See [OTLP Metrics Ingestion](#otlp-metrics-ingestion) for setup
+and guardrails.
 
-#### 8.1.4 Deploy and change events
+#### Deploy and change events
 
 Your CI pipeline sends deploys, config changes and feature-flag flips to `POST /api/events` (the
 **Send deploy events** tile on the Integrations page has a ready-made `curl` step). Alerts and
@@ -441,7 +514,7 @@ findings then name the change that came just before a problem. How events are jo
 (service, environment, time) is in
 [`docs/finding-drilldown.md`](docs/finding-drilldown.md#how-are-deploy-events-joined-to-metrics-and-findings).
 
-### 8.2 Autonomous Analysis
+### Autonomous Analysis
 
 Autonomous analysis turns three inputs into concrete Prometheus metric jobs: monitoring intent
 (categories such as performance, capacity, availability, or custom metrics), scope (environment,
@@ -460,37 +533,37 @@ discovery, the budget and scheduling, and
 [`docs/autonomous-pipeline-architecture.md`](docs/autonomous-pipeline-architecture.md) for how it
 runs.
 
-### 8.3 YAML Configuration
+### YAML Configuration
 
 Configuration is layered YAML: shared settings, analyzer defaults, then provider-specific input
 mapping. Operational memory (Qdrant and embeddings) is set in the root `config.yaml`. See
-[`docs/15-configuration.md`](docs/15-configuration.md) for the merge order, the files and an
+[`docs/configuration.md`](docs/configuration.md) for the merge order, the files and an
 example.
 
-#### 8.3.1 Analyzer Configuration
+#### Analyzer Configuration
 
 Shared analysis mode, window, and analyzer defaults live in `config/analyzers.yaml`;
 provider-specific input mapping lives in `config/providers/*.yaml`. See
-[`docs/15-configuration.md`](docs/15-configuration.md) for the merge order and file layout.
+[`docs/configuration.md`](docs/configuration.md) for the merge order and file layout.
 
-#### 8.3.2 Behavior Rules
+#### Behavior Rules
 
 Cross-metric behavior definitions live in `config/behavior_definitions.d/*.yml` - one file per
 behavior, evaluated as facts against analyzer output. See
-[`docs/14-behavior-intelligence.md`](docs/14-behavior-intelligence.md) for a full worked example.
+[`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) for a full worked example.
 
-#### 8.3.3 Thresholds and Parameters
+#### Thresholds and Parameters
 
 Per-analyzer defaults (window size, sensitivity) are set in `config/analyzers.yaml`. The Universal
 Router's suitability-scoring weights are documented separately since they're heuristic, not a
 threshold you tune directly - see
-[`docs/16-analyzer-recommendation.md`](docs/16-analyzer-recommendation.md).
+[`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md).
 
-## 9. Integrations
+## Integrations
 
 Ways to plug Ops Signals into tools you already use.
 
-### 9.1 Grafana Plugin
+### Grafana Plugin
 
 ```bash
 ./scripts/run_grafana_stack.sh
@@ -503,13 +576,13 @@ plugin specifically, and
 [`docs/grafana-plugin-feature-walkthrough.md`](docs/grafana-plugin-feature-walkthrough.md) for a
 tour of Interactive Analysis and Autonomous Analysis inside Grafana.
 
-### 9.2 MCP Server
+### MCP Server
 
 An MCP server exposes Ops Signals to MCP clients over stdio: `python -m intelligence.cli mcp`
 (read-only) or `mcp-write` (adds case updates, memory indexing and the chat tools). `./scripts/test_mcp.sh` checks
 it locally. Client configuration and the tool list are in [`docs/mcp-server.md`](docs/mcp-server.md).
 
-### 9.3 OTLP Metrics Ingestion
+### OTLP Metrics Ingestion
 
 Ops Signals can receive metrics pushed directly from an OpenTelemetry SDK or an OTel Collector,
 in addition to CSV upload and pull-based Prometheus queries:
@@ -545,7 +618,7 @@ Received points are buffered and analyzed on the same 60-second scheduler cycle 
 autonomous Prometheus monitoring, not per-request. The design doc covers the volume and cardinality
 guardrails and the `GET /api/metrics` self-observability endpoint.
 
-### 9.4 Slack Notifications
+### Slack Notifications
 
 Pushes high-importance findings to a Slack channel, so a problem that autonomous analysis finds at
 03:00 doesn't wait for someone to open the UI.
@@ -562,7 +635,7 @@ Pushes high-importance findings to a Slack channel, so a problem that autonomous
 Only findings with importance at or above `OPS_SIGNALS_SLACK_MIN_IMPORTANCE` are posted. A broken
 webhook is logged and never fails the analysis.
 
-### 9.5 Alert Enrichment (Alertmanager to Slack)
+### Alert Enrichment (Alertmanager to Slack)
 
 ![Enriched alerts in Slack](docs/screenshots/images/slack/alert-enrichment-messages.png)
 
@@ -604,7 +677,7 @@ same Prometheus, and (optionally) sending deploy events from CI. Full guide - wh
 architecture, Alertmanager config, per-rule annotations, Slack controls and troubleshooting:
 [`docs/alert-enrichment.md`](docs/alert-enrichment.md).
 
-### 9.6 Pluggable Case Ticketing (Jira Cloud)
+### Pluggable Case Ticketing (Jira Cloud)
 
 Ops Signals bridges internal investigations with enterprise ticketing systems through a pluggable provider architecture with a **Jira Cloud REST API v3** reference implementation:
 
@@ -615,11 +688,11 @@ Ops Signals bridges internal investigations with enterprise ticketing systems th
 - **AI RCA & Resolution Enrichment**: Generated root-cause hypotheses and resolution drafts automatically ingest active external clues from ticketing.
 - **Webhook Security**: Inbound webhooks (`POST /api/integrations/ticketing/jira/webhook`) are cryptographically verified using HMAC-SHA256 signatures (`OPS_SIGNALS_JIRA_WEBHOOK_SECRET`).
 
-See [`docs/07-operational-cases.md`](docs/07-operational-cases.md) and [`docs/15-configuration.md`](docs/15-configuration.md).
+See [`docs/operational-cases.md`](docs/operational-cases.md) and [`docs/configuration.md`](docs/configuration.md).
 
-## 10. Examples
+## Examples
 
-### 10.1 Example Operational Finding
+### Example Operational Finding
 
 A finding from autonomous analysis of `http_errors_total` on the `cart` service, with drill-down on
 and a deploy recorded (shortened):
@@ -646,11 +719,13 @@ and a deploy recorded (shortened):
 ```
 
 `category` is one of `behavior_change`, `unusual_activity`, `data_quality` or
-`operational_insight`; `health_status` is `critical`, `significant` or `normal`. See
-[`docs/06-operational-findings.md`](docs/06-operational-findings.md). How a finding becomes a
-case is in [`docs/07-operational-cases.md`](docs/07-operational-cases.md).
+`operational_insight`; `health_status` is `critical`, `significant` or `normal`, set by the
+importance score (0.8 or more, 0.55 or more, below that). The UI shows them as **High**, **Medium**
+and **Low** importance: `normal` means a change was found but it is small, not that all is well. See
+[`docs/operational-findings.md`](docs/operational-findings.md). How a finding becomes a
+case is in [`docs/operational-cases.md`](docs/operational-cases.md).
 
-## 11. Current Limitations
+## Current Limitations
 
 - Authentication is a single optional shared token, with no users or roles. Run it on a trusted
   network - see [`docs/security-model.md`](docs/security-model.md)
@@ -667,7 +742,7 @@ case is in [`docs/07-operational-cases.md`](docs/07-operational-cases.md).
   and metrics-only (no logs/traces) - see
   [`docs/design/otlp-metrics-ingestion-plan.md`](docs/design/otlp-metrics-ingestion-plan.md#10-explicit-non-goals-phase-1)
 
-## 12. Roadmap
+## Roadmap
 
 - Expand analyzer coverage
 - Improve operational memory retrieval filters
@@ -676,16 +751,16 @@ case is in [`docs/07-operational-cases.md`](docs/07-operational-cases.md).
 - Document release and contribution workflows more fully
 - Kubernetes and cloud-provider ingestion; ITSM/automation and generic external-system consumers -
   see the explicitly-labeled roadmap section in
-  [`docs/02-architecture.md`](docs/02-architecture.md#roadmap-not-yet-implemented)
+  [`docs/architecture.md`](docs/architecture.md#roadmap-not-yet-implemented)
 
 ## Who's Using Ops Signals?
 
 If you're running Ops Signals somewhere - production, staging, or just evaluating it - we'd like to know. Add yourself to [ADOPTERS.md](ADOPTERS.md) via a short PR, or open an issue if a PR is more than you want to do.
 
-## 13. Contributing
+## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 14. License
+## License
 
 See [LICENSE](LICENSE).
