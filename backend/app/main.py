@@ -23,7 +23,6 @@ from backend.app.api.analyzer_router import router as analyzer_router
 from backend.app.api.autonomous import router as autonomous_router
 from backend.app.api.mcp import router as mcp_router
 from backend.app.api.events import router as events_router
-from backend.app.api.experiments import router as experiments_router
 from backend.app.api.behavior_definitions import router as behavior_definitions_router
 from backend.app.api.behavior_evaluations import router as behavior_evaluations_router
 from backend.app.api.behavior_lab import router as behavior_lab_router
@@ -358,7 +357,6 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(analyzer_router)
     app.include_router(analyzer_labs_router)
     app.include_router(autonomous_router)
-    app.include_router(experiments_router)
     app.include_router(ingestion_router)
     app.include_router(ingestion_status_router)
     app.include_router(otlp_router)

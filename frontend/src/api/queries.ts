@@ -18,8 +18,6 @@ import type {
   Finding,
   MetricAnalyzerRecommendation,
   MetricSample,
-  ExperimentComparison,
-  ExperimentResult,
   RouterResponse,
   AssistantChatRequest,
   AssistantChatResponse,
@@ -41,6 +39,7 @@ import type {
   OverviewSummaryResponse,
   MemoryStatsResponse,
   RecurringProblemsResponse,
+  CoverageReport,
   RunbookDraft,
   SameFixResponse,
   SuggestedFixesResponse,
@@ -265,6 +264,7 @@ export const api = {
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
   recurringProblems: (days = 90, minOccurrences = 3, groupBy: 'symptom' | 'cause' = 'symptom') =>
     getJson<RecurringProblemsResponse>(`/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}`),
+  monitoringCoverage: (days = 365) => getJson<CoverageReport>(`/api/memory/coverage?days=${days}`),
   suggestedFixes: (findingId: number) => getJson<SuggestedFixesResponse>(`/api/findings/${findingId}/suggested-fixes`),
   runbookDraft: (findingId: number) =>
     postJson<Record<string, never>, RunbookDraft>(`/api/findings/${findingId}/suggested-fixes/runbook-draft`, {}),
@@ -313,13 +313,6 @@ export const api = {
     postJson<{ tests: NewDocTest[]; dry_run: boolean }, SaveDocTestsResult>('/api/assistant/docs-check/tests', { tests, dry_run: dryRun }),
   memoryChat: (payload: MemoryChatRequest) =>
     postJson<MemoryChatRequest, MemoryChatResponse>('/api/memory/chat', payload),
-  experiments: () => getJson<ExperimentResult[]>('/api/experiments'),
-  experiment: (experimentId: string) => getJson<ExperimentResult>(`/api/experiments/${experimentId}`),
-  experimentCompare: (experimentIds: string[]) => {
-    const params = new URLSearchParams();
-    experimentIds.forEach((id) => params.append('experiment_ids', id));
-    return getJson<ExperimentComparison>(`/api/experiments/compare?${params.toString()}`);
-  },
   analyzerRouterRoute: (payload: FormData) => postForm<RouterResponse>('/api/experiment-analyzer-router/route', payload),
   analyzerLabConfigSuggestions: (analyzerId?: string) =>
     getJson<AnalyzerConfigSuggestion[]>(

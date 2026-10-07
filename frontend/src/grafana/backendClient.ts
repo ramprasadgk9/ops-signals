@@ -1,4 +1,4 @@
-import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, Signal, TimeseriesPoint } from '../types';
+import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, SeenBeforeResponse, Signal, TimeseriesPoint } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type {
   GrafanaAnalyzerRoutingDecision,
@@ -607,6 +607,11 @@ export async function updateCaseResolution(baseUrl: string, caseId: number, payl
   resolved_by?: string | null;
 }) {
   return patchJson<GrafanaCase>(baseUrl, `/api/cases/${caseId}/resolution`, payload);
+}
+
+/** Past cases (Qdrant case memory) that resemble a persisted finding, plus how familiar it is. */
+export async function getFindingSeenBefore(baseUrl: string, findingId: number) {
+  return fetchJson<SeenBeforeResponse>(baseUrl, `/api/findings/${findingId}/seen-before`);
 }
 
 export async function indexCaseMemory(baseUrl: string, caseId: number) {

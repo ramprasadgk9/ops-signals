@@ -13,6 +13,7 @@ import {
   updateCaseResolution,
 } from './backendClient';
 import { Card, Chip, Field, styles } from './plainUi';
+import { PluginSeenBefore } from './PluginSeenBefore';
 import type {
   GrafanaAnalysisFinding,
   GrafanaAnalysisResult,
@@ -857,7 +858,28 @@ function memoryLabel(status?: string | null) {
   return humanize(status);
 }
 
-function InvestigationDrawer({
+/** The finding a case was opened from, rebuilt from the case's stored snapshot, for when the
+ * drawer is opened from case history rather than from a finding in the current run. */
+export function caseSnapshotFinding(caseDetails: GrafanaCase | null): GrafanaAnalysisFinding | null {
+  const snapshot = caseDetails?.finding_snapshot;
+  if (!caseDetails || !snapshot) return null;
+  const text = (value: unknown) => (typeof value === 'string' ? value : '');
+  return {
+    id: typeof snapshot.id === 'number' ? snapshot.id : caseDetails.finding_id,
+    title: text(snapshot.title) || caseDetails.case_title,
+    summary: text(snapshot.summary),
+    category: text(snapshot.category),
+    health_status: text(snapshot.health_status),
+    importance_score: typeof snapshot.importance_score === 'number' ? snapshot.importance_score : 0,
+    investigation_priority: typeof snapshot.investigation_priority === 'number' ? snapshot.investigation_priority : 0,
+    signal_ids: Array.isArray(snapshot.signal_ids) ? snapshot.signal_ids.map(String) : [],
+  };
+}
+
+/** The case workflow (Finding → Publish Knowledge). Opened from a finding in the current run, it is
+ * given that run's `result`; opened from case history there is no run, so `result` is omitted and
+ * the Finding step reads the case's stored snapshot instead. */
+export function InvestigationDrawer({
   open,
   caseResult,
   caseDetails,
@@ -872,7 +894,7 @@ function InvestigationDrawer({
   caseResult: GrafanaCaseCreateResponse | null;
   caseDetails: GrafanaCase | null;
   finding: GrafanaAnalysisFinding | null;
-  result: GrafanaAnalysisResult;
+  result?: GrafanaAnalysisResult | null;
   backendUrl: string;
   onClose: () => void;
   onCaseChange: (caseDetails: GrafanaCase) => void;
@@ -893,6 +915,7 @@ function InvestigationDrawer({
   const [correctiveAction, setCorrectiveAction] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     if (!caseDetails) return;
@@ -912,11 +935,15 @@ function InvestigationDrawer({
   if (!open) return null;
 
   const caseId = caseDetails?.id ?? caseResult?.case_id;
+  const shownFinding = finding ?? caseSnapshotFinding(caseDetails);
+  const snapshotMetric = caseDetails?.finding_snapshot?.metric_name;
+  const snapshotService = caseDetails?.finding_snapshot?.service;
   const canSave = Boolean(caseId);
 
   const saveActiveStep = async () => {
     if (!caseId) return;
     setIsSaving(true);
+    setSaveError('');
     try {
       let updated: GrafanaCase | null = null;
       if (activeStep === 'Investigation') {
@@ -951,7 +978,9 @@ function InvestigationDrawer({
         setLastSavedAt(new Date().toLocaleTimeString());
       }
     } catch {
-      onError(`Could not save ${activeStep.toLowerCase()} update.`);
+      const message = `Could not save ${activeStep.toLowerCase()} update.`;
+      setSaveError(message);
+      onError(message);
     } finally {
       setIsSaving(false);
     }
@@ -992,15 +1021,25 @@ function InvestigationDrawer({
         <div style={styles.drawerBody}>
           {activeStep === 'Finding' ? (
             <div style={styles.stack}>
-              <h3 style={{ margin: 0 }}>{finding?.title ?? 'Finding snapshot'}</h3>
-              <p style={{ ...styles.muted, margin: 0 }}>{finding?.summary}</p>
+              <h3 style={{ margin: 0 }}>{shownFinding?.title ?? 'Finding snapshot'}</h3>
+              <p style={{ ...styles.muted, margin: 0 }}>{shownFinding?.summary}</p>
               <div style={styles.detailGrid}>
-                <span>Importance</span><strong>{findingLevel(finding?.health_status).label}</strong>
-                <span>Metric</span><strong>{result.metric}</strong>
-                <span>Time range</span><strong>{result.from || result.to ? `${result.from} - ${result.to}` : 'Selected window'}</strong>
-                <span>Importance</span><strong>{formatNumber(finding?.importance_score)}</strong>
-                <span>Confidence</span><strong>{formatNumber(finding?.importance_score)}</strong>
-                <span>Supporting signals</span><strong>{finding?.signal_ids.length ?? 0}</strong>
+                <span>Importance</span><strong>{findingLevel(shownFinding?.health_status).label}</strong>
+                {result ? (
+                  <>
+                    <span>Metric</span><strong>{result.metric}</strong>
+                    <span>Time range</span><strong>{result.from || result.to ? `${result.from} - ${result.to}` : 'Selected window'}</strong>
+                  </>
+                ) : (
+                  <>
+                    <span>Service</span><strong>{typeof snapshotService === 'string' && snapshotService ? snapshotService : '-'}</strong>
+                    <span>Metric</span><strong>{typeof snapshotMetric === 'string' && snapshotMetric ? snapshotMetric : '-'}</strong>
+                    <span>Case opened</span><strong>{formatDate(caseDetails?.created_at)}</strong>
+                  </>
+                )}
+                <span>Importance</span><strong>{formatNumber(shownFinding?.importance_score)}</strong>
+                <span>Confidence</span><strong>{formatNumber(shownFinding?.importance_score)}</strong>
+                <span>Supporting signals</span><strong>{shownFinding?.signal_ids.length ?? 0}</strong>
               </div>
             </div>
           ) : null}
@@ -1120,8 +1159,8 @@ function InvestigationDrawer({
 
         <div style={styles.drawerFooter}>
           <div>
-            <strong>{isSaving ? 'Saving changes...' : 'All changes saved'}</strong>
-            <div style={styles.muted}>{lastSavedAt ? `Last saved ${lastSavedAt}` : 'Just now'}</div>
+            <strong>{isSaving ? 'Saving changes...' : saveError ? 'Not saved' : 'All changes saved'}</strong>
+            <div style={saveError ? { color: '#ff7381' } : styles.muted}>{saveError || (lastSavedAt ? `Last saved ${lastSavedAt}` : 'Just now')}</div>
           </div>
           <button type="button" style={buttonStyle('primary', !canSave || isSaving)} disabled={!canSave || isSaving} onClick={saveActiveStep}>
             {activeStep === 'Publish Knowledge' ? 'Republish knowledge' : 'Save Case'}
@@ -1367,6 +1406,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
               </div>
             </Card>
           ) : null}
+          {selectedFinding ? <PluginSeenBefore backendUrl={backendUrl} findingId={selectedFinding.id} service={result.service} frame={styles.card} /> : null}
           <MetricTimeline result={result} selectedFinding={selectedFinding} />
           <RecentInvestigationsTable
             caseDetails={caseDetails}

@@ -10,9 +10,10 @@ import {
   queryPrometheusDatasource,
   type PrometheusDatasourceRef,
 } from './grafanaPrometheus';
-import { PanelPreview } from './PanelPreview';
+import { InvestigationDrawer, PanelPreview } from './PanelPreview';
 import { Card, Field, styles } from './plainUi';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
+import { PluginSeenBefore } from './PluginSeenBefore';
 import { findingBreakdown } from '../utils/findingBreakdown';
 import { findingLevel } from '../utils/findingLevel';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
@@ -1309,17 +1310,20 @@ function AutonomousAnalysisView({
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" style={styles.button} onClick={handleEditSchedule}>Edit</button>
                 {activePolicy.enabled ? (
-                  <button type="button" style={{ ...styles.button, color: '#ff7381', borderColor: 'rgba(255, 115, 129, 0.4)' }} disabled={isTogglingSchedule} onClick={handlePauseSchedule}>
-                    {isTogglingSchedule ? 'Removing...' : 'Remove'}
+                  <button
+                    type="button"
+                    style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.08)', border: '1px solid rgba(204, 204, 220, 0.28)' }}
+                    disabled={isTogglingSchedule}
+                    onClick={handlePauseSchedule}
+                    title="Stop scheduled runs. The schedule is kept and can be resumed."
+                  >
+                    {isTogglingSchedule ? 'Pausing...' : 'Pause'}
                   </button>
                 ) : (
                   <button type="button" style={styles.button} disabled={isTogglingSchedule} onClick={handleResumeSchedule}>
                     {isTogglingSchedule ? 'Resuming...' : 'Resume'}
                   </button>
                 )}
-                <button type="button" style={{ ...styles.button, background: '#3fcf8e', color: '#08130e' }} onClick={() => setForceOverview(true)}>
-                  View Overview &rarr;
-                </button>
               </div>
             </div>
             {scheduleError ? <div style={{ ...styles.alert, marginBottom: 12 }}>{scheduleError}</div> : null}
@@ -1553,6 +1557,7 @@ function AutonomousAnalysisView({
 
       {['overview_loading', 'overview_ready', 'overview_empty', 'overview_error'].includes(uiStage) ? (
         <GrafanaAutonomousOverview
+          backendUrl={backendUrl}
           data={dashboardData}
           findings={findings}
           state={dashboardState}
@@ -1610,6 +1615,7 @@ function DashboardKpi({ label, value, detail, tone = '#d8d9da' }: { label: strin
 }
 
 function GrafanaAutonomousOverview({
+  backendUrl,
   data,
   findings,
   state,
@@ -1633,6 +1639,7 @@ function GrafanaAutonomousOverview({
   isPreviewingNow,
   previewNowError,
 }: {
+  backendUrl: string;
   data: AutonomousDashboardData;
   findings: Finding[];
   state: 'loading' | 'error' | 'ready';
@@ -1846,10 +1853,11 @@ function GrafanaAutonomousOverview({
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.95fr) minmax(280px, 1fr) minmax(260px, 0.85fr)', gap: 12 }}>
         <CoverageDetailsPanel selection={data.selection} onEnableCategory={onEnableCategory} onPreviewNow={onPreviewNow} isPreviewingNow={isPreviewingNow} previewNowError={previewNowError} />
         <RunHistoryPanel rows={data.executionRows} />
-        <CasesPanel data={data} />
+        <CasesPanel data={data} backendUrl={backendUrl} onCasesChanged={onRetry} />
       </div>
       {investigationFinding ? (
         <AutonomousInvestigationPanel
+          backendUrl={backendUrl}
           finding={investigationFinding}
           mode={investigationMode}
           caseResult={caseResult}
@@ -1996,7 +2004,33 @@ function RunHistoryPanel({ rows }: { rows: AutonomousDashboardData['executionRow
   );
 }
 
-function CasesPanel({ data }: { data: AutonomousDashboardData }) {
+/** Recent cases; clicking one opens it in the case workflow drawer (the same one Interactive
+ * Analysis uses), so it can be investigated, resolved and published to memory without leaving
+ * Grafana. The overview is refreshed on close when anything was saved, so statuses stay current. */
+export function CasesPanel({ data, backendUrl, onCasesChanged }: { data: AutonomousDashboardData; backendUrl: string; onCasesChanged?: () => void }) {
+  const [openCase, setOpenCase] = useState<GrafanaCase | null>(null);
+  const [openingCaseId, setOpeningCaseId] = useState<number | null>(null);
+  const [openError, setOpenError] = useState('');
+  const [caseChanged, setCaseChanged] = useState(false);
+
+  async function openCaseById(caseId: number) {
+    setOpeningCaseId(caseId);
+    setOpenError('');
+    try {
+      setOpenCase(await getCase(backendUrl, caseId));
+      setCaseChanged(false);
+    } catch {
+      setOpenError(`Could not open case #${caseId}. Check the backend connection and retry.`);
+    } finally {
+      setOpeningCaseId(null);
+    }
+  }
+
+  function closeCase() {
+    setOpenCase(null);
+    if (caseChanged) onCasesChanged?.();
+  }
+
   return (
     <div style={panelStyle('#b877d9')}>
       <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>{data.casesScope === 'current_run' ? 'Cases Created From This Run' : 'Recent Cases from History'} <InfoTip title="Cases are investigation records. Current-run cases are linked to findings generated by this run." /></h3>
@@ -2005,14 +2039,36 @@ function CasesPanel({ data }: { data: AutonomousDashboardData }) {
           {data.recentCases.slice(0, 5).map((caseItem) => (
             <div key={caseItem.id} style={styles.rowBetween}>
               <div style={{ minWidth: 0 }}>
-                <a style={{ ...styles.tableRowButton, fontWeight: 700 }} href={caseItem.href}>{caseItem.title}</a>
-                <div style={styles.helperText}>{caseItem.status}</div>
+                <button
+                  type="button"
+                  style={{ ...styles.tableRowButton, fontWeight: 700 }}
+                  disabled={openingCaseId !== null}
+                  title="Open this case in the investigation workflow"
+                  onClick={() => openCaseById(caseItem.id)}
+                >
+                  {caseItem.title}
+                </button>
+                <div style={styles.helperText}>{openingCaseId === caseItem.id ? 'Opening case...' : caseItem.status}</div>
               </div>
               <div style={styles.helperText}>{formatCompactDate(caseItem.updatedAt)}</div>
             </div>
           ))}
         </div>
       ) : <p style={styles.muted}>No cases were created for the current run.</p>}
+      {openError ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{openError}</div> : null}
+      <InvestigationDrawer
+        open={openCase !== null}
+        caseResult={null}
+        caseDetails={openCase}
+        finding={null}
+        backendUrl={backendUrl}
+        onClose={closeCase}
+        onCaseChange={(updated) => {
+          setOpenCase(updated);
+          setCaseChanged(true);
+        }}
+        onError={() => undefined}
+      />
     </div>
   );
 }
@@ -2182,6 +2238,7 @@ function matchingFinding(findings: Finding[], row: AutonomousDashboardData['topF
 }
 
 function AutonomousInvestigationPanel({
+  backendUrl,
   finding,
   mode,
   caseResult,
@@ -2191,6 +2248,7 @@ function AutonomousInvestigationPanel({
   onCreateCase,
   onClose,
 }: {
+  backendUrl: string;
   finding: Finding;
   mode: 'investigate' | 'evidence';
   caseResult: GrafanaCaseCreateResponse | null;
@@ -2267,6 +2325,7 @@ function AutonomousInvestigationPanel({
         </div>
       </div>
       {breakdown ? <div style={{ marginTop: 12 }}><PluginBreakdownSection breakdown={breakdown} /></div> : null}
+      <div style={{ marginTop: 12 }}><PluginSeenBefore backendUrl={backendUrl} findingId={finding.id} service={finding.service} /></div>
     </div>
   );
 }

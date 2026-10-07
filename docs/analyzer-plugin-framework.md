@@ -101,7 +101,7 @@ behavior is validated against a known-answer dataset instead of only checked by 
 
 ## Analyzer Workbench (UI)
 
-"Analyzer Workbench" is the sidebar grouping in the web UI (under **Experiments**) that holds
+"Analyzer Workbench" is the sidebar grouping in the web UI that holds
 everything on this page in one place:
 
 - **Labs** - one page per built-in analyzer (Z-Score Anomaly, PyOD Outlier, Prophet Forecast,

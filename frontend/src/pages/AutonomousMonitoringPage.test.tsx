@@ -22,8 +22,27 @@ vi.mock('../api/queries', () => ({
     autonomousPreview: vi.fn(),
     autonomousRunOnce: vi.fn(),
     prometheusConnections: vi.fn().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] }),
+    autonomousListPolicies: vi.fn().mockResolvedValue([]),
+    autonomousSetPolicyStatus: vi.fn(),
   },
 }));
+
+const ACTIVE_SCHEDULE = {
+  id: 'policy-1',
+  name: 'Production coverage',
+  datasource: 'prometheus',
+  backend: 'standalone-web',
+  scope: { environment: 'production', services: [], namespaces: [], all_services: true, all_namespaces: true, service_label: 'service', namespace_label: 'namespace', environment_label: 'env' },
+  monitoring_selection: { categories: ['capacity', 'performance', 'availability'] },
+  execution: { interval: '1m', analysis_window: '6h', max_metrics_per_run: 500, max_parallel_jobs: 20 },
+  enabled: true,
+  schedule_minutes: 30,
+  next_run_at: null,
+  last_run_status: 'completed',
+  consecutive_failures: 0,
+  created_at: null,
+  updated_at: null,
+};
 
 const TWO_CONNECTIONS = {
   connections: [
@@ -242,6 +261,21 @@ describe('AutonomousMonitoringPage', () => {
     await waitFor(() =>
       expect(vi.mocked(api.autonomousScopeOptions).mock.calls.some(([options]) => options?.connection_id === 'mimir-b')).toBe(true)
     );
+  });
+
+  it('shows an active schedule with Edit and Pause, and Pause keeps the schedule (no remove, no extra overview button)', async () => {
+    vi.mocked(api.autonomousListPolicies).mockResolvedValueOnce([ACTIVE_SCHEDULE] as never);
+    vi.mocked(api.autonomousSetPolicyStatus).mockResolvedValue({ ...ACTIVE_SCHEDULE, enabled: false } as never);
+    renderRoute();
+
+    expect(await screen.findByText('Production coverage')).toBeInTheDocument();
+    expect(screen.getByText('Scheduled · Active')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Remove/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /View Overview/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await waitFor(() => expect(api.autonomousSetPolicyStatus).toHaveBeenCalledWith('policy-1', false));
   });
 
   it('shows the backend error message when a preview fails', async () => {

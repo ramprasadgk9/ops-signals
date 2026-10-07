@@ -61,7 +61,6 @@ const navItems: NavItem[] = [
   { label: 'Behavior Lab', to: '/behavior-intelligence/lab', icon: <ScienceRoundedIcon /> },
   { label: 'Operational Memory', to: '/operational-memory', icon: <StorageRoundedIcon /> },
   { label: 'Ask Ops Signals', to: '/assistant', icon: <ChatBubbleOutlineRoundedIcon />, badge: 'Beta' },
-  { label: 'Experiments', to: '/experiments', icon: <ScienceRoundedIcon /> },
   { label: 'New Analysis', to: '/validate-data', icon: <AddRoundedIcon /> },
 ];
 

@@ -3,14 +3,9 @@ import { Box, Button, Chip, Link, Stack, Typography } from '@mui/material';
 import { CaseOriginBadge } from './CaseOriginBadge';
 import { ui } from '../standalone/theme';
 import type { PastCaseMatch } from '../types';
+import { rankPastMatches } from '../utils/pastCaseMatches';
 
-/** Same service first; within each group, the server's order. The backend ranks matches by
- * similarity plus small bonuses (shared keywords, verified root cause, recency), so re-sorting by
- * score here would undo that. A possible match on this service is more useful than a strong-looking
- * one elsewhere. */
-export function rankPastMatches(matches: PastCaseMatch[]) {
-  return [...matches].sort((a, b) => Number(Boolean(b.same_service)) - Number(Boolean(a.same_service)));
-}
+export { rankPastMatches };
 
 /** Past cases resembling a finding or a case: same-service matches up front, labelled strong or
  * possible; matches on other services folded away and labelled as such. */
