@@ -540,7 +540,7 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
-              <CaseTicketCard caseId={caseData.id} />
+              <CaseTicketCard caseId={caseData.id} showSetupHint />
             </Grid>
           </Grid>
         </TabPanel>
