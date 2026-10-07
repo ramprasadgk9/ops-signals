@@ -32,8 +32,8 @@ vi.mock('../api/queries', () => ({
   api: new Proxy({}, { get: (_target, name: string) => handlers[name] ?? vi.fn().mockResolvedValue([]) }),
 }));
 
-describe('CasesPage case overview', () => {
-  it('tells people Jira ticketing exists while it is off', async () => {
+describe('CasesPage Jira banner', () => {
+  it('tells people at the top of the page that Jira ticketing exists while it is off', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
@@ -43,9 +43,11 @@ describe('CasesPage case overview', () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText('Case Overview (C-34)')).toBeInTheDocument();
-    expect(await screen.findByText('Track this case in Jira')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Watch how \(1 min\)/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'How to turn it on' })).toBeInTheDocument();
+    const banner = await screen.findByTestId('jira-ticketing-hint');
+    expect(banner).toHaveTextContent('Track cases in Jira');
+    // Above the case list, not tucked into the side panel.
+    const table = await screen.findByText('Case Overview (C-34)');
+    expect(banner.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByTestId('jira-ticketing-hint')).toHaveLength(1);
   });
 });

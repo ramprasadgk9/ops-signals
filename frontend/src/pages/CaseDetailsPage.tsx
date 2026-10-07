@@ -45,6 +45,7 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 import { CaseTicketCard } from '../components/CaseTicketCard';
+import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { findingLevel } from '../utils/findingLevel';
 
 interface TabPanelProps {
@@ -318,6 +319,8 @@ export function CaseDetailsPage() {
           </Stack>
         </Box>
 
+        <JiraTicketingHint subject="case" />
+
         <Card variant="outlined">
           <CardContent sx={{ py: 2.5 }}>
             <Stepper activeStep={currentStep} alternativeLabel>
@@ -540,7 +543,7 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
-              <CaseTicketCard caseId={caseData.id} showSetupHint />
+              <CaseTicketCard caseId={caseData.id} />
             </Grid>
           </Grid>
         </TabPanel>

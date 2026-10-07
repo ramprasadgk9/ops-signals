@@ -36,16 +36,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { AmbiguousResolutionPayload, CaseTicketOperation } from '../types';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
-import { JIRA_WALKTHROUGH, JiraTicketingHint } from './JiraTicketingHint';
+import { JIRA_WALKTHROUGH } from './JiraTicketingHint';
 import { WalkthroughVideoDialog } from './WalkthroughVideoDialog';
 
 interface CaseTicketCardProps {
   caseId: number;
-  /** While ticketing is off, show a one-line tip (watch how / how to turn it on) instead of nothing. */
-  showSetupHint?: boolean;
 }
 
-export function CaseTicketCard({ caseId, showSetupHint = false }: CaseTicketCardProps) {
+export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
   const queryClient = useQueryClient();
   const [activeOpId, setActiveOpId] = useState<string | null>(null);
   const [ambiguousOp, setAmbiguousOp] = useState<CaseTicketOperation | null>(null);
@@ -275,11 +273,8 @@ export function CaseTicketCard({ caseId, showSetupHint = false }: CaseTicketCard
     (e) => e.event_type === 'resolution_posted'
   );
 
-  if (!shouldShowTicketCard(statusQuery.data, statusQuery.isError, ticketQuery.data)) {
-    // Ticketing is off: on the page that asks for it, say the feature exists and how to turn it on.
-    const ticketingOff = statusQuery.isSuccess && !statusQuery.data.enabled && ticketQuery.isSuccess;
-    return showSetupHint && ticketingOff ? <JiraTicketingHint /> : null;
-  }
+  // While ticketing is off, the pages show JiraTicketingHint at the top instead.
+  if (!shouldShowTicketCard(statusQuery.data, statusQuery.isError, ticketQuery.data)) return null;
 
   return (
     <Card variant="outlined" sx={{ mt: 2 }}>
