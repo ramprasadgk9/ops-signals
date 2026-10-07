@@ -43,6 +43,14 @@ services:
       OPS_SIGNALS_API_TOKEN: ${OPS_SIGNALS_API_TOKEN:-}
       OPS_SIGNALS_ALLOW_FILE_WRITES: ${OPS_SIGNALS_ALLOW_FILE_WRITES:-false}
       OPS_SIGNALS_ENABLE_TESTING_API: ${OPS_SIGNALS_ENABLE_TESTING_API:-false}
+      # Jira ticketing (docs/configuration.md), off unless set in .env; blank values count as unset.
+      OPS_SIGNALS_TICKETING_ENABLED: ${OPS_SIGNALS_TICKETING_ENABLED:-false}
+      OPS_SIGNALS_JIRA_BASE_URL: ${OPS_SIGNALS_JIRA_BASE_URL:-}
+      OPS_SIGNALS_JIRA_EMAIL: ${OPS_SIGNALS_JIRA_EMAIL:-}
+      OPS_SIGNALS_JIRA_API_TOKEN: ${OPS_SIGNALS_JIRA_API_TOKEN:-}
+      OPS_SIGNALS_JIRA_PROJECT_KEY: ${OPS_SIGNALS_JIRA_PROJECT_KEY:-}
+      OPS_SIGNALS_JIRA_ISSUE_TYPE: ${OPS_SIGNALS_JIRA_ISSUE_TYPE:-}
+      OPS_SIGNALS_JIRA_WEBHOOK_SECRET: ${OPS_SIGNALS_JIRA_WEBHOOK_SECRET:-}
     ports:
       - "8000:8000"
     # Lets the backend reach a Prometheus on this machine as host.docker.internal on Linux too.

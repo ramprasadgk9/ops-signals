@@ -8,7 +8,13 @@
   While ticketing is off, a blue banner at the top of the Cases list and of every case says Jira
   ticketing exists, with Watch how and How to turn it on (the settings). It can't be dismissed, so
   everyone sees it; once ticketing is on it gives way to the case's External Ticketing card. A
-  finding's Create Case button says on hover that a Jira ticket can be created from the case.
+  finding's Create Case button says on hover that a Jira ticket can be created from the case, and
+  a case now always opens at its top (it kept the scroll position of the page the click came from,
+  so the banner could be off screen). How to turn it on says how to restart the backend for a
+  laptop install, a team server and Kubernetes.
+- **Fixed: Jira ticketing could not be turned on with `docker-compose.packaged.yml`.** It passes
+  only the settings it lists to the backend, and the Jira ones were missing; they now come from
+  `.env` like the others (ticketing stays off unless set).
   Re-recorded by `scripts/record_jira_walkthrough.sh` against the demo stack and a Jira Cloud
   project. Also fixed: the card's header buttons ran out of the card in narrow windows; they wrap now.
 - **Monitoring coverage** on Operational Memory: each imported past incident checked against what

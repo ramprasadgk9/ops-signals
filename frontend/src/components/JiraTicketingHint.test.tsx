@@ -65,6 +65,17 @@ describe('JiraTicketingHint', () => {
     expect(screen.getByText(/OPS_SIGNALS_TICKETING_ENABLED=true/)).toBeInTheDocument();
   });
 
+  it('says how to restart the backend for each way of running Ops Signals', async () => {
+    vi.mocked(api.ticketingStatus).mockResolvedValue(TICKETING_OFF);
+
+    renderHint();
+    fireEvent.click(await screen.findByRole('button', { name: 'How to turn it on' }));
+
+    expect(await screen.findByText('./scripts/run_all.sh')).toBeInTheDocument();
+    expect(screen.getByText('docker compose -f docker-compose.packaged.yml up -d backend')).toBeInTheDocument();
+    expect(screen.getByText(/kubectl rollout restart deployment -l app.kubernetes.io\/instance=<release>,app.kubernetes.io\/component=backend/)).toBeInTheDocument();
+  });
+
   it('shows nothing once ticketing is on (the case card takes over)', async () => {
     vi.mocked(api.ticketingStatus).mockResolvedValue(TICKETING_ON);
 

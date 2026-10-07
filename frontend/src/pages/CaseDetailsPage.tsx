@@ -136,6 +136,12 @@ export function CaseDetailsPage() {
     ),
   });
 
+  // Open each case at its top (title, Jira banner, workflow), not at the scroll position of the
+  // page the click came from, e.g. halfway down the Findings list after Create Case.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [caseId]);
+
   useEffect(() => {
     if (!caseQuery.data || initialized) return;
     setInvestigationStatus(caseQuery.data.investigation_status);
