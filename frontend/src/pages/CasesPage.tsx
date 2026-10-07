@@ -152,7 +152,7 @@ export function CasesPage() {
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Outcome</Typography><Pill label={selected.outcome} /></Stack>
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Resolved At</Typography><Typography>{selected.resolvedAt ? formatDateTime(selected.resolvedAt) : 'Not resolved'}</Typography></Stack>
                 <Button component={RouterLink} to={`/cases/${selected.id}`} endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ borderColor: ui.border, color: '#334155', textTransform: 'none', fontWeight: 850 }}>View Case Details</Button>
-                <CaseTicketCard caseId={selected.id} />
+                <CaseTicketCard caseId={selected.id} showSetupHint />
               </Stack>
             ) : <Typography color="text.secondary">No cases returned yet.</Typography>}
           </WorkspacePanel>

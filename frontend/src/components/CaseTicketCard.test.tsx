@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
 import { CaseTicketCard } from './CaseTicketCard';
 
@@ -21,21 +21,6 @@ function renderCard(props: { showSetupHint?: boolean } = {}) {
       <CaseTicketCard caseId={7} {...props} />
     </QueryClientProvider>
   );
-}
-
-// Node 25's own (file-less, non-functional) localStorage shadows jsdom's, so use a plain in-memory one.
-function memoryStorage(): Storage {
-  const items = new Map<string, string>();
-  return {
-    get length() {
-      return items.size;
-    },
-    clear: () => items.clear(),
-    getItem: (key) => items.get(key) ?? null,
-    key: (index) => [...items.keys()][index] ?? null,
-    removeItem: (key) => void items.delete(key),
-    setItem: (key, value) => void items.set(key, String(value)),
-  };
 }
 
 const TICKETING_OFF = { enabled: false, provider: 'jira', provider_configured: false, webhook_secret_configured: false };
@@ -73,11 +58,6 @@ describe('CaseTicketCard help', () => {
   beforeEach(() => {
     vi.mocked(api.ticketingStatus).mockReset();
     vi.mocked(api.getCaseTicket).mockReset().mockResolvedValue(null);
-    vi.stubGlobal('localStorage', memoryStorage());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
   });
 
   it('shows a one-line Jira tip instead of nothing when ticketing is off and the page asks for it', async () => {
@@ -111,17 +91,22 @@ describe('CaseTicketCard help', () => {
     expect(video.getAttribute('src')).toMatch(/walkthroughs\/jira-ticketing\.webm$/);
   });
 
-  it('stays hidden once dismissed, also on the next visit', async () => {
+  it('cannot be dismissed, so the feature stays discoverable', async () => {
     vi.mocked(api.ticketingStatus).mockResolvedValue(TICKETING_OFF);
 
-    const first = renderCard({ showSetupHint: true });
-    fireEvent.click(await screen.findByRole('button', { name: 'Hide this tip' }));
-    expect(screen.queryByText('Track this case in Jira')).not.toBeInTheDocument();
-    first.unmount();
-
     renderCard({ showSetupHint: true });
-    await waitFor(() => expect(api.getCaseTicket).toHaveBeenCalledTimes(2));
-    expect(screen.queryByText('Track this case in Jira')).not.toBeInTheDocument();
+
+    expect(await screen.findByText('Track this case in Jira')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /hide|dismiss|close/i })).not.toBeInTheDocument();
+  });
+
+  it('shows no tip where the page does not ask for it', async () => {
+    vi.mocked(api.ticketingStatus).mockResolvedValue(TICKETING_OFF);
+
+    const { container } = renderCard();
+
+    await waitFor(() => expect(api.getCaseTicket).toHaveBeenCalledWith(7));
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('shows no tip when ticketing is on; the card has a Watch how link instead', async () => {

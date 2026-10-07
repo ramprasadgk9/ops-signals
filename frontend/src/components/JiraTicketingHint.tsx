@@ -6,11 +6,9 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Stack,
   Typography,
 } from '@mui/material';
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ConfirmationNumberRoundedIcon from '@mui/icons-material/ConfirmationNumberRounded';
 import PlayCircleOutlineRoundedIcon from '@mui/icons-material/PlayCircleOutlineRounded';
 import { WalkthroughVideoDialog } from './WalkthroughVideoDialog';
@@ -25,34 +23,12 @@ export const JIRA_WALKTHROUGH = {
   videoLabel: 'Jira ticketing walkthrough video',
 };
 
-const DISMISSED_KEY = 'ops-signals.jira-ticketing-hint.dismissed';
-
-function readDismissed(): boolean {
-  try {
-    return window.localStorage.getItem(DISMISSED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
 /** Shown on a case while ticketing is off, where the External Ticketing card would be: the feature
- * otherwise stays invisible until someone already knows to turn it on. Dismissing it is remembered
- * in this browser. */
+ * otherwise stays invisible until someone already knows to turn it on. Deliberately not
+ * dismissible, so everyone keeps seeing that Jira ticketing exists; it is one slim line. */
 export function JiraTicketingHint() {
-  const [dismissed, setDismissed] = useState(readDismissed);
   const [videoOpen, setVideoOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-
-  if (dismissed) return null;
-
-  const dismiss = () => {
-    setDismissed(true);
-    try {
-      window.localStorage.setItem(DISMISSED_KEY, '1');
-    } catch {
-      // Private windows can refuse storage; the hint then just comes back next time.
-    }
-  };
 
   return (
     <>
@@ -70,9 +46,6 @@ export function JiraTicketingHint() {
         <Button size="small" onClick={() => setSetupOpen(true)} sx={{ textTransform: 'none' }}>
           How to turn it on
         </Button>
-        <IconButton size="small" aria-label="Hide this tip" onClick={dismiss}>
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
       </Box>
 
       <WalkthroughVideoDialog
