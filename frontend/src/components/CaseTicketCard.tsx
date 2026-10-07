@@ -31,16 +31,21 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CableRoundedIcon from '@mui/icons-material/CableRounded';
 import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded';
+import PlayCircleOutlineRoundedIcon from '@mui/icons-material/PlayCircleOutlineRounded';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { AmbiguousResolutionPayload, CaseTicketOperation } from '../types';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
+import { JIRA_WALKTHROUGH, JiraTicketingHint } from './JiraTicketingHint';
+import { WalkthroughVideoDialog } from './WalkthroughVideoDialog';
 
 interface CaseTicketCardProps {
   caseId: number;
+  /** While ticketing is off, show a one-line tip (watch how / how to turn it on) instead of nothing. */
+  showSetupHint?: boolean;
 }
 
-export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
+export function CaseTicketCard({ caseId, showSetupHint = false }: CaseTicketCardProps) {
   const queryClient = useQueryClient();
   const [activeOpId, setActiveOpId] = useState<string | null>(null);
   const [ambiguousOp, setAmbiguousOp] = useState<CaseTicketOperation | null>(null);
@@ -50,6 +55,7 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [triageFeedback, setTriageFeedback] = useState<string | null>(null);
   const [isWebhookGuideOpen, setIsWebhookGuideOpen] = useState(false);
+  const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
   // Ticketing is off on most installs: hide the card there unless the case already has a linked ticket.
@@ -269,18 +275,32 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
     (e) => e.event_type === 'resolution_posted'
   );
 
-  if (!shouldShowTicketCard(statusQuery.data, statusQuery.isError, ticketQuery.data)) return null;
+  if (!shouldShowTicketCard(statusQuery.data, statusQuery.isError, ticketQuery.data)) {
+    // Ticketing is off: on the page that asks for it, say the feature exists and how to turn it on.
+    const ticketingOff = statusQuery.isSuccess && !statusQuery.data.enabled && ticketQuery.isSuccess;
+    return showSetupHint && ticketingOff ? <JiraTicketingHint /> : null;
+  }
 
   return (
     <Card variant="outlined" sx={{ mt: 2 }}>
       <CardContent>
         <Stack spacing={2}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
+          {/* Wraps in a narrow column (the case page's side column) instead of pushing the buttons out of the card. */}
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
             <Stack direction="row" spacing={1} alignItems="center">
               <ConfirmationNumberRoundedIcon color="primary" />
-              <Typography variant="h6">External Ticketing</Typography>
+              <Typography variant="h6" sx={{ whiteSpace: 'nowrap' }}>External Ticketing</Typography>
             </Stack>
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<PlayCircleOutlineRoundedIcon />}
+                onClick={() => setIsWalkthroughOpen(true)}
+                sx={{ textTransform: 'none' }}
+              >
+                Watch how
+              </Button>
               <Button
                 size="small"
                 variant="text"
@@ -734,6 +754,8 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
           <Button onClick={() => setIsWebhookGuideOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <WalkthroughVideoDialog open={isWalkthroughOpen} onClose={() => setIsWalkthroughOpen(false)} {...JIRA_WALKTHROUGH} />
     </Card>
   );
 }

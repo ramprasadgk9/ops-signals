@@ -2,6 +2,13 @@
 
 ## 0.3.0 - Unreleased
 
+- **"Watch how" for Jira ticketing on the case page**: a one-minute captioned recording of the real
+  case page - create the ticket, sync a Jira comment and status back, keep the comment as a note,
+  send the resolution to Jira, webhook setup. The External Ticketing card links it from its header.
+  While ticketing is off, the case Overview shows a one-line tip in the card's place (Watch how,
+  How to turn it on with the settings, or × to hide it in this browser) instead of nothing.
+  Re-recorded by `scripts/record_jira_walkthrough.sh` against the demo stack and a Jira Cloud
+  project. Also fixed: the card's header buttons ran out of the card in narrow windows; they wrap now.
 - **Monitoring coverage** on Operational Memory: each imported past incident checked against what
   Ops Signals analysed and flagged while it happened - **Detected** (a finding on that service, with
   an anomaly overlapping the incident, reads like the postmortem's symptom), **Flagged something
