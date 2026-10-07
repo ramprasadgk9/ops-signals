@@ -18,8 +18,6 @@ import type {
   Finding,
   MetricAnalyzerRecommendation,
   MetricSample,
-  ExperimentComparison,
-  ExperimentResult,
   RouterResponse,
   AssistantChatRequest,
   AssistantChatResponse,
@@ -315,13 +313,6 @@ export const api = {
     postJson<{ tests: NewDocTest[]; dry_run: boolean }, SaveDocTestsResult>('/api/assistant/docs-check/tests', { tests, dry_run: dryRun }),
   memoryChat: (payload: MemoryChatRequest) =>
     postJson<MemoryChatRequest, MemoryChatResponse>('/api/memory/chat', payload),
-  experiments: () => getJson<ExperimentResult[]>('/api/experiments'),
-  experiment: (experimentId: string) => getJson<ExperimentResult>(`/api/experiments/${experimentId}`),
-  experimentCompare: (experimentIds: string[]) => {
-    const params = new URLSearchParams();
-    experimentIds.forEach((id) => params.append('experiment_ids', id));
-    return getJson<ExperimentComparison>(`/api/experiments/compare?${params.toString()}`);
-  },
   analyzerRouterRoute: (payload: FormData) => postForm<RouterResponse>('/api/experiment-analyzer-router/route', payload),
   analyzerLabConfigSuggestions: (analyzerId?: string) =>
     getJson<AnalyzerConfigSuggestion[]>(

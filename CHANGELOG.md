@@ -24,6 +24,11 @@
   the Overview tab above the card opens the same page, and in the web UI the overview is directly
   below the card (the button only scrolled to it, and was easy to confuse with the sidebar's
   Overview page).
+- **Removed: the Experiments page** (`/experiments`, "Analyzer Experiment Dashboard") and its API
+  (`GET /api/experiments`, `/api/experiments/{id}`, `/api/experiments/compare`). It only listed
+  result files from the offline ruptures script and wasn't tied to live data; the Analyzer Labs
+  cover trying an analyzer on data. `/experiments` now redirects to the Ruptures Change Point Lab.
+  The script (`experiments/ruptures/run_experiment.py`) still runs and writes its reports.
 - **Symptom and fix vectors**: each case in Qdrant now has a `symptom` vector (what was seen) and a
   `resolution` vector (cause and fix, once recorded) next to the whole-document one. Seen before?
   and Similar Cases compare a finding's symptom with past symptoms, so an imported postmortem about

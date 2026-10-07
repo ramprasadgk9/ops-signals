@@ -15,7 +15,6 @@ import { MemoryChatPage } from '../pages/MemoryChatPage';
 import { DOCS_CHECK_PATH, DocsCheckPage } from '../pages/DocsCheckPage';
 import { OperationalMemoryPage } from '../pages/OperationalMemoryPage';
 import { ValidateDataPage } from '../pages/ValidateDataPage';
-import { ExperimentDashboardPage } from '../pages/ExperimentDashboardPage';
 import { AnalyzerRouterExperimentPage } from '../pages/AnalyzerRouterExperimentPage';
 import { AddAnalyzerPage } from '../pages/analyzer-labs/AddAnalyzerPage';
 import { PyodOutlierLabPage } from '../pages/analyzer-labs/PyodOutlierLabPage';
@@ -45,7 +44,8 @@ export function AppRoutes() {
       <Route path="/behavior-intelligence/lab" element={<BehaviorLabPage />} />
       <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
       <Route path="/validate-data" element={<ValidateDataPage />} />
-      <Route path="/experiments" element={<ExperimentDashboardPage />} />
+      {/* The experiment results page was removed; old links land on the closest replacement. */}
+      <Route path="/experiments" element={<Navigate to="/experiments/ruptures-change-point-lab" replace />} />
       <Route path="/experiments/add-analyzer" element={<AddAnalyzerPage />} />
       <Route path="/experiments/pyod-outlier-lab" element={<PyodOutlierLabPage />} />
       <Route path="/experiments/prophet-forecast-lab" element={<ProphetForecastLabPage />} />
