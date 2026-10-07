@@ -42,3 +42,35 @@ def _never_the_configured_qdrant(monkeypatch):
     # backend.app.case_import.cli imports it inside a function.
     monkeypatch.setattr(qdrant_client, "QdrantClient", _in_memory_qdrant)
 
+
+@pytest.fixture(autouse=True, scope="session")
+def _embed_each_text_once():
+    """Every app startup indexes the assistant's documentation into its fresh in-memory Qdrant,
+    which re-embeds about 870 chunks per test that builds the app (~4s, over 35 minutes on CI).
+    MiniLM is deterministic, so each distinct text is embedded once per session and reused;
+    every test still gets its own empty Qdrant."""
+    from backend.app.memory.embedder import CaseEmbedder
+
+    # Separate caches: a batch pads its texts together, so its vectors can differ from encode()'s
+    # in the last float digits, and each path should return exactly what the model gives it.
+    batch_cache: dict[str, tuple[float, ...]] = {}
+    single_cache: dict[str, tuple[float, ...]] = {}
+    real_encode_batch = CaseEmbedder.encode_batch
+    real_encode = CaseEmbedder.encode
+
+    def encode_batch(self, texts: list[str]) -> list[list[float]]:
+        missing = list(dict.fromkeys(text for text in texts if text not in batch_cache))
+        if missing:
+            for text, vector in zip(missing, real_encode_batch(self, missing)):
+                batch_cache[text] = tuple(vector)
+        return [list(batch_cache[text]) for text in texts]
+
+    def encode(self, text: str) -> list[float]:
+        if text not in single_cache:
+            single_cache[text] = tuple(real_encode(self, text))
+        return list(single_cache[text])
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(CaseEmbedder, "encode_batch", encode_batch)
+        patch.setattr(CaseEmbedder, "encode", encode)
+        yield
