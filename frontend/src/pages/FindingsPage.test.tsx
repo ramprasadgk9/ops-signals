@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { FindingsPage } from './FindingsPage';
 import { api } from '../api/queries';
-import type { Finding } from '../types';
+import type { Finding, FindingTrust } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -16,6 +16,7 @@ vi.mock('../api/queries', () => ({
     timeseries: vi.fn(),
     alerts: vi.fn(),
     metricUsageLookup: vi.fn(),
+    findingFeedback: vi.fn(),
   },
 }));
 
@@ -330,5 +331,78 @@ describe('FindingsPage metric usage tag', () => {
 
     expect(await screen.findByText('Not on any dashboard or alert')).toBeInTheDocument();
     expect(api.metricUsageLookup).toHaveBeenCalledWith(['latency_p95']);
+  });
+});
+
+describe('FindingsPage trust', () => {
+  const trust = (overrides: Partial<FindingTrust>): FindingTrust => ({
+    group: 'level_change_agree', tier: 'needs_attention', badge: 'strong', checks: ['change', 'pyod_outlier'],
+    tested: { real: 0.91, checked: 266, random: 0.6, dataset: 'RCAEval RE1', data_kind: 'microservice', fits_metric: true, measured_at: '2026-10-08' },
+    service: { real: 0, answered: 0, min_answers: 5 }, your_answer: null, ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z', window: '24h', active_findings: 2, open_cases: 0, behavior_changes: 0,
+      impacted_services: 1, memory_items: 0, severity_trend: [], category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.metricUsageLookup).mockResolvedValue({});
+    vi.mocked(api.findings).mockResolvedValue([
+      { ...finding, id: 1, title: 'Latency moved to a new level', trust: trust({}) },
+      {
+        ...finding, id: 2, title: 'CPU looked unusual', category: 'unusual_activity',
+        trust: trust({ group: 'spike', tier: 'context', badge: null, checks: ['pyod_outlier'], tested: null }),
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('lists findings that need attention with their tested rate, and folds context away', async () => {
+    renderAt('/findings');
+
+    expect(await screen.findByText('Latency moved to a new level')).toBeInTheDocument();
+    expect(screen.getByText('Strong evidence')).toBeInTheDocument();
+    expect(screen.getByText('91% were real')).toBeInTheDocument();
+    expect(screen.getByText('266 checked in tests')).toBeInTheDocument();
+    expect(screen.getByText('Not yet')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1 of 1 · 1 context only')).toBeInTheDocument();
+    expect(screen.queryByText('CPU looked unusual')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Context only \(1\)/ }));
+
+    expect(await screen.findByText('CPU looked unusual')).toBeInTheDocument();
+    // A context finding can be answered, but shows no tested rate: it was no better than chance.
+    expect(screen.getAllByText('91% were real')).toHaveLength(1);
+    expect(screen.getAllByText('Was this real?')).toHaveLength(2);
+  });
+
+  it('saves the answer to "Was this real?"', async () => {
+    vi.mocked(api.findingFeedback).mockResolvedValue({ ...finding, id: 1 });
+    renderAt('/findings');
+
+    await screen.findByText('Latency moved to a new level');
+    fireEvent.click(screen.getByRole('button', { name: 'Real problem' }));
+
+    await waitFor(() => expect(api.findingFeedback).toHaveBeenCalledWith(1, 'real_problem'));
+  });
+
+  it('lists a kind of finding the team confirmed under Needs attention, saying why', async () => {
+    vi.mocked(api.findings).mockResolvedValue([
+      {
+        ...finding, id: 3, title: 'CPU looked unusual on checkout', category: 'unusual_activity',
+        trust: trust({ group: 'spike', tier: 'needs_attention', badge: 'team_confirmed', moved: 'up', tested: null, service: { real: 4, answered: 6, min_answers: 5 } }),
+      },
+    ]);
+    renderAt('/findings');
+
+    expect(await screen.findByText('CPU looked unusual on checkout')).toBeInTheDocument();
+    expect(screen.getByText('Confirmed by your team')).toBeInTheDocument();
+    expect(screen.getByText('Moved to Needs attention: your team said 4 of 6 findings like this on checkout-api were real.')).toBeInTheDocument();
+    expect(screen.getByText('4 of 6 were real')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Context only/ })).not.toBeInTheDocument();
   });
 });

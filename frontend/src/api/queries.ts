@@ -16,6 +16,7 @@ import type {
   SaveDraftResult,
   CsvRunResult,
   Finding,
+  FindingVerdict,
   MetricAnalyzerRecommendation,
   MetricSample,
   RouterResponse,
@@ -218,6 +219,8 @@ export const api = {
     return getJson<Finding[]>(`/api/findings/search?${queryParams.toString()}`);
   },
   getFinding: (findingId: number) => getJson<Finding>(`/api/findings/${findingId}`),
+  findingFeedback: (findingId: number, verdict: FindingVerdict) =>
+    postJson<{ verdict: FindingVerdict }, Finding>(`/api/findings/${findingId}/feedback`, { verdict }),
   cases: (limit?: number) => getJson<OperationalCase[]>(`/api/cases${limit ? `?limit=${limit}` : ''}`),
   autonomousPolicyRuns: (limit = 25) => getJson<AutonomousPolicyRun[]>(`/api/autonomous/policy-runs?limit=${limit}`),
   autonomousPolicyRunJobs: (policyRunId: string) => getJson<Record<string, unknown>[]>(`/api/autonomous/policy-runs/${encodeURIComponent(policyRunId)}/jobs`),

@@ -15,6 +15,7 @@ import { ui } from '../standalone/theme';
 import type { Finding } from '../types';
 import { categoryDetail, categoryLabel, categoryShortDescription } from '../utils/findingCategories';
 import { findingIdFromQuery, findingSortFromParam, findingSorts, groupRepeatedFindings, searchFindings } from '../utils/findingSearch';
+import { needsAttention } from '../utils/findingTrust';
 
 type FindingsWindow = '24h' | '7d';
 
@@ -109,7 +110,12 @@ export function FindingsPage() {
     setSearchParams(next, { replace: true });
   };
   const [shown, setShown] = useState(PAGE_SIZE);
-  useEffect(() => setShown(PAGE_SIZE), [searchQuery, sort, groupRepeats, window, searchParams.get('cluster')]);
+  const [contextShown, setContextShown] = useState(PAGE_SIZE);
+  const [contextOpen, setContextOpen] = useState(false);
+  useEffect(() => {
+    setShown(PAGE_SIZE);
+    setContextShown(PAGE_SIZE);
+  }, [searchQuery, sort, groupRepeats, window, searchParams.get('cluster')]);
   const showRuns = (finding: Finding) => {
     const next = new URLSearchParams(searchParams);
     next.set('q', [finding.service, finding.metric_name, finding.cluster].filter(Boolean).join(' '));
@@ -127,6 +133,10 @@ export function FindingsPage() {
   const clusterFindings = clusterFilter ? findings.filter((finding) => finding.cluster === clusterFilter) : findings;
   const visibleFindings = searchFindings(clusterFindings, searchQuery, sort);
   const visibleGroups = groupRepeatedFindings(visibleFindings, groupRepeats);
+  // Context findings (single-check spikes, patterns, forecasts) were no better than chance in tests:
+  // they stay one click away instead of crowding the list that asks for attention.
+  const attentionGroups = visibleGroups.filter((group) => needsAttention(group.finding));
+  const contextGroups = visibleGroups.filter((group) => !needsAttention(group.finding));
   const setClusterFilter = (cluster: string | null) => setParam('cluster', cluster);
   // "#57" for a finding outside this window: offer to open it directly, as the deep link does.
   const searchedId = findingIdFromQuery(searchQuery);
@@ -309,15 +319,46 @@ export function FindingsPage() {
         ) : visibleFindings.length ? (
           <Stack spacing={2}>
             <Typography variant="body2" sx={{ color: ui.muted }}>
-              Showing {Math.min(shown, visibleGroups.length)} of {visibleGroups.length}
+              Showing {Math.min(shown, attentionGroups.length)} of {attentionGroups.length}
+              {contextGroups.length ? ` · ${contextGroups.length} context only` : ''}
               {visibleGroups.length !== visibleFindings.length ? ` (${visibleFindings.length} findings, repeats grouped)` : ''}
               {visibleFindings.length !== findings.length ? ` · ${findings.length} in window` : ''}
             </Typography>
-            <TopFindingsList groups={visibleGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} />
-            {visibleGroups.length > shown ? (
+            <Typography sx={{ fontSize: 16, fontWeight: 900 }}>Needs attention ({attentionGroups.length})</Typography>
+            {attentionGroups.length ? (
+              <TopFindingsList groups={attentionGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} />
+            ) : (
+              <Typography color="text.secondary">Nothing needs attention in this window.</Typography>
+            )}
+            {attentionGroups.length > shown ? (
               <Button variant="outlined" onClick={() => setShown((current) => current + PAGE_SIZE)} sx={{ alignSelf: 'center', textTransform: 'none', fontWeight: 800 }}>
-                Show {Math.min(PAGE_SIZE, visibleGroups.length - shown)} more
+                Show {Math.min(PAGE_SIZE, attentionGroups.length - shown)} more
               </Button>
+            ) : null}
+            {contextGroups.length ? (
+              <Box>
+                <Button
+                  variant="text"
+                  onClick={() => setContextOpen((open) => !open)}
+                  aria-expanded={contextOpen}
+                  sx={{ textTransform: 'none', fontWeight: 900, fontSize: 16, px: 0 }}
+                >
+                  {contextOpen ? '▾' : '▸'} Context only ({contextGroups.length})
+                </Button>
+                <Typography variant="body2" sx={{ color: ui.muted, mb: contextOpen ? 1.5 : 0 }}>
+                  Not alerts: single unusual values, patterns and forecasts. In tests, findings like these were real about as often as a random alert. Useful when you are already investigating.
+                </Typography>
+                {contextOpen ? (
+                  <Stack spacing={2}>
+                    <TopFindingsList groups={contextGroups.slice(0, contextShown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} />
+                    {contextGroups.length > contextShown ? (
+                      <Button variant="outlined" onClick={() => setContextShown((current) => current + PAGE_SIZE)} sx={{ alignSelf: 'center', textTransform: 'none', fontWeight: 800 }}>
+                        Show {Math.min(PAGE_SIZE, contextGroups.length - contextShown)} more
+                      </Button>
+                    ) : null}
+                  </Stack>
+                ) : null}
+              </Box>
             ) : null}
           </Stack>
         ) : searchQuery ? (

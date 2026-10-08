@@ -75,6 +75,9 @@ What analyzers are, why a given one gets picked for a given metric, and how much
 - [`analyzer-methodology.md`](analyzer-methodology.md) - which analyzers are published,
   validated methods versus which parts (the router's scoring weights) are heuristic and
   not yet validated against real outcomes. Read this before trusting a recommendation blindly.
+- [`finding-trust.md`](finding-trust.md) - how much to trust a finding: the "Needs attention" and
+  "Context only" lists, the badges, the tested numbers behind them (and how they compare with a
+  random alert), and the "Was this real?" answers that replace them for your service.
 
 ## 4. UI Tour
 

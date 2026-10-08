@@ -1,0 +1,133 @@
+# Finding trust: how much to trust a finding
+
+Every finding says how often findings like it turned out to be real, and which ones need your
+attention. The numbers are measured, not guessed. This page explains what you see, where the
+numbers come from, and what they don't promise.
+
+## What you see
+
+The Findings page has two lists:
+
+- **Needs attention**: findings with evidence that they usually mean something changed.
+- **Context only** (folded): single unusual values, patterns and forecasts. They aren't alerts.
+  In tests, they were real about as often as an alert raised at a random moment would be. They are
+  useful when you're already investigating something.
+
+Each finding carries a badge:
+
+| Badge | Meaning | In tests |
+| --- | --- | --- |
+| **Strong evidence** | Two different checks agree: the values look unusual **and** the level moved and stayed there | 91% real, against 60% for a random alert (266 checked) |
+| **Moderate evidence** | One check saw the level move and stay there | 70% real, against 57% for a random alert (485 checked) |
+| **Data problem** | The metric stopped reporting or froze at one value | A fact, not a guess, so no rate |
+| **Context only** | A single unusual value, a pattern, a trend or a forecast | Spikes were real 60% of the time, the same as a random alert |
+
+Findings in "Needs attention" show two numbers side by side:
+
+- **On your service**: how many findings like this, on this service, your team said were real.
+  It appears once anyone answers "Was this real?" and takes over from the tested number after
+  5 answers.
+- **In testing**: how often findings like this were real on public test data. The ⓘ next to it
+  says which data and what a random alert would have scored. When the finding's metric is unlike
+  the tested ones (a service's CPU, memory and latency), the card says so.
+
+## "Was this real?"
+
+Every finding has three answers:
+
+- **Real problem**: counts towards "real".
+- **Not a problem**: counts against.
+- **Expected change**: the change was real but planned (a deploy, a scaling change). It counts
+  neither way.
+
+Answering again changes your answer. Answers are kept per service and per kind of finding, so one
+noisy service doesn't change the numbers for another.
+
+Answers are stored in Ops Signals' own database (the PostgreSQL that holds findings and cases),
+in `ops_finding_feedback`: one row per finding with its service, metric, kind of finding and
+answer.
+
+## Your answers move findings between the lists
+
+Once a kind of finding on a service has **5 or more answers**, those answers decide its list on
+that service, ahead of the tests:
+
+| Your team's answers | What happens | Shown as |
+| --- | --- | --- |
+| A Context only kind (spikes, patterns) was real **at least half** the time | It moves up to Needs attention on that service | **Confirmed by your team**, with "Moved to Needs attention: your team said 4 of 6 ... were real" |
+| A Needs attention kind was real **less than 1 in 5** times | It moves down to Context only on that service | **Usually not a problem here**, with "Moved to Context only: ..." |
+
+- It applies to every finding of that kind on that service, including new ones nobody answered yet.
+- Other services keep the tested lists until their own teams answer.
+- **Data problems never move down**: a metric that stopped reporting is a fact, whatever the answers.
+- Changing answers can move a kind of finding back.
+- Fewer than 5 answers never move anything, however one-sided.
+
+The answers don't change the analyzers or the router; they only decide what asks for attention on
+your service.
+
+## Where the tested numbers come from
+
+They come from the finding-trust benchmark (`benchmark/finding_trust/`), which replays recorded
+metrics through the same analysis path a scheduled run uses and checks each finding against
+problems marked by outside researchers:
+
+- **RCAEval RE1** (Pham et al., 2024, CC BY 4.0): 375 faults (CPU, memory, disk, network delay,
+  packet loss) injected at known moments into three microservice demo shops. This is the main
+  source.
+- **NAB cloud-server metrics** (Numenta Anomaly Benchmark, 17 series): kept alongside for
+  comparison. It gave too few level changes to show a number of its own.
+
+Every rate is compared with what an alert raised at a random moment would score on the same data,
+because a finding can look accurate simply because problems were happening most of the time. A
+group is only shown with a number when at least 30 findings like it were checked.
+
+The numbers live in `config/finding_trust.yaml`, generated from a recorded run. To refresh them:
+
+```bash
+.venv/bin/python -m benchmark.finding_trust.run --nab-category realAWSCloudwatch \
+    --rcaeval-systems RE1-OB,RE1-SS,RE1-TT --rcaeval-repeats all
+.venv/bin/python -m benchmark.finding_trust.export benchmark/results/<run>/results.json
+```
+
+The run writes a local report (`report.html`) next to its results, with every group, how it
+compares with a random alert, and the limits below.
+
+## How a finding gets its group
+
+The backend (`backend/app/services/finding_trust.py`) looks at the kinds of checks behind a
+finding, not the number of analyzers:
+
+| Group | When | List |
+| --- | --- | --- |
+| `data_problem` | a data gap or flatline signal, or the Data Quality category | Needs attention |
+| `level_change_agree` | a change-point check (ruptures or baseline_shift, which share one detector) plus a different check | Needs attention |
+| `level_change_single` | a change-point check alone | Needs attention |
+| `spike` | unusual values without a level change | Context only |
+| `pattern` | trends, forecasts, repeating patterns | Context only |
+
+A finding whose signals weren't stored falls back to its category.
+
+## What the numbers don't promise
+
+- **91% real still means about 1 in 10 isn't.** Take a quick look before you act, especially
+  before you page someone.
+- **Test data isn't your system.** Your team's answers replace the tested number for your service.
+- **No early warnings yet.** A finding says something has changed, not that something will break.
+  Forecasts stay in "Context only" until they're tested against problems that built up slowly.
+- **Missing a problem is possible.** In the tests, slow-network faults were caught less often than
+  CPU and memory faults.
+- **Importance isn't trust.** In the tests, the importance score didn't reliably separate real
+  problems from noise, so it no longer decides the badge.
+
+## API
+
+- `GET /api/findings` and `GET /api/findings/{id}` return a `trust` object on each finding:
+  `group`, `tier` (`needs_attention` or `context`), `badge`, `checks`, `tested` (or null),
+  `service` (`real`, `answered`, `min_answers`), `your_answer`, and `moved` (`up`, `down` or null,
+  when your answers moved it to the other list; the badge is then `team_confirmed` or null).
+- `POST /api/findings/{id}/feedback` with `{"verdict": "real_problem" | "expected_change" |
+  "not_a_problem"}` stores the answer and returns the finding with its trust recomputed.
+
+Answers are stored in `ops_finding_feedback` (created at startup; see
+`backend/migrations/009_finding_feedback.sql`).
