@@ -11,10 +11,11 @@ from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
-from backend.app.models.api_schema import FindingOut
+from backend.app.models.api_schema import FindingFeedbackIn, FindingOut
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity
 from backend.app.services.finding_changes import finding_changes
+from backend.app.services.finding_trust import finding_trust, record_feedback
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 Window = Literal["1h", "6h", "24h", "7d"]
@@ -31,7 +32,7 @@ def _window_start(window: Window) -> datetime:
     return now - timedelta(hours=24)
 
 
-def _to_finding_out(finding: FindingEntity, changes: dict | None = None, connection_id: str | None = None) -> FindingOut:
+def _to_finding_out(finding: FindingEntity, changes: dict | None = None, connection_id: str | None = None, trust: dict | None = None) -> FindingOut:
     return FindingOut(
         id=finding.id,
         service=finding.service,
@@ -50,6 +51,7 @@ def _to_finding_out(finding: FindingEntity, changes: dict | None = None, connect
         analysis_run_id=finding.analysis_run_id,
         created_at=finding.created_at,
         changes=changes,
+        trust=trust,
     )
 
 
@@ -61,7 +63,8 @@ def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmen
         if run_ids
         else {}
     )
-    return [_to_finding_out(row, changes.get(row.id), connections.get(row.analysis_run_id)) for row in rows]
+    trust = finding_trust(db, rows)
+    return [_to_finding_out(row, changes.get(row.id), connections.get(row.analysis_run_id), trust.get(row.id)) for row in rows]
 
 
 def _ensure_ai_summary(finding: FindingEntity, db: Session, assistant: OperationalIntelligenceAssistant | None) -> None:
@@ -183,4 +186,20 @@ def get_finding(
     if row is None:
         raise HTTPException(status_code=404, detail="finding not found")
     _ensure_ai_summary(row, db, assistant)
+    return _with_changes(db, [row], config)[0]
+
+
+@router.post("/{finding_id}/feedback", response_model=FindingOut)
+def finding_feedback(
+    finding_id: int,
+    payload: FindingFeedbackIn,
+    db: Session = Depends(get_db),
+    config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+) -> FindingOut:
+    """The team's answer to "Was this real?". Answering again changes the answer. Returns the
+    finding with its trust recomputed, so the card shows the new service count at once."""
+    row = db.execute(select(FindingEntity).where(FindingEntity.id == finding_id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    record_feedback(db, row, payload.verdict)
     return _with_changes(db, [row], config)[0]

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Finding trust: each finding says how often findings like it were real, and only the ones that
+  earned it ask for attention** (see `docs/finding-trust.md`). The Findings page now has a
+  **Needs attention** list and a folded **Context only** list. A lasting level change seen by two
+  different checks is **Strong evidence** (91% real in tests, against 60% for a random alert, 266
+  checked); seen by the change check alone it is **Moderate evidence** (70% against 57%); a metric
+  that stopped or froze is a **Data problem**. Single unusual values, patterns and forecasts move to
+  Context only: in tests they were real about as often as a random alert. Each card shows **On your
+  service** next to **In testing**, and a **Was this real?** answer (real problem, expected change,
+  not a problem) builds the service's own number, which takes over after 5 answers. With 5 or more
+  answers, a service's own answers also move a kind of finding between the lists on that service:
+  context findings real at least half the time move up (**Confirmed by your team**), needs-attention
+  findings real less than 1 in 5 times move down (**Usually not a problem here**); data problems
+  never move down. The tested
+  numbers come from a new benchmark (`benchmark/finding_trust`) on RCAEval's 375 injected
+  microservice faults and NAB's cloud-server metrics, kept in `config/finding_trust.yaml`. The
+  badge replaces the importance-based level on the card, because importance didn't separate real
+  problems from noise in the tests. New: `POST /api/findings/{id}/feedback`, a `trust` object on
+  findings, and the `ops_finding_feedback` table (created at startup).
 - **Metric Usage: which metrics a dashboard or alert watches, and the problems nobody would see**
   (new **Metric Usage** page; on once `OPS_SIGNALS_GRAFANA_URL` and a read-only Viewer token are set,
   see README "Metric Usage"). Every 6 hours it reads Grafana dashboards (library panels, collapsed

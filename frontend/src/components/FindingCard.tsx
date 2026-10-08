@@ -7,6 +7,8 @@ import type { Finding, MetricUsageItem, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
+import { trustBadge } from '../utils/findingTrust';
+import { FindingTrustPanel } from './FindingTrustPanel';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
 import { watchedByTag } from '../utils/metricUsage';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
@@ -57,6 +59,8 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
   const prior = priorChange(changes);
   const scope = breakdownScopeLabel(breakdown);
   const watchedBy = usage ? watchedByTag(usage) : null;
+  // Trust replaces the importance-based level: importance didn't separate real problems from noise in tests.
+  const badge = trustBadge(finding.trust);
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -68,14 +72,20 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
               {[finding.service, finding.metric_name, finding.cluster, connectionName].filter(Boolean).join(' · ')}
             </Typography>
           </Stack>
-          <Tooltip title={findingLevelHint(finding.health_status)} arrow>
-            <Chip
-              label={findingLevel(finding.health_status).label}
-              color={findingLevel(finding.health_status).chip}
-              size="small"
-              sx={{ flexShrink: 0 }}
-            />
-          </Tooltip>
+          {badge ? (
+            <Tooltip title={badge.detail} arrow>
+              <Chip label={badge.label} color={badge.color} size="small" variant={badge.color === 'default' ? 'outlined' : 'filled'} sx={{ flexShrink: 0 }} />
+            </Tooltip>
+          ) : (
+            <Tooltip title={findingLevelHint(finding.health_status)} arrow>
+              <Chip
+                label={findingLevel(finding.health_status).label}
+                color={findingLevel(finding.health_status).chip}
+                size="small"
+                sx={{ flexShrink: 0 }}
+              />
+            </Tooltip>
+          )}
         </Stack>
         
         <Stack direction="row" spacing={0.75} alignItems="flex-start" sx={{ mb: 2 }}>
@@ -137,7 +147,9 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
             />
           </Tooltip>
         )}
-        
+
+        {finding.trust ? <FindingTrustPanel finding={finding} answerOnly={finding.trust.tier === 'context' && !finding.trust.moved} /> : null}
+
         <Stack spacing={1} sx={{ mt: 2 }}>
           <Stack direction="row" justifyContent="space-between">
             <Typography variant="caption" color="text.secondary">Importance</Typography>

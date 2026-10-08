@@ -185,6 +185,13 @@ class FindingOut(BaseModel):
     created_at: datetime | None = None
     # Deploys and other change events near the finding's change (services/finding_changes.py).
     changes: dict | None = None
+    # How much to trust it: group, needs-attention tier, tested numbers, the team's own answers
+    # (services/finding_trust.py).
+    trust: dict | None = None
+
+
+class FindingFeedbackIn(BaseModel):
+    verdict: Literal["real_problem", "expected_change", "not_a_problem"]
 
 
 class CaseCreateResponse(BaseModel):

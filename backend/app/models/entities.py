@@ -275,6 +275,22 @@ class FindingEntity(Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class FindingFeedbackEntity(Base):
+    """The team's answer to "Was this real?" on one finding (services/finding_trust.py). Service and
+    trust group are copied in, so a service's own rate per group is one grouped count."""
+
+    __tablename__ = "ops_finding_feedback"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    finding_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    service: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metric_name: Mapped[str] = mapped_column(Text, nullable=False)
+    trust_group: Mapped[str] = mapped_column(String(32), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class QuestionAnswerEntity(Base):
     __tablename__ = "question_answers"
 

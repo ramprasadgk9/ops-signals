@@ -179,6 +179,35 @@ export type Finding = {
   created_at?: string;
   /** Deploys and other change events near the finding's change; read with utils/findingChanges. */
   changes?: unknown;
+  /** How much to trust it (backend services/finding_trust.py); read with utils/findingTrust. */
+  trust?: FindingTrust | null;
+};
+
+export type FindingVerdict = 'real_problem' | 'expected_change' | 'not_a_problem';
+
+export type FindingTrustGroup = 'data_problem' | 'level_change_agree' | 'level_change_single' | 'spike' | 'pattern';
+
+export type FindingTrust = {
+  group: FindingTrustGroup;
+  tier: 'needs_attention' | 'context';
+  badge: 'strong' | 'moderate' | 'data_problem' | 'team_confirmed' | null;
+  /** Set when this service's own answers moved the group off its tested list. */
+  moved?: 'up' | 'down' | null;
+  checks: string[];
+  /** Tested numbers from public benchmark data; null when the group wasn't tested enough. */
+  tested: {
+    real: number;
+    checked: number;
+    random: number;
+    dataset: string;
+    data_kind: string;
+    /** Whether this finding's metric is like the ones tested (CPU, memory, latency). */
+    fits_metric: boolean;
+    measured_at?: string | null;
+  } | null;
+  /** This service's own "Was this real?" answers on findings in the same group. */
+  service: { real: number; answered: number; min_answers: number };
+  your_answer: FindingVerdict | null;
 };
 
 export type OperationalCase = {
