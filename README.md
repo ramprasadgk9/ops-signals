@@ -162,13 +162,14 @@ Historical similarity does not prove two cases share the same root cause.
 | --- | --- | --- |
 | See it working in a minute, with a scripted incident | `docker compose -f docker-compose.demo.yml up` ([demo](docs/demo.md)) | Docker |
 | Try it on your laptop, with sample metrics or your own Prometheus | `./scripts/setup.sh`, then `./scripts/run_all.sh` (the steps below) | Docker, Python, Node |
+| Try it on your laptop against your own Mimir, Thanos or several Prometheus servers | The same, with one extra step: [Point It at Your Own Prometheus](#point-it-at-your-own-prometheus-optional) | Docker, Python, Node |
 | Run it for your team on one server | `docker compose -f docker-compose.packaged.yml up -d` ([Deploy for Your Team](#deploy-for-your-team)) | Docker |
 | Run it in Kubernetes | `helm upgrade --install ops-signals ./helm/ops-signals` ([Deploy for Your Team](#deploy-for-your-team)) | Kubernetes, Helm |
 | Use it inside Grafana | the Grafana plugin ([Grafana Plugin](#grafana-plugin)) | Grafana, plus one of the two above |
 
 The demo doesn't read your data. The laptop install starts its own Prometheus with mock metrics, so
-it works before you connect anything. The team installs read only from the Prometheus you point
-them at.
+it works before you connect anything, and stops starting them once you point it at your own. The
+team installs read only from the Prometheus you point them at.
 
 ### Try It on Your Laptop
 
@@ -205,6 +206,42 @@ cd ops-signals
 ```
 
 This creates a Python virtualenv and installs dependencies, runs `npm install` for the frontend, starts PostgreSQL and Qdrant in Docker, waits for both to report healthy, and initializes the database schema. First run pulls Docker images and packages, so expect it to take a few minutes. You'll see `Setup complete.` printed at the end.
+
+### Point It at Your Own Prometheus (Optional)
+
+Skip this to start with the bundled Prometheus and mock metrics. You can do it any time later; see
+[Switching later](#switching-later).
+
+```bash
+cp .env.example .env
+```
+
+`run_all.sh` reads `.env` itself. Then, in `.env`, pick the line that fits:
+
+- **One Prometheus, or Mimir/Thanos/VictoriaMetrics with one tenant** (clusters are told apart by
+  their `cluster` label):
+
+  ```bash
+  OPS_SIGNALS_PROMETHEUS_URL=https://prometheus.example.com
+  ```
+
+  Add `OPS_SIGNALS_PROMETHEUS_BEARER_TOKEN` (or `_USERNAME`/`_PASSWORD`) for auth, and
+  `OPS_SIGNALS_PROMETHEUS_HEADERS=X-Scope-OrgID:your-tenant` for a Mimir tenant.
+
+- **Several Mimir tenants, or several separate Prometheus servers**: list them in a connections file.
+
+  ```bash
+  cp examples/prometheus-connections.yaml prometheus-connections.yaml
+  ```
+
+  Edit it (one entry per tenant or server; tokens stay in `.env` as `${VARIABLES}`), then set:
+
+  ```bash
+  OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE=prometheus-connections.yaml
+  ```
+
+The [Prometheus](#prometheus) section has the details. With either set, `run_all.sh` doesn't start
+the bundled Prometheus and mock metrics (`OPS_SIGNALS_LOCAL_PROMETHEUS=true` starts them anyway).
 
 ### Start Ops Signals
 
@@ -288,7 +325,7 @@ Alertmanager) sends the token, the Helm and Compose settings, and the known limi
 | Script | What it does | When to use it | Ports |
 | --- | --- | --- | --- |
 | `./scripts/setup.sh` | Installs Python and frontend deps, starts Postgres and Qdrant, and initializes the database. | First-time setup or after a clean checkout. | Postgres `5432`, Qdrant `6333` |
-| `./scripts/run_all.sh` | Starts the standalone backend, frontend, Postgres, Qdrant, Prometheus, and mock metrics for the app. | Daily local development outside Grafana. | Backend `8001`, frontend `5174`, Prometheus `9090` |
+| `./scripts/run_all.sh` | Starts the standalone backend, frontend, Postgres, Qdrant, and - until `.env` points at your own Prometheus - a bundled Prometheus with mock metrics. | Daily local development outside Grafana. | Backend `8001`, frontend `5174`, Prometheus `9090` |
 | `./scripts/multicluster.sh up`, then `app` | Starts a local Grafana Mimir with several clusters, an HA pair and two tenants, then the app with one connection per tenant. | Testing multi-cluster and multi-tenant behaviour; not for real deployments. See [`docs/testing-multicluster-locally.md`](docs/testing-multicluster-locally.md). | Mimir `9009`, plus the `run_all.sh` ports |
 | `./scripts/run_grafana_stack.sh` | Builds the Grafana plugin, starts Grafana, Prometheus, mock metrics, and the plugin backend. | Testing the Grafana plugin experience. | Grafana `3000`, Prometheus `9090`, backend `8002` |
 | `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
@@ -491,6 +528,19 @@ Validate Data then get a connection picker, each autonomous policy keeps its con
 are analysed on the tenant their labels match. Series from several clusters behind one endpoint are
 analysed per cluster, and HA replica copies count once. See
 [Mimir, Thanos and other multi-source backends](docs/standalone-prometheus-analysis.md#mimir-thanos-and-other-multi-source-backends).
+
+##### Switching later
+
+Moving from the bundled Prometheus to your own, or from one Prometheus to several Mimir tenants, is a
+change to `.env` and a restart; nothing is reinstalled.
+
+- Policies and findings made before keep working: they belong to the connection `default`, which
+  always means the default connection, the first one in the file unless it sets `default:`.
+- The connections file is checked at startup: a duplicate id, an unknown `default` or an unset
+  `${TOKEN}` stops the backend with an error naming it. Later edits to the file are picked up without
+  a restart.
+- After the restart, Configure and New Analysis get a connection picker, Integrations lists each
+  connection and whether it answers, and alerts go to the connection whose `match_labels` they carry.
 
 #### CSV Input
 

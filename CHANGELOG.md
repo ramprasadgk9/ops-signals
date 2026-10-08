@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+- **Metric Usage: which metrics a dashboard or alert watches, and the problems nobody would see**
+  (new **Metric Usage** page; on once `OPS_SIGNALS_GRAFANA_URL` and a read-only Viewer token are set,
+  see README "Metric Usage"). Every 6 hours it reads Grafana dashboards (library panels, collapsed
+  rows and `$variables` included) and alert rules plus Prometheus/Mimir alerting and recording rules,
+  takes the metric names from their queries, and compares them with every metric in each Prometheus
+  connection and with recent findings. Each metric lands in one group: **blind spot** (on no
+  dashboard or alert, with recent significant or critical findings; links to the finding and can
+  become a case), **missing** (a panel or alert reads a metric that isn't there), **watched**
+  (directly or through recording rules) or **not watched**. The page opens with the unused share of
+  stored series, the problems nobody would have seen and how coverage moved since the oldest kept
+  check; **Run now** checks without waiting. Unused series show as a monthly cost only when you set
+  your own rate (`OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES`); there is no built-in price. Finding
+  cards say which dashboard or alert shows the metric, and the Overview names blind spots. With
+  several connections a Grafana datasource counts only on the connections with its URL, or those
+  naming it under the new `grafana_datasources` field of the connections file; panels on a
+  datasource that matches none are left out with a warning. Excluded folders, ignored metrics and
+  the interval are in `.env.example`.
+- **Fixed: metric names read from a query included `offset 5m`, `1e3`, Grafana `$variables` and
+  `# comments`** as if they were metrics. Alert enrichment shares this code.
+- **Your own Prometheus or Mimir from the first install**: the Quick Start has an optional step for
+  `.env` - one Prometheus URL, or a connections file for several Mimir tenants or Prometheus servers
+  - and the Prometheus section says what changes when you switch later (policies made before keep
+  working). `scripts/run_all.sh` no longer starts the bundled Prometheus and mock metrics once
+  `.env` points at your own; `OPS_SIGNALS_LOCAL_PROMETHEUS=true` starts them anyway, and they still
+  start with alert enrichment on, for its demo rules.
+
 ## 0.3.0 - 2026-10-07
 
 - **Jira ticketing for cases** (Jira Cloud; off by default, `OPS_SIGNALS_TICKETING_ENABLED` and the

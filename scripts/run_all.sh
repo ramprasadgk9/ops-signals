@@ -21,6 +21,8 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
 fi
 
 cd "$ROOT_DIR"
+# shellcheck source=lib/local_prometheus.sh
+source "$ROOT_DIR/scripts/lib/local_prometheus.sh"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required"
@@ -46,7 +48,15 @@ case "$(echo "${OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED:-false}" | tr '[:upper:]' '
 esac
 
 compose=(docker compose)
-services=(postgres qdrant prometheus mock-metrics)
+services=(postgres qdrant)
+local_prometheus=false
+if wants_local_prometheus; then
+  local_prometheus=true
+  services+=(prometheus mock-metrics)
+else
+  echo "Reading your own Prometheus (.env), so the bundled Prometheus and mock metrics are not started."
+  echo "OPS_SIGNALS_LOCAL_PROMETHEUS=true starts them anyway."
+fi
 if [[ "$alerting_enabled" == "true" ]]; then
   mkdir -p "$ROOT_DIR/tmp"
   export OPS_SIGNALS_ALERTMANAGER_CONFIG="$ROOT_DIR/tmp/alertmanager.generated.yml"
@@ -84,18 +94,20 @@ for attempt in {1..60}; do
   sleep 2
 done
 
-echo "Waiting for prometheus to become ready..."
-for attempt in {1..60}; do
-  if curl -fsS http://localhost:9090/-/ready >/dev/null 2>&1; then
-    break
-  fi
-  if [[ "$attempt" -eq 60 ]]; then
-    echo "prometheus did not become ready in time"
-    echo "Try: docker compose logs prometheus"
-    exit 1
-  fi
-  sleep 2
-done
+if [[ "$local_prometheus" == "true" ]]; then
+  echo "Waiting for prometheus to become ready..."
+  for attempt in {1..60}; do
+    if curl -fsS http://localhost:9090/-/ready >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "$attempt" -eq 60 ]]; then
+      echo "prometheus did not become ready in time"
+      echo "Try: docker compose logs prometheus"
+      exit 1
+    fi
+    sleep 2
+  done
+fi
 
 if [[ "$alerting_enabled" == "true" ]]; then
   echo "Waiting for alertmanager to become ready..."
