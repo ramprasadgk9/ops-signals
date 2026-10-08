@@ -127,7 +127,9 @@ config here tolerates a week of that; if it still happens, `docker compose -f
 dev/multicluster/docker-compose.yml restart mimir` rebuilds the index at once (no data is lost).
 
 The Validate Data **Lab Scenarios** (`spike-lab`, `trend-lab`, ...) come from `run_all.sh`'s mock
-Prometheus and aren't in Mimir; query `checkout`, `payments` or `search` here instead.
+Prometheus and aren't in Mimir; query `checkout`, `payments` or `search` here instead. With the
+connections file set, `run_all.sh` doesn't start that Prometheus (one already running keeps
+running); `OPS_SIGNALS_LOCAL_PROMETHEUS=true ./scripts/multicluster.sh app` starts it anyway.
 
 Per-cluster Prometheus UIs, to see exactly what each "cluster" scrapes: eu-a
 http://localhost:9191, eu-b http://localhost:9192, us http://localhost:9193, staging
