@@ -28,5 +28,9 @@ connections:
       X-Scope-OrgID: team-b
     match_labels:
       tenant: team-b
+    # Grafana datasources (uid or name) that read this tenant, for the Metric Usage page. Needed when
+    # several tenants share one URL, or when Grafana reaches it by another host name; otherwise a
+    # datasource belongs to the connections with the same URL.
+    # grafana_datasources: [mimir-team-b]
     # Any per-connection setting can differ, e.g. a different cluster label:
     # cluster_label: k8s_cluster

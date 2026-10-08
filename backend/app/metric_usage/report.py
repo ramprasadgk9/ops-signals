@@ -2,9 +2,13 @@
 per metric:
 
 - blind_spot: nothing watches it (no dashboard, no alert) and it had a recent problem finding.
-- missing: a dashboard or alert reads it, but Prometheus has no such metric - an empty panel.
+- missing: a dashboard or alert reads it, but no connection its datasource reads has such a metric -
+  an empty panel.
 - watched: a dashboard or alert reads it, directly or through recording rules.
 - unwatched: nothing reads it and nothing is wrong with it.
+
+A usage counts only on the connections its datasource reads (MetricUsage.connections; None means any),
+so a team-b panel doesn't watch team-a's metric of the same name.
 """
 
 from __future__ import annotations
@@ -69,13 +73,23 @@ def build_report(
     for usage in scan.usages:
         usages.setdefault(usage.metric, []).append(usage)
 
-    watched = {metric for metric, found in usages.items() if any(usage.kind in WATCHING_KINDS for usage in found)}
+    def finds(usage: MetricUsage, metric: str) -> bool:
+        present = connections.get(metric, [])
+        return bool(present) and (usage.connections is None or any(connection in usage.connections for connection in present))
+
+    def watching(metric: str) -> list[MetricUsage]:
+        return [usage for usage in usages.get(metric, []) if usage.kind in WATCHING_KINDS]
+
+    # Read by a dashboard or alert. Recording rules this reads become watched too, whether or not
+    # the rule's output exists yet: an empty panel still means someone looks there.
+    read = {metric for metric in usages if watching(metric)}
+    watched = {metric for metric in read if any(finds(usage, metric) for usage in watching(metric))}
     via: dict[str, list[str]] = {}
     changed = True
     while changed:  # a watched recording rule makes the metrics it reads watched, through chains
         changed = False
         for rule_name, sources in scan.recording_rules.items():
-            if rule_name not in watched:
+            if rule_name not in watched and rule_name not in read:
                 continue
             for source in sources:
                 if rule_name not in via.setdefault(source, []):
@@ -91,17 +105,15 @@ def build_report(
         return sum(counts) if counts else None
 
     items: list[MetricReportItem] = []
-    for metric in sorted(set(connections) | {name for name in watched if name in usages and not ignored(name)}):
+    for metric in sorted(set(connections) | {name for name in read if not ignored(name)}):
         present = metric in connections
         count, latest = problems.get(metric, (0, None))
-        if not present:
-            if not any(usage.kind in WATCHING_KINDS for usage in usages.get(metric, [])):
-                continue  # only read by a recording rule: not a panel anyone looks at
-            status = "missing"
-        elif metric in watched:
+        if present and metric in watched:
             status = "watched"
-        elif count:
+        elif present and count:
             status = "blind_spot"
+        elif metric in read:
+            status = "missing"  # every dashboard and alert reading it comes up empty
         else:
             status = "unwatched"
         items.append(

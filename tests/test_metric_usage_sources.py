@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from backend.app.config import PrometheusConnectionConfig
 from backend.app.metric_usage.sources import (
     MetricUsage,
     dashboard_usages,
+    datasource_scopes,
     folder_excluded,
     grafana_alert_rule_usages,
     prometheus_rule_usages,
@@ -160,3 +162,70 @@ def test_prometheus_rules_split_alerts_from_recording_rules() -> None:
 )
 def test_folder_exclusion_matches_names_and_wildcards(folder: str | None, patterns: list[str], excluded: bool) -> None:
     assert folder_excluded(folder, patterns) is excluded
+
+
+MIMIR_A = PrometheusConnectionConfig(id="team-a", name="Mimir team-a", base_url="http://localhost:9009/prometheus")
+MIMIR_B = PrometheusConnectionConfig(id="team-b", name="Mimir team-b", base_url="http://localhost:9009/prometheus", grafana_datasources=["Mimir B"])
+GRAFANA_DATASOURCES = [
+    # Same URL as both tenants: Grafana keeps the X-Scope-OrgID value secret, so either could be meant.
+    {"uid": "mimir-a", "name": "Mimir A", "type": "prometheus", "url": "http://127.0.0.1:9009/prometheus/"},
+    # Named in team-b's grafana_datasources; the URL Grafana uses inside Docker matches nothing.
+    {"uid": "mimir-b", "name": "Mimir B", "type": "prometheus", "url": "http://mimir:9009/prometheus"},
+    {"uid": "old", "name": "Old Prometheus", "type": "prometheus", "url": "http://old-prom:9090", "isDefault": True},
+    {"uid": "logs", "name": "Loki", "type": "loki", "url": "http://loki:3100"},
+]
+
+
+def test_grafana_datasources_map_to_connections_by_name_or_url() -> None:
+    index = datasource_scopes(GRAFANA_DATASOURCES, [MIMIR_A, MIMIR_B])
+    assert index.scopes["mimir-a"] == index.scopes["Mimir A"] == {"team-a", "team-b"}
+    assert index.scopes["mimir-b"] == {"team-b"}
+    # Several connections and no match: Ops Signals can't see what it reads.
+    assert index.scopes["old"] == frozenset()
+    assert index.scopes[""] == frozenset()  # the default datasource, for panels that name none
+    assert index.names["old"] == "Old Prometheus"
+    assert index.types["logs"] == "loki"
+    assert "logs" not in index.scopes
+
+
+def test_with_one_connection_any_prometheus_datasource_is_assumed_to_be_it() -> None:
+    # Grafana in Docker reaches Prometheus as prometheus:9090, Ops Signals as localhost:9090.
+    single = PrometheusConnectionConfig(base_url="http://localhost:9090")
+    index = datasource_scopes([{"uid": "prom", "name": "Prometheus", "type": "prometheus", "url": "http://prometheus:9090", "isDefault": True}], [single])
+    assert index.scopes["prom"] is None
+    assert index.scopes[""] is None
+
+
+def test_dashboard_queries_carry_the_connections_their_datasource_reads() -> None:
+    index = datasource_scopes(GRAFANA_DATASOURCES, [MIMIR_A, MIMIR_B])
+    payload = {
+        "meta": {"folderTitle": "Team B"},
+        "dashboard": {"uid": "d1", "title": "Billing", "panels": [
+            {"title": "Named", "datasource": {"type": "prometheus", "uid": "mimir-b"}, "targets": [{"expr": "billing_errors"}]},
+            {"title": "Default", "targets": [{"expr": "default_metric"}]},
+            {"title": "Variable", "datasource": {"type": "prometheus", "uid": "${ds}"}, "targets": [{"expr": "variable_metric"}]},
+            {"title": "Mixed", "datasource": {"uid": "-- Mixed --"}, "targets": [{"expr": "shared_metric", "datasource": {"uid": "mimir-a"}}]},
+        ]},
+    }
+    scan = dashboard_usages(payload, datasource_types=index.types, datasource_scopes=index.scopes)
+    connections = {usage.metric: usage.connections for usage in scan.usages}
+    assert connections == {"billing_errors": {"team-b"}, "variable_metric": None, "shared_metric": {"team-a", "team-b"}}
+    # The default datasource is one Ops Signals doesn't query: left out, and said so.
+    assert scan.skipped_datasources == {""}
+
+
+def test_grafana_alert_rules_carry_their_datasource_connections() -> None:
+    index = datasource_scopes(GRAFANA_DATASOURCES, [MIMIR_A, MIMIR_B])
+    rules = [
+        {"uid": "r1", "title": "Billing errors", "folderUID": "f", "data": [{"datasourceUid": "mimir-b", "model": {"expr": "billing_errors"}}]},
+        {"uid": "r2", "title": "Old", "folderUID": "f", "data": [{"datasourceUid": "old", "model": {"expr": "legacy_metric"}}]},
+    ]
+    scan = grafana_alert_rule_usages(rules, folder_titles={"f": "Team B"}, datasource_types=index.types, datasource_scopes=index.scopes)
+    assert [(usage.metric, usage.connections) for usage in scan.usages] == [("billing_errors", {"team-b"})]
+    assert scan.skipped_datasources == {"old"}
+
+
+def test_prometheus_rules_belong_to_the_connection_they_came_from() -> None:
+    payload = {"data": {"groups": [{"name": "api", "rules": [{"type": "alerting", "name": "High", "query": "rate(errors_total[5m]) > 1"}]}]}}
+    scan = prometheus_rule_usages(payload, connection_id="team-b")
+    assert [(usage.metric, usage.connections) for usage in scan.usages] == [("errors_total", {"team-b"})]

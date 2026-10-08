@@ -51,14 +51,9 @@ class GrafanaClient:
     def alert_rules(self) -> list[dict]:
         return self._get("/api/v1/provisioning/alert-rules") or []
 
-    def datasource_types(self) -> dict[str, str]:
-        """uid and name -> plugin type, so queries pointing at a datasource by either can be told apart."""
-        types: dict[str, str] = {}
-        for datasource in self._get("/api/datasources") or []:
-            for key in (datasource.get("uid"), datasource.get("name")):
-                if key and datasource.get("type"):
-                    types[key] = datasource["type"]
-        return types
+    def datasources(self) -> list[dict]:
+        """Every datasource with its uid, name, type, url and isDefault."""
+        return list(self._get("/api/datasources") or [])
 
     def library_panel(self, uid: str) -> dict:
         return (self._get(f"/api/library-elements/{quote(uid, safe='')}").get("result") or {}).get("model") or {}

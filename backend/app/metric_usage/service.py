@@ -23,8 +23,10 @@ from backend.app.config import MetricUsageConfig, get_metric_usage_config, get_p
 from backend.app.integrations.grafana.client import GrafanaClient, GrafanaError
 from backend.app.metric_usage.report import MetricUsageReport, build_report
 from backend.app.metric_usage.sources import (
+    DatasourceIndex,
     UsageScan,
     dashboard_usages,
+    datasource_scopes,
     folder_excluded,
     grafana_alert_rule_usages,
     prometheus_rule_usages,
@@ -148,10 +150,10 @@ def _collect_usage(grafana: GrafanaClient | None, prometheus: Mapping[str, Prome
 
     if grafana is not None:
         try:
-            datasource_types = grafana.datasource_types()
+            index = datasource_scopes(grafana.datasources(), [service.config for service in prometheus.values()])
         except GrafanaError as exc:
             # Listing datasources needs more than the Viewer role on some Grafana versions.
-            datasource_types = {}
+            index = DatasourceIndex({}, {}, {})
             warnings.append(f"Couldn't list Grafana datasources ({exc}); queries are assumed to be Prometheus unless their panel says otherwise.")
         folder_titles = grafana.folder_titles()
         library: dict[str, dict] = {}
@@ -175,7 +177,7 @@ def _collect_usage(grafana: GrafanaClient | None, prometheus: Mapping[str, Prome
                     except GrafanaError as exc:
                         library[uid] = {}
                         warnings.append(f"Couldn't read library panel {uid}: {exc}")
-            scan.merge(dashboard_usages(payload, library_panels=library, datasource_types=datasource_types))
+            scan.merge(dashboard_usages(payload, library_panels=library, datasource_types=index.types, datasource_scopes=index.scopes))
             read += 1
 
         try:
@@ -184,15 +186,23 @@ def _collect_usage(grafana: GrafanaClient | None, prometheus: Mapping[str, Prome
             rules = []
             warnings.append(f"Couldn't read Grafana alert rules: {exc}")
         rules = [rule for rule in rules if not folder_excluded(folder_titles.get(rule.get("folderUID") or ""), exclude_folders)]
-        scan.merge(grafana_alert_rule_usages(rules, folder_titles=folder_titles, datasource_types=datasource_types))
+        scan.merge(grafana_alert_rule_usages(rules, folder_titles=folder_titles, datasource_types=index.types, datasource_scopes=index.scopes))
         sources["grafana"].update(dashboards_read=read, dashboards_excluded=excluded, alert_rules_read=len(rules))
+        if scan.skipped_datasources:
+            skipped = sorted({index.names.get(key, key) for key in scan.skipped_datasources})
+            sources["grafana"]["datasources_skipped"] = skipped
+            warnings.append(
+                f"Panels and alerts on {', '.join(skipped)} were left out: no Prometheus connection matches "
+                "that datasource's URL. If one reads the same data, add the datasource's uid or name under "
+                "grafana_datasources in the connections file."
+            )
 
     for connection_id, service in prometheus.items():
         entry = {"id": connection_id, "name": service.config.name, "rule_groups": 0}
         try:
             payload = service.rules()
             entry["rule_groups"] = len((payload.get("data") or {}).get("groups") or [])
-            scan.merge(prometheus_rule_usages(payload))
+            scan.merge(prometheus_rule_usages(payload, connection_id))
         except HTTPException as exc:
             warnings.append(f"Couldn't read rules from {service.config.name}: {exc.detail}")
         sources["prometheus"].append(entry)

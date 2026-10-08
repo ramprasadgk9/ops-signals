@@ -134,6 +134,9 @@ class PrometheusConnectionConfig(BaseModel):
     replica_labels: list[str] = Field(default_factory=lambda: ["__replica__", "prometheus_replica"])
     # Alerts carrying all of these labels are analysed on this connection (e.g. {"tenant": "team-b"}).
     match_labels: dict[str, str] = Field(default_factory=dict)
+    # Grafana datasources (uid or name) that read this connection, for Metric Usage. Without it, a
+    # datasource belongs to the connections with the same URL.
+    grafana_datasources: list[str] = Field(default_factory=list)
 
     @field_validator("cluster_label")
     @classmethod

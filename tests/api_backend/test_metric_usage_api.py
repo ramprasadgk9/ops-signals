@@ -30,12 +30,15 @@ PROMETHEUS_METRICS = [
 
 
 class FakeGrafana:
-    def __init__(self, *, down: bool = False) -> None:
+    def __init__(self, *, down: bool = False, datasources: list[dict] | None = None) -> None:
         self.down = down
+        self._datasources = datasources
         self.dashboards = {item["dashboard"]["uid"]: item for item in (json.loads(path.read_text()) for path in (FIXTURES / "dashboards").glob("*.json"))}
 
-    def datasource_types(self) -> dict[str, str]:
-        raise GrafanaError("Grafana refused /api/datasources (403): check the token's role", 403)
+    def datasources(self) -> list[dict]:
+        if self._datasources is None:
+            raise GrafanaError("Grafana refused /api/datasources (403): check the token's role", 403)
+        return self._datasources
 
     def folder_titles(self) -> dict[str, str]:
         if self.down:
@@ -56,8 +59,8 @@ class FakeGrafana:
 
 
 class FakePrometheus:
-    def __init__(self, names: list[str], *, rules_error: bool = False, series: dict[str, int] | None = None) -> None:
-        self.config = PrometheusConnectionConfig(name="Local Prometheus", base_url="http://prom:9090")
+    def __init__(self, names: list[str], *, rules_error: bool = False, series: dict[str, int] | None = None, config: PrometheusConnectionConfig | None = None) -> None:
+        self.config = config or PrometheusConnectionConfig(name="Local Prometheus", base_url="http://prom:9090")
         self.names = names
         self.rules_error = rules_error
         self.series = series
@@ -281,3 +284,42 @@ def test_series_columns_are_added_to_tables_created_before_them() -> None:
     columns = {table: {column["name"] for column in inspect(engine).get_columns(table)} for table in ("metric_usage_snapshots", "metric_usage_items")}
     assert {"series_total", "series_unwatched"} <= columns["metric_usage_snapshots"]
     assert "series" in columns["metric_usage_items"]
+
+
+# The fixture dashboards read Grafana's "ops-signals-prometheus" datasource: the local Prometheus,
+# as Grafana in Docker reaches it.
+LOCAL_PROMETHEUS_DATASOURCE = {"uid": "ops-signals-prometheus", "name": "Prometheus", "type": "prometheus", "url": "http://prometheus:9090", "isDefault": True}
+
+
+def _tenants(team_b_datasources: list[str] | None = None) -> dict[str, FakePrometheus]:
+    url = "http://localhost:9009/prometheus"
+    return {
+        "team-a": FakePrometheus(["http_requests_total", "up"], config=PrometheusConnectionConfig(id="team-a", name="Mimir team-a", base_url=url)),
+        "team-b": FakePrometheus(
+            ["error_rate", "up"],
+            config=PrometheusConnectionConfig(id="team-b", name="Mimir team-b", base_url=url, grafana_datasources=team_b_datasources or []),
+        ),
+    }
+
+
+def test_dashboards_on_a_datasource_no_connection_reads_are_left_out_not_missing(app_client: TestClient) -> None:
+    with get_session_local()() as db:
+        snapshot = _run(db, grafana=FakeGrafana(datasources=[LOCAL_PROMETHEUS_DATASOURCE]), prometheus=_tenants())
+        statuses = {item.metric_name: item.status for item in db.query(MetricUsageItemEntity).all()}
+
+    assert snapshot.missing == 0
+    assert set(statuses.values()) == {"unwatched"}
+    assert any("Prometheus" in warning and "grafana_datasources" in warning for warning in snapshot.sources_json["warnings"])
+
+
+def test_a_datasource_named_in_the_connections_file_is_read_on_that_tenant(app_client: TestClient) -> None:
+    with get_session_local()() as db:
+        _run(db, grafana=FakeGrafana(datasources=[LOCAL_PROMETHEUS_DATASOURCE]), prometheus=_tenants(["ops-signals-prometheus"]))
+        items = {item.metric_name: item for item in db.query(MetricUsageItemEntity).all()}
+
+    assert items["error_rate"].status == "watched"
+    assert items["error_rate"].connections_json == ["team-b"]
+    # Only team-a has it; the team-b dashboards can't show it.
+    assert items["http_requests_total"].status == "unwatched"
+    # Read by team-b panels, and team-b doesn't have it.
+    assert items["request_latency_p95"].status == "missing"

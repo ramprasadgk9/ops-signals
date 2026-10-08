@@ -97,6 +97,18 @@ describe('MetricUsagePage', () => {
     expect(details).toHaveTextContent('Analyzed by Ops Signals in the last 7 days');
   });
 
+  it('says where a missing metric is when its panels read another connection', async () => {
+    vi.mocked(api.metricUsage).mockResolvedValue(response({
+      snapshot: snapshot({ missing: 1 }),
+      items: [item('checkout_latency', { status: 'missing', connections: ['team-a'], usages: [{ kind: 'dashboard', location: 'Team B / Checkout / Latency' }] })],
+    }));
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: true, url: null, reachable: true, message: 'Connected' });
+    renderPage();
+
+    fireEvent.click(await screen.findByText('checkout_latency'));
+    expect(await screen.findByTestId('metric-usage-details')).toHaveTextContent('Only in team-a, not in what its panels and alerts read');
+  });
+
   it('loads the unwatched metrics only when that section is opened', async () => {
     vi.mocked(api.metricUsage)
       .mockResolvedValueOnce(response())

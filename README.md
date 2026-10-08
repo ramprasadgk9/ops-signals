@@ -566,8 +566,14 @@ OPS_SIGNALS_METRIC_USAGE_INTERVAL_HOURS=6
 
 To see unused metrics as money, set what 1,000 active series cost you per month,
 `OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES` (and `OPS_SIGNALS_METRIC_USAGE_CURRENCY`, default
-`USD`). There is no built-in price; without a rate the page shows series counts. **Run now** on the
-page starts a check without waiting for the schedule. All settings are listed in
+`USD`). There is no built-in price; without a rate the page shows series counts.
+
+With several Prometheus connections, a panel counts only on the connections its Grafana datasource
+reads: those with the same URL, or those naming it under `grafana_datasources` in the connections
+file. Name it there when tenants share one URL, or when Grafana reaches Prometheus by another host
+name; panels on a datasource that matches no connection are left out, with a warning.
+
+**Run now** on the page starts a check without waiting for the schedule. All settings are listed in
 [`.env.example`](.env.example).
 
 ### YAML Configuration

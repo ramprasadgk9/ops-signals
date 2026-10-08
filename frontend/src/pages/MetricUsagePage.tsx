@@ -145,7 +145,7 @@ function SummaryTiles({ snapshot }: { snapshot: MetricUsageSnapshot }) {
     { key: 'metrics', value: snapshot.metrics_total, label: 'Metrics in Prometheus', detail: (snapshot.sources.prometheus ?? []).map((item) => item.name).join(', ') },
     { key: 'watched', value: snapshot.watched, label: 'Watched', detail: snapshot.watched_percent !== null ? `${snapshot.watched_percent}% on a dashboard or alert` : '', color: METRIC_USAGE_STATUSES.watched.color },
     { key: 'blind_spot', value: snapshot.blind_spots, label: 'Blind spots', detail: 'problems nobody would see', color: METRIC_USAGE_STATUSES.blind_spot.color, alarm: snapshot.blind_spots > 0 },
-    { key: 'missing', value: snapshot.missing, label: 'Missing', detail: 'read by a panel, not in Prometheus', color: METRIC_USAGE_STATUSES.missing.color },
+    { key: 'missing', value: snapshot.missing, label: 'Missing', detail: 'read by a panel that finds nothing', color: METRIC_USAGE_STATUSES.missing.color },
   ];
   return (
     <Grid container spacing={1.5} data-testid="metric-usage-tiles">
@@ -325,7 +325,11 @@ function MetricDetails({ item }: { item: MetricUsageItem }) {
       ) : null}
       <Typography sx={{ fontSize: 12, color: ui.muted }}>
         {[
-          item.connections.length ? `In ${item.connections.join(', ')}` : 'Not in any Prometheus connection',
+          !item.connections.length
+            ? 'Not in any Prometheus connection'
+            : item.status === 'missing'
+              ? `Only in ${item.connections.join(', ')}, not in what its panels and alerts read`
+              : `In ${item.connections.join(', ')}`,
           item.via_recording_rules.length ? `Feeds ${item.via_recording_rules.join(', ')}` : null,
           item.analyzed ? 'Analyzed by Ops Signals in the last 7 days' : 'Not analyzed by Ops Signals in the last 7 days',
         ].filter(Boolean).join(' · ')}

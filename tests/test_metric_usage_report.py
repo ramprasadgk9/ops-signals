@@ -115,3 +115,33 @@ def test_a_connection_without_series_counts_leaves_its_metrics_partial() -> None
     report = build_report({"eu": ["a"], "us": ["a", "b"]}, _scan(), series_by_connection={"eu": {"a": 5}})
     assert {item.metric: item.series for item in report.items} == {"a": 5, "b": None}
     assert report.totals["series_total"] == 5
+
+
+def test_a_panel_counts_only_on_the_connections_its_datasource_reads() -> None:
+    team_b = frozenset({"team-b"})
+    scan = UsageScan(usages=[
+        MetricUsage("billing_errors", "dashboard", "Team B / Billing / Errors", connections=team_b),
+        MetricUsage("checkout_errors", "dashboard", "Team B / Billing / Checkout", connections=team_b),
+        MetricUsage("checkout_latency", "alert_rule", "Team B / Checkout slow", connections=team_b),
+        MetricUsage("cart_size", "dashboard", "Shared / Cart", connections=None),
+    ])
+    report = build_report(
+        {"team-a": ["checkout_errors", "checkout_latency", "cart_size"], "team-b": ["billing_errors"]},
+        scan,
+        problems={"checkout_errors": (2, 5)},
+    )
+    assert _statuses(report) == {
+        "billing_errors": "watched",
+        # Only team-a has it, and team-b's panel can't show it: problems nobody sees come first...
+        "checkout_errors": "blind_spot",
+        # ...otherwise the team-b alert reads a metric its tenant doesn't have.
+        "checkout_latency": "missing",
+        # A datasource that could be any connection (a variable, or unknown) watches it wherever it is.
+        "cart_size": "watched",
+    }
+
+
+def test_a_rule_from_one_tenant_does_not_watch_another_tenants_metric() -> None:
+    scan = UsageScan(usages=[MetricUsage("errors_total", "alert_rule", "api / High", connections=frozenset({"team-a"}))])
+    report = build_report({"team-a": [], "team-b": ["errors_total"]}, scan)
+    assert _statuses(report) == {"errors_total": "missing"}
