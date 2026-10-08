@@ -426,12 +426,13 @@ Where to find each capability once the app is running.
 
 | Feature | Where | Read more |
 | --- | --- | --- |
-| **UI tour**: every tab of the web UI (13) and both Grafana plugin modes, one line each | - | [`docs/ui-tour.md`](docs/ui-tour.md) |
+| **UI tour**: every tab of the web UI (14) and both Grafana plugin modes, one line each | - | [`docs/ui-tour.md`](docs/ui-tour.md) |
 | **Interactive analysis**: one metric at a time, from a Prometheus query or a CSV, findings right away | **New Analysis**; Grafana **Interactive Analysis** | [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md) |
 | **Analyzers**: 7 built in (Baseline Shift, Ruptures Change Point, Z-Score Anomaly, PyOD Outlier, Trend, STUMPY Motif, Prophet Forecast) plus Data Health, added through config; how the router picks and how far to trust it. Seasonal Anomaly is registered but the router doesn't pick it | **Analyzer Workbench** → **Recommendations** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md), [`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md) |
 | **Behavior intelligence**: rules across several metrics, with a worked memory-pressure example | **Behavior Intelligence**, **Behavior Lab** | [`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) |
 | **Analyzer workbench**: run any analyzer on sample data (**Labs**), register a new one in Python or as your own HTTP service (**Add Analyzer**), preview router scores (**Recommendations**) | **Analyzer Workbench** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md#analyzer-workbench-ui), [`docs/http-analyzer-contract.md`](docs/http-analyzer-contract.md) |
 | **Findings**: drill-down by pod, the deploy before a change | **Findings** | [`docs/operational-findings.md`](docs/operational-findings.md), [`docs/finding-drilldown.md`](docs/finding-drilldown.md) |
+| **Metric usage**: which metrics a Grafana dashboard or alert watches, and which had problems that nothing shows (blind spots), checked every 6 hours | **Metric Usage** | [Metric Usage](#metric-usage) |
 | **Investigations and cases**: ad-hoc digging into one metric or service; every case with its lifecycle (`open -> investigating -> rca_in_progress -> resolved -> closed`), RCA and outcome | **Investigations**, **Cases** | [`docs/operational-cases.md`](docs/operational-cases.md) |
 | **Historical analysis**: semantic search over past cases and findings, the alert-context preview an external alert manager would see, and importing past postmortems so it works on day one | **Operational Memory** | [`docs/operational-memory.md`](docs/operational-memory.md), [`docs/importing-incident-history.md`](docs/importing-incident-history.md) |
 | **Autonomous analysis**: what to watch, run once or on a schedule | **Autonomous Analysis Configure**; Grafana **Autonomous Analysis** | [Autonomous Analysis](#autonomous-analysis) |
@@ -532,6 +533,42 @@ See [`docs/autonomous-analysis-preview.md`](docs/autonomous-analysis-preview.md)
 discovery, the budget and scheduling, and
 [`docs/autonomous-pipeline-architecture.md`](docs/autonomous-pipeline-architecture.md) for how it
 runs.
+
+### Metric Usage
+
+With thousands of metrics, most are on no dashboard and in no alert. Metric Usage shows which ones
+are, and which ones had problems that nobody would have seen. Every 6 hours it reads Grafana
+dashboards and alert rules plus Prometheus alerting and recording rules, takes the metric names from
+their queries, compares them with every metric in each Prometheus connection and with recent
+findings, and sorts each metric into one group:
+
+- **Blind spot**: on no dashboard or alert, and had significant or critical findings recently. Each
+  one links to its finding and can become a case.
+- **Missing**: a dashboard or alert reads a metric that no longer exists, so it shows nothing.
+- **Watched**: on a dashboard or in an alert, directly or through recording rules.
+- **Not watched**: everything else, biggest first.
+
+The page opens with the unused share of stored series, the problems nobody would have seen, and how
+coverage has moved since the oldest kept check. The **Findings** cards say which dashboard or alert
+shows each metric, and the **Overview** names the blind spots when there are any.
+
+It needs read-only Grafana access: in Grafana, **Administration -> Service accounts**, add one with
+the **Viewer** role and create a token. Then set the URL and token in `.env`; the folder, metric and
+interval settings are optional:
+
+```bash
+OPS_SIGNALS_GRAFANA_URL=https://grafana.example.com
+OPS_SIGNALS_GRAFANA_TOKEN=glsa_...
+OPS_SIGNALS_METRIC_USAGE_EXCLUDE_FOLDERS=Scratch,Test*
+OPS_SIGNALS_METRIC_USAGE_IGNORE_METRICS=go_*
+OPS_SIGNALS_METRIC_USAGE_INTERVAL_HOURS=6
+```
+
+To see unused metrics as money, set what 1,000 active series cost you per month,
+`OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES` (and `OPS_SIGNALS_METRIC_USAGE_CURRENCY`, default
+`USD`). There is no built-in price; without a rate the page shows series counts. **Run now** on the
+page starts a check without waiting for the schedule. All settings are listed in
+[`.env.example`](.env.example).
 
 ### YAML Configuration
 

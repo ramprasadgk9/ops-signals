@@ -8,6 +8,7 @@ import type { Finding, IngestionStatus, OperationalCase } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
+    metricUsage: vi.fn().mockResolvedValue({ snapshot: null, items: [] }),
     findings: vi.fn(),
     cases: vi.fn(),
     behaviorFindings: vi.fn(),

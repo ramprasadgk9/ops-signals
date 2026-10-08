@@ -1292,3 +1292,76 @@ export type AITestResult = {
   reply: string | null;
   error: string | null;
 };
+
+// Metric usage: which metrics Grafana dashboards and alerts watch (backend/app/api/metric_usage.py).
+export type MetricUsageStatus = 'blind_spot' | 'missing' | 'watched' | 'unwatched';
+
+export type MetricUsageWatcher = {
+  kind: 'dashboard' | 'alert_rule' | 'recording_rule';
+  location: string;
+  folder?: string | null;
+  dashboard_uid?: string | null;
+};
+
+export type MetricUsageItem = {
+  metric: string;
+  status: MetricUsageStatus;
+  connections: string[];
+  usages: MetricUsageWatcher[];
+  via_recording_rules: string[];
+  problem_findings: number;
+  latest_finding_id: number | null;
+  analyzed: boolean;
+  /** Active series, summed over connections; null when they couldn't be counted. */
+  series: number | null;
+};
+
+export type MetricUsageSnapshot = {
+  id: string;
+  trigger: string;
+  status: 'completed' | 'failed';
+  created_at: string;
+  duration_ms: number | null;
+  error: string | null;
+  metrics_total: number;
+  watched: number;
+  blind_spots: number;
+  unwatched: number;
+  missing: number;
+  watched_percent: number | null;
+  series_total: number | null;
+  series_unwatched: number | null;
+  sources: {
+    grafana?: { configured: boolean; dashboards_read?: number; dashboards_excluded?: string[]; alert_rules_read?: number };
+    prometheus?: Array<{ id: string; name: string; metrics?: number; rule_groups: number }>;
+    unresolved_queries?: Array<{ location: string; variables: string[] }>;
+    warnings?: string[];
+  };
+};
+
+export type MetricUsageResponse = {
+  enabled: boolean;
+  interval_hours: number;
+  grafana_configured: boolean;
+  snapshot: MetricUsageSnapshot | null;
+  last_failure: MetricUsageSnapshot | null;
+  items: MetricUsageItem[];
+  items_total: number;
+  /** Only when the operator set a cost per 1,000 series. */
+  cost: MetricUsageCost | null;
+};
+
+export type MetricUsageCost = {
+  per_1k_series_month: number;
+  currency: string;
+  unwatched_monthly: number | null;
+  total_monthly: number | null;
+};
+
+export type GrafanaStatus = {
+  configured: boolean;
+  url: string | null;
+  reachable: boolean;
+  version?: string | null;
+  message: string;
+};

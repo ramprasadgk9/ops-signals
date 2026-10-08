@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "folderUid": "cov-test-team-lab",
+    "folderTitle": "Team-Lab"
+  },
+  "dashboard": {
+    "uid": "cov-test-lab-signals",
+    "title": "Lab Signals",
+    "tags": ["ops-signals-metric-usage-test"],
+    "schemaVersion": 39,
+    "time": { "from": "now-6h", "to": "now" },
+    "templating": {
+      "list": [
+        {
+          "name": "metric",
+          "type": "custom",
+          "query": "cpu_usage,request_latency_p95",
+          "current": { "text": "cpu_usage", "value": "cpu_usage" }
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "type": "timeseries",
+        "title": "Lab value by profile",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "max by (profile) (ops_signal_lab_value)" },
+          { "refId": "B", "expr": "{__name__=\"ops_signal_lab_value\", profile=\"seasonal\"}", "hide": true }
+        ]
+      },
+      {
+        "id": 2,
+        "type": "timeseries",
+        "title": "Picked metric (dashboard variable)",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "$metric{service=\"checkout\"}" }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "table",
+        "title": "Built-in Grafana datasource (not Prometheus)",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "datasource": { "type": "datasource", "uid": "grafana" },
+        "targets": [
+          { "refId": "A", "queryType": "randomWalk" }
+        ]
+      },
+      {
+        "id": 4,
+        "type": "text",
+        "title": "Notes",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "options": { "content": "Text panels have no queries.", "mode": "markdown" }
+      }
+    ]
+  }
+}

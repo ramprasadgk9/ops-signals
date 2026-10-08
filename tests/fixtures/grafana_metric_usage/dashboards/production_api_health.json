@@ -1,0 +1,82 @@
+{
+  "meta": {
+    "folderUid": "cov-test-production",
+    "folderTitle": "Production"
+  },
+  "dashboard": {
+    "uid": "cov-test-api-health",
+    "title": "API Health",
+    "tags": ["ops-signals-metric-usage-test"],
+    "schemaVersion": 39,
+    "time": { "from": "now-6h", "to": "now" },
+    "templating": {
+      "list": [
+        {
+          "name": "service",
+          "type": "query",
+          "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+          "query": "label_values(error_rate, service)",
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "type": "timeseries",
+        "title": "Latency p95 by service",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "avg by (service) (request_latency_p95{env=\"local\"})" }
+        ]
+      },
+      {
+        "id": 2,
+        "type": "timeseries",
+        "title": "Error rate",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "error_rate{service=~\"$service\"}" }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "row",
+        "title": "Prometheus internals",
+        "collapsed": true,
+        "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 },
+        "panels": [
+          {
+            "id": 4,
+            "type": "timeseries",
+            "title": "HTTP API p95 duration",
+            "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+            "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+            "targets": [
+              {
+                "refId": "A",
+                "expr": "histogram_quantile(0.95, sum by (le) (rate(prometheus_http_request_duration_seconds_bucket[5m])))"
+              }
+            ]
+          },
+          {
+            "id": 5,
+            "type": "stat",
+            "title": "Samples appended per series",
+            "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+            "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+            "targets": [
+              {
+                "refId": "A",
+                "expr": "sum(rate(prometheus_tsdb_head_samples_appended_total[5m])) / on() group_left() sum(prometheus_tsdb_head_series)"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

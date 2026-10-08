@@ -28,6 +28,7 @@ import { InvestigationsPage } from '../pages/InvestigationsPage';
 import { IntegrationsPage } from '../pages/IntegrationsPage';
 import { AlertsPage } from '../pages/AlertsPage';
 import { SystemPage } from '../pages/SystemPage';
+import { MetricUsagePage } from '../pages/MetricUsagePage';
 
 export function AppRoutes() {
   return (
@@ -59,6 +60,7 @@ export function AppRoutes() {
       <Route path="/operational-memory" element={<OperationalMemoryPage />} />
       <Route path="/memory-chat" element={<MemoryChatPage />} />
       <Route path="/findings" element={<FindingsPage />} />
+      <Route path="/metric-usage" element={<MetricUsagePage />} />
       <Route path="/integrations" element={<IntegrationsPage />} />
       <Route path="/alerts" element={<AlertsPage />} />
       <Route path="/settings" element={<SettingsPage />} />

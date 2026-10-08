@@ -552,6 +552,27 @@ class PrometheusQueryService:
             warnings=warnings,
         )
 
+    def series_counts_by_name(self) -> dict[str, int]:
+        """Active series per metric name (the ones with a sample in the last few minutes) - the
+        number metrics storage is usually sized and billed by."""
+        if not self.config.base_url:
+            raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
+        payload = self._get_json("/api/v1/query", {"query": 'count by (__name__) ({__name__=~".+"})'})
+        if payload.get("status") != "success":
+            raise HTTPException(status_code=502, detail=str(payload.get("error") or "Prometheus series count failed"))
+        counts: dict[str, int] = {}
+        for row in (payload.get("data") or {}).get("result") or []:
+            name = (row.get("metric") or {}).get("__name__")
+            if name:
+                counts[name] = int(float(row["value"][1]))
+        return counts
+
+    def rules(self) -> dict:
+        """Alerting and recording rules (Prometheus, or the Mimir ruler behind the same base URL)."""
+        if not self.config.base_url:
+            raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
+        return self._get_json("/api/v1/rules", {})
+
     def _get_json(self, path: str, params: dict[str, object] | list[tuple[str, object]]) -> dict:
         assert self.config.base_url is not None
         url = f"{self.config.base_url}{path}"

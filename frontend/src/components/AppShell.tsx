@@ -17,6 +17,7 @@ import InputRoundedIcon from '@mui/icons-material/InputRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import CrisisAlertRoundedIcon from '@mui/icons-material/CrisisAlertRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import HubRoundedIcon from '@mui/icons-material/HubRounded';
@@ -56,6 +57,7 @@ const navItems: NavItem[] = [
   { label: 'Autonomous Analysis Configure', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon /> },
   { label: 'Investigations', to: '/investigations', icon: <TravelExploreRoundedIcon /> },
   { label: 'Findings', to: '/findings', icon: <CrisisAlertRoundedIcon /> },
+  { label: 'Metric Usage', to: '/metric-usage', icon: <VisibilityOutlinedIcon /> },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
   { label: 'Behavior Intelligence', to: '/behavior-intelligence', icon: <HubRoundedIcon /> },
   { label: 'Behavior Lab', to: '/behavior-intelligence/lab', icon: <ScienceRoundedIcon /> },

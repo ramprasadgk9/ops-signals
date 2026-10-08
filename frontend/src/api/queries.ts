@@ -77,6 +77,11 @@ import type {
   CaseImportResult,
   SeenBeforeResponse,
   SimilarCasesResponse,
+  MetricUsageResponse,
+  MetricUsageSnapshot,
+  MetricUsageItem,
+  MetricUsageStatus,
+  GrafanaStatus,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -108,6 +113,19 @@ export const api = {
     const query = search.toString();
     return getJson<AlertItem[]>(`/api/alerts${query ? `?${query}` : ''}`);
   },
+  metricUsage: (statuses: MetricUsageStatus[] = [], limit = 200) => {
+    const search = new URLSearchParams({ limit: String(limit) });
+    statuses.forEach((status) => search.append('status', status));
+    return getJson<MetricUsageResponse>(`/api/metric-usage?${search.toString()}`);
+  },
+  metricUsageLookup: (names: string[]) => {
+    const search = new URLSearchParams();
+    names.forEach((name) => search.append('name', name));
+    return getJson<Record<string, MetricUsageItem>>(`/api/metric-usage/metrics?${search.toString()}`);
+  },
+  metricUsageHistory: (limit = 28) => getJson<MetricUsageSnapshot[]>(`/api/metric-usage/history?limit=${limit}`),
+  runMetricUsageCheck: () => postJson<Record<string, never>, MetricUsageSnapshot>('/api/metric-usage/run', {}),
+  grafanaStatus: () => getJson<GrafanaStatus>('/api/metric-usage/grafana/status'),
   overviewSummary: (window: '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
   services: () => getJson<string[]>('/api/services'),
   metrics: (service: string) => getJson<string[]>(`/api/services/${service}/metrics`),

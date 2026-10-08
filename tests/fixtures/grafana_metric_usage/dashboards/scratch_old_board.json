@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "folderUid": "cov-test-scratch",
+    "folderTitle": "Scratch"
+  },
+  "dashboard": {
+    "uid": "cov-test-old-board",
+    "title": "Old test board",
+    "tags": ["ops-signals-metric-usage-test"],
+    "schemaVersion": 39,
+    "time": { "from": "now-6h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "type": "timeseries",
+        "title": "Replayed test CPU",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+        "datasource": { "type": "prometheus", "uid": "ops-signals-prometheus" },
+        "targets": [
+          { "refId": "A", "expr": "ops_signals_test_cpu_usage" }
+        ]
+      }
+    ]
+  }
+}

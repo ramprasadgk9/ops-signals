@@ -17,7 +17,9 @@ _NUMBER = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$|^[+-]?(?:
 _COMPARISON_OPS = ("==", "!=", ">=", "<=", ">", "<")
 _SET_OPERATORS = re.compile(r"\b(and|or|unless)\b", re.IGNORECASE)
 _GROUPING_CLAUSE = re.compile(r"\b(by|without|on|ignoring|group_left|group_right)\s*\([^)]*\)", re.IGNORECASE)
-_IDENTIFIER = re.compile(r"[a-zA-Z_:][a-zA-Z0-9_:]*")
+# Not preceded by a digit/dot (the `m` in `5m`, the `e3` in `1e3`) or `$` (a Grafana variable).
+_IDENTIFIER = re.compile(r"(?<![\w.$])[a-zA-Z_:][a-zA-Z0-9_:]*")
+_COMMENT = re.compile(r"#[^\n]*")
 _KEYWORDS = {
     "by", "without", "on", "ignoring", "group_left", "group_right", "bool", "and", "or", "unless",
     "offset", "inf", "nan", "atan2",
@@ -98,7 +100,7 @@ def strip_threshold(expr: str) -> str | None:
 def metric_names(expr: str) -> list[str]:
     """Metric selector names in order of appearance: `histogram_quantile(0.95, sum by (le)
     (rate(x_bucket{a="b"}[5m])))` -> ["x_bucket"]."""
-    cleaned = _strip_quotes(expr)
+    cleaned = _COMMENT.sub(" ", _strip_quotes(expr))
     cleaned = re.sub(r"\{[^}]*\}", " ", cleaned)
     cleaned = re.sub(r"\[[^\]]*\]", " ", cleaned)
     cleaned = _GROUPING_CLAUSE.sub(" ", cleaned)

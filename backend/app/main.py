@@ -37,6 +37,7 @@ from backend.app.api.direct_prometheus import router as direct_prometheus_router
 from backend.app.api.learning_outcomes import router as learning_outcomes_router
 from backend.app.api.memory import router as memory_router
 from backend.app.api.metrics import router as self_metrics_router
+from backend.app.api.metric_usage import router as metric_usage_router
 from backend.app.api.otlp import router as otlp_router
 from backend.app.api.overview import router as overview_router
 from backend.app.api.questions import router as questions_router
@@ -69,6 +70,7 @@ from backend.app.models.schema_compat import (
     ensure_case_behavior_link_schema,
     ensure_case_import_schema,
     ensure_cluster_schema,
+    ensure_metric_usage_schema,
     ensure_learning_schema,
     ensure_ticketing_schema,
 )
@@ -257,6 +259,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_autonomous_policy_scheduling_schema(get_engine())
         ensure_ticketing_schema(get_engine())
         ensure_cluster_schema(get_engine())
+        ensure_metric_usage_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
@@ -396,6 +399,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(alerts_router)
     app.include_router(ai_router)
     app.include_router(events_router)
+    app.include_router(metric_usage_router)
     
     # Register memory router
     app.include_router(memory_router)

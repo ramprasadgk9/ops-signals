@@ -15,6 +15,7 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { GetDataInPanel, SourceStatusStrip } from '../components/GetDataInPanel';
 import { AlertBadge, alertsByFinding } from '../components/AlertComponents';
 import { AlertsOverviewPanel } from '../components/AlertTimeline';
+import { MetricUsageStrip } from '../components/MetricUsageStrip';
 import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
 import { relativeTime, titleCase, ui } from '../standalone/theme';
 import { findingLevel } from '../utils/findingLevel';
@@ -106,6 +107,8 @@ export function OverviewPage() {
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<DnsRoundedIcon />} value={kpiValue(summary?.impacted_services)} label="Impacted Services" delta={topFinding?.service ?? 'No service impacted'} to="/findings?window=24h" bg="#eff6ff" color="#3b82f6" /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<CheckCircleRoundedIcon />} value={awaitingFirstData ? '—' : failedJobs > 0 ? 'Needs attention' : 'Healthy'} label="Automation" delta={awaitingFirstData ? 'Waiting for first data' : `${failedJobs} failed jobs`} to="/autonomous-monitoring" bg="#ecfdf5" color={failedJobs > 0 ? ui.red : ui.green} /></Grid>
       </Grid>
+
+      <MetricUsageStrip />
 
       <NeedsAttentionPanel findings={prioritizedFindings} cases={cases} alertByFinding={alertsByFinding(linkedAlertsQuery.data ?? [])} />
 

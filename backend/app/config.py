@@ -598,6 +598,63 @@ def get_ticketing_config() -> TicketingConfig:
     )
 
 
+class GrafanaConfig(BaseModel):
+    """Read-only access to Grafana, for the metric usage check: a Viewer service-account token, or
+    a username/password for a local Grafana."""
+
+    base_url: str | None = None
+    token: str | None = None
+    username: str | None = None
+    password: str | None = None
+    verify_tls: bool = True
+    timeout_seconds: float = 15.0
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.base_url)
+
+
+class MetricUsageConfig(BaseModel):
+    enabled: bool = False
+    interval_hours: float = 6.0
+    # Folders whose dashboards don't count as watching a metric ("Scratch", "Test*").
+    exclude_folders: list[str] = Field(default_factory=list)
+    # Metric names left out of the report entirely ("go_*", "prometheus_*").
+    ignore_metrics: list[str] = Field(default_factory=list)
+    # A metric "has a problem" when it had a significant or critical finding this recently.
+    problem_window_hours: int = 24
+    # Snapshots kept for the trend; older ones are deleted after each check.
+    keep_snapshots: int = 28
+    # What one month of 1,000 active series costs you, in `currency`. Unset: the page shows series
+    # counts, not money - there is no built-in price, since it differs for every backend.
+    cost_per_1k_series_month: float | None = None
+    currency: str = "USD"
+    grafana: GrafanaConfig = Field(default_factory=GrafanaConfig)
+
+
+def get_metric_usage_config() -> MetricUsageConfig:
+    grafana = GrafanaConfig(
+        base_url=(_env("OPS_SIGNALS_GRAFANA_URL") or "").rstrip("/") or None,
+        token=_env("OPS_SIGNALS_GRAFANA_TOKEN"),
+        username=_env("OPS_SIGNALS_GRAFANA_USERNAME"),
+        password=_env("OPS_SIGNALS_GRAFANA_PASSWORD"),
+        verify_tls=_parse_bool(_env("OPS_SIGNALS_GRAFANA_VERIFY_TLS"), True),
+        timeout_seconds=float(_env("OPS_SIGNALS_GRAFANA_TIMEOUT_SECONDS") or "15.0"),
+    )
+    return MetricUsageConfig(
+        # On by default once Grafana is connected; the check also reads Prometheus rules without it.
+        enabled=_parse_bool(_env("OPS_SIGNALS_METRIC_USAGE_ENABLED"), grafana.configured),
+        interval_hours=float(_env("OPS_SIGNALS_METRIC_USAGE_INTERVAL_HOURS") or "6"),
+        exclude_folders=_parse_list(_env("OPS_SIGNALS_METRIC_USAGE_EXCLUDE_FOLDERS")) or [],
+        ignore_metrics=_parse_list(_env("OPS_SIGNALS_METRIC_USAGE_IGNORE_METRICS")) or [],
+        problem_window_hours=int(_env("OPS_SIGNALS_METRIC_USAGE_PROBLEM_WINDOW_HOURS") or "24"),
+        keep_snapshots=int(_env("OPS_SIGNALS_METRIC_USAGE_KEEP_SNAPSHOTS") or "28"),
+        cost_per_1k_series_month=float(cost) if (cost := _env("OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES")) else None,
+        currency=_env("OPS_SIGNALS_METRIC_USAGE_CURRENCY") or "USD",
+        grafana=grafana,
+    )
+
+
 def get_settings() -> Settings:
     return Settings()
 
