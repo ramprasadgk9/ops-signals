@@ -1,7 +1,20 @@
 # Changelog
 
-## 0.3.0 - Unreleased
+## 0.3.0 - 2026-10-07
 
+- **Jira ticketing for cases** (Jira Cloud; off by default, `OPS_SIGNALS_TICKETING_ENABLED` and the
+  `OPS_SIGNALS_JIRA_*` settings in docs/configuration.md). A case's **External Ticketing** card
+  creates one Jira ticket from it, with the summary and evidence. Requests go through a background
+  outbox with retries, so a slow or failing Jira never holds up the case; when Jira's answer is lost
+  mid-create, the card asks whether to check Jira again, link the ticket that was made, or create a
+  new one, instead of risking a duplicate. **Sync Now** brings the ticket's comments and status into
+  the case, **+ Add to Notes** keeps a comment as a case note, **AI Triage** (with an AI provider
+  configured) promotes the useful comments on its own, and **Sync Resolution to Jira** posts the
+  cause and fix on the ticket and moves it to Done. Jira webhooks
+  (`POST /api/integrations/ticketing/jira/webhook`) sync without Sync Now; they need
+  `OPS_SIGNALS_JIRA_WEBHOOK_SECRET` and unsigned deliveries are refused. The Grafana plugin shows
+  the same ticket section on a case. Tested against a Jira Cloud project. New tables come with
+  `backend/migrations/008_case_ticketing_integration.sql`.
 - **"Watch how" for Jira ticketing on the case page**: a one-minute captioned recording of the real
   case page - create the ticket, sync a Jira comment and status back, keep the comment as a note,
   send the resolution to Jira, webhook setup. The External Ticketing card links it from its header.
