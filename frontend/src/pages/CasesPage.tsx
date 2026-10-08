@@ -26,6 +26,7 @@ import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
 import { filterCaseRows, toCaseRows } from '../standalone/casesService';
 import { CaseTicketCard } from '../components/CaseTicketCard';
+import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 
 export function CasesPage() {
@@ -62,6 +63,7 @@ export function CasesPage() {
         subtitle="Manage and track operational investigations"
         action={<Button variant="contained" disabled sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>New Case Requires Finding</Button>}
       />
+      <JiraTicketingHint />
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5}>
         <TextField size="small" placeholder="Search cases..." value={search} onChange={(event) => setSearch(event.target.value)} sx={{ width: { xs: '100%', lg: 280 }, bgcolor: '#fff' }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }} />
         <TextField select size="small" value={status} onChange={(event) => setStatus(event.target.value)} sx={{ minWidth: 150, bgcolor: '#fff' }}>

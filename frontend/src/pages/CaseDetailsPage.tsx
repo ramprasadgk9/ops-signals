@@ -45,6 +45,7 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 import { CaseTicketCard } from '../components/CaseTicketCard';
+import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { findingLevel } from '../utils/findingLevel';
 
 interface TabPanelProps {
@@ -134,6 +135,12 @@ export function CaseDetailsPage() {
         caseQuery.data?.finding_snapshot.service
     ),
   });
+
+  // Open each case at its top (title, Jira banner, workflow), not at the scroll position of the
+  // page the click came from, e.g. halfway down the Findings list after Create Case.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [caseId]);
 
   useEffect(() => {
     if (!caseQuery.data || initialized) return;
@@ -317,6 +324,8 @@ export function CaseDetailsPage() {
             </Stack>
           </Stack>
         </Box>
+
+        <JiraTicketingHint subject="case" />
 
         <Card variant="outlined">
           <CardContent sx={{ py: 2.5 }}>
@@ -540,7 +549,7 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
-              <CaseTicketCard caseId={caseData.id} showSetupHint />
+              <CaseTicketCard caseId={caseData.id} />
             </Grid>
           </Grid>
         </TabPanel>

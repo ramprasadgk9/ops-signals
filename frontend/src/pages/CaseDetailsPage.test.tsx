@@ -200,3 +200,19 @@ describe('CaseDetailsPage for an imported case', () => {
     });
   });
 });
+
+describe('CaseDetailsPage scroll position', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('opens at the top, not where the previous page was scrolled to', async () => {
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+
+    renderPage();
+
+    await screen.findByRole('tab', { name: /Resolution/i });
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+  });
+});
