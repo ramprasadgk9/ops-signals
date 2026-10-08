@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { useConnectionName } from '../api/useConnectionName';
-import type { Finding, Signal } from '../types';
+import type { Finding, MetricUsageItem, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
+import { watchedByTag } from '../utils/metricUsage';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 
 /** The same finding seen in several runs; the card shows one of them. */
@@ -23,13 +24,15 @@ type Props = {
   onViewDetails?: (finding: Finding) => void;
   signals?: Signal[];
   repeats?: FindingRepeats;
+  /** Which dashboards and alerts read this finding's metric, from the latest metric usage check. */
+  usage?: MetricUsageItem;
 };
 
 function seenAt(value?: string): string {
   return value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'unknown';
 }
 
-export function FindingCard({ finding, onViewDetails, signals = [], repeats }: Props) {
+export function FindingCard({ finding, onViewDetails, signals = [], repeats, usage }: Props) {
   const navigate = useNavigate();
   const connectionName = useConnectionName(finding.connection_id);
   const createCaseMutation = useMutation({
@@ -53,6 +56,7 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats }: P
   const changeChip = changeChipLabel(changes);
   const prior = priorChange(changes);
   const scope = breakdownScopeLabel(breakdown);
+  const watchedBy = usage ? watchedByTag(usage) : null;
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -83,6 +87,18 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats }: P
           </Typography>
         </Stack>
 
+        {watchedBy && (
+          <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{watchedBy.detail}</span>} arrow>
+            <Chip
+              label={watchedBy.label}
+              size="small"
+              variant="outlined"
+              color={watchedBy.watched ? 'success' : 'error'}
+              data-testid="finding-watched-by"
+              sx={{ mb: 1, mr: 1 }}
+            />
+          </Tooltip>
+        )}
         {repeats && repeats.count > 1 && (
           <Tooltip
             title={`The same finding on this series in ${repeats.count} runs: first ${seenAt(repeats.firstSeen)}, latest ${seenAt(repeats.lastSeen)}. This card shows #${finding.id ?? '?'}.${repeats.onShowAll ? ' Click to list each run.' : ''}`}

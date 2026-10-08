@@ -1,0 +1,52 @@
+[
+  {
+    "uid": "cov-test-checkout-errors",
+    "title": "Checkout error rate high",
+    "folderUID": "cov-test-production",
+    "ruleGroup": "coverage-test",
+    "condition": "C",
+    "for": "5m",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "labels": { "ops_signals_coverage_test": "true" },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "ops-signals-prometheus",
+        "relativeTimeRange": { "from": 600, "to": 0 },
+        "model": { "refId": "A", "expr": "max(error_rate{service=\"checkout\"})", "instant": true }
+      },
+      {
+        "refId": "C",
+        "datasourceUid": "__expr__",
+        "relativeTimeRange": { "from": 0, "to": 0 },
+        "model": { "refId": "C", "type": "threshold", "expression": "A", "conditions": [{ "evaluator": { "type": "gt", "params": [0.5] } }] }
+      }
+    ]
+  },
+  {
+    "uid": "cov-test-mock-target-down",
+    "title": "Mock metrics target down",
+    "folderUID": "cov-test-production",
+    "ruleGroup": "coverage-test",
+    "condition": "C",
+    "for": "1m",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "labels": { "ops_signals_coverage_test": "true" },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "ops-signals-prometheus",
+        "relativeTimeRange": { "from": 600, "to": 0 },
+        "model": { "refId": "A", "expr": "min(up{job=\"ops-signals-mock\"})", "instant": true }
+      },
+      {
+        "refId": "C",
+        "datasourceUid": "__expr__",
+        "relativeTimeRange": { "from": 0, "to": 0 },
+        "model": { "refId": "C", "type": "threshold", "expression": "A", "conditions": [{ "evaluator": { "type": "lt", "params": [1] } }] }
+      }
+    ]
+  }
+]

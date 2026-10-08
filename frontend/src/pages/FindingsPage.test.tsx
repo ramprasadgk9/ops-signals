@@ -15,6 +15,7 @@ vi.mock('../api/queries', () => ({
     analysisRun: vi.fn(),
     timeseries: vi.fn(),
     alerts: vi.fn(),
+    metricUsageLookup: vi.fn(),
   },
 }));
 
@@ -67,6 +68,7 @@ describe('FindingsPage deep link', () => {
       category_breakdown: [],
     });
     vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.metricUsageLookup).mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -307,5 +309,26 @@ describe('FindingsPage search and sort', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show 5 more' }));
     await waitFor(() => expect(titles()).toHaveLength(25));
     expect(screen.queryByRole('button', { name: /more$/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('FindingsPage metric usage tag', () => {
+  it('tags each finding with whether a dashboard or alert watches its metric', async () => {
+    vi.mocked(api.findings).mockResolvedValue([finding]);
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z', window: '24h', active_findings: 1, open_cases: 0, behavior_changes: 0,
+      impacted_services: 1, memory_items: 0, severity_trend: [], category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.metricUsageLookup).mockResolvedValue({
+      latency_p95: {
+        metric: 'latency_p95', status: 'blind_spot', connections: ['default'], usages: [], via_recording_rules: [],
+        problem_findings: 3, latest_finding_id: 7, analyzed: true, series: null,
+      },
+    });
+    renderAt('/findings');
+
+    expect(await screen.findByText('Not on any dashboard or alert')).toBeInTheDocument();
+    expect(api.metricUsageLookup).toHaveBeenCalledWith(['latency_p95']);
   });
 });

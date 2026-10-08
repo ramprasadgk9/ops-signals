@@ -1,5 +1,5 @@
 import { Grid2 as Grid } from '@mui/material';
-import type { Finding, Signal } from '../types';
+import type { Finding, MetricUsageItem, Signal } from '../types';
 import type { FindingGroup } from '../utils/findingSearch';
 import { FindingCard } from './FindingCard';
 
@@ -9,10 +9,12 @@ type Props = {
   onViewDetails?: (finding: Finding) => void;
   /** Lists each run of a repeated finding. */
   onShowRuns?: (finding: Finding) => void;
+  /** Latest metric usage by metric name, for the "who watches this" tag. */
+  usageByMetric?: Record<string, MetricUsageItem>;
 };
 
 /** Renders one card per group, in the order given; the caller sorts, filters, groups and pages them. */
-export function TopFindingsList({ groups, signals = [], onViewDetails, onShowRuns }: Props) {
+export function TopFindingsList({ groups, signals = [], onViewDetails, onShowRuns, usageByMetric }: Props) {
   return (
     <Grid container spacing={2}>
       {groups.map(({ finding, runs, firstSeen, lastSeen }) => (
@@ -21,6 +23,7 @@ export function TopFindingsList({ groups, signals = [], onViewDetails, onShowRun
             finding={finding}
             signals={signals}
             onViewDetails={onViewDetails}
+            usage={usageByMetric?.[finding.metric_name]}
             repeats={{ count: runs.length, firstSeen, lastSeen, onShowAll: onShowRuns ? () => onShowRuns(finding) : undefined }}
           />
         </Grid>

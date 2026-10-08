@@ -117,3 +117,39 @@ describe('FindingCard Create Case', () => {
     );
   });
 });
+
+describe('FindingCard metric usage tag', () => {
+  const usage = {
+    metric: 'http_errors_total', status: 'watched' as const, connections: ['default'], via_recording_rules: [],
+    problem_findings: 1, latest_finding_id: 7, analyzed: true, series: null,
+    usages: [
+      { kind: 'dashboard' as const, location: 'Production / API Health / Errors' },
+      { kind: 'alert_rule' as const, location: 'Production / Errors high' },
+    ],
+  };
+
+  function renderWithUsage(item?: typeof usage | (Omit<typeof usage, 'status'> & { status: 'blind_spot' })) {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <FindingCard finding={newPodsFinding} usage={item} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it('names the dashboard and alerts that watch the metric', () => {
+    renderWithUsage(usage);
+    expect(screen.getByTestId('finding-watched-by')).toHaveTextContent('On API Health · 1 alert');
+  });
+
+  it('says when nothing watches the metric', () => {
+    renderWithUsage({ ...usage, status: 'blind_spot', usages: [] });
+    expect(screen.getByTestId('finding-watched-by')).toHaveTextContent('Not on any dashboard or alert');
+  });
+
+  it('shows no tag before any metric usage check', () => {
+    renderWithUsage(undefined);
+    expect(screen.queryByTestId('finding-watched-by')).toBeNull();
+  });
+});

@@ -204,3 +204,25 @@ def ensure_case_import_schema(engine: Engine) -> None:
                         f"CHECK ({CASE_SOURCE_LINK_CHECK}) NOT VALID"
                     )
                 )
+
+
+_METRIC_USAGE_COLUMNS = {
+    "metric_usage_snapshots": {"series_total": "INTEGER", "series_unwatched": "INTEGER"},
+    "metric_usage_items": {"series": "INTEGER"},
+}
+
+
+def ensure_metric_usage_schema(engine: Engine) -> None:
+    """Adds the series-count columns to metric usage tables created before they existed."""
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    for table_name, column_sql in _METRIC_USAGE_COLUMNS.items():
+        if table_name not in existing_tables:
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        missing = {name: ddl for name, ddl in column_sql.items() if name not in existing_columns}
+        if not missing:
+            continue
+        with engine.begin() as connection:
+            for name, ddl in missing.items():
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))

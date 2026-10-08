@@ -44,6 +44,20 @@ def test_metric_names_skip_functions_labels_ranges_and_grouping() -> None:
     assert metric_names('up{job="api"}') == ["up"]
 
 
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        ("rate(x_total[5m] offset 5m)", ["x_total"]),  # duration after offset is not a metric
+        ("x > 1e3", ["x"]),  # exponent is not a metric
+        ('$metric{service="a"}', []),  # dashboard variable, resolved by the caller
+        ("x # comment y", ["x"]),
+        ("job:http:rate5m", ["job:http:rate5m"]),
+    ],
+)
+def test_metric_names_ignore_durations_numbers_variables_and_comments(expr: str, expected: list[str]) -> None:
+    assert metric_names(expr) == expected
+
+
 def test_query_window_defaults_to_6h_at_30s_and_respects_annotation_and_point_cap() -> None:
     now = datetime(2026, 9, 23, 14, 13, tzinfo=timezone.utc)
     config = AlertEnrichmentConfig()

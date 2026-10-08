@@ -22,6 +22,7 @@ from backend.app.autonomous.execution import execute_autonomous_plan_once
 from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
 from backend.app.autonomous.repository import AutonomousPolicyRepository
 from backend.app.autonomous.schemas import AnalysisScope, AutonomousRunRequest, ExecutionPolicy, MonitoringSelection
+from backend.app.metric_usage.service import run_scheduled_check_if_due
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import AutonomousPolicyEntity, OtlpPendingPointEntity
 from backend.app.otlp.limits import MAX_BACKLOG_PER_CYCLE
@@ -193,11 +194,23 @@ def _run_pending_otlp_analysis_once() -> None:
         OTLP_ANALYSIS_CYCLE_GROUPS_PROCESSED.set(len(groups))
 
 
+def _run_metric_usage_check_if_due() -> None:
+    session_local = get_session_local()
+    with session_local() as db:
+        run_scheduled_check_if_due(db)
+
+
 async def run_scheduler_loop() -> None:
     """Started as a background task from the FastAPI lifespan; cancelled on shutdown."""
     logger.info("Autonomous policy scheduler started (polling every %ss)", POLL_INTERVAL_SECONDS)
+    usage_check: asyncio.Task | None = None
     try:
         while True:
+            # Reading every dashboard can take a while, so the metric usage check runs alongside
+            # the loop instead of holding up policy runs; at most one at a time.
+            if usage_check is None or usage_check.done():
+                usage_check = asyncio.create_task(asyncio.to_thread(_run_metric_usage_check_if_due))
+                usage_check.add_done_callback(_log_usage_check_failure)
             try:
                 await asyncio.to_thread(_run_due_policies_once)
             except Exception:
@@ -210,3 +223,8 @@ async def run_scheduler_loop() -> None:
     except asyncio.CancelledError:
         logger.info("Autonomous policy scheduler stopped")
         raise
+
+
+def _log_usage_check_failure(task: asyncio.Task) -> None:
+    if not task.cancelled() and task.exception() is not None:
+        logger.error("Metric usage check tick failed", exc_info=task.exception())

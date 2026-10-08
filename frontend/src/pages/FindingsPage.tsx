@@ -46,6 +46,15 @@ export function FindingsPage() {
     enabled: runIds.length > 0,
   });
 
+  // Who watches each finding's metric (latest metric usage check); no tag when there is no check.
+  const metricNames = [...new Set((findingsQuery.data ?? []).map((finding) => finding.metric_name).filter(Boolean))].sort();
+  const usageQuery = useQuery({
+    queryKey: ['metric-usage-lookup', ...metricNames],
+    queryFn: () => api.metricUsageLookup(metricNames),
+    enabled: metricNames.length > 0,
+    retry: false,
+  });
+
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Re-fetches this one finding on open so ai_summary (computed and cached lazily, on first
@@ -304,7 +313,7 @@ export function FindingsPage() {
               {visibleGroups.length !== visibleFindings.length ? ` (${visibleFindings.length} findings, repeats grouped)` : ''}
               {visibleFindings.length !== findings.length ? ` · ${findings.length} in window` : ''}
             </Typography>
-            <TopFindingsList groups={visibleGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} />
+            <TopFindingsList groups={visibleGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} />
             {visibleGroups.length > shown ? (
               <Button variant="outlined" onClick={() => setShown((current) => current + PAGE_SIZE)} sx={{ alignSelf: 'center', textTransform: 'none', fontWeight: 800 }}>
                 Show {Math.min(PAGE_SIZE, visibleGroups.length - shown)} more

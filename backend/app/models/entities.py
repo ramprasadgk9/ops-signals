@@ -687,3 +687,47 @@ class TicketWebhookDeliveryEntity(Base):
     delivery_id: Mapped[str] = mapped_column(String(128), nullable=False)
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
+
+
+class MetricUsageSnapshotEntity(Base):
+    """One metric usage check: which metrics dashboards and alerts read, run every few hours."""
+
+    __tablename__ = "metric_usage_snapshots"
+    __table_args__ = (Index("idx_metric_usage_snapshots_created_at", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)  # "schedule" | "manual"
+    status: Mapped[str] = mapped_column(String(32), nullable=False)  # "completed" | "failed"
+    metrics_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    watched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    blind_spots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unwatched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    missing: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Active series in total and in metrics nothing watches; None when they couldn't be counted.
+    series_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    series_unwatched: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # What was read (dashboards, rules, connections), queries that couldn't be resolved, warnings.
+    sources_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class MetricUsageItemEntity(Base):
+    __tablename__ = "metric_usage_items"
+    __table_args__ = (
+        Index("idx_metric_usage_items_snapshot_status", "snapshot_id", "status"),
+        Index("idx_metric_usage_items_metric_name", "metric_name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    snapshot_id: Mapped[str] = mapped_column(String(64), ForeignKey("metric_usage_snapshots.id", ondelete="CASCADE"), nullable=False)
+    metric_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    connections_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    usages_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    via_recording_rules_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    problem_findings: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latest_finding_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    analyzed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    series: Mapped[int | None] = mapped_column(Integer, nullable=True)
