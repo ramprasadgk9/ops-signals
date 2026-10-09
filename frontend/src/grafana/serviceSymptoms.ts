@@ -54,8 +54,14 @@ export function symptomRole(finding: Finding): SymptomRole {
   return needsAttention(finding) ? 'attention' : 'background';
 }
 
-/** One row per metric that needs attention: its worst symptom leads; the metric's other,
- * non-data symptoms ride along instead of appearing as rows that look the same. */
+/** The series a symptom is on: its metric, and its cluster and connection when there are several,
+ * so "error_rate in us" and "error_rate in eu" stay apart. */
+export function seriesKey(finding: Finding): string {
+  return JSON.stringify([finding.metric_name, finding.cluster ?? null, finding.connection_id ?? null]);
+}
+
+/** One row per metric (per cluster) that needs attention: its worst symptom leads; the metric's
+ * other, non-data symptoms ride along instead of appearing as rows that look the same. */
 export type MetricRow = { lead: ServiceSymptom; others: ServiceSymptom[] };
 
 export type SymptomTriage = {
@@ -75,13 +81,13 @@ export function triageSymptoms(symptoms: ServiceSymptom[]): SymptomTriage {
     if (role === 'data') data.push(symptom);
     else if (role === 'background') background.push(symptom);
     else {
-      const row = attention.find((item) => item.lead.finding.metric_name === symptom.finding.metric_name);
+      const row = attention.find((item) => seriesKey(item.lead.finding) === seriesKey(symptom.finding));
       if (row) row.others.push(symptom);
       else attention.push({ lead: symptom, others: [] });
     }
   }
   for (const row of attention) {
-    row.others.push(...background.filter((symptom) => symptom.finding.metric_name === row.lead.finding.metric_name));
+    row.others.push(...background.filter((symptom) => seriesKey(symptom.finding) === seriesKey(row.lead.finding)));
   }
   const latestSeen = symptoms.map((symptom) => symptom.lastSeen).filter((value): value is string => Boolean(value))
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;

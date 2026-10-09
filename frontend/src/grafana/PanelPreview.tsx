@@ -891,6 +891,7 @@ export function InvestigationDrawer({
   caseDetails,
   finding,
   result,
+  source = null,
   backendUrl,
   onClose,
   onCaseChange,
@@ -901,6 +902,8 @@ export function InvestigationDrawer({
   caseDetails: GrafanaCase | null;
   finding: GrafanaAnalysisFinding | null;
   result?: GrafanaAnalysisResult | null;
+  /** Cluster and connection the finding came from ("us · Team A"); the case snapshot doesn't keep them. */
+  source?: string | null;
   backendUrl: string;
   onClose: () => void;
   onCaseChange: (caseDetails: GrafanaCase) => void;
@@ -943,6 +946,9 @@ export function InvestigationDrawer({
   const caseId = caseDetails?.id ?? caseResult?.case_id;
   const shownFinding = finding ?? caseSnapshotFinding(caseDetails);
   const snapshotMetric = caseDetails?.finding_snapshot?.metric_name;
+  // Cases saved since the snapshot kept its cluster; older ones only have what the caller passes.
+  const snapshotCluster = caseDetails?.finding_snapshot?.cluster;
+  const shownSource = source ?? (typeof snapshotCluster === 'string' && snapshotCluster ? snapshotCluster : null);
   const snapshotService = caseDetails?.finding_snapshot?.service;
   const canSave = Boolean(caseId);
 
@@ -1043,6 +1049,7 @@ export function InvestigationDrawer({
                     <span>Case opened</span><strong>{formatDate(caseDetails?.created_at)}</strong>
                   </>
                 )}
+                {shownSource ? <><span>Cluster / connection</span><strong>{shownSource}</strong></> : null}
                 <span>Importance</span><strong>{formatNumber(shownFinding?.importance_score)}</strong>
                 <span>Confidence</span><strong>{formatNumber(shownFinding?.importance_score)}</strong>
                 <span>Supporting signals</span><strong>{shownFinding?.signal_ids.length ?? 0}</strong>

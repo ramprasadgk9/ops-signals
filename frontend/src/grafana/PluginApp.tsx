@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -16,6 +16,7 @@ import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginMemoryAlertsView } from './PluginMemoryAlertsView';
+import { connectionName, findingClusters, findingSource, findingsInCluster } from './findingSource';
 import { caseForSymptom, caseIdsByFinding, serviceSymptoms, stillShowing, symptomChange, symptomKey, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms, type ServiceSymptom, type SymptomTriage } from './serviceSymptoms';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
@@ -24,8 +25,8 @@ import { findingLevel } from '../utils/findingLevel';
 import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
 import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, CaseTicketLink, CaseTicketOperation, GrafanaAnalysisResult, GrafanaCase, GrafanaQueryTarget, MonitoringCategory } from './contracts';
-import type { AnalysisRun, BehaviorFinding, Finding } from '../types';
-import { buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
+import type { AnalysisRun, BehaviorFinding, Finding, PrometheusConnection } from '../types';
+import { autonomousSourceFor, buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
 import { buildAutonomousDashboardData, formatMatchedRule, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
 
 const defaultTarget: GrafanaQueryTarget = {
@@ -131,6 +132,13 @@ export function PluginApp(_props: unknown) {
   const [autonomousServices, setAutonomousServices] = useState<string[]>([]);
   const [autonomousAllNamespaces, setAutonomousAllNamespaces] = useState(true);
   const [autonomousNamespaces, setAutonomousNamespaces] = useState<string[]>([]);
+  // Which backend Prometheus connection (Mimir tenant) and clusters autonomous analysis covers.
+  const [autonomousConnections, setAutonomousConnections] = useState<PrometheusConnection[]>([]);
+  const [autonomousConnectionId, setAutonomousConnectionId] = useState<string | null>(null);
+  const [autonomousClusterOptions, setAutonomousClusterOptions] = useState<string[]>([]);
+  const [autonomousClusterLabel, setAutonomousClusterLabel] = useState<string | null>(null);
+  const [autonomousAllClusters, setAutonomousAllClusters] = useState(true);
+  const [autonomousClusters, setAutonomousClusters] = useState<string[]>([]);
   const [namespaceLabel, setNamespaceLabel] = useState('namespace');
   const [environmentLabel, setEnvironmentLabel] = useState('env');
   const [selectedCategories, setSelectedCategories] = useState<MonitoringCategory[]>(['performance', 'capacity', 'availability']);
@@ -284,11 +292,29 @@ export function PluginApp(_props: unknown) {
   useEffect(() => {
     let active = true;
     if (activeMode !== 'autonomous' || !backendUrl) return;
-    listAutonomousScopeOptions(backendUrl, { serviceLabel, namespaceLabel, environmentLabel, window: analysisWindow })
+    listPrometheusConnections(backendUrl)
+      .then((response) => { if (active) setAutonomousConnections(response.connections); })
+      .catch(() => { if (active) setAutonomousConnections([]); });
+    return () => {
+      active = false;
+    };
+  }, [activeMode, backendUrl]);
+
+  // Until one is picked (or a saved schedule sets it), the backend's default connection.
+  const autonomousEffectiveConnectionId = autonomousSourceFor({
+    connections: autonomousConnections, pickedConnectionId: autonomousConnectionId, allClusters: true, pickedClusters: [], clusterOptions: [],
+  }).connectionId ?? null;
+
+  useEffect(() => {
+    let active = true;
+    if (activeMode !== 'autonomous' || !backendUrl) return;
+    listAutonomousScopeOptions(backendUrl, { serviceLabel, namespaceLabel, environmentLabel, window: analysisWindow, connectionId: autonomousEffectiveConnectionId })
       .then((options) => {
         if (!active) return;
         setServices(options.services);
         setNamespaces(options.namespaces);
+        setAutonomousClusterOptions(options.clusters ?? []);
+        setAutonomousClusterLabel(options.cluster_label ?? null);
       })
       .catch(() => {
         // Keep Grafana-discovered values as a graceful fallback.
@@ -296,7 +322,15 @@ export function PluginApp(_props: unknown) {
     return () => {
       active = false;
     };
-  }, [activeMode, backendUrl, serviceLabel, namespaceLabel, environmentLabel, analysisWindow]);
+  }, [activeMode, backendUrl, serviceLabel, namespaceLabel, environmentLabel, analysisWindow, autonomousEffectiveConnectionId]);
+
+  const autonomousSource = autonomousSourceFor({
+    connections: autonomousConnections,
+    pickedConnectionId: autonomousConnectionId,
+    allClusters: autonomousAllClusters,
+    pickedClusters: autonomousClusters,
+    clusterOptions: autonomousClusterOptions,
+  });
 
   const selectedDatasource = useMemo(
     () => prometheusDatasources.find((datasource) => datasource.uid === selectedPrometheusUid),
@@ -515,6 +549,26 @@ export function PluginApp(_props: unknown) {
           setAllNamespaces={setAutonomousAllNamespaces}
           selectedNamespaces={autonomousNamespaces}
           setSelectedNamespaces={setAutonomousNamespaces}
+          connections={autonomousConnections}
+          connectionId={autonomousEffectiveConnectionId}
+          setConnectionId={(id) => {
+            // Another tenant has other services and clusters; keep no selection from the previous one,
+            // as the web UI does - and no preview, which was for the other tenant.
+            setPreviewResult(null);
+            setPreviewError('');
+            setAutonomousConnectionId(id);
+            setAutonomousServices([]);
+            setAutonomousNamespaces([]);
+            setAutonomousClusters([]);
+            setAutonomousAllClusters(true);
+          }}
+          clusterOptions={autonomousClusterOptions}
+          clusterLabel={autonomousClusterLabel}
+          allClusters={autonomousAllClusters}
+          setAllClusters={setAutonomousAllClusters}
+          selectedClusters={autonomousClusters}
+          setSelectedClusters={setAutonomousClusters}
+          source={autonomousSource}
           serviceLabel={serviceLabel}
           setServiceLabel={setServiceLabel}
           namespaceLabel={namespaceLabel}
@@ -633,6 +687,7 @@ export function PluginApp(_props: unknown) {
             setAutonomousCaseError('');
             try {
               const response = await previewAutonomousPlan(backendUrl, buildAutonomousPreviewRequest({
+                ...autonomousSource,
                 backend: 'grafana-stack',
                 environment: autonomousEnvironment,
                 allServices: autonomousAllServices,
@@ -665,6 +720,7 @@ export function PluginApp(_props: unknown) {
               const response = await previewAutonomousPlan(backendUrl, {
                 datasource: 'prometheus',
                 backend: policy.backend,
+                ...(policy.connection_id ? { connection_id: policy.connection_id } : {}),
                 scope: policy.scope,
                 monitoring_selection: policy.monitoring_selection,
                 monitoring_categories: policy.monitoring_selection.categories,
@@ -692,6 +748,7 @@ export function PluginApp(_props: unknown) {
             setAutonomousRunError('');
             try {
               const response = await runAutonomousPlanOnce(backendUrl, buildAutonomousPreviewRequest({
+                ...autonomousSource,
                 backend: 'grafana-stack',
                 environment: autonomousEnvironment,
                 allServices: autonomousAllServices,
@@ -722,6 +779,109 @@ export function PluginApp(_props: unknown) {
         />
       )}
     </main>
+  );
+}
+
+/** Which clusters autonomous analysis covers. Always shown, like Services and Namespaces, so it is
+ * clear whether the connection has clusters at all; the list appears when there is a choice, or when
+ * a saved schedule is narrowed to clusters (kept visible even if the connection no longer has them). */
+export function ClustersField({ clusterOptions, clusterLabel, allClusters, setAllClusters, selectedClusters, setSelectedClusters }: {
+  clusterOptions: string[];
+  clusterLabel: string | null;
+  allClusters: boolean;
+  setAllClusters: (value: boolean) => void;
+  selectedClusters: string[];
+  setSelectedClusters: (value: string[]) => void;
+}) {
+  const options = [...new Set([...clusterOptions, ...(allClusters ? [] : selectedClusters)])].sort();
+  const label = clusterLabel ?? 'cluster';
+  if (!clusterLabel) {
+    return (
+      <Field label="Clusters">
+        <div style={styles.helperText}>Turned off for this connection (no cluster label is set), so its data is analysed as one.</div>
+      </Field>
+    );
+  }
+  if (options.length === 0) {
+    return (
+      <Field label="Clusters">
+        <div style={{ ...styles.muted, fontSize: 13 }}>No clusters</div>
+        <div style={styles.helperText}>This connection's data has no "{label}" label, so it is analysed as one.</div>
+      </Field>
+    );
+  }
+  if (options.length === 1 && allClusters) {
+    return (
+      <Field label="Clusters">
+        <span style={styles.chip}>{options[0]}</span>
+        <div style={styles.helperText}>The only cluster on this connection (label "{label}").</div>
+      </Field>
+    );
+  }
+  return (
+    <Field label="Clusters">
+      <label style={{ ...styles.row, marginBottom: 8 }}>
+        <input type="checkbox" checked={allClusters} onChange={(event) => setAllClusters(event.target.checked)} />
+        <span>All clusters</span>
+      </label>
+      <select
+        aria-label="Clusters"
+        style={{ ...styles.input, minHeight: 72 }}
+        multiple
+        disabled={allClusters}
+        value={selectedClusters}
+        onChange={(event) => setSelectedClusters(Array.from(event.target.selectedOptions).map((option) => option.value))}
+      >
+        {options.map((cluster) => (
+          <option key={cluster} value={cluster}>{cluster}{clusterOptions.includes(cluster) ? '' : ' (not on this connection now)'}</option>
+        ))}
+      </select>
+      <div style={styles.helperText}>Each cluster is analysed separately (label "{label}"), as when several clusters share one Mimir or Thanos.</div>
+    </Field>
+  );
+}
+
+/** Picks the backend Prometheus connection (one per Mimir tenant), with a connection test. */
+export function ConnectionPicker({ backendUrl, connections, connectionId, onChange }: {
+  backendUrl: string;
+  connections: PrometheusConnection[];
+  connectionId: string | null;
+  onChange: (value: string) => void;
+}) {
+  const [test, setTest] = useState<{ status: 'idle' | 'testing' } | { status: 'done'; ok: boolean; message: string }>({ status: 'idle' });
+  const runTest = async () => {
+    if (!connectionId) return;
+    setTest({ status: 'testing' });
+    try {
+      const result = await testPrometheusConnection(backendUrl, connectionId);
+      setTest({ status: 'done', ok: result.available, message: result.available ? `Connected${result.latency_ms ? ` · ${Math.round(result.latency_ms)} ms` : ''}` : result.message });
+    } catch (error) {
+      setTest({ status: 'done', ok: false, message: error instanceof Error ? error.message : 'Connection test failed' });
+    }
+  };
+  return (
+    <Field label="Prometheus connection">
+      <div style={{ ...styles.row, gap: 8, flexWrap: 'nowrap' }}>
+        <select
+          aria-label="Prometheus connection"
+          style={styles.input}
+          value={connectionId ?? ''}
+          onChange={(event) => {
+            setTest({ status: 'idle' });
+            onChange(event.target.value);
+          }}
+        >
+          {connections.map((connection) => (
+            <option key={connection.id} value={connection.id}>{connection.name}{connection.configured ? '' : ' (not configured)'}</option>
+          ))}
+        </select>
+        <button type="button" style={{ ...styles.chip, background: 'transparent', color: 'inherit', cursor: 'pointer' }} disabled={test.status === 'testing' || !connectionId} onClick={runTest}>
+          {test.status === 'testing' ? 'Testing...' : 'Test'}
+        </button>
+      </div>
+      {test.status === 'done' ? <div style={{ ...styles.helperText, color: test.ok ? '#3fcf8e' : '#ff7381' }}>{test.message}</div> : null}
+      <div style={styles.helperText}>One per Mimir tenant or Prometheus server, set on the backend. Services and clusters below come from it.</div>
+    </Field>
   );
 }
 
@@ -961,6 +1121,16 @@ function AutonomousAnalysisView({
   setAllNamespaces,
   selectedNamespaces,
   setSelectedNamespaces,
+  connections,
+  connectionId,
+  setConnectionId,
+  clusterOptions,
+  clusterLabel,
+  allClusters,
+  setAllClusters,
+  selectedClusters,
+  setSelectedClusters,
+  source,
   serviceLabel,
   setServiceLabel,
   namespaceLabel,
@@ -1032,6 +1202,20 @@ function AutonomousAnalysisView({
   setAllNamespaces: (value: boolean) => void;
   selectedNamespaces: string[];
   setSelectedNamespaces: (value: string[]) => void;
+  /** Backend Prometheus connections (one per Mimir tenant); a picker appears with two or more. */
+  connections: PrometheusConnection[];
+  connectionId: string | null;
+  setConnectionId: (value: string | null) => void;
+  /** Clusters behind the connection; a picker appears with two or more. */
+  clusterOptions: string[];
+  /** The label that tells clusters apart on this connection; null when turned off. */
+  clusterLabel: string | null;
+  allClusters: boolean;
+  setAllClusters: (value: boolean) => void;
+  selectedClusters: string[];
+  setSelectedClusters: (value: string[]) => void;
+  /** Connection and clusters as they go into a plan request. */
+  source: { connectionId?: string; allClusters: boolean; selectedClusters: string[] };
   serviceLabel: string;
   setServiceLabel: (value: string) => void;
   namespaceLabel: string;
@@ -1080,6 +1264,10 @@ function AutonomousAnalysisView({
   onRunOnce: () => Promise<void>;
 }) {
   const [previewStatusFilter, setPreviewStatusFilter] = useState<'all' | 'planned' | 'excluded'>('all');
+  // Several clusters behind one Mimir or Thanos: the overview can look at one at a time.
+  const [clusterFilter, setClusterFilter] = useState<string | null>(null);
+  const clusters = useMemo(() => findingClusters(findings), [findings]);
+  const { cluster: activeCluster, findings: clusterFindings } = useMemo(() => findingsInCluster(findings, clusterFilter), [findings, clusterFilter]);
   const [previewCategoryFilter, setPreviewCategoryFilter] = useState<string>('all');
   const [previewConceptFilter, setPreviewConceptFilter] = useState<string>('all');
   const [expandedPreviewMetric, setExpandedPreviewMetric] = useState<string | null>(null);
@@ -1132,6 +1320,7 @@ function AutonomousAnalysisView({
     setScheduleError('');
     try {
       const request = buildAutonomousPreviewRequest({
+        ...source,
         backend: 'grafana-stack',
         environment,
         allServices,
@@ -1154,6 +1343,7 @@ function AutonomousAnalysisView({
         name: 'Production coverage',
         datasource: request.datasource,
         backend: request.backend,
+        ...(request.connection_id ? { connection_id: request.connection_id } : {}),
         scope: request.scope,
         monitoring_selection: request.monitoring_selection!,
         execution: request.execution,
@@ -1199,6 +1389,8 @@ function AutonomousAnalysisView({
   };
 
   const applyPolicyToForm = (policy: AutonomousPolicy) => {
+    // First: changing the connection clears the service, namespace and cluster picks set below.
+    setConnectionId(policy.connection_id ?? null);
     setEnvironment(policy.scope.environment ?? 'production');
     setServiceLabel(policy.scope.service_label);
     setNamespaceLabel(policy.scope.namespace_label);
@@ -1207,6 +1399,8 @@ function AutonomousAnalysisView({
     setSelectedServices(policy.scope.services);
     setAllNamespaces(policy.scope.all_namespaces);
     setSelectedNamespaces(policy.scope.namespaces);
+    setAllClusters(policy.scope.all_clusters ?? true);
+    setSelectedClusters(policy.scope.clusters ?? []);
     setSelectedCategories(policy.monitoring_selection.categories);
     setCustomExplicitMetrics((policy.monitoring_selection.custom_constraints?.explicit_metrics ?? []).join(','));
     setCustomIncludePatterns((policy.monitoring_selection.custom_constraints?.include_patterns ?? []).join(','));
@@ -1224,7 +1418,7 @@ function AutonomousAnalysisView({
     setIsEditingSchedule(true);
   };
   const dashboardData = buildAutonomousDashboardData({
-    findings,
+    findings: clusterFindings,
     cases,
     analysisRuns: runs,
     behaviorFindings,
@@ -1326,6 +1520,14 @@ function AutonomousAnalysisView({
                 <p style={{ ...styles.muted, margin: '5px 0 0' }}>
                   {activePolicy.monitoring_selection.categories.join(', ')} &middot; every {activePolicy.schedule_minutes ? `${activePolicy.schedule_minutes}m` : 'n/a'}
                 </p>
+                {connections.length > 1 || (activePolicy.scope.all_clusters === false && activePolicy.scope.clusters?.length) ? (
+                  <p style={{ ...styles.muted, margin: '3px 0 0' }}>
+                    {[
+                      connections.length > 1 ? (connectionName(connections, activePolicy.connection_id ?? 'default') ?? activePolicy.connection_id) : null,
+                      activePolicy.scope.all_clusters === false && activePolicy.scope.clusters?.length ? `clusters ${activePolicy.scope.clusters.join(', ')}` : null,
+                    ].filter(Boolean).join(' · ')}
+                  </p>
+                ) : null}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" style={styles.button} onClick={handleEditSchedule}>Edit</button>
@@ -1408,6 +1610,7 @@ function AutonomousAnalysisView({
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.35fr) minmax(320px, 1fr) minmax(220px, 0.35fr)', gap: 14, marginTop: 16 }}>
           <div style={panelStyle('#73bf69')}>
             <h3 style={sectionTitleStyle}>1. Analysis Scope</h3>
+            {connections.length > 1 ? <ConnectionPicker backendUrl={backendUrl} connections={connections} connectionId={connectionId} onChange={setConnectionId} /> : null}
             <Field label="Environment">
               <select style={styles.input} value={environment} onChange={(event) => setEnvironment(event.target.value)}>
                 <option value="production">Production</option>
@@ -1452,6 +1655,14 @@ function AutonomousAnalysisView({
               </select>
               {!namespaces.length && <div style={styles.helperText}>No namespace values discovered. Leave all namespaces enabled or adjust the namespace label.</div>}
             </Field>
+            <ClustersField
+              clusterOptions={clusterOptions}
+              clusterLabel={clusterLabel}
+              allClusters={allClusters}
+              setAllClusters={setAllClusters}
+              selectedClusters={selectedClusters}
+              setSelectedClusters={setSelectedClusters}
+            />
           </div>
 
           <div style={panelStyle('#3fcf8e')}>
@@ -1556,6 +1767,7 @@ function AutonomousAnalysisView({
       {uiStage === 'preview_ready' ? (
         <PreviewPlanPanel
           result={previewResult}
+          connectionLabel={connectionName(connections, connectionId)}
           rows={previewRows}
           canRunOnce={canRunOnce}
           isRunningOnce={isRunningOnce}
@@ -1579,7 +1791,10 @@ function AutonomousAnalysisView({
         <GrafanaAutonomousOverview
           backendUrl={backendUrl}
           data={dashboardData}
-          findings={findings}
+          findings={clusterFindings}
+          clusters={clusters}
+          clusterFilter={activeCluster}
+          onClusterFilter={setClusterFilter}
           behaviorFindings={behaviorFindings}
           state={dashboardState}
           endpointErrors={endpointErrors}
@@ -1637,6 +1852,9 @@ export function GrafanaAutonomousOverview({
   backendUrl,
   data,
   findings,
+  clusters = [],
+  clusterFilter = null,
+  onClusterFilter,
   behaviorFindings,
   state,
   context,
@@ -1660,6 +1878,10 @@ export function GrafanaAutonomousOverview({
   backendUrl: string;
   data: AutonomousDashboardData;
   findings: Finding[];
+  /** Clusters in the window's findings; chips to look at one appear when there are two or more. */
+  clusters?: string[];
+  clusterFilter?: string | null;
+  onClusterFilter?: (cluster: string | null) => void;
   behaviorFindings: BehaviorFinding[];
   state: 'loading' | 'error' | 'ready';
   context: {
@@ -1696,7 +1918,18 @@ export function GrafanaAutonomousOverview({
   const [serviceCases, setServiceCases] = useState<Map<number, number>>(new Map());
   const [createdCases, setCreatedCases] = useState<Map<number, number>>(new Map());
   const [drawerCase, setDrawerCase] = useState<GrafanaCase | null>(null);
+  const [drawerSource, setDrawerSource] = useState<string | null>(null);
   const [drawerChanged, setDrawerChanged] = useState(false);
+  const [connections, setConnections] = useState<PrometheusConnection[]>([]);
+
+  useEffect(() => {
+    if (!backendUrl) return;
+    let active = true;
+    listPrometheusConnections(backendUrl)
+      .then((response) => { if (active) setConnections(response.connections); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [backendUrl]);
   const [openCaseError, setOpenCaseError] = useState('');
 
   useEffect(() => {
@@ -1788,6 +2021,8 @@ export function GrafanaAutonomousOverview({
       : `Nothing on ${primaryService.service} needs attention: ${triage.data.length ? `${triage.data.length} data problem${triage.data.length === 1 ? '' : 's'}` : ''}${triage.data.length && triage.background.length ? ' and ' : ''}${triage.background.length ? `${triage.background.length} background signal${triage.background.length === 1 ? '' : 's'}` : ''}.`
     : `${formatNullableCount(data.summary.executed)} metric${data.summary.executed === 1 ? '' : 's'} executed with no current-run findings.`;
   const roleLabel = (symptom: ServiceSymptom) => ({ attention: 'Needs attention', data: 'Data problem', background: 'Background signal' })[symptomRole(symptom.finding)];
+  const sourceOf = (finding: Finding) => findingSource(finding, connections);
+  const metricIn = (finding: Finding) => (finding.cluster ? `${finding.metric_name} in ${finding.cluster}` : finding.metric_name);
 
   /** Opens the finding's case in the drawer, creating it first when there is none. */
   async function openOrCreateCase(finding: Finding, knownCaseId: number | null) {
@@ -1805,6 +2040,7 @@ export function GrafanaAutonomousOverview({
     }
     try {
       setDrawerCase(await getCase(backendUrl, caseId));
+      setDrawerSource(findingSource(finding, connections));
       setDrawerChanged(false);
     } catch {
       setOpenCaseError(`Could not open case #${caseId}. Check the backend connection and retry.`);
@@ -1857,6 +2093,23 @@ export function GrafanaAutonomousOverview({
           {context.environment ? <span style={styles.chip}>Environment: {context.environment}</span> : null}
         </div>
       </div>
+      {clusters.length > 1 && onClusterFilter ? (
+        <div role="group" aria-label="Cluster" style={{ ...styles.row, gap: 6 }}>
+          <span style={{ ...styles.helperText, margin: 0 }}>Cluster</span>
+          {[null, ...clusters].map((cluster) => (
+            <button
+              key={cluster ?? 'all'}
+              type="button"
+              aria-pressed={clusterFilter === cluster}
+              onClick={() => onClusterFilter(cluster)}
+              style={{ ...styles.chip, background: clusterFilter === cluster ? '#5794f2' : 'transparent', color: clusterFilter === cluster ? '#fff' : 'inherit', cursor: 'pointer', ...(clusterFilter === cluster ? { border: '1px solid #5794f2' } : {}) }}
+            >
+              {cluster ?? 'All clusters'}
+            </button>
+          ))}
+          <span style={{ ...styles.helperText, margin: 0 }}>The same service in several clusters behind one Mimir or Thanos: look at one at a time.</span>
+        </div>
+      ) : null}
 
       <div style={panelStyle(hasFindings ? '#b877d9' : '#3fcf8e')}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 0.85fr)', gap: 18, alignItems: 'stretch' }}>
@@ -1879,7 +2132,7 @@ export function GrafanaAutonomousOverview({
             {selectedSymptom ? (
               <div>
                 <strong>Looking at</strong>{' '}
-                <span style={styles.muted}>{selectedSymptom.finding.metric_name} · {roleLabel(selectedSymptom).toLowerCase()}</span>
+                <span style={styles.muted}>{metricIn(selectedSymptom.finding)} · {roleLabel(selectedSymptom).toLowerCase()}</span>
                 <p style={{ ...styles.helperText, margin: '4px 0 0' }}>
                   {symptomCount > 1 ? 'Pick another one on the right; the buttons act on the one you are looking at. ' : ''}A case is opened per symptom.
                 </p>
@@ -1908,6 +2161,7 @@ export function GrafanaAutonomousOverview({
           <div style={{ borderLeft: '1px solid rgba(204, 204, 220, 0.12)', paddingLeft: 18, minWidth: 0 }}>
             <SymptomTriagePanel
               service={primaryService?.service ?? ''}
+              sourceOf={sourceOf}
               triage={triage}
               selected={selectedSymptom}
               caseByFinding={caseByFinding}
@@ -1926,7 +2180,8 @@ export function GrafanaAutonomousOverview({
           backendUrl={backendUrl}
           finding={investigationFinding}
           mode={investigationMode}
-          position={panelSymptom ? `${roleLabel(panelSymptom)} · ${panelSymptom.finding.metric_name} on ${primaryService?.service ?? ''}` : null}
+          position={panelSymptom ? `${roleLabel(panelSymptom)} · ${metricIn(panelSymptom.finding)} on ${primaryService?.service ?? ''}` : null}
+          connection={connectionName(connections, investigationFinding.connection_id)}
           caseAction={caseButton(investigationFinding, panelCaseId)}
           caseId={panelCaseId}
           onOpenInteractive={() => onInvestigateInteractive(investigationFinding)}
@@ -1969,6 +2224,7 @@ export function GrafanaAutonomousOverview({
         caseResult={null}
         caseDetails={drawerCase}
         finding={null}
+        source={drawerSource}
         backendUrl={backendUrl}
         onClose={closeDrawer}
         onCaseChange={(updated) => {
@@ -2414,7 +2670,7 @@ function GrafanaFindingsLookupPanel({ lookupState }: { lookupState: AutonomousFi
         {lookupState.findings.length ? lookupState.findings.map((finding) => (
           <div key={finding.id} style={styles.rowBetween}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <strong>{finding.service} / {finding.metric_name}</strong>
+              <strong>{finding.service} / {finding.metric_name}{finding.cluster ? ` · ${finding.cluster}` : ''}</strong>
               <div style={styles.helperText}>{finding.title}</div>
               <div style={styles.helperText}>Importance {finding.importance_score.toFixed(2)} · {humanize(finding.category)} · {formatCompactDate(finding.created_at)}</div>
               <PluginBreakdownDisclosure finding={finding} />
@@ -2428,6 +2684,12 @@ function GrafanaFindingsLookupPanel({ lookupState }: { lookupState: AutonomousFi
 }
 
 const METRIC_ROWS_SHOWN = 5;
+
+/** The cluster (and connection) a finding came from; nothing for single-cluster data. */
+function SourceChip({ source }: { source: string | null }) {
+  if (!source) return null;
+  return <span title="Cluster and Prometheus connection the data came from" style={{ ...styles.chip, color: '#8ab8ff', borderColor: 'rgba(87, 148, 242, 0.45)' }}>{source}</span>;
+}
 
 function formatSince(value?: string | null) {
   return value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
@@ -2457,8 +2719,10 @@ function symptomTiming(symptom: ServiceSymptom, latestSeen: string | null) {
 /** A service's symptoms sorted into what to act on (one row per metric, with what changed, for how
  * long, and its case), data problems to fix first, and folded background signals. Clicking a row
  * shows it in the finding panel below. */
-function SymptomTriagePanel({ service, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase }: {
+function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase }: {
   service: string;
+  /** "us · Team A": the cluster and connection, when there are several. */
+  sourceOf: (finding: Finding) => string | null;
   triage: SymptomTriage;
   selected: ServiceSymptom | null;
   caseByFinding: Map<number, number>;
@@ -2483,7 +2747,7 @@ function SymptomTriagePanel({ service, triage, selected, caseByFinding, showAll,
         role="button"
         tabIndex={0}
         aria-pressed={isSelected}
-        aria-label={`Look at ${symptom.finding.metric_name} ${symptomKind(symptom.finding)}`}
+        aria-label={`Look at ${symptom.finding.metric_name}${symptom.finding.cluster ? ` in ${symptom.finding.cluster}` : ''} ${symptomKind(symptom.finding)}`}
         onClick={() => onSelect(symptom)}
         onKeyDown={(event) => {
           if (event.target !== event.currentTarget) return;
@@ -2528,6 +2792,7 @@ function SymptomTriagePanel({ service, triage, selected, caseByFinding, showAll,
                 <div style={{ minWidth: 0 }}>
                   <div style={{ ...styles.row, gap: 8 }}>
                     <strong>{row.lead.finding.metric_name}</strong>
+                    <SourceChip source={sourceOf(row.lead.finding)} />
                     {change ? <span>{change.text}</span> : <span style={styles.muted}>{symptomKind(row.lead.finding)}</span>}
                     {change?.percent ? <strong style={{ color: '#ff7381' }}>{change.percent}</strong> : null}
                   </div>
@@ -2566,7 +2831,7 @@ function SymptomTriagePanel({ service, triage, selected, caseByFinding, showAll,
             </div>
             <div style={{ ...styles.row, gap: 6, marginTop: 8 }}>
               {triage.data.map((symptom) => selectable(symptom, (
-                <span>{symptom.finding.metric_name} <span style={styles.muted}>· {symptomTiming(symptom, triage.latestSeen).replace(/^Ongoing for [^,]+, /, '')}</span></span>
+                <span>{symptom.finding.metric_name}{sourceOf(symptom.finding) ? ` (${sourceOf(symptom.finding)})` : ''} <span style={styles.muted}>· {symptomTiming(symptom, triage.latestSeen).replace(/^Ongoing for [^,]+, /, '')}</span></span>
               ), { ...styles.chip, fontSize: 12 }, 'triage-data-metric'))}
             </div>
           </div>
@@ -2582,7 +2847,7 @@ function SymptomTriagePanel({ service, triage, selected, caseByFinding, showAll,
           {showBackground ? (
             <div style={{ ...styles.stack, gap: 4, marginTop: 6 }}>
               {triage.background.map((symptom) => selectable(symptom, (
-                <span style={{ fontSize: 13 }}>{symptom.finding.metric_name}: {symptomKind(symptom.finding)} <span style={styles.muted}>· {symptomTiming(symptom, triage.latestSeen)}</span></span>
+                <span style={{ fontSize: 13 }}>{symptom.finding.metric_name}{sourceOf(symptom.finding) ? ` (${sourceOf(symptom.finding)})` : ''}: {symptomKind(symptom.finding)} <span style={styles.muted}>· {symptomTiming(symptom, triage.latestSeen)}</span></span>
               ), { border: '1px solid transparent', borderRadius: 6, padding: '4px 6px' }, 'triage-background-item'))}
             </div>
           ) : null}
@@ -2617,6 +2882,7 @@ function AutonomousInvestigationPanel({
   finding,
   mode,
   position,
+  connection = null,
   caseAction,
   caseId,
   onOpenInteractive,
@@ -2627,6 +2893,8 @@ function AutonomousInvestigationPanel({
   mode: 'investigate' | 'evidence';
   /** What it is on the service ("Needs attention · error_rate on trend-lab"), when it is one of its symptoms. */
   position: string | null;
+  /** The connection's name, when there are several connections. */
+  connection?: string | null;
   caseAction: React.ReactNode;
   caseId: number | null;
   onOpenInteractive: () => void;
@@ -2745,6 +3013,8 @@ function AutonomousInvestigationPanel({
             <div><div style={styles.helperText}>Metric</div><strong>{finding.metric_name}</strong></div>
             <div><div style={styles.helperText}>Importance</div><strong>{finding.importance_score.toFixed(2)}</strong></div>
             <div><div style={styles.helperText}>Analysis run</div><strong>{finding.analysis_run_id || 'unknown'}</strong></div>
+            {finding.cluster ? <div><div style={styles.helperText}>Cluster</div><strong>{finding.cluster}</strong></div> : null}
+            {connection ? <div><div style={styles.helperText}>Prometheus connection</div><strong>{connection}</strong></div> : null}
           </div>
           <PluginFindingTrust backendUrl={backendUrl} findingId={finding.id} trust={finding.trust} service={finding.service} />
           {activeCaseId && shouldShowTicketCard(ticketingStatus, ticketingStatusFailed, ticket) ? (
@@ -3120,6 +3390,7 @@ function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }
 
 function PreviewPlanPanel({
   result,
+  connectionLabel = null,
   rows,
   canRunOnce,
   isRunningOnce,
@@ -3135,6 +3406,8 @@ function PreviewPlanPanel({
   setExpandedMetric,
 }: {
   result: AutonomousPreviewResponse | null;
+  /** The connection the plan is for, when there are several. */
+  connectionLabel?: string | null;
   rows: AutonomousPlanItem[];
   canRunOnce: boolean;
   isRunningOnce: boolean;
@@ -3172,7 +3445,7 @@ function PreviewPlanPanel({
     <Card>
       <div style={styles.rowBetween}>
         <div>
-          <h2 style={{ margin: 0 }}>Metric Plan Preview</h2>
+          <h2 style={{ margin: 0 }}>Metric Plan Preview{connectionLabel ? `: ${connectionLabel}` : ''}</h2>
           <p style={{ ...styles.muted, margin: '5px 0 0' }}>Review selected and excluded metric groups before starting autonomous analysis.</p>
         </div>
         <span style={{ ...styles.chip, color: '#3fcf8e' }}>{result.planned_jobs} planned jobs</span>

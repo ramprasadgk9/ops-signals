@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation, splitCsvList } from './autonomousPreviewModel';
+import { autonomousSourceFor, buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation, splitCsvList } from './autonomousPreviewModel';
 import type { AutonomousPlanItem } from './contracts';
 
 const baseForm = {
@@ -90,5 +90,21 @@ describe('autonomous preview model', () => {
   it('explains selected and excluded rows', () => {
     expect(previewRowExplanation(item())).toContain('Selected because exact_metric_mapping');
     expect(previewRowExplanation(item({ planned: false, exclusion_reason: 'excluded_metadata_metric' }))).toContain('Excluded because excluded_metadata_metric');
+  });
+
+  it('sends the picked connection, else the default one, and only clusters the connection still has', () => {
+    const connections = [{ id: 'default', is_default: true }, { id: 'team-a' }];
+    const source = (overrides: Partial<Parameters<typeof autonomousSourceFor>[0]>) =>
+      autonomousSourceFor({ connections, pickedConnectionId: null, allClusters: true, pickedClusters: [], clusterOptions: ['eu', 'us'], ...overrides });
+
+    expect(source({})).toEqual({ connectionId: 'default', allClusters: true, selectedClusters: [] });
+    expect(autonomousSourceFor({ connections: [{ id: 'team-a', is_default: true }, { id: 'team-b' }], pickedConnectionId: 'default', allClusters: true, pickedClusters: [], clusterOptions: [] }).connectionId).toBe('team-a');
+    expect(source({ pickedConnectionId: 'team-a', allClusters: false, pickedClusters: ['us', 'staging'] })).toEqual({ connectionId: 'team-a', allClusters: false, selectedClusters: ['us'] });
+    expect(source({ allClusters: false, pickedClusters: ['staging'] })).toEqual({ connectionId: 'default', allClusters: true, selectedClusters: [] });
+    expect(autonomousSourceFor({ connections: [], pickedConnectionId: null, allClusters: true, pickedClusters: [], clusterOptions: [] })).toEqual({ allClusters: true, selectedClusters: [] });
+
+    const request = buildAutonomousPreviewRequest({ ...baseForm, ...source({ pickedConnectionId: 'team-a', allClusters: false, pickedClusters: ['us'] }) });
+    expect(request.connection_id).toBe('team-a');
+    expect(request.scope).toMatchObject({ all_clusters: false, clusters: ['us'] });
   });
 });

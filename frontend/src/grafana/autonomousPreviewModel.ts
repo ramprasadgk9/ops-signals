@@ -97,3 +97,23 @@ export function previewRowExplanation(item: AutonomousPlanItem) {
   }
   return `Excluded because ${item.exclusion_reason ?? 'it did not match the selected categories'}.`;
 }
+
+/** The connection and clusters a plan request covers: the picked connection, else the backend's
+ * default; the picked clusters still offered by that connection, and all clusters when none are. */
+export function autonomousSourceFor(input: {
+  connections: Array<{ id: string; is_default?: boolean }>;
+  pickedConnectionId: string | null;
+  allClusters: boolean;
+  pickedClusters: string[];
+  clusterOptions: string[];
+}): { connectionId?: string; allClusters: boolean; selectedClusters: string[] } {
+  // `default` is the backend's alias for its default connection: name that connection by its own id.
+  const picked = input.pickedConnectionId === 'default' ? null : input.pickedConnectionId;
+  const connectionId = picked ?? input.connections.find((connection) => connection.is_default)?.id ?? input.pickedConnectionId ?? undefined;
+  const selectedClusters = input.pickedClusters.filter((cluster) => input.clusterOptions.includes(cluster));
+  return {
+    ...(connectionId ? { connectionId } : {}),
+    allClusters: input.allClusters || selectedClusters.length === 0,
+    selectedClusters,
+  };
+}
