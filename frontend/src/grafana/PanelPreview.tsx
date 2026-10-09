@@ -1378,6 +1378,11 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
   return (
     <div style={styles.stack}>
       {workflowError ? <div style={styles.alert}>{workflowError}</div> : null}
+      {(result.warnings ?? []).length ? (
+        <div data-testid="run-warnings" style={{ ...styles.alert, borderColor: 'rgba(255, 179, 87, 0.45)', background: 'rgba(255, 179, 87, 0.08)' }}>
+          {(result.warnings ?? []).map((warning) => <div key={warning}>{warning}</div>)}
+        </div>
+      ) : null}
 
       <Card>
         <div style={styles.summaryStrip}>
@@ -1389,8 +1394,9 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
             <summary>Run details</summary>
             <div style={{ ...styles.detailGrid, marginTop: 12 }}>
               <span>Run ID</span><strong title={result.runId} style={{ cursor: 'help' }}>{truncateId(result.runId)}</strong>
-              <span>Data source</span><strong>{result.datasource}</strong>
-              <span>Datasource UID</span><strong>{result.datasourceUid ?? 'n/a'}</strong>
+              <span>{result.connection ? 'Connection' : 'Data source'}</span><strong>{result.datasource}</strong>
+              {result.connection ? null : <><span>Datasource UID</span><strong>{result.datasourceUid ?? 'n/a'}</strong></>}
+              {result.cluster ? <><span>Cluster</span><strong>{result.cluster}</strong></> : null}
               <span>Service</span><strong>{result.service}</strong>
               <span>Query window</span><strong>{result.from || result.to ? `${result.from} - ${result.to}` : 'Backend selected run window'}</strong>
               <span>Status</span><strong>{humanize(result.status)}</strong>

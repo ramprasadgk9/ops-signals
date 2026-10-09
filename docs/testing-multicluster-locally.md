@@ -60,6 +60,25 @@ If your `.env` already sets `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE`, comment t
 the connections file replaces it.) Run `./scripts/multicluster.sh check` again: the last
 check now goes through the app.
 
+**Keeping the lab Prometheus too.** `multicluster.sh app` replaces your usual Prometheus with the
+two Mimir tenants. To have both, write your own connections file (the gitignored
+`prometheus-connections.yaml` at the repo root is meant for this) with the lab Prometheus as the
+default and the two tenants from `dev/multicluster/connections.yaml`:
+
+```yaml
+default: local
+connections:
+  - id: local
+    name: Local Prometheus (labs)
+    base_url: http://localhost:9090
+  # then the team-a and team-b entries from dev/multicluster/connections.yaml
+```
+
+Point `.env` at it (`OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE=<repo>/prometheus-connections.yaml`)
+and start the usual way: `./scripts/run_all.sh` for the web UI, `./scripts/run_grafana_stack.sh`
+for the Grafana plugin (each backend reads `.env` when it starts). `multicluster.sh app` refuses to
+run while `.env` sets the file, which is expected here.
+
 ## Pods and deploys
 
 With the app running, post the deploy events that go with the `us` incidents:
@@ -98,6 +117,26 @@ Open http://localhost:5174.
    Switch it to `Mimir team-b (staging)`: the cluster list becomes `staging` only, and a preview or
    run queries tenant `team-b`. Findings from it are labelled with the connection name. Alerts with
    `tenant="team-b"` are analysed on `team-b`; alerts without a `tenant` label go to `team-a`.
+
+### In the Grafana plugin
+
+Start the Grafana stack (`./scripts/run_grafana_stack.sh`) with the same connections file, then open
+the Ops Signals app in Grafana (http://localhost:3000).
+
+1. **Autonomous Analysis → Configure.** The **Prometheus connection** picker lists the tenants;
+   **Test** checks one. The **Clusters** section is always there: `eu` and `us` to choose from on
+   `team-a`, "staging, the only cluster" on `team-b`, "No clusters" on a Prometheus without the
+   label. Preview names the connection it is for.
+2. **Run once, then Overview.** Chips **All clusters | eu | us** filter the overview; symptom rows
+   carry their cluster and `error_rate` in `us` and in `eu` are separate rows. A case opened from
+   a row shows the cluster in the drawer's Finding step.
+3. **Interactive Analysis → Query through: Ops Signals connection.** Pick `Mimir team-a (eu, us)`,
+   service `checkout`, metric `request_latency_p95`: a **Cluster** field appears and Run Analysis
+   waits for it. `eu` runs and warns that one HA replica copy was dropped; Run details show the
+   connection and cluster. `us` stops with "This query matched 12 series, which differ by pod…":
+   `checkout` in `us` has one series per pod, so add a `pod="…"` matcher in PromQL mode.
+4. **Open in Interactive Analysis** on an autonomous finding from `team-a` re-runs it on that
+   connection and cluster.
 
 To see the problem Ops Signals avoids, compare these in a Prometheus UI or with curl:
 

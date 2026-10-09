@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Mimir tenants and clusters in the Grafana plugin**, as in the web UI (see
+  docs/standalone-prometheus-analysis.md "In the web UI and the Grafana plugin").
+  Autonomous Configure has a **Prometheus connection** picker (one per tenant, with a test) and an
+  always-shown **Clusters** section; both go into preview, run once and saved schedules. Interactive
+  Analysis can **Query through an Ops Signals connection**: it asks for a cluster when the series is
+  in several, tags the findings with it, and drops HA replica copies with a warning. Findings show
+  their cluster on symptom rows, the finding panel and the case drawer, and the overview filters by
+  cluster.
+- **Fixed: switching Prometheus connection kept the previous connection's preview on screen** (web
+  UI and plugin), so it read as the new connection's result. It clears now, and the preview names
+  its connection.
+- **Fixed: previewing a saved schedule in the plugin used the default connection** instead of the
+  schedule's own.
+- **Cases keep the cluster and connection** of the finding they were opened from.
 - **Fixed: Metric Usage ignored Grafana with `docker-compose.packaged.yml`.** The packaged compose
   didn't pass `OPS_SIGNALS_GRAFANA_*` or `OPS_SIGNALS_METRIC_USAGE_*` from `.env` into the backend
   container, so setting them did nothing and Metric Usage counted only Prometheus rules. They are

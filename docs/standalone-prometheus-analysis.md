@@ -125,9 +125,12 @@ Grafana datasource
 -> Ops Signals backend /api/ingestion/prometheus-run
 ```
 
-The Grafana plugin continues to query Prometheus through Grafana datasource APIs.
-It sends samples to `POST /api/ingestion/prometheus-run`. The standalone direct
-Prometheus endpoints do not replace or modify this contract.
+By default the Grafana plugin's Interactive Analysis queries Prometheus through
+Grafana datasource APIs and sends the samples to `POST /api/ingestion/prometheus-run`.
+That path has no cluster choice, doesn't tag findings with a cluster, and doesn't
+drop HA replica copies. With named connections configured, the plugin can instead
+**Query through: Ops Signals connection**, which uses `POST /api/analysis/prometheus`
+like the web UI (see [In the web UI and the Grafana plugin](#in-the-web-ui-and-the-grafana-plugin)).
 
 ## Mimir, Thanos and Other Multi-Source Backends
 
@@ -264,6 +267,28 @@ it off). Deduplicating in the backend too (Mimir's HA tracker, Thanos
 - **Behavior findings** (cross-metric rules) look at one analysis run as a
   whole. Autonomous runs hold one series each, so this only matters for a CSV
   upload that mixes clusters.
+
+### In the web UI and the Grafana plugin
+
+Both UIs use the same backend endpoints, so tenants, clusters and replica pairs
+are handled the same way. They differ only in what each form lets you set.
+
+| | Web UI | Grafana plugin |
+|---|---|---|
+| **Autonomous: Prometheus connection** (one per tenant) | Configure, with the cluster list per connection | Configure → Analysis Scope, with **Test** |
+| **Autonomous: clusters** | Shown when there is a choice, or a schedule is narrowed to clusters | Always shown: the choice, the only cluster, or "No clusters" |
+| **One metric: connection and cluster** | Validate Data → Prometheus | Interactive Analysis → **Query through: Ops Signals connection** |
+| Cluster asked for when the series is in several; run waits for it | ✅ | ✅ |
+| HA replica copies dropped, with a warning | ✅ | ✅ |
+| "This query matched N series… add `pod="…"`" when one series isn't enough | ✅ | ✅ |
+| Findings labelled with cluster (and connection, when there are several) | Findings page, finding drawer | Symptom rows, finding panel, case drawer |
+| Filter by cluster | Findings page | Autonomous overview chips |
+| Query through a Grafana data source instead | — | ✅ the default; no cluster handling |
+| Several metrics in one run, analyzer and step choice, query preview | ✅ | — one metric, all analyzers, step from the time range |
+
+Switching connection clears the previous preview in both, and the preview says
+which connection it is for. Cases keep the cluster and connection of the finding
+they were opened from (cases opened before this was added don't have them).
 
 To try all of this without a real Mimir, see
 [Testing Multi-Cluster Mimir Locally](testing-multicluster-locally.md).

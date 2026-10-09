@@ -57,13 +57,39 @@ The toolbar is where you define what should be analyzed.
 
 Fields:
 
-- `Data source`
+- `Query through` (only when the backend has named Prometheus connections)
+- `Data source`, or `Prometheus connection` and `Cluster`
 - `Ops Signals backend`
 - `Service`
 - `Metric`
 - `Mode`
 - `Service label`
 - `Time range`
+
+### Query through
+
+Shown only when the backend has named Prometheus connections
+(`OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE`, e.g. one per Mimir tenant).
+
+- `Grafana data source` (default): Grafana queries the data source and the plugin
+  sends the samples to the backend, as before.
+- `Ops Signals connection`: the backend queries the connection itself, as the web
+  UI's Validate Data does. Use it for Mimir or Thanos with several clusters or
+  tenants: it asks for a cluster when the series is in more than one, tags the
+  findings with it, and keeps one copy of series an HA Prometheus pair wrote twice.
+
+### Prometheus connection and Cluster
+
+With `Ops Signals connection`:
+
+- `Prometheus connection` replaces `Data source`; `Test` checks it answers.
+  `Service` and `Metric` suggestions come from it (metrics narrowed to the service).
+- `Cluster` appears when the service and metric exist in two or more clusters.
+  `Run Analysis` stays disabled until you choose one: the backend analyses one
+  series per run.
+- If one series still isn't enough (e.g. a metric per pod), the run stops with the
+  backend's message saying which label to add, such as `pod="…"`. Switch `Mode` to
+  `PromQL expression` to narrow or aggregate the query.
 
 ### Data source
 
@@ -203,13 +229,16 @@ Open `Run details` to see the execution metadata.
 You should expect:
 
 - run ID
-- datasource
+- datasource (or `Connection` and `Cluster` for a run through an Ops Signals connection)
 - datasource UID
 - service
 - query window
 - status
 - analyzer routing summary
 - `Clear DB for testing`
+
+The run's warnings (for example "Kept one copy of each HA replica pair") appear in an
+amber line above the results.
 
 This section is especially useful during development because it reveals:
 
@@ -429,3 +458,4 @@ A healthy local plugin session should feel like this:
 - Similar-case quality depends on what cases you have already indexed
 - Mock Prometheus data still depends on Prometheus having scraped enough recent points for the selected window
 - `recommended_only` may intentionally run fewer analyzers than you expect if router scores are not strong enough
+- Through a Grafana data source, the plugin can't pick a cluster or drop HA replica copies; use `Query through: Ops Signals connection` for Mimir or Thanos with several clusters (see [Standalone Prometheus Analysis](standalone-prometheus-analysis.md#in-the-web-ui-and-the-grafana-plugin))

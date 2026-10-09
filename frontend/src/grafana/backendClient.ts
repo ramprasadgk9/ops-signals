@@ -80,6 +80,9 @@ export type BackendPluginAnalysis = {
   analyzerRouting?: GrafanaAnalyzerRoutingDecision[];
   executedAnalyzers?: string[];
   analyzerExecutions?: GrafanaAnalyzerExecution[];
+  /** Set for runs through a backend connection: the cluster analysed and the connection's name. */
+  cluster?: string | null;
+  connection?: string | null;
 };
 
 function normalizeBaseUrl(baseUrl: string) {
@@ -440,82 +443,54 @@ export async function runBackendAnalysis(baseUrl: string, target: {
   };
 }
 
-export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
-  datasourceUid: string;
-  datasourceName?: string;
+/** Label values on one backend connection, optionally only on series `match` selects in a time range. */
+export async function listPrometheusLabelValues(baseUrl: string, label: string, connectionId: string, filter?: { match?: string[]; start?: string; end?: string }) {
+  const params = new URLSearchParams({ label, connection_id: connectionId });
+  (filter?.match ?? []).forEach((selector) => params.append('match', selector));
+  if (filter?.start) params.set('start', filter.start);
+  if (filter?.end) params.set('end', filter.end);
+  return fetchJson<{ connection_id: string; label: string; values: string[] }>(baseUrl, `/api/prometheus/label-values?${params.toString()}`);
+}
+
+type RunSummary = {
+  analysis_run_id: string;
+  sample_count: number;
+  series_count: number;
+  signal_count: number;
+  findings_count: number;
+  behavior_findings_count: number;
+  warnings: string[];
+  analyzer_selection_mode?: string;
+  analyzer_routing?: GrafanaAnalyzerRoutingDecision[];
+  executed_analyzers?: string[];
+  analyzer_executions?: GrafanaAnalyzerExecution[];
+};
+
+/** Loads what an analysis run produced (timeline, findings, signals, behaviors) into the plugin's result. */
+async function collectRunResult(baseUrl: string, run: RunSummary, target: {
+  datasource: string;
+  datasourceUid?: string;
   service: string;
   metric: string;
   promql: string;
   from: string;
   to: string;
-  stepSeconds: number;
-  samples: MetricSample[];
-  seriesCount: number;
-  sampleCount: number;
-  warnings: string[];
-  durationMs: number;
+  durationMs?: number;
+  cluster?: string | null;
+  connection?: string | null;
 }): Promise<BackendPluginAnalysis> {
-  const run = await postJson<{
-    analysis_run_id: string;
-    sample_count: number;
-    series_count: number;
-    signal_count: number;
-    findings_count: number;
-    behavior_findings_count: number;
-    warnings: string[];
-    analyzer_selection_mode?: string;
-    analyzer_routing?: GrafanaAnalyzerRoutingDecision[];
-    executed_analyzers?: string[];
-    analyzer_executions?: GrafanaAnalyzerExecution[];
-  }>(baseUrl, '/api/ingestion/prometheus-run', {
-    provider: 'prometheus',
-    datasource_uid: target.datasourceUid,
-    datasource_name: target.datasourceName,
-    service: target.service,
-    metric_name: target.metric,
-    promql: target.promql,
-    from: target.from,
-    to: target.to,
-    step_seconds: target.stepSeconds,
-    samples: target.samples,
-    series_count: target.seriesCount,
-    sample_count: target.sampleCount,
-    max_series: 20,
-    max_samples_per_series: 10000,
-    warnings: target.warnings,
-  });
-
-  const timeseriesParams = new URLSearchParams({
-    service: target.service,
-    metric_name: target.metric,
-    analysis_run_id: run.analysis_run_id,
-  });
-  const findingsParams = new URLSearchParams({
-    service: target.service,
-    metric_name: target.metric,
-    analysis_run_id: run.analysis_run_id,
-  });
-  const signalsParams = new URLSearchParams({
-    service: target.service,
-    metric_name: target.metric,
-    analysis_run_id: run.analysis_run_id,
-  });
-  const behaviorParams = new URLSearchParams({
-    service: target.service,
-    analysis_run_id: run.analysis_run_id,
-  });
-
+  const byRun = (extra: Record<string, string> = {}) => new URLSearchParams({ service: target.service, analysis_run_id: run.analysis_run_id, ...extra }).toString();
   const [runs, timeseries, findings, signals, behaviorFindings] = await Promise.all([
     fetchJson<AnalysisRun[]>(baseUrl, '/api/analysis-runs'),
-    fetchJson<TimeseriesPoint[]>(baseUrl, `/api/timeseries?${timeseriesParams.toString()}`),
-    fetchJson<Finding[]>(baseUrl, `/api/findings?${findingsParams.toString()}`),
-    fetchJson<Signal[]>(baseUrl, `/api/signals?${signalsParams.toString()}`),
-    fetchJson<BehaviorFinding[]>(baseUrl, `/api/behavior-evaluations?${behaviorParams.toString()}`),
+    fetchJson<TimeseriesPoint[]>(baseUrl, `/api/timeseries?${byRun({ metric_name: target.metric, ...(target.cluster ? { cluster: target.cluster } : {}) })}`),
+    fetchJson<Finding[]>(baseUrl, `/api/findings?${byRun({ metric_name: target.metric })}`),
+    fetchJson<Signal[]>(baseUrl, `/api/signals?${byRun({ metric_name: target.metric })}`),
+    fetchJson<BehaviorFinding[]>(baseUrl, `/api/behavior-evaluations?${byRun()}`),
   ]);
 
   return {
     runId: run.analysis_run_id,
-    datasource: target.datasourceName ?? target.datasourceUid,
+    datasource: target.datasource,
     datasourceUid: target.datasourceUid,
     service: target.service,
     metric: target.metric,
@@ -537,7 +512,93 @@ export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
     analyzerRouting: run.analyzer_routing ?? [],
     executedAnalyzers: run.executed_analyzers ?? [],
     analyzerExecutions: run.analyzer_executions ?? [],
+    cluster: target.cluster ?? null,
+    connection: target.connection ?? null,
   };
+}
+
+/** Analyses one series through a backend connection (one per Mimir tenant), as the web UI's
+ * Validate Data does: the backend queries it, tags the run with its cluster and connection, and
+ * keeps one copy of series an HA Prometheus pair wrote twice. */
+export async function runConnectionAnalysis(baseUrl: string, target: {
+  connectionId: string;
+  connectionName: string;
+  service: string;
+  metric: string;
+  promql: string;
+  from: string;
+  to: string;
+  stepSeconds: number;
+  cluster?: string | null;
+  startedAt?: number;
+}): Promise<BackendPluginAnalysis> {
+  const run = await postJsonWithTimeout<RunSummary & { connection_name?: string }>(baseUrl, '/api/analysis/prometheus', {
+    connection_id: target.connectionId,
+    query: target.promql,
+    service: target.service,
+    metric: target.metric,
+    start: target.from,
+    end: target.to,
+    step: `${Math.max(target.stepSeconds, 1)}s`,
+    execution_mode: 'persist',
+  }, 120000);
+  return collectRunResult(baseUrl, run, {
+    datasource: run.connection_name ?? target.connectionName,
+    datasourceUid: target.connectionId,
+    service: target.service,
+    metric: target.metric,
+    promql: target.promql,
+    from: target.from,
+    to: target.to,
+    durationMs: target.startedAt === undefined ? undefined : Math.round(performance.now() - target.startedAt),
+    cluster: target.cluster,
+    connection: run.connection_name ?? target.connectionName,
+  });
+}
+
+export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
+  datasourceUid: string;
+  datasourceName?: string;
+  service: string;
+  metric: string;
+  promql: string;
+  from: string;
+  to: string;
+  stepSeconds: number;
+  samples: MetricSample[];
+  seriesCount: number;
+  sampleCount: number;
+  warnings: string[];
+  durationMs: number;
+}): Promise<BackendPluginAnalysis> {
+  const run = await postJson<RunSummary>(baseUrl, '/api/ingestion/prometheus-run', {
+    provider: 'prometheus',
+    datasource_uid: target.datasourceUid,
+    datasource_name: target.datasourceName,
+    service: target.service,
+    metric_name: target.metric,
+    promql: target.promql,
+    from: target.from,
+    to: target.to,
+    step_seconds: target.stepSeconds,
+    samples: target.samples,
+    series_count: target.seriesCount,
+    sample_count: target.sampleCount,
+    max_series: 20,
+    max_samples_per_series: 10000,
+    warnings: target.warnings,
+  });
+
+  return collectRunResult(baseUrl, run, {
+    datasource: target.datasourceName ?? target.datasourceUid,
+    datasourceUid: target.datasourceUid,
+    service: target.service,
+    metric: target.metric,
+    promql: target.promql,
+    from: target.from,
+    to: target.to,
+    durationMs: target.durationMs,
+  });
 }
 
 export async function listAvailableQuestions(baseUrl: string, target: {
