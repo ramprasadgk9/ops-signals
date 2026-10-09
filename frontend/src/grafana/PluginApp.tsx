@@ -16,7 +16,7 @@ import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginMemoryAlertsView } from './PluginMemoryAlertsView';
-import { caseForSymptom, caseIdsByFinding, serviceSymptoms, symptomKey, symptomOf, type ServiceSymptom } from './serviceSymptoms';
+import { caseForSymptom, caseIdsByFinding, serviceSymptoms, stillShowing, symptomChange, symptomKey, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms, type ServiceSymptom, type SymptomTriage } from './serviceSymptoms';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
 import { findingBreakdown } from '../utils/findingBreakdown';
@@ -1690,6 +1690,7 @@ export function GrafanaAutonomousOverview({
   const primaryService = servicePriorities[0] ?? null;
   const primaryServiceName = primaryService?.service ?? null;
   const symptoms = useMemo(() => (primaryServiceName ? serviceSymptoms(findings, primaryServiceName) : []), [findings, primaryServiceName]);
+  const triage = useMemo(() => triageSymptoms(symptoms), [symptoms]);
   const [showAllSymptoms, setShowAllSymptoms] = useState(false);
   // Finding id -> case id: the service's cases, plus cases opened on this page since.
   const [serviceCases, setServiceCases] = useState<Map<number, number>>(new Map());
@@ -1765,8 +1766,11 @@ export function GrafanaAutonomousOverview({
   const caseByFinding = new Map([...serviceCases, ...createdCases]);
   const symptomCount = symptoms.length;
   const symptomMetrics = Array.from(new Set(symptoms.map((symptom) => symptom.finding.metric_name)));
-  // The symptom the buttons act on: the one open below, else the worst one.
-  const selectedSymptom = symptomOf(symptoms, investigationFinding) ?? symptoms[0] ?? null;
+  const attentionCount = triage.attention.length;
+  const leadSymptom = triageOrder(triage)[0] ?? null;
+  const leadChange = leadSymptom ? symptomChange(leadSymptom.finding) : null;
+  // The symptom the buttons act on: the one open below, else the worst one that needs attention.
+  const selectedSymptom = symptomOf(symptoms, investigationFinding) ?? leadSymptom;
   const selectedFinding = selectedSymptom?.finding ?? topRawFinding;
   const selectedCaseId = selectedSymptom ? caseForSymptom(selectedSymptom, caseByFinding) : null;
   const panelSymptom = symptomOf(symptoms, investigationFinding);
@@ -1774,15 +1778,16 @@ export function GrafanaAutonomousOverview({
     ? caseForSymptom(panelSymptom, caseByFinding)
     : investigationFinding?.id !== undefined ? caseByFinding.get(investigationFinding.id) ?? null : null;
   const headline = primaryService
-    ? symptomCount > 1
+    ? attentionCount > 1
       ? `Likely incident candidate: ${primaryService.service}`
       : `Important finding detected: ${primaryService.service}`
     : 'No important findings detected';
-  const summaryText = primaryService && symptoms.length
-    ? symptomCount > 1
-      ? `${primaryService.service} shows ${symptomCount} related symptoms across ${symptomMetrics.length} metric${symptomMetrics.length === 1 ? '' : 's'}. Primary concern: ${symptoms[0].finding.metric_name} ${humanize(symptoms[0].finding.category).toLowerCase()}.`
-      : `${primaryService.service} / ${symptoms[0].finding.metric_name} shows ${humanize(symptoms[0].finding.category).toLowerCase()} in the selected window.`
+  const summaryText = primaryService && leadSymptom
+    ? attentionCount
+      ? `${attentionCount} metric${attentionCount === 1 ? '' : 's'} on ${primaryService.service} need${attentionCount === 1 ? 's' : ''} attention. Primary concern: ${leadSymptom.finding.metric_name}${leadChange ? ` ${leadChange.text}${leadChange.percent ? ` (${leadChange.percent})` : ''}` : ''}.`
+      : `Nothing on ${primaryService.service} needs attention: ${triage.data.length ? `${triage.data.length} data problem${triage.data.length === 1 ? '' : 's'}` : ''}${triage.data.length && triage.background.length ? ' and ' : ''}${triage.background.length ? `${triage.background.length} background signal${triage.background.length === 1 ? '' : 's'}` : ''}.`
     : `${formatNullableCount(data.summary.executed)} metric${data.summary.executed === 1 ? '' : 's'} executed with no current-run findings.`;
+  const roleLabel = (symptom: ServiceSymptom) => ({ attention: 'Needs attention', data: 'Data problem', background: 'Background signal' })[symptomRole(symptom.finding)];
 
   /** Opens the finding's case in the drawer, creating it first when there is none. */
   async function openOrCreateCase(finding: Finding, knownCaseId: number | null) {
@@ -1811,13 +1816,14 @@ export function GrafanaAutonomousOverview({
     if (drawerChanged) onRetry();
   }
 
-  const caseButton = (finding: Finding | null, caseId: number | null) => {
+  const caseButton = (finding: Finding | null, caseId: number | null, compact = false) => {
     if (!finding) return null;
-    if (isCreatingCase) return <button type="button" style={{ ...styles.button, ...disabledActionStyle }} disabled>Creating case...</button>;
+    const size = compact ? { padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' as const } : {};
+    if (isCreatingCase) return <button type="button" style={{ ...styles.button, ...size, ...disabledActionStyle }} disabled>Creating case...</button>;
     return caseId !== null ? (
       <button
         type="button"
-        style={{ ...styles.button, background: 'rgba(63, 207, 142, 0.14)', border: '1px solid rgba(63, 207, 142, 0.5)', color: '#b9f5d8' }}
+        style={{ ...styles.button, ...size, background: 'rgba(63, 207, 142, 0.14)', border: '1px solid rgba(63, 207, 142, 0.5)', color: '#b9f5d8' }}
         title="Open this symptom's case: investigation, root cause, resolution and publishing."
         onClick={() => openOrCreateCase(finding, caseId)}
       >
@@ -1826,7 +1832,7 @@ export function GrafanaAutonomousOverview({
     ) : (
       <button
         type="button"
-        style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.12)', border: '1px solid rgba(204, 204, 220, 0.22)', ...(finding.id ? {} : disabledActionStyle) }}
+        style={{ ...styles.button, ...size, background: 'rgba(204, 204, 220, 0.12)', border: '1px solid rgba(204, 204, 220, 0.22)', ...(finding.id ? {} : disabledActionStyle) }}
         disabled={!finding.id}
         title={finding.id ? 'Open a case for this symptom and start the investigation.' : 'This finding has not been persisted yet.'}
         onClick={() => openOrCreateCase(finding, null)}
@@ -1865,7 +1871,7 @@ export function GrafanaAutonomousOverview({
             <div style={styles.row}>
               <span title="Importance combines analyzer confidence, severity, signal count, and observed change size. Higher values should be reviewed first." style={styles.chip}>Highest importance {topFinding ? topFinding.importance.toFixed(2) : '—'} <InfoTip /></span>
               {primaryService ? (
-                <span title={`Symptoms are analyzer findings such as baseline shifts, spikes, trends, or anomalies; a symptom seen in several runs counts once. ${data.summary.findingsGenerated} findings in this window, counting every run.`} style={styles.chip}>{symptomCount} symptom{symptomCount === 1 ? '' : 's'} on {primaryService.service} <InfoTip /></span>
+                <span title={`${symptomCount} symptom${symptomCount === 1 ? '' : 's'} on ${primaryService.service} (a symptom seen in several runs counts once): ${attentionCount} need attention, ${triage.data.length} data problem${triage.data.length === 1 ? '' : 's'}, ${triage.background.length} background. ${data.summary.findingsGenerated} findings in this window, counting every run.`} style={styles.chip}>{attentionCount} need{attentionCount === 1 ? 's' : ''} attention on {primaryService.service} <InfoTip /></span>
               ) : null}
               <span title="Affected metrics are unique metrics with symptoms on this service." style={styles.chip}>{symptomMetrics.length} metric{symptomMetrics.length === 1 ? '' : 's'} affected <InfoTip /></span>
               <span title="First observed is taken from finding comparison data or creation time." style={styles.chip}>First observed {formatCompactDate(topFinding?.firstObserved)} <InfoTip /></span>
@@ -1873,9 +1879,9 @@ export function GrafanaAutonomousOverview({
             {selectedSymptom ? (
               <div>
                 <strong>Looking at</strong>{' '}
-                <span style={styles.muted}>#{symptoms.indexOf(selectedSymptom) + 1} {selectedSymptom.finding.metric_name} · {humanize(selectedSymptom.finding.category)}</span>
+                <span style={styles.muted}>{selectedSymptom.finding.metric_name} · {roleLabel(selectedSymptom).toLowerCase()}</span>
                 <p style={{ ...styles.helperText, margin: '4px 0 0' }}>
-                  {symptomCount > 1 ? 'Pick another symptom on the right; the buttons act on the one you are looking at. ' : ''}A case is opened per symptom.
+                  {symptomCount > 1 ? 'Pick another one on the right; the buttons act on the one you are looking at. ' : ''}A case is opened per symptom.
                 </p>
               </div>
             ) : (
@@ -1900,14 +1906,16 @@ export function GrafanaAutonomousOverview({
             {openCaseError ? <p style={{ ...styles.helperText, color: '#ff7381', margin: 0 }}>{openCaseError}</p> : null}
           </div>
           <div style={{ borderLeft: '1px solid rgba(204, 204, 220, 0.12)', paddingLeft: 18, minWidth: 0 }}>
-            <RelatedSymptoms
-              symptoms={symptoms}
+            <SymptomTriagePanel
+              service={primaryService?.service ?? ''}
+              triage={triage}
               selected={selectedSymptom}
               caseByFinding={caseByFinding}
               showAll={showAllSymptoms}
               onToggleAll={() => setShowAllSymptoms((current) => !current)}
               onSelect={(symptom) => onOpenInvestigation(symptom.finding, 'investigate')}
               onOpenScope={(finding) => onOpenInvestigation(finding, 'evidence')}
+              renderCase={(symptom) => caseButton(symptom.finding, caseForSymptom(symptom, caseByFinding), true)}
             />
           </div>
         </div>
@@ -1918,7 +1926,7 @@ export function GrafanaAutonomousOverview({
           backendUrl={backendUrl}
           finding={investigationFinding}
           mode={investigationMode}
-          position={panelSymptom ? { index: symptoms.indexOf(panelSymptom) + 1, total: symptomCount, service: primaryService?.service ?? '' } : null}
+          position={panelSymptom ? `${roleLabel(panelSymptom)} · ${panelSymptom.finding.metric_name} on ${primaryService?.service ?? ''}` : null}
           caseAction={caseButton(investigationFinding, panelCaseId)}
           caseId={panelCaseId}
           onOpenInteractive={() => onInvestigateInteractive(investigationFinding)}
@@ -2419,85 +2427,166 @@ function GrafanaFindingsLookupPanel({ lookupState }: { lookupState: AutonomousFi
   );
 }
 
-const SYMPTOMS_SHOWN = 3;
-const RANK_TONES = ['#b877d9', '#5794f2', '#3fcf8e'];
+const METRIC_ROWS_SHOWN = 5;
 
-/** The service's symptoms (repeats folded), worst first, with each one's case; clicking a row shows
- * it in the finding panel. The top three show first. */
-function RelatedSymptoms({ symptoms, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope }: {
-  symptoms: ServiceSymptom[];
+function formatSince(value?: string | null) {
+  return value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+}
+
+function formatClock(value?: string | null) {
+  return value ? new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+}
+
+function formatDuration(from?: string | null, to?: string | null) {
+  if (!from || !to) return '';
+  const minutes = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} days`;
+}
+
+/** "Ongoing for 11 h, since Oct 8, 5:30 PM" while it still shows in the latest runs, else when it was seen. */
+function symptomTiming(symptom: ServiceSymptom, latestSeen: string | null) {
+  const runs = `${symptom.runs.length} run${symptom.runs.length === 1 ? '' : 's'}`;
+  if (stillShowing(symptom, latestSeen)) {
+    return `Ongoing for ${formatDuration(symptom.firstSeen, latestSeen)}, since ${formatSince(symptom.firstSeen)} · ${runs}`;
+  }
+  return `Seen ${formatSince(symptom.firstSeen)} to ${formatClock(symptom.lastSeen)} · ${runs}`;
+}
+
+/** A service's symptoms sorted into what to act on (one row per metric, with what changed, for how
+ * long, and its case), data problems to fix first, and folded background signals. Clicking a row
+ * shows it in the finding panel below. */
+function SymptomTriagePanel({ service, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase }: {
+  service: string;
+  triage: SymptomTriage;
   selected: ServiceSymptom | null;
   caseByFinding: Map<number, number>;
   showAll: boolean;
   onToggleAll: () => void;
   onSelect: (symptom: ServiceSymptom) => void;
+  /** The pod-scope chip ("where") opens the finding's evidence. */
   onOpenScope: (finding: Finding) => void;
+  renderCase: (symptom: ServiceSymptom) => React.ReactNode;
 }) {
-  const shown = showAll ? symptoms : symptoms.slice(0, SYMPTOMS_SHOWN);
-  const withCase = symptoms.filter((symptom) => caseForSymptom(symptom, caseByFinding) !== null).length;
-  return (
-    <div data-testid="related-symptoms">
-      <div style={{ ...styles.rowBetween, marginBottom: 6 }}>
-        <h3 style={{ ...sectionTitleStyle, margin: 0 }}>Related Symptoms <InfoTip title="This service's symptoms, worst first. A symptom seen in several runs is listed once. Click one to look at it below." /></h3>
-        {symptoms.length ? <span style={{ ...styles.helperText, margin: 0 }}>{withCase} of {symptoms.length} have a case</span> : null}
+  const [showBackground, setShowBackground] = useState(false);
+  const rows = showAll ? triage.attention : triage.attention.slice(0, METRIC_ROWS_SHOWN);
+  const withCase = triage.attention.filter((row) => caseForSymptom(row.lead, caseByFinding) !== null).length;
+  const firstSeen = triage.attention.map((row) => row.lead.firstSeen).filter((value): value is string => Boolean(value)).sort()[0];
+  const nothing = !triage.attention.length && !triage.data.length && !triage.background.length;
+  const selectable = (symptom: ServiceSymptom, children: React.ReactNode, style: React.CSSProperties, testId: string) => {
+    const isSelected = symptom === selected;
+    return (
+      <div
+        key={symptomKey(symptom)}
+        data-testid={testId}
+        role="button"
+        tabIndex={0}
+        aria-pressed={isSelected}
+        aria-label={`Look at ${symptom.finding.metric_name} ${symptomKind(symptom.finding)}`}
+        onClick={() => onSelect(symptom)}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelect(symptom);
+          }
+        }}
+        style={{ cursor: 'pointer', ...style, ...(isSelected ? { border: '1px solid rgba(87, 148, 242, 0.6)', background: 'rgba(87, 148, 242, 0.1)' } : {}) }}
+      >
+        {children}
       </div>
-      {!symptoms.length ? <p style={styles.muted}>No symptoms were detected in this run.</p> : null}
-      {shown.map((symptom) => {
-        const index = symptoms.indexOf(symptom);
-        const tone = RANK_TONES[index] ?? 'rgba(204, 204, 220, 0.35)';
-        const caseId = caseForSymptom(symptom, caseByFinding);
-        const isSelected = symptom === selected;
-        return (
-          <div
-            key={symptomKey(symptom)}
-            data-testid="related-symptom"
-            role="button"
-            tabIndex={0}
-            aria-pressed={isSelected}
-            aria-label={`Look at ${symptom.finding.metric_name}`}
-            onClick={() => onSelect(symptom)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onSelect(symptom);
-              }
-            }}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '26px minmax(0, 1fr) auto',
-              gap: 10,
-              alignItems: 'center',
-              padding: '8px 8px',
-              borderRadius: 6,
-              cursor: 'pointer',
-              border: `1px solid ${isSelected ? 'rgba(87, 148, 242, 0.55)' : 'transparent'}`,
-              background: isSelected ? 'rgba(87, 148, 242, 0.1)' : 'transparent',
-            }}
-          >
-            <span style={{ display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: 999, background: tone, color: '#fff', fontWeight: 800, fontSize: 12 }}>{index + 1}</span>
-            <div style={{ minWidth: 0 }}>
-              <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{symptom.finding.metric_name}</strong>
-              <div style={{ ...styles.row, gap: 6 }}>
-                <BehaviorPill label={humanize(symptom.finding.category)} />
-                <span onClick={(event) => event.stopPropagation()}><SymptomScopeChip finding={symptom.finding} onOpen={onOpenScope} /></span>
-                {symptom.runs.length > 1 ? <span style={{ ...styles.helperText, margin: 0 }}>seen in {symptom.runs.length} runs</span> : null}
-              </div>
+    );
+  };
+  const groupTitle = (title: string, detail: string) => (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', margin: '12px 0 6px' }}>
+      <strong style={{ fontSize: 13 }}>{title}</strong>
+      <span style={{ ...styles.helperText, margin: 0 }}>{detail}</span>
+    </div>
+  );
+
+  return (
+    <div data-testid="symptom-triage">
+      <div style={{ ...styles.rowBetween, marginBottom: 4 }}>
+        <h3 style={{ ...sectionTitleStyle, margin: 0 }}>{service ? `${service}: what's going on` : 'Related Symptoms'} <InfoTip title="This service's findings in the window, sorted by what to do with them. A finding seen in several runs is listed once." /></h3>
+      </div>
+      {nothing ? <p style={styles.muted}>No symptoms were detected in this run.</p> : null}
+      {triage.attention.length ? (
+        <div style={{ fontSize: 13 }}>
+          <strong>{triage.attention.length} metric{triage.attention.length === 1 ? '' : 's'} need{triage.attention.length === 1 ? 's' : ''} attention</strong>
+          <span style={styles.muted}>{firstSeen ? ` since ${formatSince(firstSeen)}` : ''} · {withCase} of {triage.attention.length} {withCase === 1 ? 'has' : 'have'} a case</span>
+        </div>
+      ) : null}
+
+      {triage.attention.length ? (
+        <>
+          {groupTitle('Needs attention', 'strong or moderate evidence')}
+          {rows.map((row) => {
+            const change = symptomChange(row.lead.finding);
+            return selectable(row.lead, (
+              <>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ ...styles.row, gap: 8 }}>
+                    <strong>{row.lead.finding.metric_name}</strong>
+                    {change ? <span>{change.text}</span> : <span style={styles.muted}>{symptomKind(row.lead.finding)}</span>}
+                    {change?.percent ? <strong style={{ color: '#ff7381' }}>{change.percent}</strong> : null}
+                  </div>
+                  <div style={{ ...styles.row, gap: 6, marginTop: 3 }}>
+                    <span style={{ ...styles.helperText, margin: 0 }}>{symptomTiming(row.lead, triage.latestSeen)}</span>
+                    <span onClick={(event) => event.stopPropagation()}><SymptomScopeChip finding={row.lead.finding} onOpen={onOpenScope} /></span>
+                  </div>
+                  {row.others.length ? (
+                    <div style={{ ...styles.helperText, marginTop: 2 }}>
+                      Also on this metric: {row.others.map((other) => `${symptomKind(other.finding)}${symptomRole(other.finding) === 'background' ? ' (weak)' : ''}`).join(', ')}
+                    </div>
+                  ) : null}
+                </div>
+                <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>{renderCase(row.lead)}</div>
+              </>
+            ), { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'center', padding: 10, border: '1px solid rgba(204, 204, 220, 0.12)', borderRadius: 8, marginBottom: 8 }, 'triage-attention');
+          })}
+          {triage.attention.length > METRIC_ROWS_SHOWN ? (
+            <button type="button" style={{ ...styles.tableRowButton, fontWeight: 600 }} onClick={onToggleAll}>
+              {showAll ? `Show top ${METRIC_ROWS_SHOWN}` : `Show ${triage.attention.length - METRIC_ROWS_SHOWN} more`}
+            </button>
+          ) : null}
+        </>
+      ) : null}
+
+      {triage.data.length ? (
+        <>
+          {groupTitle('Fix the data first', 'monitoring, not the service')}
+          <div data-testid="triage-data" style={{ border: '1px solid rgba(255, 179, 87, 0.4)', background: 'rgba(255, 179, 87, 0.07)', borderRadius: 8, padding: '10px 12px' }}>
+            <strong style={{ color: '#ffb357' }}>{triage.data.length} metric{triage.data.length === 1 ? '' : 's'} stopped reporting or froze</strong>
+            <div style={{ fontSize: 12, marginTop: 2 }}>
+              {triage.data.length > 1
+                ? 'When several metrics on one service stop together, the cause is usually collection (the scrape target or exporter), not the service. '
+                : ''}
+              Until it is fixed, gaps can hide changes or fake them.
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <strong style={{ color: index < RANK_TONES.length ? tone : undefined }}>{symptom.finding.importance_score.toFixed(2)}</strong>
-              <div style={{ marginTop: 2 }}>
-                {caseId !== null
-                  ? <span style={{ ...styles.chip, color: '#3fcf8e', borderColor: 'rgba(63, 207, 142, 0.5)' }}>Case #{caseId}</span>
-                  : <span style={{ ...styles.helperText, margin: 0 }}>no case</span>}
-              </div>
+            <div style={{ ...styles.row, gap: 6, marginTop: 8 }}>
+              {triage.data.map((symptom) => selectable(symptom, (
+                <span>{symptom.finding.metric_name} <span style={styles.muted}>· {symptomTiming(symptom, triage.latestSeen).replace(/^Ongoing for [^,]+, /, '')}</span></span>
+              ), { ...styles.chip, fontSize: 12 }, 'triage-data-metric'))}
             </div>
           </div>
-        );
-      })}
-      {symptoms.length > SYMPTOMS_SHOWN ? (
-        <button type="button" style={{ ...styles.tableRowButton, marginTop: 8, fontWeight: 600 }} onClick={onToggleAll}>
-          {showAll ? `Show top ${SYMPTOMS_SHOWN}` : `Show ${symptoms.length - SYMPTOMS_SHOWN} more`}
-        </button>
+        </>
+      ) : null}
+
+      {triage.background.length ? (
+        <div data-testid="triage-background" style={{ border: '1px dashed rgba(204, 204, 220, 0.22)', borderRadius: 8, padding: '8px 12px', marginTop: 12 }}>
+          <div style={styles.rowBetween}>
+            <span><strong style={{ fontSize: 13 }}>Background</strong> <span style={{ ...styles.helperText, margin: 0 }}>{triage.background.length} weaker signal{triage.background.length === 1 ? '' : 's'}, real about as often as a random alert in tests</span></span>
+            <button type="button" style={{ ...styles.tableRowButton, fontWeight: 600 }} aria-expanded={showBackground} onClick={() => setShowBackground(!showBackground)}>{showBackground ? 'Hide' : 'Show'}</button>
+          </div>
+          {showBackground ? (
+            <div style={{ ...styles.stack, gap: 4, marginTop: 6 }}>
+              {triage.background.map((symptom) => selectable(symptom, (
+                <span style={{ fontSize: 13 }}>{symptom.finding.metric_name}: {symptomKind(symptom.finding)} <span style={styles.muted}>· {symptomTiming(symptom, triage.latestSeen)}</span></span>
+              ), { border: '1px solid transparent', borderRadius: 6, padding: '4px 6px' }, 'triage-background-item'))}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -2536,8 +2625,8 @@ function AutonomousInvestigationPanel({
   backendUrl: string;
   finding: Finding;
   mode: 'investigate' | 'evidence';
-  /** Where it sits in the service's symptom list, when it is one of them. */
-  position: { index: number; total: number; service: string } | null;
+  /** What it is on the service ("Needs attention · error_rate on trend-lab"), when it is one of its symptoms. */
+  position: string | null;
   caseAction: React.ReactNode;
   caseId: number | null;
   onOpenInteractive: () => void;
@@ -2632,7 +2721,7 @@ function AutonomousInvestigationPanel({
       <div style={{ ...styles.rowBetween, alignItems: 'flex-start' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={styles.helperText}>
-            {position ? `Symptom ${position.index} of ${position.total} on ${position.service}` : `${mode === 'evidence' ? 'Evidence' : 'Investigation'} / Current Finding`}
+            {position ?? `${mode === 'evidence' ? 'Evidence' : 'Investigation'} / Current Finding`}
           </div>
           <h3 style={{ margin: '4px 0 0' }}>{finding.title}</h3>
           <p style={{ ...styles.muted, margin: '6px 0 0' }}>{finding.summary}</p>
