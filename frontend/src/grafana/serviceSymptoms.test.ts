@@ -92,3 +92,15 @@ describe('triageSymptoms', () => {
     expect(stillShowing(earlier, latest)).toBe(false);
   });
 });
+
+describe('triageSymptoms across clusters', () => {
+  it('keeps the same metric in two clusters as two rows', () => {
+    const shift = { group: 'level_change_agree' as const, tier: 'needs_attention' as const, badge: 'strong' as const, moved: null, checks: [], tested: null, service: { real: 0, answered: 0, min_answers: 5 }, your_answer: null };
+    const triage = triageSymptoms(serviceSymptoms([
+      finding({ id: 1, cluster: 'us', importance_score: 0.9, trust: shift }),
+      finding({ id: 2, cluster: 'eu', importance_score: 0.7, trust: shift }),
+    ], 'trend-lab'));
+
+    expect(triage.attention.map((row) => row.lead.finding.cluster)).toEqual(['us', 'eu']);
+  });
+});

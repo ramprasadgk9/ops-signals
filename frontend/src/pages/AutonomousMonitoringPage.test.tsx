@@ -263,6 +263,31 @@ describe('AutonomousMonitoringPage', () => {
     );
   });
 
+  it("names the connection a preview is for, and clears it when another connection is picked", async () => {
+    vi.mocked(api.prometheusConnections).mockResolvedValue(TWO_CONNECTIONS);
+    vi.mocked(api.autonomousPreview).mockResolvedValue({
+      scope_summary: {},
+      metrics_discovered: 17,
+      metrics_matched: 17,
+      metrics_excluded: 0,
+      planned_jobs: 13,
+      budget_limited: 0,
+      warnings: [],
+      items: [],
+    } as never);
+    renderRoute();
+
+    fireEvent.mouseDown(await screen.findByLabelText('Prometheus connection'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Mimir team B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByText('Preview of Mimir team B: found 17 metrics and planned 13 jobs.')).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByLabelText('Prometheus connection'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Mimir team A' }));
+
+    await waitFor(() => expect(screen.queryByText(/Preview of Mimir team B/)).not.toBeInTheDocument());
+  });
+
   it('shows an active schedule with Edit and Pause, and Pause keeps the schedule (no remove, no extra overview button)', async () => {
     vi.mocked(api.autonomousListPolicies).mockResolvedValueOnce([ACTIVE_SCHEDULE] as never);
     vi.mocked(api.autonomousSetPolicyStatus).mockResolvedValue({ ...ACTIVE_SCHEDULE, enabled: false } as never);

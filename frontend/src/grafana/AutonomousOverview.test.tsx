@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAutonomousDashboardData } from '../autonomous/dashboardModel';
 import type { Finding, FindingTrust } from '../types';
-import { getCase, listCases } from './backendClient';
+import { getCase, listCases, listPrometheusConnections } from './backendClient';
 import type { GrafanaCase } from './contracts';
 import { GrafanaAutonomousOverview } from './PluginApp';
 
@@ -14,12 +14,14 @@ vi.mock('./backendClient', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./backendClient')>()),
   listCases: vi.fn(),
   getCase: vi.fn(),
+  listPrometheusConnections: vi.fn(),
   getTicketingStatus: vi.fn(() => Promise.resolve({ enabled: false })),
   getCaseTicket: vi.fn(() => Promise.reject(new Error('none'))),
   getFindingSeenBefore: vi.fn(() => new Promise(() => undefined)),
 }));
 const cases = vi.mocked(listCases);
 const loadCase = vi.mocked(getCase);
+const connections = vi.mocked(listPrometheusConnections);
 
 function trust(group: FindingTrust['group'], tier: FindingTrust['tier'], badge: FindingTrust['badge']): FindingTrust {
   return { group, tier, badge, moved: null, checks: [], tested: null, service: { real: 0, answered: 0, min_answers: 5 }, your_answer: null };
@@ -66,10 +68,12 @@ function grafanaCase(id: number, findingId: number): GrafanaCase {
   };
 }
 
-function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined }: {
+function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter }: {
   onCreateCase: (finding: Finding) => Promise<number | null>;
   findings?: Finding[];
   onInvestigateInteractive?: (finding: Finding) => void;
+  clusters?: string[];
+  onClusterFilter?: (cluster: string | null) => void;
 }) {
   const [open, setOpen] = useState<Finding | null>(null);
   const data = buildAutonomousDashboardData({ findings, cases: [], analysisRuns: [] });
@@ -79,6 +83,9 @@ function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive =
       backendUrl="http://backend"
       data={data}
       findings={findings}
+      clusters={clusters}
+      clusterFilter={null}
+      onClusterFilter={onClusterFilter}
       behaviorFindings={[]}
       state="ready"
       context={{}}
@@ -110,6 +117,7 @@ async function renderOverview(props: Partial<React.ComponentProps<typeof Harness
 describe('GrafanaAutonomousOverview symptom triage', () => {
   beforeEach(() => {
     cases.mockReset().mockResolvedValue([grafanaCase(31, 6519)]);
+    connections.mockReset().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] });
     loadCase.mockReset().mockImplementation(async (_url, id) => grafanaCase(id, id === 31 ? 6519 : 6523));
   });
 
@@ -198,5 +206,39 @@ describe('GrafanaAutonomousOverview symptom triage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Open in Interactive Analysis' }));
     });
     expect(toInteractive).toHaveBeenCalledWith(checkout);
+  });
+
+  it('keeps clusters apart and says which cluster and connection a finding came from', async () => {
+    connections.mockResolvedValue({ connections: [
+      { id: 'default', name: 'Default Prometheus', configured: true, is_default: true },
+      { id: 'team-a', name: 'Team A (Mimir)', configured: true },
+    ] });
+    const onCreateCase = vi.fn(async () => 40);
+    const onClusterFilter = vi.fn();
+    const inCluster = (cluster: string, id: number, importance: number) =>
+      finding({ id, cluster, connection_id: 'team-a', importance_score: importance, trust: SHIFT, comparison_json: { previous_mean: 1, current_mean: 3, change_percent: 200 } });
+    render(<Harness onCreateCase={onCreateCase} findings={[inCluster('us', 8001, 0.9), inCluster('eu', 8002, 0.6)]} clusters={['eu', 'us']} onClusterFilter={onClusterFilter} />);
+
+    const rows = await screen.findAllByTestId('triage-attention');
+    expect(rows).toHaveLength(2);
+    expect(await within(rows[0]).findByText('us · Team A (Mimir)')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('eu · Team A (Mimir)')).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByRole('group', { name: 'Cluster' })).getByRole('button', { name: 'us' }));
+    expect(onClusterFilter).toHaveBeenCalledWith('us');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Look at error_rate in eu level change' }));
+    expect(await screen.findByText('Needs attention · error_rate in eu on trend-lab')).toBeInTheDocument();
+    expect(screen.getByText('Prometheus connection').nextElementSibling).toHaveTextContent('Team A (Mimir)');
+
+    fireEvent.click(within(rows[1]).getByRole('button', { name: 'Create case' }));
+    expect(await screen.findByRole('heading', { name: 'Investigation' })).toBeInTheDocument();
+    expect(screen.getByText('Cluster / connection').nextElementSibling).toHaveTextContent('eu · Team A (Mimir)');
+  });
+
+  it('shows no cluster chips for single-cluster data', async () => {
+    await renderOverview();
+
+    expect(screen.queryByRole('group', { name: 'Cluster' })).not.toBeInTheDocument();
   });
 });

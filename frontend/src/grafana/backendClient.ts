@@ -10,6 +10,8 @@ import type {
   Finding,
   FindingVerdict,
   MemoryStatsResponse,
+  PrometheusConnectionsResponse,
+  PrometheusConnectionTestResponse,
   RecurringProblemsResponse,
   SameFixResponse,
   SeenBeforeResponse,
@@ -302,6 +304,8 @@ export async function listAutonomousScopeOptions(baseUrl: string, labels: {
   namespaceLabel: string;
   environmentLabel: string;
   window: string;
+  /** Which Prometheus connection (Mimir tenant) to list values from; omitted = the default one. */
+  connectionId?: string | null;
 }) {
   const params = new URLSearchParams({
     service_label: labels.serviceLabel,
@@ -309,7 +313,9 @@ export async function listAutonomousScopeOptions(baseUrl: string, labels: {
     environment_label: labels.environmentLabel,
     window: labels.window,
   });
-  return fetchJson<{ services: string[]; namespaces: string[]; environments: string[] }>(baseUrl, `/api/autonomous/scope-options?${params.toString()}`);
+  if (labels.connectionId) params.set('connection_id', labels.connectionId);
+  // clusters is [] for single-cluster data.
+  return fetchJson<{ services: string[]; namespaces: string[]; environments: string[]; clusters?: string[]; cluster_label?: string | null }>(baseUrl, `/api/autonomous/scope-options?${params.toString()}`);
 }
 
 function pickLatestRun(runs: AnalysisRun[], service: string, metric: string) {
@@ -574,6 +580,15 @@ export async function askAssistantWithMemory(baseUrl: string, target: {
     minimum_score: 0.4,
     same_service_only: false,
   });
+}
+
+/** The backend's Prometheus connections (one per Mimir tenant or Prometheus server). */
+export async function listPrometheusConnections(baseUrl: string) {
+  return fetchJson<PrometheusConnectionsResponse>(baseUrl, '/api/prometheus/connections');
+}
+
+export async function testPrometheusConnection(baseUrl: string, connectionId: string) {
+  return postJson<PrometheusConnectionTestResponse>(baseUrl, '/api/prometheus/test-connection', { connection_id: connectionId });
 }
 
 /** Questions worth asking about what was analysed most recently; has_data false before any run. */

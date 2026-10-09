@@ -159,3 +159,19 @@ describe('CasesPanel (Recent Cases from History)', () => {
     expect(within(screen.getByRole('button', { name: /Case #34/ })).getByText(/Case #34/)).toBeInTheDocument();
   });
 });
+
+describe('CasesPanel cluster', () => {
+  beforeEach(() => {
+    loadCase.mockReset();
+  });
+
+  it("shows the cluster saved in a case's snapshot when it is opened from history", async () => {
+    loadCase.mockResolvedValue(grafanaCase({ finding_snapshot: { ...grafanaCase().finding_snapshot, cluster: 'us', connection_id: 'team-a' } }));
+    render(<CasesPanel data={data} backendUrl="http://backend" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show cases' }));
+    fireEvent.click(screen.getByRole('button', { name: /Case #34/ }));
+
+    expect(await screen.findByRole('heading', { name: 'Investigation' })).toBeInTheDocument();
+    expect(screen.getByText('Cluster / connection').nextElementSibling).toHaveTextContent('us');
+  });
+});

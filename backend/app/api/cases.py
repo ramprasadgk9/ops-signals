@@ -26,7 +26,7 @@ from backend.app.models.api_schema import (
     ResolutionUpdateRequest,
 )
 from backend.app.models.db import get_db
-from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
+from backend.app.models.entities import AnalysisRunEntity, BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.analyzer_learning_service import AnalyzerLearningService, LearningOutcomeError
 
 logger = logging.getLogger(__name__)
@@ -207,11 +207,19 @@ def create_case_from_finding(
             memory_status=existing_case.memory_status,
         )
     
-    # Create snapshot of the finding
+    # Create snapshot of the finding. Cluster and connection say where its data came from when one
+    # Mimir or Thanos holds several clusters or tenants; None for single-cluster data.
+    connection_id = (
+        db.execute(select(AnalysisRunEntity.connection_id).where(AnalysisRunEntity.id == finding.analysis_run_id)).scalar_one_or_none()
+        if finding.analysis_run_id
+        else None
+    )
     finding_snapshot = {
         "id": finding.id,
         "service": finding.service,
         "metric_name": finding.metric_name,
+        "cluster": finding.cluster,
+        "connection_id": connection_id,
         "title": finding.title,
         "summary": finding.summary,
         "category": finding.category,
