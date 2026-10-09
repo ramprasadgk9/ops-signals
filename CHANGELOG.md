@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Fixed: `docker compose -f docker-compose.packaged.yml up -d` stopped at "dependency qdrant
+  failed to start".** Qdrant's health check called `curl`, which the current `qdrant/qdrant` image
+  doesn't include, so Qdrant never counted as healthy and the backend, web and MCP containers
+  never started. The check now opens the port with bash instead, as `docker-compose.demo.yml`
+  already did; `docker-compose.yml` had the same check and is fixed too.
 - **Python 3.12 is the recommended version** (README): it's what the Docker images and CI use;
   3.11 and 3.14 still work. `scripts/setup.sh` and `scripts/bootstrap_sample.sh` pick 3.12 when
   it's installed, and keep the version an existing `.venv` already uses instead of rebuilding it.

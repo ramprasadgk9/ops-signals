@@ -85,3 +85,6 @@ market/
 # Local tools and reports
 .aider*
 docs/smoke-test-report.html
+
+# Local FAQ for application owners and customers - not meant to be committed.
+docs/faq.md
