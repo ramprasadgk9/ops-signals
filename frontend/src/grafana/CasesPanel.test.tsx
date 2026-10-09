@@ -66,10 +66,24 @@ describe('CasesPanel (Recent Cases from History)', () => {
     saveInvestigation.mockReset();
   });
 
+  it('starts collapsed to a one-line summary and expands on Show', () => {
+    render(<CasesPanel data={data} backendUrl="http://backend" />);
+
+    expect(screen.getByText('2 cases')).toBeInTheDocument();
+    expect(screen.getByText('2 open')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Case #34/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show cases' }));
+
+    expect(screen.getByRole('button', { name: /Case #34/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide cases' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('opens a clicked case in the workflow drawer, showing the finding it was opened from', async () => {
     loadCase.mockResolvedValue(grafanaCase());
 
     render(<CasesPanel data={data} backendUrl="http://backend" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show cases' }));
     fireEvent.click(screen.getByRole('button', { name: /Case #34/ }));
 
     expect(await screen.findByRole('heading', { name: 'Investigation' })).toBeInTheDocument();
@@ -90,6 +104,7 @@ describe('CasesPanel (Recent Cases from History)', () => {
     const onCasesChanged = vi.fn();
 
     render(<CasesPanel data={data} backendUrl="http://backend" onCasesChanged={onCasesChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show cases' }));
     fireEvent.click(screen.getByRole('button', { name: /Case #34/ }));
     fireEvent.click(await screen.findByRole('button', { name: /2\s*Investigation/ }));
     expect(screen.getByLabelText('Investigation status')).toHaveValue('not_started');
@@ -111,6 +126,7 @@ describe('CasesPanel (Recent Cases from History)', () => {
     const onCasesChanged = vi.fn();
 
     render(<CasesPanel data={data} backendUrl="http://backend" onCasesChanged={onCasesChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show cases' }));
     fireEvent.click(screen.getByRole('button', { name: /Case #34/ }));
     fireEvent.click(await screen.findByRole('button', { name: '×' }));
 
@@ -122,6 +138,7 @@ describe('CasesPanel (Recent Cases from History)', () => {
     saveInvestigation.mockRejectedValue(new Error('500'));
 
     render(<CasesPanel data={data} backendUrl="http://backend" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show cases' }));
     fireEvent.click(screen.getByRole('button', { name: /Case #34/ }));
     fireEvent.click(await screen.findByRole('button', { name: /2\s*Investigation/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save Case' }));
@@ -134,6 +151,7 @@ describe('CasesPanel (Recent Cases from History)', () => {
     loadCase.mockRejectedValue(new Error('network'));
 
     render(<CasesPanel data={data} backendUrl="http://backend" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show cases' }));
     fireEvent.click(screen.getByRole('button', { name: /Case #33/ }));
 
     expect(await screen.findByText('Could not open case #33. Check the backend connection and retry.')).toBeInTheDocument();
