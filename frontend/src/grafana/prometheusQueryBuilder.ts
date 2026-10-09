@@ -5,6 +5,8 @@ export type PrometheusQueryTarget = {
   mode: MetricMode;
   service: string;
   serviceLabel: string;
+  /** One cluster behind a Mimir or Thanos connection (metric mode only); omitted = no cluster matcher. */
+  cluster?: { label: string; value: string } | null;
 };
 
 const labelNamePattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -46,6 +48,10 @@ export function buildMetricQuery(target: PrometheusQueryTarget) {
     throw new Error('Metric mode requires a raw Prometheus metric name. Switch to PromQL expression for complex queries.');
   }
 
+  if (target.cluster?.value) {
+    if (!labelNamePattern.test(target.cluster.label)) throw new Error(`Invalid cluster label: ${target.cluster.label}`);
+    return `${metricOrExpression}{${matcher},${target.cluster.label}="${escapePrometheusLabelValue(target.cluster.value)}"}`;
+  }
   return `${metricOrExpression}{${matcher}}`;
 }
 

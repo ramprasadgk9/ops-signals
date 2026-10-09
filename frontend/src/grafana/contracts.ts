@@ -86,6 +86,9 @@ export type GrafanaAnalysisResult = {
   findings: GrafanaAnalysisFinding[];
   behaviorFindings: GrafanaBehaviorFinding[];
   timeseries: TimeseriesPoint[];
+  /** Set for runs through a backend connection: the cluster analysed and the connection's name. */
+  cluster?: string | null;
+  connection?: string | null;
   analysisRuns: AnalysisRun[];
   seriesCount?: number;
   sampleCount?: number;

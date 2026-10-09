@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, previewAutonomousPlan, runAutonomousPlanOnce, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, listPrometheusLabelValues, previewAutonomousPlan, runAutonomousPlanOnce, runConnectionAnalysis, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -22,7 +22,7 @@ import { PluginSeenBefore } from './PluginSeenBefore';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
 import { findingBreakdown } from '../utils/findingBreakdown';
 import { findingLevel } from '../utils/findingLevel';
-import { buildMetricQuery, type MetricMode } from './prometheusQueryBuilder';
+import { buildMetricQuery, buildServiceMatcher, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
 import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, CaseTicketLink, CaseTicketOperation, GrafanaAnalysisResult, GrafanaCase, GrafanaQueryTarget, MonitoringCategory } from './contracts';
 import type { AnalysisRun, BehaviorFinding, Finding, PrometheusConnection } from '../types';
@@ -109,6 +109,14 @@ export function PluginApp(_props: unknown) {
   const [selectedPrometheusUid, setSelectedPrometheusUid] = useState('');
   const [serviceLabel, setServiceLabel] = useState('service');
   const [metricMode, setMetricMode] = useState<MetricMode>('metric');
+  // Interactive Analysis can query a Grafana data source (as before) or a backend connection (one per
+  // Mimir tenant), which also picks a cluster and tags the run with it, as the web UI's Validate Data.
+  const [interactiveSource, setInteractiveSource] = useState<'grafana' | 'connection'>('grafana');
+  const [interactiveConnectionId, setInteractiveConnectionId] = useState<string | null>(null);
+  const [interactiveCluster, setInteractiveCluster] = useState('');
+  const [connectionServices, setConnectionServices] = useState<string[]>([]);
+  const [connectionMetrics, setConnectionMetrics] = useState<string[]>([]);
+  const [connectionClusterOptions, setConnectionClusterOptions] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState(readGrafanaTimeRange);
   const [timeFromInput, setTimeFromInput] = useState(() => formatDateTimeLocal(readGrafanaTimeRange().from));
   const [timeToInput, setTimeToInput] = useState(() => formatDateTimeLocal(readGrafanaTimeRange().to));
@@ -291,7 +299,7 @@ export function PluginApp(_props: unknown) {
 
   useEffect(() => {
     let active = true;
-    if (activeMode !== 'autonomous' || !backendUrl) return;
+    if (activeMode === 'memory' || !backendUrl) return;
     listPrometheusConnections(backendUrl)
       .then((response) => { if (active) setAutonomousConnections(response.connections); })
       .catch(() => { if (active) setAutonomousConnections([]); });
@@ -337,8 +345,87 @@ export function PluginApp(_props: unknown) {
     [prometheusDatasources, selectedPrometheusUid]
   );
   const backendReady = useMemo(() => Boolean(backendUrl), [backendUrl]);
-  const ready = Boolean(selectedPrometheusUid && target.service && target.metric);
   const timeRangeValid = timeRange.from.getTime() < timeRange.to.getTime();
+
+  // --- Interactive Analysis through a backend connection ---
+  const interactiveConnection = autonomousConnections.find((connection) => connection.id === interactiveConnectionId)
+    ?? autonomousConnections.find((connection) => connection.is_default)
+    ?? null;
+  const interactiveClusterLabel = interactiveConnection?.cluster_label ?? null;
+  const connectionServiceMatcher = (() => {
+    try {
+      return target.service ? `{${buildServiceMatcher(serviceLabel || 'service', target.service)}}` : null;
+    } catch {
+      return null;
+    }
+  })();
+  const connectionSeriesSelector = (() => {
+    if (metricMode !== 'metric' || !target.service || !target.metric) return null;
+    try {
+      return buildMetricQuery({ metric: target.metric, mode: 'metric', service: target.service, serviceLabel });
+    } catch {
+      return null;
+    }
+  })();
+  // A Cluster choice appears only when the series exists in several clusters; the backend analyses
+  // exactly one series per run. A choice no longer in the list doesn't apply.
+  const needsCluster = interactiveSource === 'connection' && connectionClusterOptions.length > 1;
+  const chosenCluster = needsCluster && connectionClusterOptions.includes(interactiveCluster) ? interactiveCluster : '';
+  const ready = interactiveSource === 'connection'
+    ? Boolean(interactiveConnection && target.service && target.metric && (!needsCluster || chosenCluster))
+    : Boolean(selectedPrometheusUid && target.service && target.metric);
+
+  useEffect(() => {
+    if (activeMode !== 'interactive' || interactiveSource !== 'connection' || !backendUrl || !interactiveConnection) return;
+    let active = true;
+    listPrometheusLabelValues(backendUrl, serviceLabel || 'service', interactiveConnection.id)
+      .then((response) => { if (active) setConnectionServices(response.values); })
+      .catch(() => { if (active) setConnectionServices([]); });
+    return () => { active = false; };
+  }, [activeMode, interactiveSource, backendUrl, interactiveConnection?.id, serviceLabel]);
+
+  useEffect(() => {
+    if (activeMode !== 'interactive' || interactiveSource !== 'connection' || !backendUrl || !interactiveConnection) return;
+    let active = true;
+    // The metrics the chosen service has, else every metric name.
+    listPrometheusLabelValues(backendUrl, '__name__', interactiveConnection.id, connectionServiceMatcher ? { match: [connectionServiceMatcher] } : undefined)
+      .then((response) => { if (active) setConnectionMetrics(response.values.slice(0, 500)); })
+      .catch(() => { if (active) setConnectionMetrics([]); });
+    return () => { active = false; };
+  }, [activeMode, interactiveSource, backendUrl, interactiveConnection?.id, connectionServiceMatcher]);
+
+  const rangeStart = timeRange.from.toISOString();
+  const rangeEnd = timeRange.to.toISOString();
+  useEffect(() => {
+    setConnectionClusterOptions([]);
+    if (activeMode !== 'interactive' || interactiveSource !== 'connection' || !backendUrl || !interactiveConnection || !interactiveClusterLabel || !connectionSeriesSelector) return;
+    let active = true;
+    listPrometheusLabelValues(backendUrl, interactiveClusterLabel, interactiveConnection.id, { match: [connectionSeriesSelector], start: rangeStart, end: rangeEnd })
+      .then((response) => { if (active) setConnectionClusterOptions(response.values); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [activeMode, interactiveSource, backendUrl, interactiveConnection?.id, interactiveClusterLabel, connectionSeriesSelector, rangeStart, rangeEnd]);
+
+  async function runConnectionInteractive() {
+    if (!interactiveConnection) return;
+    const startedAt = performance.now();
+    const clusterSelector = chosenCluster && interactiveClusterLabel ? { label: interactiveClusterLabel, value: chosenCluster } : null;
+    const promql = buildMetricQuery({ metric: target.metric, mode: metricMode, service: target.service, serviceLabel, cluster: clusterSelector });
+    setStage(`Querying ${interactiveConnection.name}: ${promql}`);
+    const backendResult = await runConnectionAnalysis(backendUrl, {
+      connectionId: interactiveConnection.id,
+      connectionName: interactiveConnection.name,
+      service: target.service,
+      metric: target.metric,
+      promql,
+      from: timeRange.from.toISOString(),
+      to: timeRange.to.toISOString(),
+      stepSeconds: Math.max(Math.round(calculateIntervalMs(timeRange) / 1000), 1),
+      cluster: chosenCluster || null,
+      startedAt,
+    });
+    setResult(backendResult);
+  }
 
   async function runInteractiveAnalysis() {
     if (!ready || !timeRangeValid) return;
@@ -347,6 +434,10 @@ export function PluginApp(_props: unknown) {
     setStage('Resolving Prometheus datasource');
     const startedAt = performance.now();
     try {
+      if (interactiveSource === 'connection') {
+        await runConnectionInteractive();
+        return;
+      }
       const promql = buildMetricQuery({
         metric: target.metric,
         mode: metricMode,
@@ -387,7 +478,7 @@ export function PluginApp(_props: unknown) {
       setResult(backendResult);
     } catch (runError) {
       const message = runError instanceof Error ? runError.message : 'Unknown error';
-      setError(`${stage || 'Analysis'} failed. ${message}`);
+      setError(`${stage || 'Analysis'} failed. ${interactiveSource === 'connection' ? message.replace(/^Request failed: \d+ - /, '') : message}`);
     } finally {
       setIsRunning(false);
       setStage('');
@@ -399,10 +490,18 @@ export function PluginApp(_props: unknown) {
   const [pendingInteractiveRun, setPendingInteractiveRun] = useState(false);
   useEffect(() => {
     if (!pendingInteractiveRun || activeMode !== 'interactive' || isRunning) return;
+    // Through a connection the form is ready only once the finding's cluster is in the cluster list.
+    if (!(ready && timeRangeValid)) return;
     setPendingInteractiveRun(false);
-    if (ready && timeRangeValid) void runInteractiveAnalysis();
+    void runInteractiveAnalysis();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingInteractiveRun, activeMode, ready, timeRangeValid, isRunning]);
+  // A hand-over that never becomes runnable (e.g. the series is gone) doesn't fire later on its own.
+  useEffect(() => {
+    if (!pendingInteractiveRun) return;
+    const timer = window.setTimeout(() => setPendingInteractiveRun(false), 15000);
+    return () => window.clearTimeout(timer);
+  }, [pendingInteractiveRun]);
   const latestAutonomousPolicyRunId = overviewPolicyRuns[0]?.policy_run_id ?? overviewPolicyRuns[0]?.id ?? autonomousRunResult?.policy_run_id ?? null;
 
   function setRange(nextFrom: Date, nextTo: Date) {
@@ -494,6 +593,23 @@ export function PluginApp(_props: unknown) {
       ) : activeMode === 'interactive' ? (
         <>
           <InteractiveAnalysisCard
+            source={interactiveSource}
+            setSource={(next) => {
+              setInteractiveSource(next);
+              setResult(null);
+            }}
+            connections={autonomousConnections}
+            connectionId={interactiveConnection?.id ?? null}
+            setConnectionId={(id) => {
+              setInteractiveConnectionId(id);
+              setInteractiveCluster('');
+              setResult(null);
+            }}
+            connectionServices={connectionServices}
+            connectionMetrics={connectionMetrics}
+            clusterOptions={needsCluster ? connectionClusterOptions : []}
+            cluster={chosenCluster}
+            setCluster={setInteractiveCluster}
             prometheusDatasources={prometheusDatasources}
             selectedPrometheusUid={selectedPrometheusUid}
             setSelectedPrometheusUid={setSelectedPrometheusUid}
@@ -642,6 +758,12 @@ export function PluginApp(_props: unknown) {
               metric: finding.metric_name || current.metric,
             }));
             setMetricMode('metric');
+            // A finding from a backend connection (a Mimir tenant, maybe one of several clusters) is
+            // re-run on that connection and cluster; others through the Grafana data source.
+            const fromConnection = finding.connection_id && autonomousConnections.some((connection) => connection.id === finding.connection_id);
+            setInteractiveSource(fromConnection ? 'connection' : 'grafana');
+            if (fromConnection) setInteractiveConnectionId(finding.connection_id ?? null);
+            setInteractiveCluster(finding.cluster ?? '');
             setActiveMode('interactive');
             setAutonomousInvestigationFinding(null);
             setPendingInteractiveRun(true);
@@ -934,7 +1056,19 @@ function ModeTab({ active, title, subtitle, tone, onClick }: { active: boolean; 
   );
 }
 
-type InteractiveCardProps = {
+export type InteractiveCardProps = {
+  /** Where the data comes from: a Grafana data source, or a backend connection (Mimir tenant). */
+  source: 'grafana' | 'connection';
+  setSource: (value: 'grafana' | 'connection') => void;
+  connections: PrometheusConnection[];
+  connectionId: string | null;
+  setConnectionId: (value: string) => void;
+  connectionServices: string[];
+  connectionMetrics: string[];
+  /** Clusters the chosen series exists in; empty unless there is a choice to make. */
+  clusterOptions: string[];
+  cluster: string;
+  setCluster: (value: string) => void;
   prometheusDatasources: PrometheusDatasourceRef[];
   selectedPrometheusUid: string;
   setSelectedPrometheusUid: (value: string) => void;
@@ -981,7 +1115,7 @@ function ApiTokenField() {
   );
 }
 
-function InteractiveAnalysisCard(props: InteractiveCardProps) {
+export function InteractiveAnalysisCard(props: InteractiveCardProps) {
   return (
     <Card>
       <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14 }}>
@@ -992,6 +1126,32 @@ function InteractiveAnalysisCard(props: InteractiveCardProps) {
         <span style={styles.chip}>One metric per run</span>
       </div>
       <div style={styles.toolbar}>
+        {props.connections.length ? (
+          <Field label="Query through">
+            <select
+              aria-label="Query through"
+              style={styles.input}
+              value={props.source}
+              onChange={(event) => props.setSource(event.target.value as 'grafana' | 'connection')}
+            >
+              <option value="grafana">Grafana data source</option>
+              <option value="connection">Ops Signals connection</option>
+            </select>
+            <div style={styles.helperText}>
+              {props.source === 'connection'
+                ? 'The backend queries it: picks one cluster, tags findings with it, and keeps one copy of HA-duplicated series.'
+                : 'Grafana queries the data source and sends the samples for analysis.'}
+            </div>
+          </Field>
+        ) : null}
+        {props.source === 'connection' ? (
+          <ConnectionPicker
+            backendUrl={props.backendUrl}
+            connections={props.connections}
+            connectionId={props.connectionId}
+            onChange={props.setConnectionId}
+          />
+        ) : (
         <Field label="Data source">
           <select
             style={styles.input}
@@ -1009,6 +1169,7 @@ function InteractiveAnalysisCard(props: InteractiveCardProps) {
             ))}
           </select>
         </Field>
+        )}
         <Field label="Ops Signals backend">
           <select
             style={styles.input}
@@ -1036,7 +1197,7 @@ function InteractiveAnalysisCard(props: InteractiveCardProps) {
             onChange={(event) => props.setTarget((current) => ({ ...current, service: event.target.value }))}
           />
           <datalist id="ops-signals-services">
-            {props.services.map((service) => (
+            {(props.source === 'connection' ? props.connectionServices : props.services).map((service) => (
               <option key={service} value={service} />
             ))}
           </datalist>
@@ -1050,7 +1211,7 @@ function InteractiveAnalysisCard(props: InteractiveCardProps) {
             onChange={(event) => props.setTarget((current) => ({ ...current, metric: event.target.value }))}
           />
           <datalist id="ops-signals-metrics">
-            {props.metrics.map((metric) => (
+            {(props.source === 'connection' ? props.connectionMetrics : props.metrics).map((metric) => (
               <option key={metric} value={metric} />
             ))}
           </datalist>
@@ -1064,6 +1225,19 @@ function InteractiveAnalysisCard(props: InteractiveCardProps) {
         <Field label="Service label">
           <input style={styles.input} value={props.serviceLabel} onChange={(event) => props.setServiceLabel(event.target.value)} />
         </Field>
+        {props.source === 'connection' && props.clusterOptions.length ? (
+          <Field label="Cluster">
+            <select aria-label="Cluster" style={styles.input} value={props.cluster} onChange={(event) => props.setCluster(event.target.value)}>
+              <option value="">Choose a cluster</option>
+              {props.clusterOptions.map((cluster) => (
+                <option key={cluster} value={cluster}>{cluster}</option>
+              ))}
+            </select>
+            <div style={{ ...styles.helperText, ...(props.cluster ? {} : { color: '#ffb357' }) }}>
+              This series is in {props.clusterOptions.length} clusters; one is analysed per run.{props.cluster ? '' : ' Choose one to run.'}
+            </div>
+          </Field>
+        ) : null}
         <Field label="Time range">
           <div style={{ display: 'grid', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
