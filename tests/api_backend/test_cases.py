@@ -4,7 +4,7 @@ from backend.app.models.db import get_session_local
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity, OperationalCaseEntity
 
 
-def _create_finding(**overrides) -> FindingEntity:
+def _create_finding(connection_id: str | None = None, **overrides) -> FindingEntity:
     payload = {
         'analysis_run_id': 'run-test-1',
         'service': 'checkout-service',
@@ -35,6 +35,7 @@ def _create_finding(**overrides) -> FindingEntity:
                 end_time=now,
                 sample_count=120,
                 status='completed',
+                connection_id=connection_id,
                 router_version='1.0',
                 feature_extractor_version='1.0',
                 analyzer_registry_version='1.0',
@@ -68,6 +69,26 @@ def test_create_case_from_finding(client) -> None:
     assert body['case_status'] == 'open'
     assert body['memory_status'] == 'not_indexed'
     assert isinstance(body['case_id'], int)
+
+
+def test_case_snapshot_keeps_cluster_and_connection(client) -> None:
+    finding_id = _create_finding(connection_id='team-a', cluster='us', analysis_run_id='run-cluster-1')
+
+    case_id = client.post(f'/api/cases/findings/{finding_id}/create').json()['case_id']
+
+    snapshot = client.get(f'/api/cases/{case_id}').json()['finding_snapshot']
+    assert snapshot['cluster'] == 'us'
+    assert snapshot['connection_id'] == 'team-a'
+
+
+def test_case_snapshot_cluster_is_empty_for_single_cluster_data(client) -> None:
+    finding_id = _create_finding(analysis_run_id='run-single-1')
+
+    case_id = client.post(f'/api/cases/findings/{finding_id}/create').json()['case_id']
+
+    snapshot = client.get(f'/api/cases/{case_id}').json()['finding_snapshot']
+    assert snapshot['cluster'] is None
+    assert snapshot['connection_id'] is None
 
 
 def test_create_case_is_idempotent(client) -> None:
