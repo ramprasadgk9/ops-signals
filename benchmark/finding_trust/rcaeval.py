@@ -2,6 +2,8 @@
 injection moment recorded. Metrics only, 1-second samples.
 
 Source: https://zenodo.org/records/14590730 (CC BY 4.0), cached under benchmark/.cache/rcaeval.
+Each archive is pinned by SHA-256 (checked against the MD5 Zenodo publishes when pinned) and a
+download that doesn't match is refused, as for every other public dataset here.
 
 | System | Services x faults x repeats | Normal time before the fault | Metric columns |
 | --- | --- | --- | --- |
@@ -15,18 +17,22 @@ and latency. Counters (`*-total`) become per-second rates, the way a PromQL rate
 
 from __future__ import annotations
 
-import urllib.request
 import zipfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from benchmark.fetch import CACHE_DIR
+from benchmark.fetch import CACHE_DIR, ensure_download
 
 ZENODO_RECORD = "https://zenodo.org/records/14590730"
 RCAEVAL_CACHE_DIR = CACHE_DIR / "rcaeval"
 SYSTEMS = ("RE1-OB", "RE1-SS", "RE1-TT")
+ARCHIVE_SHA256 = {
+    "RE1-OB": "4a709297e0a829f0f2ee8a7792a6d74da32d663c600565b7fffc860963b840c4",
+    "RE1-SS": "b4424b0b3863b7397712caa0f305ef59964b03784dfcb23e23e0a95a2e746f99",
+    "RE1-TT": "2b33b7ab07198e0d69f229e697bfcef794a656e8db73a1d732142effde17c595",
+}
 METRIC_KINDS = ("cpu", "mem", "latency")
 
 # One cadence for every system: 2-second points, a scheduled run every 30 seconds over the last
@@ -46,15 +52,14 @@ _RAW_COLUMNS = {
 
 
 def ensure_rcaeval(system: str = "RE1-OB", cache_dir: Path = RCAEVAL_CACHE_DIR) -> Path:
+    """The extracted system folder, downloading and verifying its archive first if needed."""
+    if system not in ARCHIVE_SHA256:
+        raise ValueError(f"unknown RCAEval system {system!r}; expected one of {sorted(ARCHIVE_SHA256)}")
+    archive = ensure_download(f"{ZENODO_RECORD}/files/{system}.zip?download=1", ARCHIVE_SHA256[system], cache_dir / f"{system}.zip")
     target = cache_dir / system
-    if target.is_dir() and any(target.iterdir()):
-        return target
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    archive = cache_dir / f"{system}.zip"
-    if not archive.exists():
-        urllib.request.urlretrieve(f"{ZENODO_RECORD}/files/{system}.zip?download=1", archive)
-    with zipfile.ZipFile(archive) as bundle:
-        bundle.extractall(cache_dir)
+    if not (target.is_dir() and any(target.iterdir())):
+        with zipfile.ZipFile(archive) as bundle:
+            bundle.extractall(cache_dir)
     return target
 
 

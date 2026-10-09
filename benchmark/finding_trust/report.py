@@ -20,6 +20,9 @@ GO_RATE = 0.35
 # also be real at least this many times as often as an alarm at a random moment would be.
 GO_LIFT = 2.0
 
+_CAUGHT = '<span class="pill good">caught</span>'
+_MISSED = '<span class="pill critical">missed</span>'
+
 AGREEMENT_ORDER = {"2+ analyzers": 0, "1 analyzer": 1}
 
 
@@ -169,7 +172,7 @@ def _step3(step3, passing) -> str:
         for row in step3["faults"]
     )
     case_rows = "".join(
-        f"<tr><td>{escape(row['case'])}</td><td>{'<span class=\"pill good\">caught</span>' if row['caught'] else '<span class=\"pill critical\">missed</span>'}</td>"
+        f"<tr><td>{escape(row['case'])}</td><td>{_CAUGHT if row['caught'] else _MISSED}</td>"
         f"<td class='num'>{_minutes(row['delay_minutes'])}</td><td>{escape(row['caught_on'] or '—')}</td><td class='num'>{row['false_alarms']}</td></tr>"
         for row in step3["cases"]
     )

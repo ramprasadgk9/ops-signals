@@ -42,6 +42,26 @@ jobs:
       - name: Run pytest
         run: pytest -q
 
+  # The tests run on 3.12, the version the Docker images use. 3.11 and 3.14 are supported too
+  # (README, scripts/setup.sh): this catches code either one can't even parse, in about a minute.
+  python-versions:
+    name: Python ${{ matrix.python }} (compiles)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Compile every project Python file
+        run: python -m compileall -q -x '/\.cache/|node_modules' backend intelligence benchmark experiments scripts examples dev tests
+
   frontend:
     name: Frontend (vitest + build)
     runs-on: ubuntu-latest
