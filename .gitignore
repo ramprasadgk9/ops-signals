@@ -79,6 +79,10 @@ experiments/analyzer_router/output/
 # Local publication/paper drafts - not meant to be committed to the shared repo.
 publication/
 
+# Award evidence report and its tests: kept on this machine, not in the public repo.
+benchmark/evidence/award.py
+tests/test_benchmark_evidence_award.py
+
 # Local marketing/positioning drafts - not meant to be committed to the shared repo.
 market/
 
