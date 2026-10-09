@@ -1,4 +1,4 @@
-import type { AnalysisRun, TimeseriesPoint } from '../types';
+import type { AnalysisRun, FindingTrust, TimeseriesPoint } from '../types';
 
 export type GrafanaQueryTarget = {
   datasource: string;
@@ -45,6 +45,7 @@ export type GrafanaAnalysisFinding = {
   investigation_priority: number;
   signal_ids: string[];
   comparison_json?: Record<string, unknown>;
+  trust?: FindingTrust | null;
 };
 
 export type GrafanaAnalyzerExecution = {
@@ -65,6 +66,9 @@ export type GrafanaBehaviorFinding = {
   severity: string;
   confidence: number;
   correlation: Record<string, unknown>;
+  service?: string | null;
+  /** The case already opened from this behavior, if any. */
+  case_id?: number | null;
 };
 
 export type GrafanaAnalysisResult = {
@@ -115,6 +119,13 @@ export type GrafanaQuestionAnswer = {
 export type GrafanaCaseCreateResponse = {
   case_id: number;
   finding_id: number;
+  case_status: string;
+  memory_status: string;
+};
+
+export type GrafanaBehaviorCaseCreateResponse = {
+  case_id: number;
+  behavior_finding_id: number;
   case_status: string;
   memory_status: string;
 };
