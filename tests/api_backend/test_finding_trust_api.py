@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.app.config import MemoryConfig
+from backend.app.main import create_app
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import FindingEntity, SignalEntity
+from backend.app.models.entities import FindingEntity, FindingFeedbackEntity, SignalEntity
 from backend.app.services import finding_trust as ft
 from backend.app.services.finding_trust import SignalFacts, trust_group
 
@@ -167,3 +170,19 @@ def test_answers_move_a_kind_of_finding_between_lists_for_that_service_only(clie
         client.post(f"/api/findings/{finding_id}/feedback", json={"verdict": "real_problem"})
     trust = {item["id"]: item["trust"] for item in client.get("/api/findings").json()}[15]
     assert (trust["tier"], trust["badge"], trust["moved"]) == ("needs_attention", "strong", None)
+
+
+def test_resetting_operational_data_also_clears_the_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPS_SIGNALS_ENABLE_TESTING_API", "true")
+    with patch("backend.app.main.load_memory_config", return_value=MemoryConfig(enabled=False)):
+        with TestClient(create_app("sqlite+pysqlite:///:memory:")) as client:
+            with get_session_local()() as db:
+                _seed_finding(db, 1, "cart", [("pyod_outlier", "anomaly"), ("ruptures", "ruptures")])
+                db.commit()
+            client.post("/api/findings/1/feedback", json={"verdict": "not_a_problem"})
+
+            response = client.post("/api/testing/reset-operational-data", json={"confirm": "RESET_OPS_SIGNALS_TEST_DATA", "clear_vector_memory": False})
+
+            assert response.json()["deleted_rows"]["ops_finding_feedback"] == 1
+            with get_session_local()() as db:
+                assert db.query(FindingFeedbackEntity).count() == 0

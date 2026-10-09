@@ -219,7 +219,7 @@ export function ProphetForecastLabPage() {
           <LearningNote title="What data is generated?" body="The lab creates a predictable seasonal series, then optionally injects a final breakout or drop so you know the expected forecast violation." />
           <LearningNote title="How to read results" body="Compare actual value, forecast value, relative error, confidence, and whether the configured finding rule matched." />
         </Box>
-        <Box sx={{ mt: 2, p: 2, border: `1px solid ${ui.border}`, borderRadius: 2, bgcolor: '#f8fafc' }}>
+        <Box sx={{ mt: 2, p: 2, border: `1px solid ${ui.border}`, borderRadius: 2, bgcolor: 'var(--os-surface-alt)' }}>
           <Typography sx={{ fontWeight: 900, mb: 1 }}>How This Lab Helps</Typography>
           <Typography sx={{ color: ui.muted, lineHeight: 1.6 }}>
             Use this lab to understand forecast-based anomalies: when a metric still has a normal-looking shape, but its latest values
@@ -236,7 +236,7 @@ export function ProphetForecastLabPage() {
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Stack direction="row" alignItems="center" spacing={1.2} sx={{ mb: 2 }}>
-          <TimelineRoundedIcon sx={{ color: '#0f766e' }} />
+          <TimelineRoundedIcon sx={{ color: 'var(--os-ink-brand)' }} />
           <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Generate Time Series</Typography>
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
@@ -260,7 +260,7 @@ export function ProphetForecastLabPage() {
           <Box sx={{ height: 320 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--os-border)" />
                 <XAxis dataKey="time" tickLine={false} axisLine={false} minTickGap={24} />
                 <YAxis tickLine={false} axisLine={false} width={46} />
                 <Tooltip />

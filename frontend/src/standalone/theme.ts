@@ -1,11 +1,13 @@
 import type { SxProps, Theme } from '@mui/material';
 
+// Neutrals follow the light/dark mode through CSS variables set by theme/ThemeProviderWithMode;
+// the fallbacks keep the light look anywhere that provider isn't mounted.
 export const ui = {
-  bg: '#fbfcff',
-  surface: '#ffffff',
-  border: '#e8edf5',
-  text: '#111827',
-  muted: '#64748b',
+  bg: 'var(--os-bg, #fbfcff)',
+  surface: 'var(--os-surface, #ffffff)',
+  border: 'var(--os-border, #e8edf5)',
+  text: 'var(--os-text, #111827)',
+  muted: 'var(--os-muted, #64748b)',
   red: '#ff4d57',
   blue: '#4f46e5',
   purple: '#6d5dfc',

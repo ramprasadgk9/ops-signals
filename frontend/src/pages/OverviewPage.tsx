@@ -30,7 +30,7 @@ function KpiCard({ icon, value, label, delta, to, bg, color }: { icon: React.Rea
         <IconTile bg={bg} color={color}>{icon}</IconTile>
         <Box sx={{ textAlign: 'left' }}>
           <Typography sx={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>{value}</Typography>
-          <Typography sx={{ color: '#334155', fontWeight: 750 }}>{label}</Typography>
+          <Typography sx={{ color: 'var(--os-text-2)', fontWeight: 750 }}>{label}</Typography>
           <Typography sx={{ mt: 1.4, color, fontSize: 13, fontWeight: 800 }}>{delta}</Typography>
         </Box>
       </Button>
@@ -102,10 +102,10 @@ export function OverviewPage() {
       />
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WarningAmberRoundedIcon />} value={kpiValue(summary?.active_findings)} label="Active Findings" delta="Needs review" to="/findings?window=24h" bg="#fff1f2" color={ui.red} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WorkOutlineRoundedIcon />} value={kpiValue(summary?.open_cases)} label="Open Cases" delta="Investigation backlog" to="/cases" bg="#fff7ed" color={ui.orange} /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<DnsRoundedIcon />} value={kpiValue(summary?.impacted_services)} label="Impacted Services" delta={topFinding?.service ?? 'No service impacted'} to="/findings?window=24h" bg="#eff6ff" color="#3b82f6" /></Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<CheckCircleRoundedIcon />} value={awaitingFirstData ? '—' : failedJobs > 0 ? 'Needs attention' : 'Healthy'} label="Automation" delta={awaitingFirstData ? 'Waiting for first data' : `${failedJobs} failed jobs`} to="/autonomous-monitoring" bg="#ecfdf5" color={failedJobs > 0 ? ui.red : ui.green} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WarningAmberRoundedIcon />} value={kpiValue(summary?.active_findings)} label="Active Findings" delta="Needs review" to="/findings?window=24h" bg="var(--os-tint-rose)" color={ui.red} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WorkOutlineRoundedIcon />} value={kpiValue(summary?.open_cases)} label="Open Cases" delta="Investigation backlog" to="/cases" bg="var(--os-tint-orange)" color={ui.orange} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<DnsRoundedIcon />} value={kpiValue(summary?.impacted_services)} label="Impacted Services" delta={topFinding?.service ?? 'No service impacted'} to="/findings?window=24h" bg="var(--os-tint-blue)" color="#3b82f6" /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<CheckCircleRoundedIcon />} value={awaitingFirstData ? '—' : failedJobs > 0 ? 'Needs attention' : 'Healthy'} label="Automation" delta={awaitingFirstData ? 'Waiting for first data' : `${failedJobs} failed jobs`} to="/autonomous-monitoring" bg="var(--os-tint-green)" color={failedJobs > 0 ? ui.red : ui.green} /></Grid>
       </Grid>
 
       <MetricUsageStrip />
@@ -141,7 +141,7 @@ function OperationalSummary({ activeFindings, impactedServices, failedJobs, topI
   return (
     <WorkspacePanel sx={{ p: 2.5 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2}>
-        <IconTile bg="#eff6ff" color={ui.blue}><ShowChartRoundedIcon /></IconTile>
+        <IconTile bg="var(--os-tint-blue)" color={ui.blue}><ShowChartRoundedIcon /></IconTile>
         <Box>
           <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Operational Summary</Typography>
           <Typography sx={{ color: ui.text, mt: 0.8, fontSize: 16 }}>
@@ -170,7 +170,7 @@ function NeedsAttentionPanel({ findings, cases, alertByFinding }: { findings: Fi
           }}
         >
           {['Priority', 'Service / Metric', 'Issue', 'Impact', 'Status', 'Action'].map((header) => (
-            <Typography key={header} sx={{ px: 1.5, py: 1.2, bgcolor: '#f8fafc', borderBottom: `1px solid ${ui.border}`, fontWeight: 850, fontSize: 13 }}>
+            <Typography key={header} sx={{ px: 1.5, py: 1.2, bgcolor: 'var(--os-surface-alt)', borderBottom: `1px solid ${ui.border}`, fontWeight: 850, fontSize: 13 }}>
               {header}
             </Typography>
           ))}
@@ -236,7 +236,7 @@ function AutonomousSummaryPanel({ data, latestRun, error, detailsOpen, onToggleD
     <WorkspacePanel sx={{ p: 0, overflow: 'hidden' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between" spacing={1.5} sx={{ px: 2.5, py: 1.8, borderBottom: `1px solid ${ui.border}` }}>
         <Stack direction="row" alignItems="center" spacing={1.4}>
-          <IconTile bg="#eff6ff" color={ui.blue}><AutoModeRoundedIcon /></IconTile>
+          <IconTile bg="var(--os-tint-blue)" color={ui.blue}><AutoModeRoundedIcon /></IconTile>
           <Box>
             <Typography sx={{ fontWeight: 900, fontSize: 18 }}>Autonomous Analysis</Typography>
             <Typography sx={{ color: ui.muted, fontSize: 13 }}>
@@ -334,7 +334,7 @@ function OpenInvestigationsPanel({ openCases }: { openCases: ReturnType<typeof t
 
 function AutonomousStatusTile({ label, value, detail, tone }: { label: string; value: number | string; detail: string; tone: string }) {
   return (
-    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.5, bgcolor: '#fbfdff', minWidth: 0 }}>
+    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.5, bgcolor: 'var(--os-surface)', minWidth: 0 }}>
       <Typography sx={{ color: ui.muted, fontSize: 12, fontWeight: 800 }}>{label}</Typography>
       <Typography sx={{ color: ui.text, fontSize: 20, fontWeight: 900, mt: 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</Typography>
       <Typography sx={{ color: tone, fontSize: 12, fontWeight: 800, mt: 0.8 }}>{detail}</Typography>
@@ -351,7 +351,7 @@ function MiniBarChart({ items }: { items: Array<{ label: string; value: number }
         return (
           <Box key={`${item.label}-${index}`} sx={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
             <Typography sx={{ fontSize: 12, fontWeight: 850, color: ui.text, mb: 0.8 }}>{item.value}</Typography>
-            <Box sx={{ height, borderRadius: '6px 6px 2px 2px', bgcolor: item.value > 0 ? ui.blue : '#e2e8f0', transition: 'height 160ms ease' }} />
+            <Box sx={{ height, borderRadius: '6px 6px 2px 2px', bgcolor: item.value > 0 ? ui.blue : 'var(--os-border)', transition: 'height 160ms ease' }} />
             <Typography sx={{ color: ui.muted, fontSize: 11, mt: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</Typography>
           </Box>
         );
@@ -370,7 +370,7 @@ function HorizontalBars({ items }: { items: Array<{ label: string; count: number
             <Typography sx={{ fontWeight: 850 }}>{item.label}</Typography>
             <Typography sx={{ color: ui.muted, fontWeight: 800 }}>{item.count}</Typography>
           </Stack>
-          <Box sx={{ mt: 0.7, height: 8, borderRadius: '999px', bgcolor: '#e2e8f0', overflow: 'hidden' }}>
+          <Box sx={{ mt: 0.7, height: 8, borderRadius: '999px', bgcolor: 'var(--os-border)', overflow: 'hidden' }}>
             <Box sx={{ width: `${Math.max(4, (item.count / max) * 100)}%`, height: '100%', bgcolor: item.color ?? priorityColor(item.label), borderRadius: '999px' }} />
           </Box>
         </Box>
@@ -382,7 +382,7 @@ function HorizontalBars({ items }: { items: Array<{ label: string; count: number
 function TimelineRow({ title, meta, status, failed }: { title: string; meta: string; status: string; failed?: boolean }) {
   return (
     <Stack direction="row" spacing={1.2} alignItems="flex-start">
-      <Box sx={{ width: 22, height: 22, borderRadius: '999px', bgcolor: failed ? '#fff1f2' : '#ecfdf5', color: failed ? ui.red : ui.green, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 900 }}>
+      <Box sx={{ width: 22, height: 22, borderRadius: '999px', bgcolor: failed ? 'var(--os-tint-rose)' : 'var(--os-tint-green)', color: failed ? ui.red : ui.green, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 900 }}>
         {failed ? '!' : <CheckCircleRoundedIcon sx={{ fontSize: 15 }} />}
       </Box>
       <Box sx={{ minWidth: 0 }}>
@@ -454,7 +454,7 @@ function DetailRow({ title, meta, to }: { title: string; meta: string; to?: stri
 function CaseMiniRow({ id, title, meta, status, severity = false }: { id: number; title: string; meta: string; status: string; severity?: boolean }) {
   return (
     <Button component={RouterLink} to={id ? `/cases/${id}` : '/behavior-intelligence'} sx={{ justifyContent: 'flex-start', gap: 1.3, p: 0, color: 'inherit', textTransform: 'none' }}>
-      <IconTile bg={severity ? '#fff7ed' : '#fff1f2'} color={severity ? ui.orange : ui.red}><ShowChartRoundedIcon fontSize="small" /></IconTile>
+      <IconTile bg={severity ? 'var(--os-tint-orange)' : 'var(--os-tint-rose)'} color={severity ? ui.orange : ui.red}><ShowChartRoundedIcon fontSize="small" /></IconTile>
       <Box sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
         <Typography sx={{ fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
         <Typography sx={{ color: ui.muted, fontSize: 13 }}>{meta}</Typography>

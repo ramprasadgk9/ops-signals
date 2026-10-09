@@ -163,3 +163,17 @@ def test_rate_rows_compare_the_real_rate_with_chance() -> None:
     row = ev.overall(events)
     assert row["chance"] == pytest.approx(0.125)
     assert row["lift"] == pytest.approx(2.0)
+
+
+def test_rcaeval_refuses_an_archive_that_does_not_match_its_pinned_checksum(tmp_path, monkeypatch) -> None:
+    import io
+
+    from benchmark import fetch
+    from benchmark.finding_trust import rcaeval
+
+    assert set(rcaeval.ARCHIVE_SHA256) == set(rcaeval.SYSTEMS)
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", lambda url, timeout=60: io.BytesIO(b"not the real archive"))
+
+    with pytest.raises(fetch.CheckoutError, match="expected pinned"):
+        rcaeval.ensure_rcaeval("RE1-OB", cache_dir=tmp_path)
+    assert not (tmp_path / "RE1-OB").exists()

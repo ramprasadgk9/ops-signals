@@ -17,6 +17,7 @@ from backend.app.models.entities import (
     AnalyzerLearningOutcomeEntity,
     BehaviorFindingEntity,
     FindingEntity,
+    FindingFeedbackEntity,
     NormalizedPoint,
     OperationalCaseEntity,
     QuestionAnswerEntity,
@@ -49,6 +50,8 @@ def reset_operational_data(payload: TestingResetRequest, db: Session = Depends(g
         QuestionAnswerEntity,
         BehaviorFindingEntity,
         OperationalCaseEntity,
+        # "Was this real?" answers: left behind, they would keep moving new findings between lists.
+        FindingFeedbackEntity,
         FindingEntity,
         SignalEntity,
         NormalizedPoint,

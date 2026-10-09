@@ -179,7 +179,9 @@ The steps below set up a development install that you can point at your own data
 
 - **Git**
 - **Docker**, with Compose v2 (the `docker compose` command, not the older standalone `docker-compose`) - runs PostgreSQL/TimescaleDB and Qdrant for you
-- **Python 3.11, 3.12, or 3.14** - 3.13 is explicitly not supported by `scripts/setup.sh`
+- **Python 3.12** (recommended: it's what the Docker images and CI use). 3.11 and 3.14 also work;
+  3.13 is explicitly not supported by `scripts/setup.sh`. The setup script picks 3.12 when it's
+  installed, and keeps the version an existing `.venv` already uses
 - **Node.js 20+** and npm - for the React frontend
 - *(Optional)* **Ollama** - only needed for local AI-assisted answers (see [Enable Local AI](#optional-enable-local-ai)); everything works without it
 - macOS or Linux (the scripts are bash-based; on Windows, use WSL)
@@ -299,7 +301,7 @@ Prefer a model you already run or pay for? Set `OPS_SIGNALS_AI_PROVIDER=openai_c
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `docker is required` | Docker isn't installed, or the daemon isn't running | Install/start Docker Desktop (or Docker Engine on Linux) |
-| `Unsupported Python version selected: 3.13` | System Python is 3.13, which `setup.sh` rejects | Install 3.11, 3.12, or 3.14, then run `PYTHON_BIN=python3.12 ./scripts/setup.sh` |
+| `Unsupported Python version selected: 3.13` | System Python is 3.13, which `setup.sh` rejects | Install 3.12 (recommended), 3.11 or 3.14, then run `PYTHON_BIN=python3.12 ./scripts/setup.sh` |
 | `npm is required to install frontend dependencies` | Node.js/npm isn't installed | Install Node.js 20+ |
 | `postgres did not become ready in time` or `qdrant did not become ready in time` | Docker is still starting, or the port is already taken | `docker compose ps` and `docker compose logs postgres` (or `qdrant`); confirm ports `5432`/`6333` are free |
 | A port (`8001`, `5174`, `9090`) is already in use | Another process is bound to it | Stop that process, or see `scripts/run_all.sh` for the ports it uses |

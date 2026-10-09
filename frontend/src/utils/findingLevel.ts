@@ -11,9 +11,9 @@ export type FindingLevel = {
 };
 
 const levels: Record<string, FindingLevel> = {
-  critical: { label: 'High', chip: 'error', tone: { color: '#ef4444', bg: '#fff1f2', border: '#fecdd3' } },
-  significant: { label: 'Medium', chip: 'warning', tone: { color: '#d97706', bg: '#fffbeb', border: '#fde68a' } },
-  normal: { label: 'Low', chip: 'default', tone: { color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' } },
+  critical: { label: 'High', chip: 'error', tone: { color: '#ef4444', bg: 'var(--os-tint-rose)', border: 'var(--os-tint-rose-border)' } },
+  significant: { label: 'Medium', chip: 'warning', tone: { color: '#d97706', bg: 'var(--os-tint-amber)', border: 'var(--os-tint-amber-border)' } },
+  normal: { label: 'Low', chip: 'default', tone: { color: 'var(--os-muted)', bg: 'var(--os-surface-alt)', border: 'var(--os-border)' } },
 };
 
 export function findingLevel(status?: string | null): FindingLevel {

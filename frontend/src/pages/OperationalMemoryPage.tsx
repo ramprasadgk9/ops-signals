@@ -128,7 +128,7 @@ export function OperationalMemoryPage() {
         {casesQuery.error ? (
           <Typography color="error">Cases unavailable. Memory inventory could not be loaded.</Typography>
         ) : !rows.length ? (
-          <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: '#f8fafc' }}>
+          <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
             <Typography sx={{ fontWeight: 900 }}>Memory is empty, so "have we seen this before?" has nothing to search yet.</Typography>
             <Typography sx={{ mt: 0.75, color: ui.muted, maxWidth: 560, mx: 'auto' }}>
               Import postmortems or incidents from Jira, PagerDuty, incident.io or a folder of CSV and Markdown files. They become resolved cases that similar-case search can match from day one.
@@ -138,7 +138,7 @@ export function OperationalMemoryPage() {
             </Button>
           </Box>
         ) : !visibleRows.length ? (
-          <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: '#f8fafc' }}>
+          <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
             <Typography sx={{ fontWeight: 900 }}>No {filters.find((filter) => filter.id === activeFilter)?.label.toLowerCase()} cases returned.</Typography>
             <Typography sx={{ mt: 0.75, color: ui.muted }}>This is an empty backend result, not sample data.</Typography>
           </Box>
@@ -186,11 +186,11 @@ export function OperationalMemoryPage() {
 }
 
 function recommendationTone(recommendation: AlertContextResponse['recommendation'], similarCount = 0) {
-  if (recommendation === 'likely_real') return { color: '#059669', bg: '#ecfdf5', border: '#bbf7d0', label: 'Likely real' };
-  if (recommendation === 'likely_noise') return { color: '#64748b', bg: '#f8fafc', border: '#e2e8f0', label: 'Likely noise' };
+  if (recommendation === 'likely_real') return { color: '#059669', bg: 'var(--os-tint-green)', border: 'var(--os-tint-green-border)', label: 'Likely real' };
+  if (recommendation === 'likely_noise') return { color: 'var(--os-muted)', bg: 'var(--os-surface-alt)', border: 'var(--os-border)', label: 'Likely noise' };
   // No real-vs-noise verdict yet, but it has happened before: say that, not "insufficient".
-  if (similarCount > 0) return { color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', label: 'Seen before' };
-  return { color: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Insufficient history' };
+  if (similarCount > 0) return { color: '#2563eb', bg: 'var(--os-tint-blue)', border: 'var(--os-tint-blue-border)', label: 'Seen before' };
+  return { color: '#d97706', bg: 'var(--os-tint-amber)', border: 'var(--os-tint-amber-border)', label: 'Insufficient history' };
 }
 
 export const ALERT_CONTEXT_PANEL_ID = 'alert-context-preview';
@@ -309,7 +309,7 @@ function AlertContextPanel() {
               },
             ].map((stat) => (
               <Grid key={stat.label} size={{ xs: 6, sm: 3 }}>
-                <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#f8fafc' }}>
+                <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
                   <Typography sx={{ fontSize: 20, fontWeight: 900, lineHeight: 1 }}>{stat.value}</Typography>
                   <Typography sx={{ color: ui.muted, fontSize: 12, fontWeight: 700 }}>{stat.label}</Typography>
                 </Box>
@@ -388,7 +388,7 @@ function AlertContextPanel() {
               Raw activity (Findings/Behaviors, cased or not)
             </Typography>
             {result.raw_activity.total_occurrences > 0 ? (
-              <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#f8fafc' }}>
+              <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
                 <Stack direction="row" spacing={0.75} alignItems="flex-start">
                   {result.raw_activity.ai_summary ? (
                     <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />

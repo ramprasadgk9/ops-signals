@@ -146,15 +146,15 @@ function minMaxAvg(preview: PrometheusPreviewResponse | null) {
 }
 
 function FieldLabel({ children }: { children: string }) {
-  return <Typography sx={{ fontSize: 13, fontWeight: 800, color: '#334155', mb: 0.8 }}>{children}</Typography>;
+  return <Typography sx={{ fontSize: 13, fontWeight: 800, color: 'var(--os-text-2)', mb: 0.8 }}>{children}</Typography>;
 }
 
 function SummaryRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5}>
       <Stack direction="row" alignItems="center" spacing={1.2}>
-        <Box sx={{ color: '#0f766e', display: 'flex' }}>{icon}</Box>
-        <Typography sx={{ fontSize: 13, color: '#334155', fontWeight: 700 }}>{label}</Typography>
+        <Box sx={{ color: 'var(--os-ink-brand)', display: 'flex' }}>{icon}</Box>
+        <Typography sx={{ fontSize: 13, color: 'var(--os-text-2)', fontWeight: 700 }}>{label}</Typography>
       </Stack>
       <Typography sx={{ fontSize: 13, color: ui.text, fontWeight: 850, textAlign: 'right' }}>{value}</Typography>
     </Stack>
@@ -171,10 +171,10 @@ function routerBucketLabel(decision: CsvAnalyzerRoutingDecision) {
 
 function executionChipSx(status?: string) {
   const normalized = String(status ?? 'skipped').toLowerCase();
-  if (normalized === 'completed') return { bgcolor: '#dcfce7', color: '#166534', fontWeight: 850 };
+  if (normalized === 'completed') return { bgcolor: 'var(--os-tint-green)', color: 'var(--os-ink-green)', fontWeight: 850 };
   if (normalized === 'failed') return { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 850 };
-  if (normalized === 'unavailable') return { bgcolor: '#fef3c7', color: '#92400e', fontWeight: 850 };
-  return { bgcolor: '#f1f5f9', color: '#475569', fontWeight: 850 };
+  if (normalized === 'unavailable') return { bgcolor: '#fef3c7', color: 'var(--os-ink-amber)', fontWeight: 850 };
+  return { bgcolor: 'var(--os-surface-alt)', color: 'var(--os-text-2)', fontWeight: 850 };
 }
 
 function RouterDecisionPanel({
@@ -209,17 +209,17 @@ function RouterDecisionPanel({
         <Stack spacing={2}>
           <Typography variant="h6">Router Decisions</Typography>
           {decisions.length ? (
-            <Box sx={{ border: '1px solid #bae6fd', bgcolor: '#ecfeff', borderRadius: '8px', px: 2, py: 1.5 }}>
-              <Typography sx={{ fontSize: 13, color: '#0f766e', fontWeight: 850 }}>
+            <Box sx={{ border: '1px solid var(--os-tint-blue-border)', bgcolor: 'var(--os-tint-cyan)', borderRadius: '8px', px: 2, py: 1.5 }}>
+              <Typography sx={{ fontSize: 13, color: 'var(--os-ink-brand)', fontWeight: 850 }}>
                 Executed analyzers: {executedLabel}
               </Typography>
               {!hasExecutionSnapshots ? (
-                <Typography sx={{ fontSize: 12, color: '#92400e', mt: 0.5 }}>
+                <Typography sx={{ fontSize: 12, color: 'var(--os-ink-amber)', mt: 0.5 }}>
                   Execution details were not returned for this run. Re-run analysis after backend/frontend restart to confirm selected vs skipped analyzers.
                 </Typography>
               ) : null}
               {selectedSkippedExecutions.length ? (
-                <Typography sx={{ fontSize: 12, color: '#0f766e', mt: 0.5 }}>
+                <Typography sx={{ fontSize: 12, color: 'var(--os-ink-brand)', mt: 0.5 }}>
                   Recommended but not executed: {selectedSkippedExecutions.map((execution) => execution.display_name ?? execution.router_analyzer_id).join(', ')}.
                 </Typography>
               ) : null}
@@ -606,7 +606,7 @@ export function ValidateDataPage() {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Box>
         <Stack direction="row" alignItems="center" spacing={1.2}>
-          <InsightsRoundedIcon sx={{ color: '#0f766e' }} />
+          <InsightsRoundedIcon sx={{ color: 'var(--os-ink-brand)' }} />
           <Typography variant="h4" sx={{ fontWeight: 900 }}>New Analysis</Typography>
         </Stack>
         <Typography variant="body2" color="text.secondary">Analyze time-series data from CSV uploads or direct Prometheus queries.</Typography>
@@ -620,17 +620,17 @@ export function ValidateDataPage() {
             minHeight: 48,
             border: `1px solid ${ui.border}`,
             borderRadius: '8px',
-            bgcolor: '#fff',
+            bgcolor: 'var(--os-surface)',
             '& .MuiTabs-indicator': { display: 'none' },
-            '& .MuiTab-root': { minHeight: 48, px: 3, textTransform: 'none', fontWeight: 850, color: '#334155' },
-            '& .Mui-selected': { color: '#0f766e', bgcolor: '#ecfeff', boxShadow: 'inset 0 -2px 0 #0f766e' },
+            '& .MuiTab-root': { minHeight: 48, px: 3, textTransform: 'none', fontWeight: 850, color: 'var(--os-text-2)' },
+            '& .Mui-selected': { color: 'var(--os-ink-brand)', bgcolor: 'var(--os-tint-cyan)', boxShadow: 'inset 0 -2px 0 var(--os-ink-brand)' },
           }}
         >
           <Tab value="csv" icon={<UploadRoundedIcon fontSize="small" />} iconPosition="start" label="CSV Upload" />
           <Tab value="prometheus" icon={<StorageRoundedIcon fontSize="small" />} iconPosition="start" label="Prometheus" />
         </Tabs>
         {mode === 'prometheus' ? (
-          <Button startIcon={<CableRoundedIcon />} variant="outlined" sx={{ display: { xs: 'none', md: 'inline-flex' }, height: 44, borderColor: '#b6d5dd', color: '#0f766e', textTransform: 'none', fontWeight: 850 }}>
+          <Button startIcon={<CableRoundedIcon />} variant="outlined" sx={{ display: { xs: 'none', md: 'inline-flex' }, height: 44, borderColor: 'var(--os-tint-cyan-border)', color: 'var(--os-ink-brand)', textTransform: 'none', fontWeight: 850 }}>
             Saved Connections
           </Button>
         ) : null}
@@ -713,14 +713,14 @@ export function ValidateDataPage() {
                   <FieldLabel>Connection</FieldLabel>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
                     <FormControl fullWidth>
-                      <Select size="small" value={connectionId} onChange={(e) => { setConnectionId(e.target.value); setSelectedCluster(''); }} sx={{ height: 44, bgcolor: '#fff' }}>
+                      <Select size="small" value={connectionId} onChange={(e) => { setConnectionId(e.target.value); setSelectedCluster(''); }} sx={{ height: 44, bgcolor: 'var(--os-surface)' }}>
                         {(connectionsQuery.data?.connections ?? [{ id: 'default', name: 'Default Prometheus', configured: false }]).map((connection) => (
                           <MenuItem key={connection.id} value={connection.id}>{connection.name}{connection.configured ? '' : ' (not configured)'}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
-                    <Chip label={connectionLabel} sx={{ height: 32, alignSelf: 'center', bgcolor: connectionVerified ? '#dcfce7' : connectionConfigured ? '#e0f2fe' : '#f8fafc', color: connectionVerified ? '#059669' : connectionConfigured ? '#0369a1' : '#64748b', fontWeight: 850 }} />
-                    <Button startIcon={<WifiTetheringRoundedIcon />} variant="outlined" disabled={testConnectionMutation.isPending} onClick={() => testConnectionMutation.mutate()} sx={{ height: 44, minWidth: 170, borderColor: '#b6d5dd', color: '#0f766e', textTransform: 'none', fontWeight: 850 }}>
+                    <Chip label={connectionLabel} sx={{ height: 32, alignSelf: 'center', bgcolor: connectionVerified ? 'var(--os-tint-green)' : connectionConfigured ? '#e0f2fe' : 'var(--os-surface-alt)', color: connectionVerified ? '#059669' : connectionConfigured ? '#0369a1' : 'var(--os-muted)', fontWeight: 850 }} />
+                    <Button startIcon={<WifiTetheringRoundedIcon />} variant="outlined" disabled={testConnectionMutation.isPending} onClick={() => testConnectionMutation.mutate()} sx={{ height: 44, minWidth: 170, borderColor: 'var(--os-tint-cyan-border)', color: 'var(--os-ink-brand)', textTransform: 'none', fontWeight: 850 }}>
                       {testConnectionMutation.isPending ? <CircularProgress size={20} /> : 'Test Connection'}
                     </Button>
 	                  </Stack>
@@ -749,7 +749,7 @@ export function ValidateDataPage() {
 	                            setPromPreview(null);
 	                            setPromResult(null);
 	                          }}
-	                          sx={{ fontWeight: 800, borderColor: selected ? undefined : '#b6d5dd', bgcolor: selected ? '#009688' : '#fff', color: selected ? '#fff' : '#0f766e' }}
+	                          sx={{ fontWeight: 800, borderColor: selected ? undefined : 'var(--os-tint-cyan-border)', bgcolor: selected ? '#009688' : 'var(--os-surface)', color: selected ? '#fff' : 'var(--os-ink-brand)' }}
 	                        />
 	                      );
 	                    })}
@@ -840,7 +840,7 @@ export function ValidateDataPage() {
 	                    minRows={2}
 	                    inputProps={{ 'aria-label': 'PromQL' }}
                     InputProps={{
-                      endAdornment: <ContentCopyRoundedIcon sx={{ color: '#64748b', alignSelf: 'center' }} />,
+                      endAdornment: <ContentCopyRoundedIcon sx={{ color: 'var(--os-muted)', alignSelf: 'center' }} />,
                       sx: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', color: '#075985', fontWeight: 750 },
                     }}
                   />
@@ -853,7 +853,7 @@ export function ValidateDataPage() {
                   <Box><FieldLabel>Step / Interval</FieldLabel><TextField size="small" fullWidth value={step} onChange={(e) => setStep(e.target.value)} /></Box>
                 </Box>
 
-                <Box sx={{ px: 1.4, py: 1.1, borderRadius: '8px', bgcolor: '#ecfeff', color: '#0f766e', fontSize: 13, fontWeight: 750 }}>
+                <Box sx={{ px: 1.4, py: 1.1, borderRadius: '8px', bgcolor: 'var(--os-tint-cyan)', color: 'var(--os-ink-brand)', fontSize: 13, fontWeight: 750 }}>
                   Request range: {rangeValid ? `${selectedRange.start.toISOString()} -> ${selectedRange.end.toISOString()} (${step} step)` : 'Start must be before end.'}
                   {typeof estimatedSamples === 'number' ? ` Estimated samples: ${estimatedSamples}.` : ''}
                 </Box>
@@ -870,7 +870,7 @@ export function ValidateDataPage() {
                 ) : null}
 
                 <Stack direction="row" spacing={1.5}>
-                  <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: '#b6d5dd', color: '#0f766e', textTransform: 'none', fontWeight: 850 }}>
+                  <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: 'var(--os-tint-cyan-border)', color: 'var(--os-ink-brand)', textTransform: 'none', fontWeight: 850 }}>
                     {previewMutation.isPending ? <CircularProgress size={20} /> : 'Preview Data'}
                   </Button>
                   <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || belowRouterMinimum || clusterRequired || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
@@ -886,10 +886,10 @@ export function ValidateDataPage() {
                 {promError ? <Alert severity="error">{promError}</Alert> : null}
               </Stack>
 
-              <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, bgcolor: '#fbfdff' }}>
+              <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, bgcolor: 'var(--os-surface)' }}>
                 <Typography sx={{ fontSize: 14, fontWeight: 900, mb: 0.3 }}>Preview Summary</Typography>
                 <Typography sx={{ fontSize: 12, color: ui.muted, mb: 2 }}>{timePreset === 'custom' ? 'Custom range' : PRESETS.find((preset) => preset.id === timePreset)?.label}</Typography>
-                <Box sx={{ height: 86, border: `1px solid ${ui.border}`, borderRadius: '6px', mb: 2, bgcolor: '#fff' }}>
+                <Box sx={{ height: 86, border: `1px solid ${ui.border}`, borderRadius: '6px', mb: 2, bgcolor: 'var(--os-surface)' }}>
 	                  {chartData.length ? (
 	                    <ResponsiveContainer><LineChart data={chartData}><Tooltip /><Line type="monotone" dataKey="value" stroke="#009688" dot={false} strokeWidth={2} /></LineChart></ResponsiveContainer>
 	                  ) : (
@@ -919,21 +919,21 @@ export function ValidateDataPage() {
 	            <CardContent sx={{ p: 2 }}>
 	              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' }, gap: 2 }}>
 	                <Stack direction="row" spacing={1.4}>
-	                  <Box sx={{ color: '#0f766e', display: 'flex', pt: 0.2 }}><QueryStatsRoundedIcon /></Box>
+	                  <Box sx={{ color: 'var(--os-ink-brand)', display: 'flex', pt: 0.2 }}><QueryStatsRoundedIcon /></Box>
 	                  <Box>
 	                    <Typography sx={{ fontSize: 14, fontWeight: 900, color: ui.text }}>Direct Prometheus</Typography>
 	                    <Typography sx={{ fontSize: 13, color: ui.muted, mt: 0.4 }}>Queries Prometheus API directly from the Ops Signals backend.</Typography>
 	                  </Box>
 	                </Stack>
 	                <Stack direction="row" spacing={1.4}>
-	                  <Box sx={{ color: '#334155', display: 'flex', pt: 0.2 }}><SaveRoundedIcon /></Box>
+	                  <Box sx={{ color: 'var(--os-text-2)', display: 'flex', pt: 0.2 }}><SaveRoundedIcon /></Box>
 	                  <Box>
 	                    <Typography sx={{ fontSize: 14, fontWeight: 900, color: ui.text }}>Preview Is Read-Only</Typography>
 	                    <Typography sx={{ fontSize: 13, color: ui.muted, mt: 0.4 }}>Preview does not save results. Run Analysis persists the analysis output.</Typography>
 	                  </Box>
 	                </Stack>
 	                <Stack direction="row" spacing={1.4}>
-	                  <Box sx={{ color: '#334155', display: 'flex', pt: 0.2 }}><ErrorOutlineRoundedIcon /></Box>
+	                  <Box sx={{ color: 'var(--os-text-2)', display: 'flex', pt: 0.2 }}><ErrorOutlineRoundedIcon /></Box>
 	                  <Box>
 	                    <Typography sx={{ fontSize: 14, fontWeight: 900, color: ui.text }}>Limits & Safeguards</Typography>
 	                    <Typography sx={{ fontSize: 13, color: ui.muted, mt: 0.4 }}>Large requests are bounded by the backend for predictable performance.</Typography>
@@ -942,8 +942,8 @@ export function ValidateDataPage() {
 	              </Box>
 	            </CardContent>
 	          </Card>
-	          <Box sx={{ border: '1px solid #bae6fd', bgcolor: '#ecfeff', borderRadius: '8px', px: 2, py: 1.5 }}>
-	            <Typography sx={{ fontSize: 13, color: '#0f766e', fontWeight: 750 }}>
+	          <Box sx={{ border: '1px solid var(--os-tint-blue-border)', bgcolor: 'var(--os-tint-cyan)', borderRadius: '8px', px: 2, py: 1.5 }}>
+	            <Typography sx={{ fontSize: 13, color: 'var(--os-ink-brand)', fontWeight: 750 }}>
 	              Tip: Use Preview Data to validate your query and time range before running a full analysis.
 	            </Typography>
 	          </Box>
@@ -987,7 +987,7 @@ export function ValidateDataPage() {
 	              </Stack>
 
                 {promResults.length > 1 ? (
-                  <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.4, bgcolor: '#fbfdff' }}>
+                  <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.4, bgcolor: 'var(--os-surface)' }}>
                     <Typography sx={{ fontWeight: 900, color: ui.text, mb: 1 }}>Metric Results</Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap">
                       {promResults.map((result) => (
@@ -1005,7 +1005,7 @@ export function ValidateDataPage() {
                 ) : null}
 
 	              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1.45fr 0.9fr' }, gap: 2 }}>
-	                <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, bgcolor: '#fbfdff' }}>
+	                <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, bgcolor: 'var(--os-surface)' }}>
 	                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
 	                    <Typography sx={{ fontWeight: 900, color: ui.text }}>Analyzed Time Series</Typography>
 	                    <Typography sx={{ color: ui.muted, fontSize: 12 }}>{formatRangeDate(promResult.actual_start)} - {formatRangeDate(promResult.actual_end)}</Typography>
@@ -1026,7 +1026,7 @@ export function ValidateDataPage() {
 	                  )}
 	                </Box>
 
-	                <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, bgcolor: '#fff' }}>
+	                <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 2, bgcolor: 'var(--os-surface)' }}>
 	                  <Typography sx={{ fontWeight: 900, color: ui.text, mb: 1.5 }}>Finding Summary</Typography>
 	                  {primaryFinding ? (
 	                    <Stack spacing={1.4}>
@@ -1036,7 +1036,7 @@ export function ValidateDataPage() {
 	                        <Chip size="small" label={`priority ${primaryFinding.investigation_priority}`} />
 	                      </Stack>
 	                      <Typography sx={{ fontSize: 17, fontWeight: 900, color: ui.text }}>{primaryFinding.title}</Typography>
-	                      <Typography sx={{ color: '#475569', fontSize: 14, lineHeight: 1.55 }}>{primaryFinding.summary}</Typography>
+	                      <Typography sx={{ color: 'var(--os-text-2)', fontSize: 14, lineHeight: 1.55 }}>{primaryFinding.summary}</Typography>
                         {primaryFinding.id ? (
                           <Stack direction="row" spacing={1}>
                             {createdCases[primaryFinding.id] ? (
@@ -1066,7 +1066,7 @@ export function ValidateDataPage() {
 	                  {primarySignal ? (
 	                    <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${ui.border}` }}>
 	                      <Typography sx={{ fontWeight: 850, color: ui.text, mb: 0.7 }}>Primary Signal</Typography>
-	                      <Typography sx={{ color: '#475569', fontSize: 14 }}>{primarySignal.summary ?? primarySignal.signal_type}</Typography>
+	                      <Typography sx={{ color: 'var(--os-text-2)', fontSize: 14 }}>{primarySignal.summary ?? primarySignal.signal_type}</Typography>
 	                      <Typography sx={{ color: ui.muted, fontSize: 12, mt: 0.8 }}>{primarySignal.analyzer_id ?? 'unknown analyzer'} · confidence {typeof primarySignal.confidence === 'number' ? primarySignal.confidence.toFixed(2) : 'n/a'}</Typography>
 	                    </Box>
 	                  ) : null}

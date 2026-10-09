@@ -11,7 +11,23 @@ pick_python() {
     return
   fi
 
-  for candidate in python3.14 python3.12 python3.11 python3; do
+  # Keep the Python an existing .venv already uses when it's a supported one, so rerunning this
+  # script never rebuilds a working environment on a different version.
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    local existing
+    existing="$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+    case "$existing" in
+      3.11|3.12|3.14)
+        if command -v "python${existing}" >/dev/null 2>&1; then
+          echo "python${existing}"
+          return
+        fi
+        ;;
+    esac
+  fi
+
+  # 3.12 first: it's what the Docker images and CI use.
+  for candidate in python3.12 python3.14 python3.11 python3; do
     if command -v "$candidate" >/dev/null 2>&1; then
       echo "$candidate"
       return

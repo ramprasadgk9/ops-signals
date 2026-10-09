@@ -149,7 +149,7 @@ export function DocsCheckPage() {
             <Typography sx={{ fontSize: 24, fontWeight: 900 }}>Check new docs</Typography>
             <Typography sx={{ color: ui.muted, fontSize: 14 }}>Make sure the assistant answers from the docs you added, then keep the good questions as tests.</Typography>
           </Box>
-          {authoring ? <Chip label="Local authoring · OPS_SIGNALS_ALLOW_FILE_WRITES=true" sx={{ bgcolor: '#fff7e6', color: '#92400e', fontWeight: 750, alignSelf: 'flex-start' }} /> : null}
+          {authoring ? <Chip label="Local authoring · OPS_SIGNALS_ALLOW_FILE_WRITES=true" sx={{ bgcolor: '#fff7e6', color: 'var(--os-ink-amber)', fontWeight: 750, alignSelf: 'flex-start' }} /> : null}
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' }, gap: 1.5, mt: 2 }}>
           <Step number={1} title="Reindexed" detail={reindexed === null ? 'Not in this session' : `${reindexed} docs changed`} done={reindexed !== null} />
@@ -191,9 +191,9 @@ export function DocsCheckPage() {
               {flagged.data?.length ? (
                 <Stack spacing={1}>
                   {flagged.data.map((item) => (
-                    <Box key={item.feedback_ids.join('-')} sx={{ p: 1.2, border: '1px solid #f3c9a8', bgcolor: '#fffaf5', borderRadius: '6px' }}>
+                    <Box key={item.feedback_ids.join('-')} sx={{ p: 1.2, border: '1px solid var(--os-tint-orange-border)', bgcolor: '#fffaf5', borderRadius: '6px' }}>
                       <Typography sx={{ fontSize: 14, fontWeight: 650 }}>"{item.question}"</Typography>
-                      <Typography sx={{ fontSize: 12, color: '#9a3412' }}>
+                      <Typography sx={{ fontSize: 12, color: 'var(--os-ink-orange)' }}>
                         Flagged {item.count}×{Object.keys(item.reasons).length ? ` · ${Object.keys(item.reasons).map((reason) => reasonLabels[reason] ?? reason).join(', ')}` : ''}
                       </Typography>
                       <Stack direction="row" spacing={1} sx={{ mt: 0.8 }}>
@@ -285,7 +285,7 @@ export function DocsCheckPage() {
 }
 
 function Step({ number, title, detail, done = false, active = false }: { number: number; title: string; detail: string; done?: boolean; active?: boolean }) {
-  const tone = done ? { bg: '#effaf2', border: '#b7e4c4', dot: '#15803d' } : active ? { bg: '#eef0ff', border: '#4f46e5', dot: '#4f46e5' } : { bg: '#f8fafc', border: '#e2e8f0', dot: '#94a3b8' };
+  const tone = done ? { bg: '#effaf2', border: '#b7e4c4', dot: 'var(--os-ink-green)' } : active ? { bg: '#eef0ff', border: '#4f46e5', dot: '#4f46e5' } : { bg: 'var(--os-surface-alt)', border: 'var(--os-border)', dot: 'var(--os-muted)' };
   return (
     <Stack direction="row" spacing={1.2} alignItems="center" sx={{ p: 1.2, bgcolor: tone.bg, border: `1px solid ${tone.border}`, borderRadius: '6px' }}>
       <Box sx={{ width: 26, height: 26, borderRadius: '50%', bgcolor: tone.dot, color: '#fff', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -304,7 +304,7 @@ function DocRow({ doc, selected, onSelect }: { doc: DocCoverage; selected: boole
     <Button
       onClick={onSelect}
       aria-pressed={selected}
-      sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none', p: 1.2, border: `1px solid ${selected ? '#4f46e5' : ui.border}`, bgcolor: selected ? '#f5f6ff' : '#fff', borderRadius: '6px', color: ui.text, display: 'block' }}
+      sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none', p: 1.2, border: `1px solid ${selected ? '#4f46e5' : ui.border}`, bgcolor: selected ? 'var(--os-tint-indigo)' : 'var(--os-surface)', borderRadius: '6px', color: ui.text, display: 'block' }}
     >
       <Stack direction="row" spacing={1} alignItems="center">
         <Typography sx={{ fontSize: 14, fontWeight: 700, wordBreak: 'break-all' }}>{doc.source_path}</Typography>
@@ -338,7 +338,7 @@ function CandidateCard({
 }) {
   const evaluation = candidate.evaluation;
   const sections = Array.from(new Set([candidate.section, ...(doc?.untested_sections ?? [])].filter(Boolean)));
-  const border = evaluation ? (evaluation.cited_expected ? '#b7e4c4' : '#f3c9a8') : ui.border;
+  const border = evaluation ? (evaluation.cited_expected ? '#b7e4c4' : 'var(--os-tint-orange-border)') : ui.border;
   const first = evaluation?.cited[0];
   return (
     <Box sx={{ p: 1.8, border: `1px solid ${border}`, borderRadius: '8px' }}>
@@ -367,13 +367,13 @@ function CandidateCard({
           {evaluation.cited_expected ? (
             <Chip size="small" label={`Cited the expected section${evaluation.rank && evaluation.rank > 1 ? ` (#${evaluation.rank})` : ''}`} sx={{ bgcolor: '#effaf2', color: '#14532d', fontWeight: 750 }} />
           ) : (
-            <Chip size="small" label={first ? `Cited ${first.source_path}${first.section ? ` > ${first.section}` : ''} instead` : 'No documentation cited'} sx={{ bgcolor: '#fff4ec', color: '#9a3412', fontWeight: 750 }} />
+            <Chip size="small" label={first ? `Cited ${first.source_path}${first.section ? ` > ${first.section}` : ''} instead` : 'No documentation cited'} sx={{ bgcolor: '#fff4ec', color: 'var(--os-ink-orange)', fontWeight: 750 }} />
           )}
           {first?.quote ? (
-            <Typography sx={{ fontSize: 13, mt: 1, p: 1, bgcolor: '#f8fafc', borderRadius: '6px', whiteSpace: 'pre-wrap' }}>&gt; {first.quote}</Typography>
+            <Typography sx={{ fontSize: 13, mt: 1, p: 1, bgcolor: 'var(--os-surface-alt)', borderRadius: '6px', whiteSpace: 'pre-wrap' }}>&gt; {first.quote}</Typography>
           ) : null}
           {!evaluation.cited_expected ? (
-            <Typography sx={{ fontSize: 13, color: '#475569', mt: 1 }}>The section may need clearer wording, or keep the question as a known gap the assistant fails today.</Typography>
+            <Typography sx={{ fontSize: 13, color: 'var(--os-text-2)', mt: 1 }}>The section may need clearer wording, or keep the question as a known gap the assistant fails today.</Typography>
           ) : null}
         </Box>
       ) : null}

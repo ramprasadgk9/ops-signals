@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Python 3.12 is the recommended version** (README): it's what the Docker images and CI use;
+  3.11 and 3.14 still work. `scripts/setup.sh` and `scripts/bootstrap_sample.sh` pick 3.12 when
+  it's installed, and keep the version an existing `.venv` already uses instead of rebuilding it.
+  CI now also checks that every Python file compiles on 3.11 and 3.14.
+- **Fixed: the finding-trust benchmark report didn't run on Python 3.11.**
+- **Fixed: resetting operational data (`/api/testing/reset-operational-data`) left the "Was this
+  real?" answers behind**, so old answers kept moving new findings between lists.
+- **The RCAEval download is now verified** against a pinned SHA-256, like every other benchmark
+  dataset; a file that doesn't match is refused.
+- **Dark mode in the web UI.** The moon/sun button in the top bar now switches the whole UI, not
+  just its icon: pages, cards, tables, inputs, status boxes and chart tooltips follow it. The choice
+  is remembered in the browser, and until you choose, the UI follows your system's light or dark
+  setting. The Grafana plugin keeps Grafana's own theme.
 - **Finding trust: each finding says how often findings like it were real, and only the ones that
   earned it ask for attention** (see `docs/finding-trust.md`). The Findings page now has a
   **Needs attention** list and a folded **Context only** list. A lasting level change seen by two

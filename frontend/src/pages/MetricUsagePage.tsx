@@ -151,7 +151,7 @@ function SummaryTiles({ snapshot }: { snapshot: MetricUsageSnapshot }) {
     <Grid container spacing={1.5} data-testid="metric-usage-tiles">
       {tiles.map((tile) => (
         <Grid key={tile.key} size={{ xs: 6, md: 3 }}>
-          <WorkspacePanel sx={{ p: 2, height: '100%', ...(tile.alarm ? { borderColor: tile.color, bgcolor: '#fff5f5' } : {}) }}>
+          <WorkspacePanel sx={{ p: 2, height: '100%', ...(tile.alarm ? { borderColor: tile.color, bgcolor: 'var(--os-tint-rose)' } : {}) }}>
             <Typography sx={{ fontSize: 28, fontWeight: 800, lineHeight: 1.1, color: tile.alarm ? tile.color : ui.text }}>{tile.value}</Typography>
             <Stack direction="row" spacing={0.75} alignItems="center">
               {tile.color ? <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: tile.color, flexShrink: 0 }} /> : null}
@@ -254,7 +254,7 @@ function MetricRow({ item }: { item: MetricUsageItem }) {
         spacing={1}
         justifyContent="space-between"
         alignItems={{ xs: 'flex-start', md: 'center' }}
-        sx={{ px: 2, py: 1.25, cursor: 'pointer', '&:hover': { bgcolor: '#f8fafc' } }}
+        sx={{ px: 2, py: 1.25, cursor: 'pointer', '&:hover': { bgcolor: 'var(--os-surface-alt)' } }}
         onClick={() => setOpen(!open)}
       >
         <Box sx={{ minWidth: 0 }}>
@@ -276,7 +276,7 @@ function MetricRow({ item }: { item: MetricUsageItem }) {
             <Chip
               size="small"
               label={`${item.problem_findings} ${item.problem_findings === 1 ? 'problem' : 'problems'} · 24h`}
-              sx={{ fontWeight: 700, bgcolor: problem ? '#fdecea' : '#f1f5f9', color: problem ? METRIC_USAGE_STATUSES.blind_spot.color : ui.muted }}
+              sx={{ fontWeight: 700, bgcolor: problem ? '#fdecea' : 'var(--os-surface-alt)', color: problem ? METRIC_USAGE_STATUSES.blind_spot.color : ui.muted }}
             />
           ) : null}
           {item.latest_finding_id ? (

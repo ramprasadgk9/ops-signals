@@ -19,7 +19,7 @@ import { needsAttention } from '../utils/findingTrust';
 
 type FindingsWindow = '24h' | '7d';
 
-const categoryColors = ['#ff3b3f', '#ff8a1f', '#3b82f6', '#7c3aed', '#64748b'];
+const categoryColors = ['#ff3b3f', '#ff8a1f', '#3b82f6', '#7c3aed', 'var(--os-muted)'];
 const windows: Array<{ id: FindingsWindow; label: string }> = [
   { id: '24h', label: 'Last 24 hours' },
   { id: '7d', label: 'Last 7 days' },
@@ -166,7 +166,7 @@ export function FindingsPage() {
               key={item.id}
               variant={item.id === window ? 'contained' : 'outlined'}
               onClick={() => setParam('window', item.id)}
-              sx={{ textTransform: 'none', fontWeight: 800, bgcolor: item.id === window ? '#009688' : '#fff' }}
+              sx={{ textTransform: 'none', fontWeight: 800, bgcolor: item.id === window ? '#009688' : 'var(--os-surface)' }}
             >
               {item.label}
             </Button>
@@ -187,7 +187,7 @@ export function FindingsPage() {
               <WarningAmberRoundedIcon sx={{ color: ui.red }} />
               <Box>
                 <Typography sx={{ fontSize: 28, fontWeight: 900 }}>{summary?.active_findings ?? 0}</Typography>
-                <Typography sx={{ color: '#334155', fontWeight: 750 }}>Active Findings</Typography>
+                <Typography sx={{ color: 'var(--os-text-2)', fontWeight: 750 }}>Active Findings</Typography>
               </Box>
             </Stack>
           </WorkspacePanel>
@@ -195,10 +195,10 @@ export function FindingsPage() {
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <WorkspacePanel sx={{ p: 2.5 }}>
             <Stack direction="row" spacing={1.5} alignItems="center">
-              <CategoryRoundedIcon sx={{ color: '#0f766e' }} />
+              <CategoryRoundedIcon sx={{ color: 'var(--os-ink-brand)' }} />
               <Box>
                 <Typography sx={{ fontSize: 28, fontWeight: 900 }}>{findings.length}</Typography>
-                <Typography sx={{ color: '#334155', fontWeight: 750 }}>Findings In Window</Typography>
+                <Typography sx={{ color: 'var(--os-text-2)', fontWeight: 750 }}>Findings In Window</Typography>
               </Box>
             </Stack>
           </WorkspacePanel>
@@ -233,7 +233,7 @@ export function FindingsPage() {
                 <Box sx={{ width: 190, height: 220 }}>
                   <ResponsiveContainer>
                     <PieChart>
-                      <Pie data={categoryCounts} dataKey="value" innerRadius={55} outerRadius={88}>
+                      <Pie data={categoryCounts} dataKey="value" innerRadius={55} outerRadius={88} stroke="var(--os-surface)">
                         {categoryCounts.map((entry, index) => <Cell key={entry.name} fill={categoryColors[index % categoryColors.length]} />)}
                       </Pie>
                       <Tooltip />
@@ -276,7 +276,7 @@ export function FindingsPage() {
             placeholder="Search by service, metric, cluster or #finding"
             inputProps={{ 'aria-label': 'Search findings' }}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
-            sx={{ flex: 1, bgcolor: '#fff' }}
+            sx={{ flex: 1, bgcolor: 'var(--os-surface)' }}
           />
           <TextField
             select
@@ -284,7 +284,7 @@ export function FindingsPage() {
             label="Sort by"
             value={sort}
             onChange={(event) => setParam('sort', event.target.value === 'latest' ? null : event.target.value)}
-            sx={{ minWidth: 220, bgcolor: '#fff' }}
+            sx={{ minWidth: 220, bgcolor: 'var(--os-surface)' }}
           >
             {findingSorts.map((item) => <MenuItem key={item.id} value={item.id}>{item.label}</MenuItem>)}
           </TextField>

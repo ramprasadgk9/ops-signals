@@ -20,7 +20,7 @@ const HOUR_MS = 3_600_000;
 const SEVERITY_STYLES = {
   critical: { label: 'Critical', color: '#d03b3b', rank: 0 },
   warning: { label: 'Warning', color: '#ec835a', rank: 1 },
-  other: { label: 'Info', color: '#94a3b8', rank: 2 },
+  other: { label: 'Info', color: 'var(--os-muted)', rank: 2 },
 } as const;
 type SeverityKey = keyof typeof SEVERITY_STYLES;
 
@@ -103,7 +103,7 @@ function SeverityLabel({ severity }: { severity: SeverityKey }) {
   return (
     <Stack direction="row" alignItems="center" spacing={0.6} component="span">
       <Box component="span" aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: style.color }} />
-      <Typography component="span" sx={{ fontSize: 12, color: '#475569' }}>{style.label}</Typography>
+      <Typography component="span" sx={{ fontSize: 12, color: 'var(--os-text-2)' }}>{style.label}</Typography>
     </Stack>
   );
 }
@@ -113,12 +113,12 @@ function SummaryLine({ alerts }: { alerts: AlertItem[] }) {
   const item = (value: number, label: string, color: string) => (
     <Stack direction="row" alignItems="baseline" spacing={0.6}>
       <Typography component="span" sx={{ fontSize: 22, fontWeight: 900, color: value ? color : ui.muted, lineHeight: 1 }}>{value}</Typography>
-      <Typography component="span" sx={{ fontSize: 13, color: '#475569' }}>{label}</Typography>
+      <Typography component="span" sx={{ fontSize: 13, color: 'var(--os-text-2)' }}>{label}</Typography>
     </Stack>
   );
   return (
     <Stack direction="row" spacing={3} sx={{ flexWrap: 'wrap', rowGap: 1 }} aria-label="Alert summary">
-      {item(summary.firing, 'firing now', '#b42318')}
+      {item(summary.firing, 'firing now', 'var(--os-ink-red)')}
       {item(summary.linked, 'linked to a finding', ui.blue)}
       {item(summary.resolved, `resolved (${WINDOW_HOURS}h)`, ui.text)}
     </Stack>
@@ -178,7 +178,7 @@ function TimelineBar({ alert, windowStart, now }: { alert: AlertItem; windowStar
             aria-label={`${alert.alert_name} linked to ${link.text}`}
             sx={{ position: 'absolute', left: `calc(${left}% - 7px)`, top: '50%', width: 14, height: 14, transform: 'translateY(-50%)', display: 'grid', placeItems: 'center', zIndex: 1 }}
           >
-            <Box component="span" sx={{ width: 10, height: 10, bgcolor: ui.blue, transform: 'rotate(45deg)', boxShadow: '0 0 0 2px #ffffff', borderRadius: '1px' }} />
+            <Box component="span" sx={{ width: 10, height: 10, bgcolor: ui.blue, transform: 'rotate(45deg)', boxShadow: '0 0 0 2px var(--os-surface)', borderRadius: '1px' }} />
           </Box>
         </Tooltip>
       ) : null}
@@ -241,7 +241,7 @@ export function AlertTimeline({ groups, now, maxLanes = 8 }: { groups: AlertGrou
                 {group.service ?? 'no service'}
               </Typography>
             </Box>
-            <Box sx={{ position: 'relative', flex: 1, height: 24, borderRadius: '4px', bgcolor: '#f8fafc' }}>
+            <Box sx={{ position: 'relative', flex: 1, height: 24, borderRadius: '4px', bgcolor: 'var(--os-surface-alt)' }}>
               {TICKS.slice(1, -1).map((fraction) => (
                 <Box key={fraction} aria-hidden="true" sx={{ position: 'absolute', left: `${fraction * 100}%`, top: 0, bottom: 0, borderLeft: `1px dashed ${ui.border}` }} />
               ))}
@@ -272,18 +272,18 @@ export function AlertTimeline({ groups, now, maxLanes = 8 }: { groups: AlertGrou
       <Stack direction="row" spacing={2} sx={{ mt: 1.5, flexWrap: 'wrap', rowGap: 0.75 }} aria-label="Timeline legend">
         {(Object.keys(SEVERITY_STYLES) as SeverityKey[]).map((key) => <SeverityLabel key={key} severity={key} />)}
         <Stack direction="row" alignItems="center" spacing={0.6}>
-          <Box aria-hidden="true" sx={{ width: 18, height: 8, borderRadius: '2px', bgcolor: '#64748b' }} />
-          <Typography sx={{ fontSize: 12, color: '#475569' }}>firing</Typography>
-          <Box aria-hidden="true" sx={{ width: 18, height: 8, borderRadius: '2px', bgcolor: '#64748b', opacity: 0.4, ml: 1 }} />
-          <Typography sx={{ fontSize: 12, color: '#475569' }}>resolved</Typography>
+          <Box aria-hidden="true" sx={{ width: 18, height: 8, borderRadius: '2px', bgcolor: 'var(--os-muted)' }} />
+          <Typography sx={{ fontSize: 12, color: 'var(--os-text-2)' }}>firing</Typography>
+          <Box aria-hidden="true" sx={{ width: 18, height: 8, borderRadius: '2px', bgcolor: 'var(--os-muted)', opacity: 0.4, ml: 1 }} />
+          <Typography sx={{ fontSize: 12, color: 'var(--os-text-2)' }}>resolved</Typography>
         </Stack>
         <Stack direction="row" alignItems="center" spacing={0.6}>
           <Box aria-hidden="true" sx={{ width: 8, height: 8, bgcolor: ui.blue, transform: 'rotate(45deg)' }} />
-          <Typography sx={{ fontSize: 12, color: '#475569' }}>linked to a finding</Typography>
+          <Typography sx={{ fontSize: 12, color: 'var(--os-text-2)' }}>linked to a finding</Typography>
         </Stack>
         <Stack direction="row" alignItems="center" spacing={0.6}>
           <Box aria-hidden="true" sx={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '7px solid #3730a3' }} />
-          <Typography sx={{ fontSize: 12, color: '#475569' }}>deploy or other change</Typography>
+          <Typography sx={{ fontSize: 12, color: 'var(--os-text-2)' }}>deploy or other change</Typography>
         </Stack>
       </Stack>
     </Box>
@@ -300,15 +300,15 @@ function GroupRow({ group }: { group: AlertGroup }) {
           <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
             <Typography sx={{ fontWeight: 800, fontSize: 14 }}>{group.alertName}</Typography>
             {group.firing ? (
-              <Box component="span" sx={{ fontSize: 11, fontWeight: 800, px: 0.8, py: 0.1, borderRadius: '999px', bgcolor: '#fee4e2', color: '#b42318' }}>FIRING</Box>
+              <Box component="span" sx={{ fontSize: 11, fontWeight: 800, px: 0.8, py: 0.1, borderRadius: '999px', bgcolor: '#fee4e2', color: 'var(--os-ink-red)' }}>FIRING</Box>
             ) : (
-              <Box component="span" sx={{ fontSize: 11, fontWeight: 800, px: 0.8, py: 0.1, borderRadius: '999px', bgcolor: '#f1f5f9', color: '#475569' }}>RESOLVED</Box>
+              <Box component="span" sx={{ fontSize: 11, fontWeight: 800, px: 0.8, py: 0.1, borderRadius: '999px', bgcolor: 'var(--os-surface-alt)', color: 'var(--os-text-2)' }}>RESOLVED</Box>
             )}
-            {group.isTest ? <Box component="span" sx={{ fontSize: 11, fontWeight: 800, px: 0.8, py: 0.1, borderRadius: '999px', bgcolor: '#eef2ff', color: '#3730a3' }}>TEST</Box> : null}
+            {group.isTest ? <Box component="span" sx={{ fontSize: 11, fontWeight: 800, px: 0.8, py: 0.1, borderRadius: '999px', bgcolor: 'var(--os-tint-indigo)', color: '#3730a3' }}>TEST</Box> : null}
           </Stack>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.3, flexWrap: 'wrap', rowGap: 0.5, fontSize: 13, color: '#475569' }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.3, flexWrap: 'wrap', rowGap: 0.5, fontSize: 13, color: 'var(--os-text-2)' }}>
             <SeverityLabel severity={group.severity} />
-            <Typography component="span" sx={{ fontSize: 13, color: '#475569' }}>
+            <Typography component="span" sx={{ fontSize: 13, color: 'var(--os-text-2)' }}>
               · {group.service ?? 'no service'} · {count}× in {WINDOW_HOURS}h · last {relativeTime(group.lastReceivedAt)} ·{' '}
             </Typography>
             {group.link ? (
@@ -383,7 +383,7 @@ export function AlertsOverviewPanel({ title, variant = 'full', hideWhenEmpty = f
         {alertsQuery.isLoading ? <Typography color="text.secondary" sx={{ py: 1.5 }}>Loading alerts…</Typography> : null}
         {alertsQuery.isError ? <Typography color="text.secondary" sx={{ py: 1.5 }}>Could not load received alerts.</Typography> : null}
         {alertsQuery.isSuccess && !alerts.length ? (
-          <Typography color="text.secondary" sx={{ py: 1.5, px: 2, border: '1px dashed #cbd5e1', borderRadius: '8px', textAlign: 'center' }}>
+          <Typography color="text.secondary" sx={{ py: 1.5, px: 2, border: '1px dashed var(--os-border-strong)', borderRadius: '8px', textAlign: 'center' }}>
             No alerts in the last {WINDOW_HOURS} hours. They appear here with the finding or case they were linked to.
           </Typography>
         ) : null}

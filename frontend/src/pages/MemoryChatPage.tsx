@@ -175,7 +175,7 @@ export function MemoryChatPage() {
             ) : null}
           </Box>
 
-          <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, md: 5 }, py: 3, bgcolor: '#fbfdff' }}>
+          <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, md: 5 }, py: 3, bgcolor: 'var(--os-surface)' }}>
             {!messages.length ? (
               <Stack spacing={2.5} sx={{ maxWidth: 760, mx: 'auto', mt: 4 }}>
                 <Box>
@@ -184,7 +184,7 @@ export function MemoryChatPage() {
                 </Box>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
                   <SystemsExamples onAsk={sendMessage} />
-                  <Box sx={{ p: 2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#fff' }}>
+                  <Box sx={{ p: 2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface)' }}>
                     <Typography sx={{ fontWeight: 850 }}>About Ops Signals</Typography>
                     <Typography sx={{ color: ui.muted, fontSize: 13, mb: 1.2 }}>Setup and features, answered from the docs</Typography>
                     <Stack spacing={1} alignItems="flex-start">
@@ -198,7 +198,7 @@ export function MemoryChatPage() {
                 {messages.map((item, index) => (
                   <Box key={index} sx={{ alignSelf: item.role === 'user' ? 'flex-end' : 'stretch', maxWidth: item.role === 'user' ? '72%' : '100%' }}>
                     {item.role === 'assistant' ? <KnowledgeUsed response={item.response} /> : null}
-                    <Box sx={{ px: 2, py: 1.6, borderRadius: '12px', bgcolor: item.role === 'user' ? '#0f766e' : '#fff', color: item.role === 'user' ? '#fff' : ui.text, border: item.role === 'assistant' ? `1px solid ${ui.border}` : 'none' }}>
+                    <Box sx={{ px: 2, py: 1.6, borderRadius: '12px', bgcolor: item.role === 'user' ? '#0f766e' : 'var(--os-surface)', color: item.role === 'user' ? '#fff' : ui.text, border: item.role === 'assistant' ? `1px solid ${ui.border}` : 'none' }}>
                       <Typography sx={{ whiteSpace: 'pre-line', lineHeight: 1.65 }}>{item.content}</Typography>
                       {item.role === 'assistant' ? (
                         <Stack direction="row" spacing={0.5} sx={{ mt: 1 }}>
@@ -229,7 +229,7 @@ export function MemoryChatPage() {
             {mutation.isError ? <ErrorState message="Assistant failed to collect operational evidence" /> : null}
           </Box>
 
-          <Box sx={{ p: 2, borderTop: `1px solid ${ui.border}`, bgcolor: '#fff' }}>
+          <Box sx={{ p: 2, borderTop: `1px solid ${ui.border}`, bgcolor: 'var(--os-surface)' }}>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2}>
               <TextField
                 value={message}
@@ -283,10 +283,10 @@ function KnowledgeUsed({ response }: { response?: AssistantChatResponse }) {
         <Chip
           size="small"
           label={response?.ai_synthesis_used ? 'AI-generated' : 'Evidence summary (no AI)'}
-          sx={response?.ai_synthesis_used ? { bgcolor: '#f5f3ff', color: '#6d28d9', fontWeight: 750 } : { bgcolor: '#f1f5f9', color: '#475569', fontWeight: 750 }}
+          sx={response?.ai_synthesis_used ? { bgcolor: '#f5f3ff', color: '#6d28d9', fontWeight: 750 } : { bgcolor: 'var(--os-surface-alt)', color: 'var(--os-text-2)', fontWeight: 750 }}
         />
       ) : null}
-      {used.length ? used.map((item) => <Chip key={item} size="small" label={`✓ ${item}`} sx={{ bgcolor: '#ecfdf5', color: '#047857', fontWeight: 750 }} />) : <Chip size="small" label="No operational evidence found" color="warning" />}
+      {used.length ? used.map((item) => <Chip key={item} size="small" label={`✓ ${item}`} sx={{ bgcolor: 'var(--os-tint-green)', color: '#047857', fontWeight: 750 }} />) : <Chip size="small" label="No operational evidence found" color="warning" />}
     </Stack>
   );
 }
@@ -303,7 +303,7 @@ function EvidenceGroup({ group }: { group: AssistantEvidenceGroup }) {
         {expanded ? (
           <Stack spacing={1.2} sx={{ mt: 1.4 }}>
             {group.sources.map((source) => (
-              <Box key={`${source.reference}-${source.title}`} sx={{ p: 1.2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#fbfdff' }}>
+              <Box key={`${source.reference}-${source.title}`} sx={{ p: 1.2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface)' }}>
                 <Stack direction="row" justifyContent="space-between" spacing={1}>
                   <Box>
                     <Typography sx={{ fontWeight: 850, fontSize: 14 }}>{source.title}</Typography>
@@ -435,14 +435,14 @@ function AnswerFeedback({ question, response, conversationId }: { question: stri
       <Stack direction="row" spacing={1} alignItems="center">
         <Typography sx={{ fontSize: 13, color: ui.muted }}>Did this answer your question?</Typography>
         {/* Not `disabled` once chosen: that greys out the icon and hides which one was picked. */}
-        <IconButton size="small" aria-label="Yes, it did" aria-pressed={helpful === true} aria-disabled={helpful !== null} onClick={() => choose(true)} sx={{ color: helpful === true ? '#15803d' : helpful === false ? '#cbd5e1' : undefined }}>
+        <IconButton size="small" aria-label="Yes, it did" aria-pressed={helpful === true} aria-disabled={helpful !== null} onClick={() => choose(true)} sx={{ color: helpful === true ? 'var(--os-ink-green)' : helpful === false ? '#cbd5e1' : undefined }}>
           {helpful === true ? <ThumbUpAltRoundedIcon fontSize="small" /> : <ThumbUpOffAltRoundedIcon fontSize="small" />}
         </IconButton>
         <IconButton size="small" aria-label="No, it didn't" aria-pressed={helpful === false} aria-disabled={helpful !== null} onClick={() => choose(false)} sx={{ color: helpful === false ? '#c2410c' : helpful === true ? '#cbd5e1' : undefined }}>
           {helpful === false ? <ThumbDownAltRoundedIcon fontSize="small" /> : <ThumbDownOffAltRoundedIcon fontSize="small" />}
         </IconButton>
-        {helpful === true && send.isSuccess ? <Typography sx={{ fontSize: 13, color: '#15803d', fontWeight: 700 }}>Thanks</Typography> : null}
-        {send.isError ? <Typography sx={{ fontSize: 13, color: '#b91c1c' }}>Couldn't save feedback</Typography> : null}
+        {helpful === true && send.isSuccess ? <Typography sx={{ fontSize: 13, color: 'var(--os-ink-green)', fontWeight: 700 }}>Thanks</Typography> : null}
+        {send.isError ? <Typography sx={{ fontSize: 13, color: 'var(--os-ink-red)' }}>Couldn't save feedback</Typography> : null}
       </Stack>
       {helpful === false && feedbackId !== null ? (
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -458,8 +458,8 @@ function AnswerFeedback({ question, response, conversationId }: { question: stri
               onClick={reason === null ? () => { setReason(option.value); explain.mutate(option.value); } : undefined}
             />
           ))}
-          {explain.isSuccess ? <Typography sx={{ fontSize: 13, color: '#15803d', fontWeight: 700 }}>Thanks - saved for review</Typography> : null}
-          {explain.isError ? <Typography sx={{ fontSize: 13, color: '#b91c1c' }}>Couldn't save the reason</Typography> : null}
+          {explain.isSuccess ? <Typography sx={{ fontSize: 13, color: 'var(--os-ink-green)', fontWeight: 700 }}>Thanks - saved for review</Typography> : null}
+          {explain.isError ? <Typography sx={{ fontSize: 13, color: 'var(--os-ink-red)' }}>Couldn't save the reason</Typography> : null}
         </Stack>
       ) : null}
     </Stack>
@@ -470,7 +470,7 @@ function SystemsExamples({ onAsk }: { onAsk: (question: string) => void }) {
   const starters = useQuery({ queryKey: ['assistant-starters'], queryFn: api.starterQuestions, retry: false });
   const empty = starters.data && !starters.data.has_data;
   return (
-    <Box sx={{ p: 2, border: empty ? '1px dashed #b8c2d3' : `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: empty ? '#fafbfd' : '#fff' }}>
+    <Box sx={{ p: 2, border: empty ? '1px dashed var(--os-border-strong)' : `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: empty ? 'var(--os-surface-alt)' : 'var(--os-surface)' }}>
       <Typography sx={{ fontWeight: 850 }}>About your systems</Typography>
       {starters.isPending ? (
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.2, color: ui.muted }}>
@@ -511,11 +511,11 @@ function KnowledgeCard({ status, pendingCount }: { status?: KnowledgeStatus; pen
     <Box sx={{ mt: 2, p: 1.6, border: `1px solid ${ui.border}`, borderRadius: '8px' }}>
       <Typography sx={{ fontWeight: 900, mb: 1 }}>What the assistant knows</Typography>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1 }}>
-        <Box sx={{ p: 1.2, bgcolor: '#f8fafc', borderRadius: '6px' }}>
+        <Box sx={{ p: 1.2, bgcolor: 'var(--os-surface-alt)', borderRadius: '6px' }}>
           <Typography sx={{ fontSize: 20, fontWeight: 850 }}>{status.document_count}</Typography>
           <Typography sx={{ fontSize: 12, color: ui.muted }}>docs read</Typography>
         </Box>
-        <Box sx={{ p: 1.2, bgcolor: pendingCount ? '#eef4ff' : '#f8fafc', borderRadius: '6px' }}>
+        <Box sx={{ p: 1.2, bgcolor: pendingCount ? '#eef4ff' : 'var(--os-surface-alt)', borderRadius: '6px' }}>
           <Typography sx={{ fontSize: 20, fontWeight: 850, color: pendingCount ? '#1d4ed8' : undefined }}>{pendingCount}</Typography>
           <Typography sx={{ fontSize: 12, color: pendingCount ? '#1e3a8a' : ui.muted }}>changed since</Typography>
         </Box>

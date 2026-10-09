@@ -14,7 +14,7 @@ type Incident = CoverageReport['incidents'][number];
 // so every status is also named in text (tiles, legend, chips) and the incident list is the table.
 export const COVERAGE_STATUSES: Record<Exclude<CoverageStatus, 'unknown'>, { label: string; color: string; hint: string }> = {
   detected: { label: 'Detected', color: '#0ca30c', hint: 'A finding that reads like it was raised while it happened' },
-  flagged_other: { label: 'Flagged something else', color: '#94a3b8', hint: 'Something was flagged then, but nothing like this incident' },
+  flagged_other: { label: 'Flagged something else', color: 'var(--os-muted)', hint: 'Something was flagged then, but nothing like this incident' },
   missed: { label: 'Missed', color: '#d03b3b', hint: 'The service was analysed and nothing was flagged: a detection gap' },
   not_watched: { label: 'Not watched', color: '#fab219', hint: 'Nothing analysed the service then: a coverage gap' },
 };

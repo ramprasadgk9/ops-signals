@@ -90,7 +90,7 @@ export function GlobalSearch() {
           {...params}
           inputRef={inputRef}
           placeholder="Search findings, cases, metrics, services..."
-          sx={{ '& .MuiOutlinedInput-root': { height: 46, borderRadius: '8px', bgcolor: '#fff', paddingTop: '0 !important', paddingBottom: '0 !important' } }}
+          sx={{ '& .MuiOutlinedInput-root': { height: 46, borderRadius: '8px', bgcolor: 'var(--os-surface)', paddingTop: '0 !important', paddingBottom: '0 !important' } }}
           InputProps={{
             ...params.InputProps,
             startAdornment: (
@@ -100,7 +100,7 @@ export function GlobalSearch() {
             ),
             endAdornment: (
               <>
-                {!inputValue && <Chip label="⌘ K" size="small" sx={{ height: 24, fontWeight: 800, color: '#64748b', mr: 1 }} />}
+                {!inputValue && <Chip label="⌘ K" size="small" sx={{ height: 24, fontWeight: 800, color: 'var(--os-muted)', mr: 1 }} />}
                 {params.InputProps.endAdornment}
               </>
             ),

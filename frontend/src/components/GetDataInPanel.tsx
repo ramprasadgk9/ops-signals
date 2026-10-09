@@ -17,12 +17,12 @@ import type { IngestionStatus } from '../types';
 type SourceState = 'receiving' | 'waiting' | 'disabled' | 'configured' | 'not_configured' | 'unreachable';
 
 const stateStyles: Record<SourceState, { bg: string; color: string; border: string; dot: string; filled: boolean }> = {
-  receiving: { bg: '#dcfce7', color: '#166534', border: '#bbf7d0', dot: ui.green, filled: true },
-  configured: { bg: '#dcfce7', color: '#166534', border: '#bbf7d0', dot: ui.green, filled: true },
-  waiting: { bg: '#ffffff', color: '#475569', border: '#cbd5e1', dot: '#94a3b8', filled: false },
-  not_configured: { bg: '#ffffff', color: '#475569', border: '#cbd5e1', dot: '#94a3b8', filled: false },
-  disabled: { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0', dot: '#94a3b8', filled: false },
-  unreachable: { bg: '#fee4e2', color: '#b42318', border: '#fecdca', dot: '#d92d20', filled: true },
+  receiving: { bg: 'var(--os-tint-green)', color: 'var(--os-ink-green)', border: 'var(--os-tint-green-border)', dot: ui.green, filled: true },
+  configured: { bg: 'var(--os-tint-green)', color: 'var(--os-ink-green)', border: 'var(--os-tint-green-border)', dot: ui.green, filled: true },
+  waiting: { bg: 'var(--os-surface)', color: 'var(--os-text-2)', border: 'var(--os-border-strong)', dot: 'var(--os-muted)', filled: false },
+  not_configured: { bg: 'var(--os-surface)', color: 'var(--os-text-2)', border: 'var(--os-border-strong)', dot: 'var(--os-muted)', filled: false },
+  disabled: { bg: 'var(--os-surface-alt)', color: 'var(--os-text-2)', border: 'var(--os-border)', dot: 'var(--os-muted)', filled: false },
+  unreachable: { bg: '#fee4e2', color: 'var(--os-ink-red)', border: '#fecdca', dot: '#d92d20', filled: true },
 };
 
 export function otlpState(status: IngestionStatus): SourceState {
@@ -86,7 +86,7 @@ function StateChip({ state, label }: { state: SourceState; label: string }) {
 function CopyableEndpoint({ url, label }: { url: string; label: string }) {
   return (
     <Stack direction="row" alignItems="center" spacing={1}>
-      <Typography variant="body2" sx={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 13, bgcolor: '#f1f5f9', px: 1.5, py: 0.9, borderRadius: '6px', wordBreak: 'break-all' }}>
+      <Typography variant="body2" sx={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: 13, bgcolor: 'var(--os-surface-alt)', px: 1.5, py: 0.9, borderRadius: '6px', wordBreak: 'break-all' }}>
         {url}
       </Typography>
       <Tooltip title="Copy">
@@ -135,7 +135,7 @@ function OtlpActivity() {
         {otlp.points_received_total.toLocaleString()} points received since the backend started · {otlp.backlog_size.toLocaleString()} awaiting analysis
       </Typography>
       {rejected.length ? (
-        <Typography variant="body2" sx={{ color: '#9a3412' }}>
+        <Typography variant="body2" sx={{ color: 'var(--os-ink-orange)' }}>
           Rejected: {rejected.map(([reason, count]) => `${count.toLocaleString()} (${reason})`).join(', ')}
         </Typography>
       ) : null}
@@ -188,7 +188,7 @@ export function IntegrationTiles({ status, exploring = true }: { status: Ingesti
             Add Ops Signals as a webhook receiver. Incoming alerts are enriched with related findings and recent changes.
           </Typography>
           {alertmanager.enabled ? null : (
-            <Typography variant="body2" sx={{ bgcolor: '#fff7ed', color: '#7c2d12', px: 1.5, py: 1, borderRadius: '6px' }}>
+            <Typography variant="body2" sx={{ bgcolor: 'var(--os-tint-orange)', color: 'var(--os-ink-orange)', px: 1.5, py: 1, borderRadius: '6px' }}>
               Alert enrichment is off. Set <code>OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED=true</code> on the backend to accept alerts.
             </Typography>
           )}
@@ -240,7 +240,7 @@ function PrometheusTile({ status, state }: { status: IngestionStatus; state: Sou
             Ops Signals reads metrics from this Prometheus: on a schedule for autonomous analysis, and for each received alert, to analyze the series that fired.
           </Typography>
           {prometheus.url ? (
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 13, bgcolor: '#f1f5f9', px: 1.5, py: 0.9, borderRadius: '6px', wordBreak: 'break-all' }}>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 13, bgcolor: 'var(--os-surface-alt)', px: 1.5, py: 0.9, borderRadius: '6px', wordBreak: 'break-all' }}>
               {prometheus.url}
             </Typography>
           ) : null}
@@ -312,7 +312,7 @@ function DeployEventsTile({ status }: { status: IngestionStatus }) {
 /** One line instead of a tile, for pages about ongoing connections. */
 export function OneOffAnalysisLine() {
   return (
-    <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 0.5, color: '#475569' }} aria-label="One-off analysis">
+    <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 0.5, color: 'var(--os-text-2)' }} aria-label="One-off analysis">
       <Typography variant="body2">Just want a one-off look, without connecting anything?</Typography>
       <LoadDemoDataButton variant="links" />
     </Stack>
@@ -330,7 +330,7 @@ export function GetDataInPanel({ status, onDismiss }: { status: IngestionStatus;
             <Typography id="get-data-in-title" component="h2" sx={{ fontSize: 22, fontWeight: 900, mt: 0.5 }}>
               {receiving ? 'Data is arriving' : 'Ops Signals hasn’t received any data yet'}
             </Typography>
-            <Typography sx={{ color: '#475569', mt: 0.5, mb: 2.5, maxWidth: 720 }}>
+            <Typography sx={{ color: 'var(--os-text-2)', mt: 0.5, mb: 2.5, maxWidth: 720 }}>
               {receiving
                 ? 'Analysis has started. You can close this panel; every source stays available on the Integrations page.'
                 : 'Findings, cases and behavior analysis start once metrics or alerts arrive. Connect any source below. Its status turns green when the first data lands.'}
@@ -363,7 +363,7 @@ export function SourceStatusStrip({ status }: { status: IngestionStatus }) {
       direction="row"
       alignItems="center"
       spacing={1.75}
-      sx={{ px: 1.75, py: 0.9, bgcolor: '#ffffff', border: `1px solid ${ui.border}`, borderRadius: '999px', fontSize: 13, color: '#334155', flexWrap: 'wrap', rowGap: 0.5 }}
+      sx={{ px: 1.75, py: 0.9, bgcolor: 'var(--os-surface)', border: `1px solid ${ui.border}`, borderRadius: '999px', fontSize: 13, color: 'var(--os-text-2)', flexWrap: 'wrap', rowGap: 0.5 }}
     >
       {items.map((item) => (
         <Stack key={item.label} direction="row" alignItems="center" spacing={0.75}>
