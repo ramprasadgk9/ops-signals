@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Fixed: Metric Usage ignored Grafana with `docker-compose.packaged.yml`.** The packaged compose
+  didn't pass `OPS_SIGNALS_GRAFANA_*` or `OPS_SIGNALS_METRIC_USAGE_*` from `.env` into the backend
+  container, so setting them did nothing and Metric Usage counted only Prometheus rules. They are
+  passed now; the README says a Grafana on the same machine is `http://host.docker.internal:3000`
+  from inside Docker, and where the settings go with Helm.
+- **SECURITY.md and CODE_OF_CONDUCT.md say how to report**: vulnerabilities through GitHub's
+  private vulnerability reporting, conduct problems privately to the maintainer.
+  docs/release-process.md explains why the project (0.x) and the Grafana plugin (1.0.x) have
+  different version numbers.
 - **Fixed: `docker compose -f docker-compose.packaged.yml up -d` stopped at "dependency qdrant
   failed to start".** Qdrant's health check called `curl`, which the current `qdrant/qdrant` image
   doesn't include, so Qdrant never counted as healthy and the backend, web and MCP containers

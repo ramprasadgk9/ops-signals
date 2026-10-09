@@ -7,7 +7,9 @@ This repository is under active development. Security fixes should be applied to
 ## Reporting a Vulnerability
 
 If you discover a security issue, do not open a public issue.
-Instead, report it privately through the project maintainer or the repository's preferred private contact channel.
+Instead, report it privately through GitHub:
+[Security -> Report a vulnerability](https://github.com/ramprasadgk9/ops-signals/security/advisories/new).
+Only the maintainers can see the report.
 
 Please include:
 
