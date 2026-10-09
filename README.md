@@ -337,11 +337,22 @@ Alertmanager) sends the token, the Helm and Compose settings, and the known limi
 
 ## Deploy for Your Team
 
-`run_all.sh` is for trying Ops Signals out: it runs from source and starts mock metrics. For a team,
-run the backend, web UI and MCP server as containers, pointed at your real Prometheus. Set
-`OPS_SIGNALS_API_TOKEN` for anything others can reach (see [Security model](#security-model)).
+There are two ways to run Ops Signals on one machine. They are separate setups with different
+addresses:
+
+| | Try it out | Run it for your team |
+|---|---|---|
+| Start | `./scripts/run_all.sh` | `docker compose -f docker-compose.packaged.yml up -d` |
+| What runs | backend and web UI from source | backend, web UI and MCP server as containers |
+| Metrics | mock metrics it starts for you | your own Prometheus |
+| Web UI | http://localhost:5174 | **http://localhost:8080** |
+| API | http://localhost:8001 | http://localhost:8000 |
+
+Both start Postgres and Qdrant on ports 5432 and 6333, so stop one before starting the other.
 
 ### One Server: Docker Compose
+
+You need Docker and a Prometheus this machine can reach.
 
 ```bash
 git clone https://github.com/ramprasadgk9/ops-signals.git
@@ -350,9 +361,20 @@ echo 'OPS_SIGNALS_PROMETHEUS_URL=http://host.docker.internal:9090' >> .env
 docker compose -f docker-compose.packaged.yml up -d
 ```
 
-The web UI is at **http://localhost:8080** and the API at `http://localhost:8000`. Set
-`OPS_SIGNALS_PROMETHEUS_URL` to your Prometheus as the backend container sees it:
-`host.docker.internal` is the machine Docker runs on.
+- **`OPS_SIGNALS_PROMETHEUS_URL`** is your Prometheus as the backend container sees it.
+  `host.docker.internal` means the machine Docker runs on, so the line above is for a Prometheus on
+  this machine at port 9090. For one elsewhere, use its address, for example
+  `http://prometheus.example.internal:9090`. Without it, everything starts but there are no metrics
+  to watch.
+- **The first start builds the three images** from this checkout, which takes a few minutes.
+- **Check it:** open http://localhost:8080, or run `curl http://localhost:8000/api/health`.
+- **Before others can reach it,** add `OPS_SIGNALS_API_TOKEN=<a long random string>` to `.env` and
+  run the `up` command again. Without it, anyone who can reach port 8000 can use the API (see
+  [Security model](#security-model)).
+
+Stop it with `docker compose -f docker-compose.packaged.yml down`. Your data is kept; add `-v` to
+delete it too. To update, `git pull`, then run the `up` command with `--build` added, so the images
+are rebuilt from the new code.
 
 **Several Mimir tenants:** list them in a connections file and add the connections overlay.
 Tokens go in `prometheus-connections.env`, never in the YAML:
