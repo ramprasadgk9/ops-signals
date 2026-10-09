@@ -4,9 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/ramprasadgk9/ops-signals)](https://github.com/ramprasadgk9/ops-signals/releases)
 
-Ops Signals is a vendor-neutral Operational Intelligence framework that transforms time-series data into explainable findings, investigation cases, and searchable operational memory.
+**When an alert fires, Ops Signals tells on-call what happened, what changed, and whether you've seen it before.**
 
-It is designed to help teams move from raw metrics to actionable operational context without replacing existing observability or incident platforms.
+Ops Signals is an open-source, self-hosted service that sits next to your Prometheus, Grafana and
+Alertmanager. It analyzes your metrics with published detection methods, explains each change in
+plain language, links it to the deploy that came just before, and checks it against incidents
+you've already resolved. It adds to your observability stack; it doesn't replace it.
 
 ![Ops Signals demo: a deploy causes a latency shift, the alert is enriched with what happened, what changed, and a matching past incident](docs/screenshots/images/demo/ops-signals-demo.gif)
 
@@ -27,104 +30,115 @@ running and how it works.
 > **Run it on a trusted network.** The API has no authentication unless you set
 > `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [Security model](#security-model).
 
-Designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), who is also the project's primary contributor and maintainer.
-
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
 
-## In One Sentence
+## Contents
 
-Upload a metric time series, let the analyzers explain what changed, promote important findings into cases, and reuse prior cases as searchable operational memory.
+- [The Problem](#the-problem)
+- [What Ops Signals Does](#what-ops-signals-does)
+- [What Makes It Different](#what-makes-it-different)
+- [How It Works](#how-it-works)
+- [Product Overview](#product-overview) (screenshots)
+- [Quick Start](#quick-start): [choose how to run it](#choose-how-to-run-it), [laptop install](#try-it-on-your-laptop), [troubleshooting](#troubleshooting), [security model](#security-model)
+- [Deploy for Your Team](#deploy-for-your-team): [Docker Compose](#one-server-docker-compose), [Helm](#kubernetes-helm)
+- [Architecture](#architecture)
+- [Using Ops Signals](#using-ops-signals): [feature map](#where-to-find-each-feature), [Ask Ops Signals](#operational-intelligence-assistant)
+- [Data, Automation & Configuration](#data-automation--configuration): [data sources](#data-sources), [autonomous analysis](#autonomous-analysis), [metric usage](#metric-usage), [YAML config](#yaml-configuration)
+- [Integrations](#integrations): [Grafana plugin](#grafana-plugin), [MCP](#mcp-server), [OTLP](#otlp-metrics-ingestion), [Slack](#slack-notifications), [alert enrichment](#alert-enrichment-alertmanager-to-slack), [Jira](#pluggable-case-ticketing-jira-cloud)
+- [Example Finding](#example-operational-finding)
+- [Current Limitations](#current-limitations) · [Roadmap](#roadmap) · [Contributing](#contributing) · [License](#license)
 
 ## The Problem
 
-Raw time-series points are noisy, high-volume, and hard to reason about directly. A dashboard can
-plot them, but plotting them isn't the same as explaining them - and today those two get treated as
-if they were the same thing.
+An alert fires: `checkout` latency is up. Before anyone can fix anything, the on-call engineer
+answers the same three questions by hand:
 
-Take a concrete example: `payments-api` `cpu_usage` climbs from ~78% to ~95% over an hour.
+1. **What happened?** Is it a spike, a new baseline, a slow trend, or noise? A dashboard draws the
+   line; it doesn't say which.
+2. **What changed?** Was there a deploy or config change just before? That lives in CI, not next to
+   the graph.
+3. **Have we seen this before?** Last time, the root cause and the fix ended up in a ticket or a
+   postmortem that nobody searches, so the investigation starts from zero.
 
-- **A dashboard shows the line moved, not why that matters.** Grafana renders the series and, at
-  best, flags a threshold breach - it doesn't expose what detection logic decided this mattered,
-  and there's no way to change that logic without hand-editing dashboard JSON or alert rules.
-- **A number isn't an explanation.** "95%" doesn't say whether this is a new baseline, a one-off
-  spike, or a slow trend - someone still has to eyeball the graph and decide.
-- **Once you know something's wrong, dashboards stop there.** There's no next step - no
-  investigation trail, no prompt for what to check first.
-- **If you do investigate and file a Jira ticket, the work mostly dies in that ticket.** The root
-  cause and the fix that worked sit in a ticket nobody queries again until the same pattern shows
-  up on a different service months later, and someone reinvestigates from zero.
-- **None of that accumulated experience feeds back into anything.** It doesn't inform the next
-  alert, the next dashboard, or the next engineer's triage - it isn't stored anywhere a system (or
-  a person) can ask "have we seen this before, and what fixed it?"
+Two more problems never page anyone at all:
 
-Ops Signals is built to close each of those gaps, one to one:
+- **Blind spots.** Most metrics are on no dashboard and in no alert. A problem in one of them goes
+  unseen until it turns into an outage somewhere else.
+- **Lost lessons.** What one engineer learned in an investigation doesn't reach the next alert or the
+  next engineer.
 
-1. **Explainable findings, not just a plotted line.** Analyzers run against the metric and produce
-   a stated conclusion ("sustained baseline shift," "anomalous window") - the logic is visible and
-   swappable, not a fixed threshold buried in dashboard JSON.
-2. **A written explanation, not just a number.** Every finding carries a plain-language summary
-   ("CPU spike on payments-api ... sustained elevated utilization") alongside the raw score - see
-   [Example Operational Finding](#example-operational-finding).
-3. **A case gives you the next step.** A finding can be promoted into a case with investigation,
-   RCA, and resolution fields - so "something's wrong" turns into "here's what to check and track."
-4. **A resolved case becomes golden data, not a dead ticket.** Once a case is resolved, it's
-   automatically indexed into Qdrant - the root cause and fix stay retrievable instead of sitting
-   in a ticket nobody reopens.
-5. **That golden data feeds back into the loop.** `GET /api/alert-context` lets an external
-   system such as an alert manager ask "has this happened before, was it real, how was it resolved"
-   *before* it pages anyone, instead of starting from zero every time - see
-   [`docs/architecture.md`](docs/architecture.md).
+How Ops Signals closes each gap:
 
-See [`docs/vision.md`](docs/vision.md) for the fuller five-layer narrative behind this.
+| Today | With Ops Signals |
+| --- | --- |
+| A line on a chart, or a threshold that was crossed | A **finding** that names the change in words ("sustained baseline shift ~621 → ~425 ms, started around 23:59 UTC") and shows which analyzers produced it |
+| Change history in a different tool | Findings and alerts name the **deploy or config change** just before the problem and, with drill-down, which pods it came from |
+| Past fixes buried in tickets | Resolved cases and imported postmortems become **searchable memory**; an alert shows the most similar resolved case and how it was fixed |
+| Unwatched metrics fail silently | **Metric Usage** compares your Grafana dashboards and alert rules with every metric, and flags metrics that had problems nothing would have shown |
+| Each page triaged from scratch | **Alert enrichment** posts one Slack message that answers all three questions, and `GET /api/alert-context` lets an alert manager ask "seen before, real or noise?" before it pages anyone |
+
+See [`docs/vision.md`](docs/vision.md) for the longer narrative behind this.
 
 ## What Ops Signals Does
 
-- **Takes data in from where it already is**: Prometheus (on a schedule or on demand), OTLP pushed
-  from an OTel SDK or Collector, CSV upload, and Alertmanager alerts. Deploy and config events come
-  from your CI through `POST /api/events`.
-- **Runs analyzers picked for each metric**: baseline shift, change point, anomaly and outlier
-  detection, trend, pattern discovery, forecasting and data health. A config-driven router picks
-  them, and new analyzers are added through config without touching core code (see
-  [Analyzers](#where-to-find-each-feature)). An optional AI second opinion can flag disagreement
-  with the router but never overrides its pick.
-- **Turns analyzer signals into findings**: a title, a plain-language summary, a category, a health
-  status and an importance score. Declarative rules across several metrics produce behavior findings.
-- **Says where a change came from and what came before it**: drill-down (opt-in) shows which pods
-  a change came from, and findings and alerts name the deploy or config change just before it,
-  including which new pods that deploy started - see
-  [`docs/finding-drilldown.md`](docs/finding-drilldown.md).
-- **Watches Prometheus on its own**: configure scope and policy, run once or on a schedule, see
-  results inline.
-- **Enriches alerts**: when a Prometheus alert fires, Ops Signals analyzes the alerting series,
-  matches recent deploys, looks up past cases, and posts one Slack message answering "what happened,
-  what changed, have we seen it before" - see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack).
-  High-importance findings can go to Slack too - see [Slack Notifications](#slack-notifications).
-- **Tracks investigations as cases**: a finding or behavior finding becomes a case with
-  investigation, RCA, corrective action and outcome. Resolved cases are indexed into Qdrant.
-- **Connects to external issue trackers (Jira Cloud)**: links cases to tickets with bi-directional
-  status and activity synchronization, 1-click comment promotion, and zero-click AI relevance triage
-  that elevates operational clues into investigation notes - see [Pluggable Case Ticketing](#pluggable-case-ticketing-jira-cloud).
-- **Remembers**: similar-case search over past cases, and `GET /api/alert-context`, which lets an
-  external system ask for prior outcomes, similar resolved cases and recurrence before it acts.
-- **Answers questions**: Ask Ops Signals, a chat over cases, findings, behaviors, analyzers and
-  these docs.
-- **Works where you work**: a React web UI, a Grafana plugin and an MCP server.
-- **Is measured**: a benchmark suite checks router accuracy, detection accuracy, false alarms and
-  behavior intelligence against known-answer datasets - see [`benchmark/README.md`](benchmark/README.md).
+**Gets data from where it already is**
+- Prometheus, one server or several, including Mimir, Thanos and VictoriaMetrics tenants, pulled on
+  demand or on a schedule
+- OTLP pushed from an OTel SDK or Collector, CSV upload, and Alertmanager webhooks
+- Deploy, config and feature-flag events from your CI through `POST /api/events`
 
-Every detection analyzer is a published, peer-reviewed method, not invented here - see
-[`docs/analyzer-methodology.md`](docs/analyzer-methodology.md) for citations. The router's
-suitability *scores* are heuristic and not yet validated against outcomes; that same document says
-so plainly and links to the tracking infrastructure built to close that gap.
+**Explains what changed**
+- A config-driven router picks analyzers for each metric: baseline shift, change point, anomaly and
+  outlier detection, trend, pattern discovery, forecasting and data health
+- Each result becomes a **finding** with a title, a plain-language summary, a category and an
+  importance score. Declarative rules across several metrics produce **behavior findings** (for
+  example, memory pressure building up across services)
+- Drill-down shows which pods a change came from, and which deploy started them - see
+  [`docs/finding-drilldown.md`](docs/finding-drilldown.md)
+- **Autonomous analysis** watches Prometheus by itself: pick the scope and policy, and run it once or
+  on a schedule
 
-### What Makes It Different
+**Gets the right people moving**
+- **Alert enrichment**: one Slack message per Prometheus alert with what happened, what changed and
+  whether it's been seen before - see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack)
+- High-importance findings go to Slack, so a problem found at 03:00 doesn't wait for someone to open
+  the UI
+- **Cases** track an investigation from open to resolved, with RCA, corrective action and outcome,
+  and link two-way to **Jira Cloud** tickets
+- **Metric Usage** finds blind spots, dashboards reading metrics that no longer exist, and the
+  stored series that nothing uses (optionally as a monthly cost) - see [Metric Usage](#metric-usage)
 
-- It's open and self-hostable, not a closed black box
-- It treats detector output as input to higher-level operational interpretation, not the end product
-- It adds a separate behavior reasoning layer for cross-metric patterns, instead of bolting rules onto individual metrics
-- It emphasizes deterministic, explainable answers over free-form generation
-- It keeps PostgreSQL as the system of record and Qdrant as a semantic retrieval index - never the other way around
-- It shows which analyzers and signals contributed to each result, not just a final score
+**Remembers**
+- Resolved cases become searchable operational memory. Past postmortems can be imported, so the
+  memory isn't empty on day one
+- `GET /api/alert-context` gives other systems prior outcomes, similar resolved cases and recurrence
+- **Ask Ops Signals** is a chat over cases, findings, behaviors, analyzers and these docs
+
+**Fits how you work**
+- A React web UI, a Grafana plugin and an MCP server for AI clients
+- New analyzers are added through config, in Python or as your own HTTP service, without touching
+  core code
+- A benchmark suite measures router accuracy, detection accuracy and false alarms against
+  known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
+
+## What Makes It Different
+
+- **It explains, not just detects.** Every finding says what kind of change it is, in words, and
+  shows which analyzers and signals produced it, not just a score.
+- **No LLM required.** Analysis, routing, findings and alert enrichment are deterministic. AI is an
+  optional add-on (local Ollama, or a provider you already use) that can improve answers and triage
+  Jira comments, but never overrides the deterministic result, and every answer says whether a model
+  produced it.
+- **It gets better with every resolved incident.** Each resolved case is checked against the next
+  alert, so the fix you found last quarter is suggested when the pattern returns.
+- **It adds to your stack and replaces nothing.** It's an extra Alertmanager receiver (your routes
+  are untouched), reads Prometheus and Grafana read-only, and doesn't need Kubernetes.
+- **Its methods are published and measured.** Every detection analyzer is a peer-reviewed method
+  (citations in [`docs/analyzer-methodology.md`](docs/analyzer-methodology.md)), and it's
+  benchmarked against known-answer data. Where something isn't validated yet, such as the router's
+  suitability scores, the docs say so.
+- **It's open and self-hosted.** MIT licensed, and your data stays on your network, with PostgreSQL
+  as the system of record.
 
 **How it compares.** Robusta/HolmesGPT add Kubernetes context and LLM investigation to alerts,
 Keep deduplicates and routes alerts across tools, and Grafana Sift runs ML checks in Grafana Cloud.
@@ -132,27 +146,75 @@ Ops Signals needs no Kubernetes and no LLM: it explains the alerting metric itse
 past resolved cases. It can run alongside any of them. See [`docs/comparison.md`](docs/comparison.md),
 including where those tools are ahead.
 
-### How It Works
+## How It Works
 
 ```mermaid
 flowchart LR
-  A[Upload CSV or metric sample] --> B[Normalize and store]
-  B --> C[Run analyzers]
-  C --> D[Generate signals]
-  D --> E[Aggregate findings]
+  S[Prometheus, OTLP or CSV] --> B[Normalize and store]
+  B --> C[Router picks analyzers]
+  C --> D[Signals]
+  D --> E[Findings]
   D --> E2[Cross-metric behavior findings]
-  E --> F[Open or create a case]
+  E --> F[Cases]
   E2 --> F
-  F --> G[Ask questions and reuse memory]
-  F --> H[External alert manager checks prior outcomes]
+  F --> M[Operational memory]
+  M --> G[Ask Ops Signals and alert-context API]
   I[Alertmanager alert] --> C
-  F --> J[Enriched alert in Slack]
+  CI[Deploy events from CI] --> J
+  M --> J[Enriched alert in Slack]
   I --> J
 ```
 
-This is not a replacement for Prometheus, Datadog, Grafana, or incident-management platforms.
-It does not currently perform autonomous remediation.
-Historical similarity does not prove two cases share the same root cause.
+What it is not: a replacement for Prometheus, Grafana, Datadog or an incident-management platform.
+It doesn't remediate anything by itself, and two similar cases don't prove the same root cause.
+
+## Product Overview
+
+Ops Signals ships as a standalone operational intelligence workspace and a Grafana plugin. This
+section is what each surface looks like and produces; [Using Ops Signals](#using-ops-signals)
+below is how to actually work with each piece.
+
+**[View the complete screenshot gallery](docs/screenshots.md)**
+
+### Standalone Operational Intelligence Workspace
+
+![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
+
+### Analyze Prometheus Data Directly
+
+![Direct Prometheus Analysis](docs/screenshots/images/web/03-new-analysis-prometheus.png)
+
+### See Which Pods a Change Came From
+
+A service-level finding says *what* changed. With [drill-down](docs/finding-drilldown.md) on, it
+also says *where*: one bad pod, a few, every pod, or new pods from a rollout. Each of those calls
+for a different next step.
+
+![Finding drill-down: the error increase came from two new pods, pointing to a rollout](docs/screenshots/images/web/10-finding-drilldown.png)
+
+### Investigate and Preserve Operational Knowledge
+
+![Case Investigation](docs/screenshots/images/web/05-case-details.png)
+
+### Run Analysis Inside Grafana
+
+![Grafana Analysis Results](docs/screenshots/images/grafana-plugin/02-metrics-analysis.png)
+
+### Enriched Alerts in Slack
+
+When a Prometheus alert fires, Ops Signals posts one message that says what happened, what changed,
+and whether it has been seen before. This one is from the [demo](docs/demo.md), shown in its Slack
+stand-in; see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack) for real Slack.
+
+![Enriched alert: a latency shift, the deploy before it, and a matching past incident with its fix](docs/screenshots/images/slack/enriched-alert-demo.png)
+
+### Two ways to use Ops Signals
+
+- **Standalone Web UI:** Supports CSV upload, direct Prometheus analysis, findings, cases, behavior intelligence, operational memory, and assistant retrieval.
+- **Grafana Plugin:** Supports metric analysis within an existing Grafana and Prometheus environment using the active Grafana time range.
+
+Alert enrichment and finding notifications have no page of their own: their output is the Slack
+message.
 
 ## Quick Start
 
@@ -175,7 +237,7 @@ team installs read only from the Prometheus you point them at.
 
 The steps below set up a development install that you can point at your own data.
 
-### Prerequisites
+#### Prerequisites
 
 - **Git**
 - **Docker**, with Compose v2 (the `docker compose` command, not the older standalone `docker-compose`) - runs PostgreSQL/TimescaleDB and Qdrant for you
@@ -194,22 +256,19 @@ python3 --version
 node --version
 ```
 
-### Clone the Repository
+#### Run Setup
+
+Skip the clone if you already have the repository from the demo.
 
 ```bash
 git clone https://github.com/ramprasadgk9/ops-signals.git
 cd ops-signals
-```
-
-### Run Setup
-
-```bash
 ./scripts/setup.sh
 ```
 
 This creates a Python virtualenv and installs dependencies, runs `npm install` for the frontend, starts PostgreSQL and Qdrant in Docker, waits for both to report healthy, and initializes the database schema. First run pulls Docker images and packages, so expect it to take a few minutes. You'll see `Setup complete.` printed at the end.
 
-### Point It at Your Own Prometheus (Optional)
+#### Point It at Your Own Prometheus (Optional)
 
 Skip this to start with the bundled Prometheus and mock metrics. You can do it any time later; see
 [Switching later](#switching-later).
@@ -245,7 +304,7 @@ cp .env.example .env
 The [Prometheus](#prometheus) section has the details. With either set, `run_all.sh` doesn't start
 the bundled Prometheus and mock metrics (`OPS_SIGNALS_LOCAL_PROMETHEUS=true` starts them anyway).
 
-### Start Ops Signals
+#### Start Ops Signals
 
 ```bash
 ./scripts/run_all.sh
@@ -253,13 +312,13 @@ the bundled Prometheus and mock metrics (`OPS_SIGNALS_LOCAL_PROMETHEUS=true` sta
 
 This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command.
 
-### Open the Application
+#### Open the Application
 
 Go to **http://localhost:5174** in your browser. You should see the Overview dashboard:
 
 ![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
 
-### Connect a Data Source
+#### Connect a Data Source
 
 Findings will be empty on a fresh install - that's expected, nothing has been analyzed yet. Until
 the first data arrives, the Overview shows a **Get data in** panel with every way in:
@@ -278,7 +337,7 @@ The same sources, with whether each is receiving, live on the **Integrations** p
 (`/integrations`) afterwards; received alerts are on the **Alerts** page (`/alerts`). The APIs behind
 them are `GET /api/ingestion/status` and `GET /api/alerts`.
 
-### Optional: Enable Local AI
+#### Optional: Enable Local AI
 
 By default, Ask Ops Signals and the analyzer recommendation advisor run on deterministic retrieval and templates - no AI, no API key, no network calls out. To add local LLM-assisted answers on top of that (never instead of it - the deterministic behavior stays the fallback):
 
@@ -401,54 +460,6 @@ values and the tokens in a Secret named by `prometheusConnections.secretName`.
 
 Both paths, with every value to set, are in [`docs/release-packaging.md`](docs/release-packaging.md).
 
-## Product Overview
-
-Ops Signals ships as a standalone operational intelligence workspace and a Grafana plugin. This
-section is what each surface looks like and produces; [Using Ops Signals](#using-ops-signals)
-below is how to actually work with each piece.
-
-**[View the complete screenshot gallery](docs/screenshots.md)**
-
-### Standalone Operational Intelligence Workspace
-
-![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
-
-### Analyze Prometheus Data Directly
-
-![Direct Prometheus Analysis](docs/screenshots/images/web/03-new-analysis-prometheus.png)
-
-### See Which Pods a Change Came From
-
-A service-level finding says *what* changed. With [drill-down](docs/finding-drilldown.md) on, it
-also says *where*: one bad pod, a few, every pod, or new pods from a rollout. Each of those calls
-for a different next step.
-
-![Finding drill-down: the error increase came from two new pods, pointing to a rollout](docs/screenshots/images/web/10-finding-drilldown.png)
-
-### Investigate and Preserve Operational Knowledge
-
-![Case Investigation](docs/screenshots/images/web/05-case-details.png)
-
-### Run Analysis Inside Grafana
-
-![Grafana Analysis Results](docs/screenshots/images/grafana-plugin/02-metrics-analysis.png)
-
-### Enriched Alerts in Slack
-
-When a Prometheus alert fires, Ops Signals posts one message that says what happened, what changed,
-and whether it has been seen before. This one is from the [demo](docs/demo.md), shown in its Slack
-stand-in; see [Alert Enrichment](#alert-enrichment-alertmanager-to-slack) for real Slack.
-
-![Enriched alert: a latency shift, the deploy before it, and a matching past incident with its fix](docs/screenshots/images/slack/enriched-alert-demo.png)
-
-### Two ways to use Ops Signals
-
-- **Standalone Web UI:** Supports CSV upload, direct Prometheus analysis, findings, cases, behavior intelligence, operational memory, and assistant retrieval.
-- **Grafana Plugin:** Supports metric analysis within an existing Grafana and Prometheus environment using the active Grafana time range.
-
-Alert enrichment and finding notifications have no page of their own: their output is the Slack
-message.
-
 ## Architecture
 
 Data goes through one pipeline: validation, normalization into PostgreSQL, router-selected
@@ -489,7 +500,7 @@ Where to find each capability once the app is running.
 | --- | --- | --- |
 | **UI tour**: every tab of the web UI (14) and both Grafana plugin modes, one line each | - | [`docs/ui-tour.md`](docs/ui-tour.md) |
 | **Interactive analysis**: one metric at a time, from a Prometheus query or a CSV, findings right away | **New Analysis**; Grafana **Interactive Analysis** | [`docs/standalone-prometheus-analysis.md`](docs/standalone-prometheus-analysis.md) |
-| **Analyzers**: 7 built in (Baseline Shift, Ruptures Change Point, Z-Score Anomaly, PyOD Outlier, Trend, STUMPY Motif, Prophet Forecast) plus Data Health, added through config; how the router picks and how far to trust it. Seasonal Anomaly is registered but the router doesn't pick it | **Analyzer Workbench** → **Recommendations** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md), [`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md) |
+| **Analyzers**: 7 built in (Baseline Shift, Ruptures Change Point, Z-Score Anomaly, PyOD Outlier, Trend, STUMPY Motif, Prophet Forecast) plus Data Health, added through config; how the router picks and how far to trust it | **Analyzer Workbench** → **Recommendations** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md), [`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md) |
 | **Behavior intelligence**: rules across several metrics, with a worked memory-pressure example | **Behavior Intelligence**, **Behavior Lab** | [`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) |
 | **Analyzer workbench**: run any analyzer on sample data (**Labs**), register a new one in Python or as your own HTTP service (**Add Analyzer**), preview router scores (**Recommendations**) | **Analyzer Workbench** | [`docs/analyzer-plugin-framework.md`](docs/analyzer-plugin-framework.md#analyzer-workbench-ui), [`docs/http-analyzer-contract.md`](docs/http-analyzer-contract.md) |
 | **Findings**: drill-down by pod, the deploy before a change | **Findings** | [`docs/operational-findings.md`](docs/operational-findings.md), [`docs/finding-drilldown.md`](docs/finding-drilldown.md) |
@@ -662,28 +673,18 @@ name; panels on a datasource that matches no connection are left out, with a war
 
 ### YAML Configuration
 
-Configuration is layered YAML: shared settings, analyzer defaults, then provider-specific input
-mapping. Operational memory (Qdrant and embeddings) is set in the root `config.yaml`. See
-[`docs/configuration.md`](docs/configuration.md) for the merge order, the files and an
-example.
+Configuration is layered YAML, merged in this order: shared settings, analyzer defaults, then
+provider-specific input mapping. [`docs/configuration.md`](docs/configuration.md) has the merge
+order and an example.
 
-#### Analyzer Configuration
+| File | What it sets |
+| --- | --- |
+| `config/analyzers.yaml` | Analysis mode, window, and per-analyzer defaults such as window size and sensitivity |
+| `config/providers/*.yaml` | How each input source maps onto the canonical point format |
+| `config/behavior_definitions.d/*.yml` | Cross-metric behavior rules, one file per behavior - see [`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) |
+| `config.yaml` | Operational memory: Qdrant and embeddings |
 
-Shared analysis mode, window, and analyzer defaults live in `config/analyzers.yaml`;
-provider-specific input mapping lives in `config/providers/*.yaml`. See
-[`docs/configuration.md`](docs/configuration.md) for the merge order and file layout.
-
-#### Behavior Rules
-
-Cross-metric behavior definitions live in `config/behavior_definitions.d/*.yml` - one file per
-behavior, evaluated as facts against analyzer output. See
-[`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) for a full worked example.
-
-#### Thresholds and Parameters
-
-Per-analyzer defaults (window size, sensitivity) are set in `config/analyzers.yaml`. The Universal
-Router's suitability-scoring weights are documented separately since they're heuristic, not a
-threshold you tune directly - see
+The router's suitability weights aren't a threshold you tune; they're heuristic and documented in
 [`docs/analyzer-recommendation.md`](docs/analyzer-recommendation.md).
 
 ## Integrations
@@ -806,16 +807,18 @@ architecture, Alertmanager config, per-rule annotations, Slack controls and trou
 
 ### Pluggable Case Ticketing (Jira Cloud)
 
-Ops Signals bridges internal investigations with enterprise ticketing systems through a pluggable provider architecture with a **Jira Cloud REST API v3** reference implementation:
+A case can be linked to a Jira Cloud ticket, and the two stay in sync both ways: the case shows the
+ticket's status and comments, and a useful comment can be promoted into the case's investigation
+notes with one click. When the case is resolved, the root cause and fix are posted back to the
+ticket, which is moved to Done if the workflow allows it. Inbound webhooks are verified with a shared
+secret (`OPS_SIGNALS_JIRA_WEBHOOK_SECRET`), and a Jira outage never blocks the case.
 
-- **Durable Transactional Outbox**: Ticket creation and synchronization run asynchronously via an outbox table (`ticket_operations`) with randomized lease tokens, automatic retries, and circuit breakers for uncertain network/HTTP 5xx outcomes.
-- **Bi-Directional Status & Activity**: Links cases to Jira issues with remote status tracking and an append-only timeline of external comments and changelogs.
-- **1-Click Comment Promotion**: Elevate external diagnostic comments directly into official investigation notes with provenance stamping (`[JIRA note from <Author>]: ...`).
-- **Zero-Click AI Relevance Triage**: Automatically evaluates new Jira comments against incident telemetry, elevating substantive clues into case notes (`[JIRA clue from <Author> (AI auto-promoted)]: ...`) while filtering administrative chatter.
-- **AI RCA & Resolution Enrichment**: Generated root-cause hypotheses and resolution drafts automatically ingest active external clues from ticketing.
-- **Webhook Security**: Inbound webhooks (`POST /api/integrations/ticketing/jira/webhook`) are cryptographically verified using HMAC-SHA256 signatures (`OPS_SIGNALS_JIRA_WEBHOOK_SECRET`).
+With AI turned on, new Jira comments are also checked automatically: diagnostic clues go into the
+case notes, marked as AI-promoted, and routine chatter is left out. Without AI, comments wait for you
+to promote them.
 
-See [`docs/operational-cases.md`](docs/operational-cases.md) and [`docs/configuration.md`](docs/configuration.md).
+Jira is the first provider behind a pluggable ticketing interface. See
+[`docs/operational-cases.md`](docs/operational-cases.md) for setup and how sync works.
 
 ## Examples
 
@@ -887,6 +890,13 @@ If you're running Ops Signals somewhere - production, staging, or just evaluatin
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Ops Signals was created, designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), its lead maintainer and primary contributor.
+
+**Maintainers:**
+
+- Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), creator and lead maintainer
+- Pruthvi Davineni ([@pruthviraja](https://github.com/pruthviraja)), maintainer
 
 ## License
 
