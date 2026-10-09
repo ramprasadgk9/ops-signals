@@ -13,6 +13,9 @@ import {
   updateCaseResolution,
 } from './backendClient';
 import { Card, Chip, Field, styles } from './plainUi';
+import { PluginBehaviorFindings } from './PluginBehaviorFindings';
+import { PluginFindingTrust } from './PluginFindingTrust';
+import { PluginSameFix } from './PluginSameFix';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import type {
   GrafanaAnalysisFinding,
@@ -489,6 +492,7 @@ function MetricTimeline({ result, selectedFinding }: { result: GrafanaAnalysisRe
 
 function PrimaryFindingCard({
   result,
+  backendUrl,
   finding,
   onInvestigate,
   onCreateCase,
@@ -496,6 +500,7 @@ function PrimaryFindingCard({
   isBusy,
 }: {
   result: GrafanaAnalysisResult;
+  backendUrl: string;
   finding: GrafanaAnalysisFinding | null;
   onInvestigate: () => void;
   onCreateCase: () => void;
@@ -554,6 +559,7 @@ function PrimaryFindingCard({
           </button>
           <button type="button" style={buttonStyle()} onClick={onViewEvidence}>View Evidence</button>
         </div>
+        <PluginFindingTrust backendUrl={backendUrl} findingId={finding.id} trust={finding.trust} service={result.service} />
       </div>
     </div>
   );
@@ -1140,6 +1146,7 @@ export function InvestigationDrawer({
               <Field label="Corrective action">
                 <textarea style={{ ...styles.input, minHeight: 96 }} value={correctiveAction} onChange={(event) => setCorrectiveAction(event.target.value)} />
               </Field>
+              {caseId ? <PluginSameFix backendUrl={backendUrl} caseId={caseId} refreshKey={caseDetails?.updated_at} /> : null}
             </div>
           ) : null}
 
@@ -1187,6 +1194,8 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
   const [isResettingTestData, setIsResettingTestData] = useState(false);
   const [evidenceExpanded, setEvidenceExpanded] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // The drawer shows a behavior case's own snapshot, not the selected single-metric finding.
+  const [drawerForBehavior, setDrawerForBehavior] = useState(false);
 
   const sortedFindings = useMemo(
     () => [...(result?.findings ?? [])].sort((a, b) => b.importance_score - a.importance_score),
@@ -1206,6 +1215,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
     setWorkflowError('');
     setAssistantConversationId(null);
     setDrawerOpen(false);
+    setDrawerForBehavior(false);
     setCasesDrawerOpen(false);
   }, [result?.runId, sortedFindings]);
 
@@ -1237,11 +1247,24 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
       const createdCase = await createCaseFromFinding(backendUrl, selectedFinding.id);
       setCaseResult(createdCase);
       setCaseDetails(await getCase(backendUrl, createdCase.case_id));
+      setDrawerForBehavior(false);
       setDrawerOpen(true);
     } catch {
       setWorkflowError('Could not create an investigation case for this finding.');
     } finally {
       setIsBusy(false);
+    }
+  };
+
+  const openBehaviorCase = async (caseId: number) => {
+    setWorkflowError('');
+    try {
+      setCaseDetails(await getCase(backendUrl, caseId));
+      setCaseResult(null);
+      setDrawerForBehavior(true);
+      setDrawerOpen(true);
+    } catch {
+      setWorkflowError(`Could not open case #${caseId}.`);
     }
   };
 
@@ -1380,9 +1403,13 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
         <main style={styles.stack}>
           <PrimaryFindingCard
             result={result}
+            backendUrl={backendUrl}
             finding={selectedFinding}
             isBusy={isBusy}
-            onInvestigate={() => setDrawerOpen(true)}
+            onInvestigate={() => {
+              setDrawerForBehavior(false);
+              setDrawerOpen(true);
+            }}
             onCreateCase={createOrOpenCase}
             onViewEvidence={() => setEvidenceExpanded((current) => !current)}
           />
@@ -1407,6 +1434,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
             </Card>
           ) : null}
           {selectedFinding ? <PluginSeenBefore backendUrl={backendUrl} findingId={selectedFinding.id} service={result.service} frame={styles.card} /> : null}
+          <PluginBehaviorFindings backendUrl={backendUrl} findings={result.behaviorFindings} onOpenCase={openBehaviorCase} frame={styles.card} />
           <MetricTimeline result={result} selectedFinding={selectedFinding} />
           <RecentInvestigationsTable
             caseDetails={caseDetails}
@@ -1446,8 +1474,8 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
         open={drawerOpen}
         caseResult={caseResult}
         caseDetails={caseDetails}
-        finding={selectedFinding}
-        result={result}
+        finding={drawerForBehavior ? null : selectedFinding}
+        result={drawerForBehavior ? null : result}
         backendUrl={backendUrl}
         onClose={() => setDrawerOpen(false)}
         onCaseChange={setCaseDetails}
@@ -1467,6 +1495,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
             memory_status: caseItem.memory_status,
           });
           setCasesDrawerOpen(false);
+          setDrawerForBehavior(false);
           setDrawerOpen(true);
         }}
       />

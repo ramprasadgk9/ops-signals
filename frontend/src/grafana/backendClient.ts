@@ -1,4 +1,22 @@
-import type { AnalysisRun, AssistantChatResponse, BehaviorFinding, Finding, SeenBeforeResponse, Signal, TimeseriesPoint } from '../types';
+import type {
+  AlertItem,
+  AnalysisRun,
+  AssistantChatResponse,
+  AssistantFeedback,
+  AssistantFeedbackCreate,
+  AssistantFeedbackReason,
+  BehaviorFinding,
+  CoverageReport,
+  Finding,
+  FindingVerdict,
+  MemoryStatsResponse,
+  RecurringProblemsResponse,
+  SameFixResponse,
+  SeenBeforeResponse,
+  Signal,
+  StarterQuestions,
+  TimeseriesPoint,
+} from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type {
   GrafanaAnalyzerRoutingDecision,
@@ -11,6 +29,7 @@ import type {
   GrafanaAnalysisFinding,
   GrafanaAnalysisResult,
   GrafanaAnalysisSignal,
+  GrafanaBehaviorCaseCreateResponse,
   GrafanaBehaviorFinding,
   GrafanaCase,
   GrafanaCaseCreateResponse,
@@ -323,6 +342,7 @@ function toGrafanaFinding(finding: Finding): GrafanaAnalysisFinding {
     investigation_priority: finding.investigation_priority,
     signal_ids: finding.signal_ids ?? [],
     comparison_json: finding.comparison_json ?? {},
+    trust: finding.trust ?? null,
   };
 }
 
@@ -334,6 +354,8 @@ function toGrafanaBehaviorFinding(finding: BehaviorFinding): GrafanaBehaviorFind
     severity: finding.severity,
     confidence: finding.confidence,
     correlation: finding.correlation_json,
+    service: finding.service ?? null,
+    case_id: finding.case_id ?? null,
   };
 }
 
@@ -554,6 +576,43 @@ export async function askAssistantWithMemory(baseUrl: string, target: {
   });
 }
 
+/** Questions worth asking about what was analysed most recently; has_data false before any run. */
+export async function getStarterQuestions(baseUrl: string) {
+  return fetchJson<StarterQuestions>(baseUrl, '/api/assistant/starter-questions');
+}
+
+/** "Did this answer your question?" */
+export async function sendAssistantFeedback(baseUrl: string, payload: AssistantFeedbackCreate) {
+  return postJson<AssistantFeedback>(baseUrl, '/api/assistant/feedback', payload);
+}
+
+/** What was wrong with an answer marked unhelpful. */
+export async function updateAssistantFeedbackReason(baseUrl: string, feedbackId: number, reason: AssistantFeedbackReason) {
+  return patchJson<AssistantFeedback>(baseUrl, `/api/assistant/feedback/${feedbackId}`, { reason });
+}
+
+export async function getMemoryStats(baseUrl: string) {
+  return fetchJson<MemoryStatsResponse>(baseUrl, '/api/memory/stats');
+}
+
+export async function getRecurringProblems(baseUrl: string, days = 90, groupBy: 'symptom' | 'cause' = 'symptom', minOccurrences = 3) {
+  return fetchJson<RecurringProblemsResponse>(baseUrl, `/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}`);
+}
+
+/** Which imported past incidents were detected while they happened. */
+export async function getMonitoringCoverage(baseUrl: string, days = 365) {
+  return fetchJson<CoverageReport>(baseUrl, `/api/memory/coverage?days=${days}`);
+}
+
+/** Alerts received (Alertmanager and other sources) since `since`, with matched changes and links. */
+export async function listAlerts(baseUrl: string, params: { since?: string; limit?: number } = {}) {
+  const search = new URLSearchParams();
+  if (params.since) search.set('since', params.since);
+  if (params.limit) search.set('limit', String(params.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  return fetchJson<AlertItem[]>(baseUrl, `/api/alerts${suffix}`);
+}
+
 export async function resetTestingOperationalData(baseUrl: string) {
   return postJson<{
     status: string;
@@ -567,6 +626,20 @@ export async function resetTestingOperationalData(baseUrl: string) {
 
 export async function createCaseFromFinding(baseUrl: string, findingId: number) {
   return postJson<GrafanaCaseCreateResponse>(baseUrl, `/api/cases/findings/${findingId}/create`);
+}
+
+export async function createCaseFromBehavior(baseUrl: string, behaviorFindingId: number) {
+  return postJson<GrafanaBehaviorCaseCreateResponse>(baseUrl, `/api/cases/behaviors/${behaviorFindingId}/create`);
+}
+
+/** The team's answer to "Was this real?"; returns the finding with its trust recomputed. */
+export async function sendFindingFeedback(baseUrl: string, findingId: number, verdict: FindingVerdict) {
+  return postJson<Finding>(baseUrl, `/api/findings/${findingId}/feedback`, { verdict });
+}
+
+/** Past cases with the same cause and fix as this case, on any service, and how each fix held. */
+export async function getCaseSameFix(baseUrl: string, caseId: number) {
+  return fetchJson<SameFixResponse>(baseUrl, `/api/cases/${caseId}/same-fix`);
 }
 
 export async function getCase(baseUrl: string, caseId: number) {
