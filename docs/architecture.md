@@ -112,7 +112,7 @@ downstream consumers query.
 - `backend/app/api/cases.py`, `OperationalCaseEntity`
 - `backend/app/services/analyzer_learning_service.py`, `AnalyzerLearningOutcomeEntity`
 
-**Pluggable Ticketing Integration**: Cases can be linked to external issue tracking platforms (reference provider: Jira Cloud REST API v3) via a durable transactional outbox (`ticket_operations`). External comments and status changes sync bidirectionally into `case_ticket_events`. Operators can promote diagnostic clues into `investigation_notes` with 1 click, or enable zero-click AI triage to automatically elevate substantive operational observations into case notes. See [`docs/07-operational-cases.md`](07-operational-cases.md).
+**Pluggable Ticketing Integration**: Cases can be linked to external issue tracking platforms (reference provider: Jira Cloud REST API v3) via a durable transactional outbox (`ticket_operations`). External comments and status changes sync bidirectionally into `case_ticket_events`. Operators can promote diagnostic clues into `investigation_notes` with 1 click, or enable zero-click AI triage to automatically elevate substantive operational observations into case notes. See [`docs/operational-cases.md`](operational-cases.md).
 
 ### 5. Persist
 
