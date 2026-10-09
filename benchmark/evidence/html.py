@@ -1,4 +1,4 @@
-"""Formatting and page chrome shared by the award and publication reports."""
+"""Formatting and page chrome shared by the evidence reports."""
 
 from __future__ import annotations
 

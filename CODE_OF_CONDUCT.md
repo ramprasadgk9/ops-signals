@@ -20,6 +20,13 @@ We aim to keep this project welcoming, respectful, and useful for everyone.
 - Deliberate misinformation
 - Disruptive or abusive conduct
 
+## Reporting
+
+If someone's behavior in this project breaks this code of conduct, tell the maintainer,
+[@ramprasadgk9](https://github.com/ramprasadgk9), privately rather than in a public issue: use GitHub's
+**Report content** option on the comment, issue or pull request, or contact the maintainer directly.
+Reports are kept confidential.
+
 ## Enforcement
 
 Project maintainers may remove content or contributions that violate this code of conduct.

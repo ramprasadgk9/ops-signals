@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import copy
-from html import unescape
 
 import numpy as np
 
-from benchmark.evidence import award, paper
+from benchmark.evidence import paper
 from benchmark.evidence.facts import _bootstrap, _budget_facts, _nab_f1
 
 
@@ -40,41 +39,10 @@ def _facts(*, live_caught: int = 8, budget=None) -> dict:
     }
 
 
-def test_the_hidden_anomalies_claim_comes_from_the_run() -> None:
-    html = award.render(_facts())
-
-    assert "hidden anomalies found that thresholds miss" in html
-    assert "Ops Signals found 26 in total, 2.4× the threshold's 11" in unescape(html)
-
-
-def test_the_no_tuning_claim_appears_only_when_the_default_matches_the_best_threshold() -> None:
-    holds = award.render(_facts(budget=_budget((30, 5))))  # best threshold with <= 30 alerts catches 4
-    fails = award.render(_facts(budget=_budget((30, 3))))
-
-    assert "thresholds to tune, and no loss for it" in holds
-    assert "thresholds to tune, and no loss for it" not in fails
-
-
-def test_catching_fewer_incidents_than_the_threshold_is_listed_as_a_limit() -> None:
-    fewer = award.render(_facts(live_caught=7))
-    more = award.render(_facts(live_caught=9))
-
-    assert "catches fewer NAB incidents than a threshold: 7 of 10, against 9" in fewer
-    assert "The largest gap is in Twitter volume" in fewer
-    assert "catches fewer NAB incidents" not in more
-
-
-def test_losing_to_a_tuned_threshold_at_most_budgets_is_listed_as_a_limit() -> None:
-    html = award.render(_facts(budget=_budget((30, 3))))  # live: 3 vs 4 at 10 and 30, 3 vs 7 at 40
-
-    assert "a well-tuned threshold catches more incidents at 3 of 3 alert budgets" in html
-
-
-def test_both_reports_render_without_optional_suites() -> None:
+def test_the_publication_report_renders_without_optional_suites() -> None:
     facts = copy.deepcopy(_facts())
     facts["ucr"] = None
 
-    assert "hidden anomalies" not in award.render(facts)
     assert "1. Setup" in paper.render(facts) and "3. UCR" not in paper.render(facts)
 
 

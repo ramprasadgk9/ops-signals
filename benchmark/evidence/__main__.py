@@ -1,9 +1,10 @@
-"""Write the award and publication reports for one benchmark snapshot.
+"""Write the publication report (and the award report, where award.py exists) for one benchmark snapshot.
 
     .venv/bin/python -m benchmark.evidence benchmark/results/<run>
 
-Writes evidence-award.html and evidence-publication.html into the snapshot folder. Run
-benchmark.nab.official_score on the snapshot first to include NAB's official scores.
+Writes evidence-publication.html into the snapshot folder, plus evidence-award.html when the local,
+uncommitted award.py is present. Run benchmark.nab.official_score on the snapshot first to include
+NAB's official scores.
 """
 
 from __future__ import annotations
@@ -11,16 +12,25 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from benchmark.evidence import award, paper
+from benchmark.evidence import paper
 from benchmark.evidence.facts import build_facts
 
+try:
+    from benchmark.evidence import award
+except ImportError:  # award.py is kept local and isn't in the repository
+    award = None
 
-def write(snapshot: Path) -> tuple[Path, Path]:
+
+def write(snapshot: Path) -> list[Path]:
     facts = build_facts(snapshot)
-    award_path, paper_path = snapshot / "evidence-award.html", snapshot / "evidence-publication.html"
-    award_path.write_text(award.render(facts), encoding="utf-8")
+    paper_path = snapshot / "evidence-publication.html"
     paper_path.write_text(paper.render(facts), encoding="utf-8")
-    return award_path, paper_path
+    written = [paper_path]
+    if award is not None:
+        award_path = snapshot / "evidence-award.html"
+        award_path.write_text(award.render(facts), encoding="utf-8")
+        written.insert(0, award_path)
+    return written
 
 
 def main() -> None:

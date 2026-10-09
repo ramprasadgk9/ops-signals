@@ -638,6 +638,16 @@ OPS_SIGNALS_METRIC_USAGE_IGNORE_METRICS=go_*
 OPS_SIGNALS_METRIC_USAGE_INTERVAL_HOURS=6
 ```
 
+With `docker-compose.packaged.yml`, put the same lines in the `.env` next to it and run `up -d`
+again. The URL is as the backend container sees it, so a Grafana on the same machine is
+`http://host.docker.internal:3000`, not `localhost`. With Helm, set them under `backend.env`, and
+put the token in the Secret named by `prometheusConnections.secretName`, whose keys all become
+backend environment variables.
+
+You don't list dashboards or alert rules one by one: with the URL and token it reads every
+dashboard and Grafana alert rule the token can see, and Prometheus alerting and recording rules come
+from your Prometheus connections without extra settings.
+
 To see unused metrics as money, set what 1,000 active series cost you per month,
 `OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES` (and `OPS_SIGNALS_METRIC_USAGE_CURRENCY`, default
 `USD`). There is no built-in price; without a rate the page shows series counts.

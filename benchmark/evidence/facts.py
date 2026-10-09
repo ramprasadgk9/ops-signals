@@ -1,6 +1,6 @@
 """Every number the evidence reports use, computed from one benchmark snapshot.
 
-Both reports (award.py, paper.py) read only what build_facts returns, so every figure and every
+The reports read only what build_facts returns, so every figure and every
 claim traces back to the snapshot's results.json, its raw NAB result files and, when present, NAB's
 official scores. A section whose suite didn't run, or ran without the methods it compares, is None,
 and the reports leave it out rather than fill it from somewhere else.
