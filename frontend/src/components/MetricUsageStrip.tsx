@@ -17,7 +17,7 @@ export function MetricUsageStrip() {
   const names = (query.data?.items ?? []).map((item) => item.metric);
   const more = snapshot.blind_spots - names.length;
   return (
-    <WorkspacePanel sx={{ p: 2, borderColor: METRIC_USAGE_STATUSES.blind_spot.color, bgcolor: '#fff5f5' }}>
+    <WorkspacePanel sx={{ p: 2, borderColor: METRIC_USAGE_STATUSES.blind_spot.color, bgcolor: 'var(--os-tint-rose)' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between" data-testid="metric-usage-strip">
         <Stack direction="row" spacing={1.25} alignItems="flex-start">
           <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: METRIC_USAGE_STATUSES.blind_spot.color, mt: 0.75, flexShrink: 0 }} />

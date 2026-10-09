@@ -65,21 +65,21 @@ export function CasesPage() {
       />
       <JiraTicketingHint />
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5}>
-        <TextField size="small" placeholder="Search cases..." value={search} onChange={(event) => setSearch(event.target.value)} sx={{ width: { xs: '100%', lg: 280 }, bgcolor: '#fff' }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }} />
-        <TextField select size="small" value={status} onChange={(event) => setStatus(event.target.value)} sx={{ minWidth: 150, bgcolor: '#fff' }}>
+        <TextField size="small" placeholder="Search cases..." value={search} onChange={(event) => setSearch(event.target.value)} sx={{ width: { xs: '100%', lg: 280 }, bgcolor: 'var(--os-surface)' }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }} />
+        <TextField select size="small" value={status} onChange={(event) => setStatus(event.target.value)} sx={{ minWidth: 150, bgcolor: 'var(--os-surface)' }}>
           <MenuItem value="all">All Status</MenuItem>
           {['open', 'in_progress', 'resolved', 'identified', 'not_started', 'completed'].map((value) => <MenuItem key={value} value={value}>{titleCase(value)}</MenuItem>)}
         </TextField>
-        <TextField select size="small" value={severity} onChange={(event) => setSeverity(event.target.value)} sx={{ minWidth: 150, bgcolor: '#fff' }}>
+        <TextField select size="small" value={severity} onChange={(event) => setSeverity(event.target.value)} sx={{ minWidth: 150, bgcolor: 'var(--os-surface)' }}>
           <MenuItem value="all">All Severity</MenuItem>
           {['critical', 'high', 'medium', 'low', 'significant', 'normal'].map((value) => <MenuItem key={value} value={value}>{titleCase(value)}</MenuItem>)}
         </TextField>
-        <TextField select size="small" value={origin} onChange={(event) => setOrigin(event.target.value as typeof origin)} sx={{ minWidth: 150, bgcolor: '#fff' }} inputProps={{ 'aria-label': 'Case origin' }}>
+        <TextField select size="small" value={origin} onChange={(event) => setOrigin(event.target.value as typeof origin)} sx={{ minWidth: 150, bgcolor: 'var(--os-surface)' }} inputProps={{ 'aria-label': 'Case origin' }}>
           <MenuItem value="all">Detected and imported</MenuItem>
           <MenuItem value="detected">Detected only</MenuItem>
           <MenuItem value="imported">Imported only</MenuItem>
         </TextField>
-        <Button startIcon={<FilterAltRoundedIcon />} variant="outlined" disabled sx={{ borderColor: ui.border, color: '#334155', bgcolor: '#fff', textTransform: 'none', fontWeight: 750 }}>Additional Filters Unavailable</Button>
+        <Button startIcon={<FilterAltRoundedIcon />} variant="outlined" disabled sx={{ borderColor: ui.border, color: 'var(--os-text-2)', bgcolor: 'var(--os-surface)', textTransform: 'none', fontWeight: 750 }}>Additional Filters Unavailable</Button>
       </Stack>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, xl: 9 }}>
@@ -109,7 +109,7 @@ export function CasesPage() {
                       sx={{
                         cursor: 'pointer',
                         bgcolor: isSelected ? 'rgba(79, 70, 229, 0.05)' : 'inherit',
-                        '& td': { py: 2, borderColor: '#f1f5f9' },
+                        '& td': { py: 2, borderColor: 'var(--os-surface-alt)' },
                       }}
                     >
                       <TableCell sx={{ fontWeight: 850 }}>{item.caseId}</TableCell>
@@ -153,7 +153,7 @@ export function CasesPage() {
                 <Box><Typography sx={{ color: ui.muted, fontSize: 13, mb: 0.5 }}>Resolution</Typography><Typography>{selected.resolution ?? 'Pending investigation.'}</Typography></Box>
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Outcome</Typography><Pill label={selected.outcome} /></Stack>
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Resolved At</Typography><Typography>{selected.resolvedAt ? formatDateTime(selected.resolvedAt) : 'Not resolved'}</Typography></Stack>
-                <Button component={RouterLink} to={`/cases/${selected.id}`} endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ borderColor: ui.border, color: '#334155', textTransform: 'none', fontWeight: 850 }}>View Case Details</Button>
+                <Button component={RouterLink} to={`/cases/${selected.id}`} endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ borderColor: ui.border, color: 'var(--os-text-2)', textTransform: 'none', fontWeight: 850 }}>View Case Details</Button>
                 <CaseTicketCard caseId={selected.id} />
               </Stack>
             ) : <Typography color="text.secondary">No cases returned yet.</Typography>}

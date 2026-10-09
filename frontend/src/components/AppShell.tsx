@@ -102,18 +102,18 @@ function NavButton({ item, nested = false }: { item: NavItem; nested?: boolean }
         width: nested ? 'calc(100% - 17.6px)' : '100%',
         borderRadius: '8px',
         textTransform: 'none',
-        color: active ? ui.red : '#475569',
+        color: active ? ui.red : 'var(--os-text-2)',
         bgcolor: active ? 'rgba(255, 77, 87, 0.09)' : 'transparent',
         fontWeight: active ? 800 : nested ? 600 : 650,
         fontSize: nested ? 13 : 14,
-        '& .MuiButton-startIcon': { mr: 1.1, color: active ? ui.red : '#64748b', '& svg': { fontSize: nested ? 18 : 20 } },
-        '&:hover': { bgcolor: active ? 'rgba(255, 77, 87, 0.12)' : '#f8fafc' },
+        '& .MuiButton-startIcon': { mr: 1.1, color: active ? ui.red : 'var(--os-muted)', '& svg': { fontSize: nested ? 18 : 20 } },
+        '&:hover': { bgcolor: active ? 'rgba(255, 77, 87, 0.12)' : 'var(--os-surface-alt)' },
       }}
     >
       <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>
         {item.label}
       </Box>
-      {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: '#ede9fe', color: ui.purple, fontWeight: 800 }} /> : null}
+      {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-violet)', color: ui.purple, fontWeight: 800 }} /> : null}
     </Button>
   );
 }
@@ -125,9 +125,9 @@ function WorkbenchButton({
   onClick,
   expanded,
   to,
-  activeColor = '#0f766e',
+  activeColor = 'var(--os-ink-brand)',
   activeBg = 'rgba(15, 118, 110, 0.09)',
-  inactiveColor = '#0f766e',
+  inactiveColor = 'var(--os-ink-brand)',
 }: {
   label: string;
   icon: ReactNode;
@@ -149,7 +149,7 @@ function WorkbenchButton({
     bgcolor: active ? activeBg : 'transparent',
     fontWeight: active ? 800 : 750,
     fontSize: 14,
-    '&:hover': { bgcolor: active ? activeBg : '#f8fafc' },
+    '&:hover': { bgcolor: active ? activeBg : 'var(--os-surface-alt)' },
   };
   const content = (
     <>
@@ -192,19 +192,19 @@ function SystemStatus() {
   const overallHealthy = backendHealthy && !memoryQuery.isError;
 
   return (
-    <Box sx={{ mx: 1.5, p: 1.6, borderRadius: '8px', border: `1px solid ${ui.border}`, bgcolor: '#fff' }}>
+    <Box sx={{ mx: 1.5, p: 1.6, borderRadius: '8px', border: `1px solid ${ui.border}`, bgcolor: 'var(--os-surface)' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.2 }}>
         <Typography variant="caption" sx={{ fontWeight: 800, color: ui.text }}>
           System Status
         </Typography>
-        <Chip label={overallHealthy ? 'Healthy' : 'Partial'} size="small" sx={{ height: 22, bgcolor: overallHealthy ? '#dcfce7' : '#fffbeb', color: overallHealthy ? '#059669' : '#d97706', fontWeight: 800 }} />
+        <Chip label={overallHealthy ? 'Healthy' : 'Partial'} size="small" sx={{ height: 22, bgcolor: overallHealthy ? 'var(--os-tint-green)' : 'var(--os-tint-amber)', color: overallHealthy ? '#059669' : '#d97706', fontWeight: 800 }} />
       </Stack>
       {rows.map(([item, status]) => (
         <Stack key={item} direction="row" alignItems="center" justifyContent="space-between" sx={{ py: 0.65 }}>
-          <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 650 }}>
+          <Typography variant="caption" sx={{ color: 'var(--os-muted)', fontWeight: 650 }}>
             {item}
           </Typography>
-          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: status === 'healthy' ? '#22c55e' : status === 'loading' ? '#94a3b8' : '#f59e0b' }} />
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: status === 'healthy' ? '#22c55e' : status === 'loading' ? 'var(--os-muted)' : '#f59e0b' }} />
         </Stack>
       ))}
     </Box>
@@ -229,7 +229,7 @@ export function AppShell({ children }: PropsWithChildren) {
           height: 76,
           px: { xs: 2, lg: 3 },
           borderBottom: `1px solid ${ui.border}`,
-          bgcolor: 'rgba(255,255,255,0.92)',
+          bgcolor: 'var(--os-header-bg)',
           display: 'grid',
           gridTemplateColumns: { xs: '1fr auto', lg: '290px 1fr auto' },
           alignItems: 'center',
@@ -267,7 +267,7 @@ export function AppShell({ children }: PropsWithChildren) {
           <Avatar sx={{ width: 40, height: 40, bgcolor: '#60a5fa' }}>
             <PersonRoundedIcon />
           </Avatar>
-          <KeyboardArrowDownRoundedIcon sx={{ color: '#64748b', display: { xs: 'none', sm: 'block' } }} />
+          <KeyboardArrowDownRoundedIcon sx={{ color: 'var(--os-muted)', display: { xs: 'none', sm: 'block' } }} />
         </Stack>
       </Box>
 
@@ -278,7 +278,7 @@ export function AppShell({ children }: PropsWithChildren) {
             display: { xs: 'none', lg: 'flex' },
             flexDirection: 'column',
             borderRight: `1px solid ${ui.border}`,
-            bgcolor: '#fff',
+            bgcolor: 'var(--os-surface)',
             py: 3,
             minHeight: 'calc(100vh - 76px)',
           }}
@@ -333,14 +333,14 @@ export function AppShell({ children }: PropsWithChildren) {
           </Stack>
           <Box sx={{ flex: 1 }} />
           <SystemStatus />
-          <Button startIcon={<ChevronLeftRoundedIcon />} sx={{ justifyContent: 'flex-start', mx: 1.5, mt: 6, color: '#475569', textTransform: 'none', fontWeight: 700 }}>
+          <Button startIcon={<ChevronLeftRoundedIcon />} sx={{ justifyContent: 'flex-start', mx: 1.5, mt: 6, color: 'var(--os-text-2)', textTransform: 'none', fontWeight: 700 }}>
             Collapse
           </Button>
         </Box>
 
         <Box component="main" sx={{ px: { xs: 2, md: 4 }, py: { xs: 2.5, md: 4 }, minWidth: 0, overflowX: 'auto' }}>
           <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ display: { xs: 'none', lg: isAnalysisPage ? 'none' : 'flex' }, mb: 3 }}>
-            <Button startIcon={<CalendarTodayRoundedIcon />} endIcon={<KeyboardArrowDownRoundedIcon />} variant="outlined" disabled sx={{ height: 44, borderColor: ui.border, color: '#334155', bgcolor: '#fff', textTransform: 'none', fontWeight: 750 }}>
+            <Button startIcon={<CalendarTodayRoundedIcon />} endIcon={<KeyboardArrowDownRoundedIcon />} variant="outlined" disabled sx={{ height: 44, borderColor: ui.border, color: 'var(--os-text-2)', bgcolor: 'var(--os-surface)', textTransform: 'none', fontWeight: 750 }}>
               Time Window Unavailable
             </Button>
             <Button component={RouterLink} to="/validate-data" startIcon={<AddRoundedIcon />} variant="contained" sx={{ height: 44, bgcolor: ui.blue, textTransform: 'none', fontWeight: 850, boxShadow: '0 10px 20px rgba(79,70,229,0.25)' }}>

@@ -134,7 +134,7 @@ export function BehaviorIntelligencePage() {
       <PageHeader
         title="Behavior Intelligence"
         subtitle="Detect patterns and behaviors across multiple signals and metrics"
-        action={<Stack direction="row" spacing={1.5}><Button startIcon={<CalendarTodayRoundedIcon />} variant="outlined" disabled sx={{ bgcolor: '#fff', borderColor: ui.border, color: '#334155', textTransform: 'none', fontWeight: 750 }}>Time Window Unavailable</Button><Button component={RouterLink} to="/behavior-intelligence/lab" startIcon={<AddRoundedIcon />} variant="contained" sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>Add Pattern</Button></Stack>}
+        action={<Stack direction="row" spacing={1.5}><Button startIcon={<CalendarTodayRoundedIcon />} variant="outlined" disabled sx={{ bgcolor: 'var(--os-surface)', borderColor: ui.border, color: 'var(--os-text-2)', textTransform: 'none', fontWeight: 750 }}>Time Window Unavailable</Button><Button component={RouterLink} to="/behavior-intelligence/lab" startIcon={<AddRoundedIcon />} variant="contained" sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>Add Pattern</Button></Stack>}
       />
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ '& .MuiTab-root': { textTransform: 'none', fontWeight: 850 }, '& .Mui-selected': { color: `${ui.purple} !important` }, '& .MuiTabs-indicator': { bgcolor: ui.purple, height: 3 } }}>
         <Tab value="detected" label="Detected Behaviors" />
@@ -146,17 +146,17 @@ export function BehaviorIntelligencePage() {
       {tab === 'detected' ? (
         <>
           <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<WarningAmberRoundedIcon />} label="Active Behaviors" value={summary.activeBehaviors} delta="returned evaluations" bg="#fff1f2" color={ui.red} /></Grid>
-            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<AccountTreeRoundedIcon />} label="Total Signals" value={summary.totalSignals} delta="evidence fields" bg="#f0fdf4" color={ui.green} /></Grid>
-            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<DnsRoundedIcon />} label="Affected Services" value={summary.affectedServices} delta="distinct services" bg="#eef2ff" color="#4f46e5" /></Grid>
-            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<VerifiedRoundedIcon />} label="Confidence Avg." value={summary.confidenceAverage == null ? 'No data' : `${summary.confidenceAverage}%`} delta="mean of returned evaluations" bg="#ecfdf5" color="#059669" /></Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<WarningAmberRoundedIcon />} label="Active Behaviors" value={summary.activeBehaviors} delta="returned evaluations" bg="var(--os-tint-rose)" color={ui.red} /></Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<AccountTreeRoundedIcon />} label="Total Signals" value={summary.totalSignals} delta="evidence fields" bg="var(--os-tint-green)" color={ui.green} /></Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<DnsRoundedIcon />} label="Affected Services" value={summary.affectedServices} delta="distinct services" bg="var(--os-tint-indigo)" color="#4f46e5" /></Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}><MetricCard icon={<VerifiedRoundedIcon />} label="Confidence Avg." value={summary.confidenceAverage == null ? 'No data' : `${summary.confidenceAverage}%`} delta="mean of returned evaluations" bg="var(--os-tint-green)" color="#059669" /></Grid>
           </Grid>
           <WorkspacePanel sx={{ overflow: 'hidden' }}>
             <Table>
               <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Behavior</TableCell><TableCell>Pattern</TableCell><TableCell>Severity</TableCell><TableCell>Confidence</TableCell><TableCell>Impacted Services</TableCell><TableCell>Occurrences</TableCell><TableCell>Last Seen</TableCell><TableCell>Status</TableCell><TableCell align="right">Case</TableCell></TableRow></TableHead>
               <TableBody>
                 {behaviorRows.map((finding) => (
-                  <TableRow key={finding.id} hover sx={{ '& td': { py: 2, borderColor: '#f1f5f9' } }}>
+                  <TableRow key={finding.id} hover sx={{ '& td': { py: 2, borderColor: 'var(--os-surface-alt)' } }}>
                     <TableCell sx={{ fontWeight: 900 }}>{finding.title}</TableCell>
                     <TableCell>{titleCase(finding.pattern)}</TableCell>
                     <TableCell><Pill label={finding.severity} tone="severity" /></TableCell>
@@ -172,7 +172,7 @@ export function BehaviorIntelligencePage() {
             </Table>
             {!behaviorRows.length ? <Typography sx={{ p: 2.5, color: ui.muted }}>No behavior evaluations found yet.</Typography> : null}
           </WorkspacePanel>
-          <WorkspacePanel sx={{ p: 3, borderColor: '#ddd6fe', bgcolor: '#fff' }}>
+          <WorkspacePanel sx={{ p: 3, borderColor: 'var(--os-tint-violet-border)', bgcolor: 'var(--os-surface)' }}>
             {selected ? (
               <Grid container spacing={3}>
                 <Grid size={{ xs: 12, lg: 6 }}>
@@ -185,13 +185,13 @@ export function BehaviorIntelligencePage() {
                 </Grid>
                 <Grid size={{ xs: 12, lg: 6 }}>
                   <Typography sx={{ fontWeight: 850, mb: 1.5 }}>Recent Occurrences</Typography>
-                  <Box sx={{ minHeight: 96, display: 'grid', placeItems: 'center', textAlign: 'center', borderRadius: '8px', bgcolor: '#f8fafc', border: `1px dashed ${ui.border}`, px: 2 }}>
+                  <Box sx={{ minHeight: 96, display: 'grid', placeItems: 'center', textAlign: 'center', borderRadius: '8px', bgcolor: 'var(--os-surface-alt)', border: `1px dashed ${ui.border}`, px: 2 }}>
                     <Box>
                       <Typography sx={{ fontWeight: 900 }}>Occurrence history is not available yet.</Typography>
                       <Typography sx={{ color: ui.muted, mt: 0.75 }}>The current behavior API returns detected evaluations, not a time-bucketed occurrence series.</Typography>
                     </Box>
                   </Box>
-                  <Button endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ mt: 3, float: 'right', borderColor: '#ddd6fe', color: ui.purple, textTransform: 'none', fontWeight: 850 }}>View Details</Button>
+                  <Button endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ mt: 3, float: 'right', borderColor: 'var(--os-tint-violet-border)', color: ui.purple, textTransform: 'none', fontWeight: 850 }}>View Details</Button>
                 </Grid>
               </Grid>
             ) : <Typography color="text.secondary">Select a detected behavior after evaluations are available.</Typography>}

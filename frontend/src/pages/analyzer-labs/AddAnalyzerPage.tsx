@@ -490,7 +490,7 @@ export function AddAnalyzerPage() {
           p: 2.5,
           borderColor: rulesValidated && !labRoutingResult ? ui.green : ui.border,
           borderWidth: rulesValidated && !labRoutingResult ? 2 : 1,
-          bgcolor: rulesValidated && !labRoutingResult ? '#ecfeff' : 'white',
+          bgcolor: rulesValidated && !labRoutingResult ? 'var(--os-tint-cyan)' : 'white',
         }}
       >
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
@@ -617,7 +617,7 @@ export function AddAnalyzerPage() {
           p: 2.5,
           borderColor: promoteIsNext ? ui.green : draftPromoted ? '#2e7d32' : ui.border,
           borderWidth: promoteIsNext || draftPromoted ? 2 : 1,
-          bgcolor: promoteIsNext || draftPromoted ? '#f0fdf4' : 'white',
+          bgcolor: promoteIsNext || draftPromoted ? 'var(--os-tint-green)' : 'white',
         }}
       >
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', lg: 'center' }}>
@@ -636,7 +636,7 @@ export function AddAnalyzerPage() {
           </Alert>
         ) : null}
         {draftPromoted ? (
-          <Box sx={{ mt: 2, border: `1px solid ${ui.green}`, borderRadius: 2, p: 2, bgcolor: '#ffffff' }}>
+          <Box sx={{ mt: 2, border: `1px solid ${ui.green}`, borderRadius: 2, p: 2, bgcolor: 'var(--os-surface)' }}>
             <Typography sx={{ fontWeight: 900, fontSize: 18 }}>Analyzer added</Typography>
             {draftIsHttp ? (
               <>
@@ -659,7 +659,7 @@ export function AddAnalyzerPage() {
               </>
             )}
             {promotedRecommendationOnly ? (
-              <Box sx={{ mt: 2, border: backendSupportAdded ? `1px solid ${ui.green}` : '1px solid #fed7aa', borderRadius: 2, p: 2, bgcolor: backendSupportAdded ? '#f0fdf4' : '#fff7ed' }}>
+              <Box sx={{ mt: 2, border: backendSupportAdded ? `1px solid ${ui.green}` : '1px solid var(--os-tint-orange-border)', borderRadius: 2, p: 2, bgcolor: backendSupportAdded ? 'var(--os-tint-green)' : 'var(--os-tint-orange)' }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                   <Box>
                     <Typography sx={{ fontWeight: 900 }}>
@@ -861,10 +861,10 @@ export function AddAnalyzerPage() {
                 }}
                 sx={{
                   cursor: 'pointer',
-                  bgcolor: currentDraft?.id === draft.id ? '#ecfeff' : 'inherit',
+                  bgcolor: currentDraft?.id === draft.id ? 'var(--os-tint-cyan)' : 'inherit',
                   outline: currentDraft?.id === draft.id ? `2px solid ${ui.green}` : 'none',
                   outlineOffset: -2,
-                  '&:hover': { bgcolor: currentDraft?.id === draft.id ? '#dcfce7' : '#f8fafc' },
+                  '&:hover': { bgcolor: currentDraft?.id === draft.id ? 'var(--os-tint-green)' : 'var(--os-surface-alt)' },
                 }}
               >
                 <TableCell sx={{ fontWeight: 800 }}>{draft.analyzer_id}</TableCell>
@@ -1490,7 +1490,7 @@ function DrawerProgress({
   nextMessage: string;
 }) {
   return (
-    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: 2, p: 1.5, bgcolor: '#f8fafc' }}>
+    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: 2, p: 1.5, bgcolor: 'var(--os-surface-alt)' }}>
       <Typography sx={{ fontWeight: 900, mb: 1 }}>This popup progress</Typography>
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <StatusChip status={hasDraft ? 'done_save_draft' : 'waiting_save_draft'} />
@@ -1640,7 +1640,7 @@ function getWorkflowSteps({
 
 function MiniOutcome({ title, body }: { title: string; body: string }) {
   return (
-    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: 2, p: 1.4, bgcolor: '#f8fafc', flex: 1 }}>
+    <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: 2, p: 1.4, bgcolor: 'var(--os-surface-alt)', flex: 1 }}>
       <Typography sx={{ fontWeight: 900, fontSize: 13.5 }}>{title}</Typography>
       <Typography sx={{ color: ui.muted, fontSize: 13, lineHeight: 1.45, mt: 0.4 }}>{body}</Typography>
     </Box>
@@ -1887,10 +1887,10 @@ function getReadinessNextAction(readiness?: AnalyzerReadiness, executionTestResu
 
 function WorkflowCard({ step, title, body, state }: { step: string; title: string; body: string; state: WorkflowState }) {
   const palette = {
-    done: { border: '#2e7d32', bg: '#f0fdf4', chip: 'success' as const, label: 'Done' },
-    current: { border: ui.green, bg: '#ecfeff', chip: 'primary' as const, label: 'Current' },
+    done: { border: '#2e7d32', bg: 'var(--os-tint-green)', chip: 'success' as const, label: 'Done' },
+    current: { border: ui.green, bg: 'var(--os-tint-cyan)', chip: 'primary' as const, label: 'Current' },
     waiting: { border: ui.border, bg: 'white', chip: 'default' as const, label: 'Waiting' },
-    blocked: { border: '#ef6c00', bg: '#fff7ed', chip: 'warning' as const, label: 'Tune' },
+    blocked: { border: '#ef6c00', bg: 'var(--os-tint-orange)', chip: 'warning' as const, label: 'Tune' },
   }[state];
   return (
     <Card variant="outlined" sx={{ borderColor: palette.border, bgcolor: palette.bg, borderWidth: state === 'current' ? 2 : 1 }}>

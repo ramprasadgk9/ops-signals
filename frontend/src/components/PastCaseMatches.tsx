@@ -49,7 +49,7 @@ function MatchRow({ match }: { match: PastCaseMatch }) {
   const fix = match.corrective_action || match.outcome_summary;
   const copies = match.more_like_this ?? [];
   return (
-    <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: strong ? '#fff' : '#fafafa' }} data-testid="past-case-match">
+    <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: strong ? 'var(--os-surface)' : 'var(--os-surface-alt)' }} data-testid="past-case-match">
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Link href={`/cases/${match.case_id}`} underline="hover" sx={{ fontWeight: 800, color: ui.text }}>
           {match.title}

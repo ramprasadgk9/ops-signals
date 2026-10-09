@@ -4,7 +4,7 @@ export const METRIC_USAGE_STATUSES: Record<MetricUsageStatus, { label: string; c
   blind_spot: { label: 'Blind spot', color: '#d03b3b', hint: 'Ops Signals found problems, but no dashboard or alert shows this metric' },
   missing: { label: 'Missing', color: '#f97316', hint: 'A dashboard or alert reads this metric, but Prometheus has no such metric: an empty panel' },
   watched: { label: 'Watched', color: '#0ca30c', hint: 'On a dashboard panel or used by an alert' },
-  unwatched: { label: 'Not watched', color: '#94a3b8', hint: 'No dashboard or alert reads it, and nothing is wrong with it' },
+  unwatched: { label: 'Not watched', color: 'var(--os-muted)', hint: 'No dashboard or alert reads it, and nothing is wrong with it' },
 };
 
 /** "Production / API Health / Error rate" -> "Production / API Health": the dashboard, without the panel. */

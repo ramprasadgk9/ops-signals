@@ -18,7 +18,7 @@ function refreshDataViews(queryClient: ReturnType<typeof useQueryClient>) {
 }
 
 function ResultText({ tone, children }: { tone: 'ok' | 'warn' | 'error'; children: React.ReactNode }) {
-  const color = tone === 'ok' ? '#166534' : tone === 'warn' ? '#7c2d12' : '#b91c1c';
+  const color = tone === 'ok' ? 'var(--os-ink-green)' : tone === 'warn' ? 'var(--os-ink-orange)' : 'var(--os-ink-red)';
   return (
     <Typography role="status" variant="body2" sx={{ color }}>
       {children}

@@ -242,7 +242,7 @@ export function ZScoreAnomalyLabPage() {
           <LearningNote title="What data is generated?" body="The lab creates a normal baseline around a mean, then optionally injects high spikes or low drops at known points." />
           <LearningNote title="How to read results" body="Compare generated anomalies with detected z-score groups. A finding is created when max z-score and grouped point count pass the rule." />
         </Box>
-        <Box sx={{ mt: 2, p: 2, border: `1px solid ${ui.border}`, borderRadius: 2, bgcolor: '#f8fafc' }}>
+        <Box sx={{ mt: 2, p: 2, border: `1px solid ${ui.border}`, borderRadius: 2, bgcolor: 'var(--os-surface-alt)' }}>
           <Typography sx={{ fontWeight: 900, mb: 1 }}>How This Lab Helps</Typography>
           <Typography sx={{ color: ui.muted, lineHeight: 1.6 }}>
             Use this lab to validate simple statistical anomaly detection before using heavier outlier libraries.
@@ -259,7 +259,7 @@ export function ZScoreAnomalyLabPage() {
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Stack direction="row" alignItems="center" spacing={1.2} sx={{ mb: 2 }}>
-          <ScienceRoundedIcon sx={{ color: '#0f766e' }} />
+          <ScienceRoundedIcon sx={{ color: 'var(--os-ink-brand)' }} />
           <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Generate Time Series</Typography>
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
@@ -283,13 +283,13 @@ export function ZScoreAnomalyLabPage() {
           <Box sx={{ height: 320 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--os-border)" />
                 <XAxis dataKey="time" tickLine={false} axisLine={false} minTickGap={24} />
                 <YAxis tickLine={false} axisLine={false} width={46} />
                 <Tooltip />
                 <Line type="monotone" dataKey="value" stroke="#009688" dot={false} strokeWidth={2.2} />
                 {chartData.filter((point) => point.is_anomaly).map((point) => (
-                  <ReferenceDot key={point.index} x={point.time} y={point.value} r={5} fill={ui.red} stroke="#fff" />
+                  <ReferenceDot key={point.index} x={point.time} y={point.value} r={5} fill={ui.red} stroke="var(--os-surface)" />
                 ))}
               </LineChart>
             </ResponsiveContainer>

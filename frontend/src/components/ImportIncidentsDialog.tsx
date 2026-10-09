@@ -286,7 +286,7 @@ function SourceStep({
           ))}
         </Stack>
       </Box>
-      <Box sx={{ p: 2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: '#f8fafc' }}>
+      <Box sx={{ p: 2, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
         <Typography sx={{ fontWeight: 800, mb: 1 }}>Before you export</Typography>
         <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
           {checklist.map((item) => (
@@ -341,7 +341,7 @@ function UploadStep({ files, onFiles }: { files: File[]; onFiles: (files: File[]
           textAlign: 'center',
           border: `2px dashed ${dragging ? ui.blue : ui.border}`,
           borderRadius: '8px',
-          bgcolor: dragging ? '#eff6ff' : '#f8fafc',
+          bgcolor: dragging ? 'var(--os-tint-blue)' : 'var(--os-surface-alt)',
         }}
       >
         <UploadFileRoundedIcon sx={{ fontSize: 40, color: ui.muted }} />

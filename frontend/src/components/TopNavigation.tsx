@@ -51,7 +51,7 @@ export function TopNavigation() {
               py: 0.75,
               borderRadius: 999,
               border: '1px solid rgba(15, 23, 42, 0.08)',
-              background: '#fff',
+              background: 'var(--os-surface)',
               minWidth: 260,
             }}
           >

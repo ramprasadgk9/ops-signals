@@ -13,7 +13,7 @@ type RecurringCase = RecurringProblem['cases'][number];
 export const OCCURRENCE_STATES = {
   open: { label: 'Still open', color: '#fab219' },
   verified: { label: 'Fixed, cause verified', color: '#0ca30c' },
-  unverified: { label: 'Fixed, cause not verified', color: '#94a3b8' },
+  unverified: { label: 'Fixed, cause not verified', color: 'var(--os-muted)' },
 } as const;
 type OccurrenceState = keyof typeof OCCURRENCE_STATES;
 

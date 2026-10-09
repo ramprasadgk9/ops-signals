@@ -43,10 +43,10 @@ export function AlertInsight({ alert, compact = false }: { alert: AlertItem; com
   if (!changed && !breakdown) return null;
   if (compact) {
     const parts = [breakdown ? breakdownScopeLabel(breakdown) : null, changed?.lines[0] ?? null].filter(Boolean);
-    return <Typography sx={{ color: '#475569', fontSize: 13, mt: 0.25 }}>{parts.join(' · ')}</Typography>;
+    return <Typography sx={{ color: 'var(--os-text-2)', fontSize: 13, mt: 0.25 }}>{parts.join(' · ')}</Typography>;
   }
   return (
-    <Stack spacing={0.75} aria-label="What changed" sx={{ mt: 1, px: 1.25, py: 1, borderRadius: '6px', bgcolor: '#eef2ff', fontSize: 13 }}>
+    <Stack spacing={0.75} aria-label="What changed" sx={{ mt: 1, px: 1.25, py: 1, borderRadius: '6px', bgcolor: 'var(--os-tint-indigo)', fontSize: 13 }}>
       {breakdown ? (
         <Box>
           <Typography component="span" sx={{ fontSize: 12, fontWeight: 800 }}>Where </Typography>
@@ -76,7 +76,7 @@ export function AlertRow({ alert }: { alert: AlertItem }) {
           <Typography sx={{ fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{alert.alert_name}</Typography>
           <Typography sx={{ color: ui.muted, fontSize: 12, whiteSpace: 'nowrap' }}>{relativeTime(alert.received_at)}</Typography>
         </Stack>
-        <Typography sx={{ color: '#475569', fontSize: 13, mt: 0.25 }}>
+        <Typography sx={{ color: 'var(--os-text-2)', fontSize: 13, mt: 0.25 }}>
           {statusText}
           {alert.service ? ` · ${alert.service}` : ''}
           {alert.severity ? ` · ${alert.severity}` : ''}
@@ -106,7 +106,7 @@ export function AlertBadge({ alert }: { alert: AlertItem }) {
         size="small"
         icon={<NotificationsActiveOutlinedIcon sx={{ fontSize: 14 }} />}
         label={`Alert: ${alert.alert_name}${firing ? '' : ' (resolved)'}`}
-        sx={{ height: 24, fontWeight: 750, fontSize: 12, bgcolor: firing ? '#ffedd5' : '#f1f5f9', color: firing ? '#9a3412' : '#475569', '& .MuiChip-icon': { color: 'inherit' } }}
+        sx={{ height: 24, fontWeight: 750, fontSize: 12, bgcolor: firing ? '#ffedd5' : 'var(--os-surface-alt)', color: firing ? 'var(--os-ink-orange)' : 'var(--os-text-2)', '& .MuiChip-icon': { color: 'inherit' } }}
       />
     </Tooltip>
   );

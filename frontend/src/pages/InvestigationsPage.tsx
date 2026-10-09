@@ -41,7 +41,7 @@ export function InvestigationsPage() {
           <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 800, borderColor: ui.border } }}><TableCell>Case</TableCell><TableCell>Finding</TableCell><TableCell>Severity</TableCell><TableCell>Status</TableCell><TableCell>Assigned To</TableCell><TableCell>Updated</TableCell><TableCell align="right">Actions</TableCell></TableRow></TableHead>
           <TableBody>
             {filtered.map((item) => (
-              <TableRow key={item.id} hover sx={{ '& td': { py: 2.2, borderColor: '#f1f5f9' } }}>
+              <TableRow key={item.id} hover sx={{ '& td': { py: 2.2, borderColor: 'var(--os-surface-alt)' } }}>
                 <TableCell sx={{ fontWeight: 850 }}>{item.caseId}</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>{item.title}</TableCell>
                 <TableCell><Pill label={item.severity} tone="severity" /></TableCell>
@@ -60,12 +60,12 @@ export function InvestigationsPage() {
             <Typography variant="h6" sx={{ fontWeight: 850, mb: 2 }}>Investigation Timeline {selected ? `(C-${selected.id})` : ''}</Typography>
             <Stack spacing={2}>
               <Stack direction="row" spacing={2}>
-                <Box sx={{ width: 10, height: 10, mt: 0.7, borderRadius: '50%', bgcolor: '#60a5fa', boxShadow: '0 0 0 4px #eef2ff' }} />
+                <Box sx={{ width: 10, height: 10, mt: 0.7, borderRadius: '50%', bgcolor: '#60a5fa', boxShadow: '0 0 0 4px var(--os-tint-indigo)' }} />
                 <Box><Typography sx={{ color: ui.muted, fontSize: 13 }}>{selected ? formatDateTime(selected.createdAt) : 'n/a'}</Typography><Typography sx={{ fontWeight: 850 }}>Case created from finding</Typography><Typography sx={{ color: ui.muted }}>{selected?.summary ?? 'No case selected.'}</Typography></Box>
               </Stack>
               {timeline.map((note, index) => (
                 <Stack key={`${note.timestamp ?? 'note'}-${index}`} direction="row" spacing={2}>
-                  <Box sx={{ width: 10, height: 10, mt: 0.7, borderRadius: '50%', bgcolor: index % 2 ? ui.purple : '#60a5fa', boxShadow: '0 0 0 4px #eef2ff' }} />
+                  <Box sx={{ width: 10, height: 10, mt: 0.7, borderRadius: '50%', bgcolor: index % 2 ? ui.purple : '#60a5fa', boxShadow: '0 0 0 4px var(--os-tint-indigo)' }} />
                   <Box><Typography sx={{ color: ui.muted, fontSize: 13 }}>{formatDateTime(note.timestamp)}</Typography><Typography sx={{ fontWeight: 850 }}>Investigation note</Typography><Typography sx={{ color: ui.muted }}>{note.note}</Typography></Box>
                 </Stack>
               ))}

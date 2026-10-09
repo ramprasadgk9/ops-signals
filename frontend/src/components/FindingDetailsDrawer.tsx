@@ -38,9 +38,9 @@ const PROVIDER_COLORS: Record<string, string> = {
   otel: '#6d28d9',
   prometheus: '#e4581f',
   datadog: '#632ca6',
-  csv: '#0f766e',
-  generic: '#0f766e',
-  custom: '#0f766e',
+  csv: 'var(--os-ink-brand)',
+  generic: 'var(--os-ink-brand)',
+  custom: 'var(--os-ink-brand)',
 };
 
 function providerLabel(provider?: string | null): string {
@@ -49,8 +49,8 @@ function providerLabel(provider?: string | null): string {
 }
 
 function providerColor(provider?: string | null): string {
-  if (!provider) return '#64748b';
-  return PROVIDER_COLORS[provider] ?? '#64748b';
+  if (!provider) return 'var(--os-muted)';
+  return PROVIDER_COLORS[provider] ?? 'var(--os-muted)';
 }
 
 export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: Props) {
@@ -117,7 +117,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
 
         <LinkedAlerts findingId={finding.id} />
 
-        <Box sx={{ mb: 3, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+        <Box sx={{ mb: 3, p: 2, backgroundColor: 'var(--os-surface-alt)', borderRadius: 1 }}>
           <Stack direction="row" spacing={0.75} alignItems="flex-start">
             {finding.ai_summary && (
               <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
@@ -273,7 +273,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
         {Object.keys(comparison).length > 0 && (
           <>
             <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>Comparison Analysis</Typography>
-            <Box sx={{ backgroundColor: '#f5f5f5', p: 2, borderRadius: 1, maxHeight: 300, overflowY: 'auto' }}>
+            <Box sx={{ backgroundColor: 'var(--os-surface-alt)', p: 2, borderRadius: 1, maxHeight: 300, overflowY: 'auto' }}>
               <Typography variant="caption" component="pre" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
                 {JSON.stringify(comparison, null, 2)}
               </Typography>
