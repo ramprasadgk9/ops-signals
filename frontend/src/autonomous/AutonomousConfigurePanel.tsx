@@ -58,7 +58,8 @@ function formatRelativeToNow(iso: string | null): string {
 
 type Props = {
   onRunComplete: (result: AutonomousRunResponse) => void;
-  onPreviewComplete?: (result: AutonomousPreviewResponse) => void;
+  /** Called with null when the preview no longer applies (another connection was picked). */
+  onPreviewComplete?: (result: AutonomousPreviewResponse | null) => void;
   enableCategoryRequest?: MonitoringCategory | null;
   onEnableCategoryHandled?: () => void;
   previewNowSignal?: boolean;
@@ -196,11 +197,14 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     return resolved?.name ?? id ?? null;
   };
   const changeConnection = (id: string) => {
-    // Another tenant has other services and clusters; keep no selection from the previous one.
+    // Another tenant has other services and clusters; keep no selection from the previous one,
+    // and no preview: it was for the other tenant and would read as this one's.
     setConnectionId(id);
     setSelectedServices([]);
     setSelectedNamespaces([]);
     setSelectedClusters([]);
+    previewMutation.reset();
+    onPreviewComplete?.(null);
   };
 
   const scopeQuery = useQuery({
@@ -364,7 +368,11 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
         </Alert>
       ) : null}
       {runMutation.data ? <Alert severity="success" sx={{ mb: 2 }}>Run {runMutation.data.status}: {runMutation.data.executed_jobs} executed, {runMutation.data.failed_jobs} failed.</Alert> : null}
-      {previewMutation.data ? <Alert severity="info" sx={{ mb: 2 }}>Preview found {previewMutation.data.metrics_discovered} metrics and planned {previewMutation.data.planned_jobs} jobs.</Alert> : null}
+      {previewMutation.data ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {connectionNameFor(connectionId) ? `Preview of ${connectionNameFor(connectionId)}: found` : 'Preview found'} {previewMutation.data.metrics_discovered} metrics and planned {previewMutation.data.planned_jobs} jobs.
+        </Alert>
+      ) : null}
       {resultWarnings.length ? (
         <Alert severity="warning" sx={{ mb: 2 }}>
           {resultWarnings.slice(0, MAX_SHOWN_WARNINGS).map((warning) => <div key={warning}>{warning}</div>)}
