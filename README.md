@@ -4,12 +4,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/ramprasadgk9/ops-signals)](https://github.com/ramprasadgk9/ops-signals/releases)
 
-**When an alert fires, Ops Signals tells on-call what happened, what changed, and whether you've seen it before.**
+<h2 align="center"><i>"Never debug the same incident twice."</i></h2>
 
-Ops Signals is an open-source, self-hosted service that sits next to your Prometheus, Grafana and
-Alertmanager. It analyzes your metrics with published detection methods, explains each change in
-plain language, links it to the deploy that came just before, and checks it against incidents
-you've already resolved. It adds to your observability stack; it doesn't replace it.
+Open-source and self-hosted for Prometheus: Ops Signals explains every metric change in plain
+language, links it to the deploy behind it, and remembers how each incident was fixed.
+
+It sits next to your Prometheus, Grafana and Alertmanager, analyzes metrics with published
+detection methods, and needs no LLM. It adds to your observability stack; it doesn't replace it.
 
 ![Ops Signals demo: a deploy causes a latency shift, the alert is enriched with what happened, what changed, and a matching past incident](docs/screenshots/images/demo/ops-signals-demo.gif)
 
