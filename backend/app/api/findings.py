@@ -19,6 +19,10 @@ from backend.app.services.finding_trust import finding_trust, record_feedback
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 Window = Literal["1h", "6h", "24h", "7d"]
+FindingSource = Literal["prometheus", "otlp", "csv"]
+# analysis_runs.source_type -> the source a finding reports; the OTLP cycle writes "otel".
+_RUN_SOURCE_TYPES: dict[FindingSource, str] = {"prometheus": "prometheus", "otlp": "otel", "csv": "csv"}
+_FINDING_SOURCES = {source_type: source for source, source_type in _RUN_SOURCE_TYPES.items()}
 
 
 def _window_start(window: Window) -> datetime:
@@ -32,13 +36,20 @@ def _window_start(window: Window) -> datetime:
     return now - timedelta(hours=24)
 
 
-def _to_finding_out(finding: FindingEntity, changes: dict | None = None, connection_id: str | None = None, trust: dict | None = None) -> FindingOut:
+def _to_finding_out(
+    finding: FindingEntity,
+    changes: dict | None = None,
+    connection_id: str | None = None,
+    trust: dict | None = None,
+    source: str | None = None,
+) -> FindingOut:
     return FindingOut(
         id=finding.id,
         service=finding.service,
         metric_name=finding.metric_name,
         cluster=finding.cluster,
         connection_id=connection_id,
+        source=source,
         title=finding.title,
         summary=finding.summary,
         ai_summary=finding.ai_summary,
@@ -58,13 +69,29 @@ def _to_finding_out(finding: FindingEntity, changes: dict | None = None, connect
 def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmentConfig) -> list[FindingOut]:
     changes = finding_changes(db, rows, config)
     run_ids = {row.analysis_run_id for row in rows if row.analysis_run_id}
-    connections = (
-        dict(db.execute(select(AnalysisRunEntity.id, AnalysisRunEntity.connection_id).where(AnalysisRunEntity.id.in_(run_ids))).all())
+    runs = (
+        {
+            run_id: (connection_id, source_type)
+            for run_id, connection_id, source_type in db.execute(
+                select(AnalysisRunEntity.id, AnalysisRunEntity.connection_id, AnalysisRunEntity.source_type).where(AnalysisRunEntity.id.in_(run_ids))
+            ).all()
+        }
         if run_ids
         else {}
     )
     trust = finding_trust(db, rows)
-    return [_to_finding_out(row, changes.get(row.id), connections.get(row.analysis_run_id), trust.get(row.id)) for row in rows]
+    out = []
+    for row in rows:
+        connection_id, source_type = runs.get(row.analysis_run_id, (None, None))
+        out.append(_to_finding_out(row, changes.get(row.id), connection_id, trust.get(row.id), _FINDING_SOURCES.get(source_type or "", source_type)))
+    return out
+
+
+def _from_source(query, source: FindingSource | None):
+    if not source:
+        return query
+    runs = select(AnalysisRunEntity.id).where(AnalysisRunEntity.source_type == _RUN_SOURCE_TYPES[source])
+    return query.where(FindingEntity.analysis_run_id.in_(runs))
 
 
 def _ensure_ai_summary(finding: FindingEntity, db: Session, assistant: OperationalIntelligenceAssistant | None) -> None:
@@ -111,6 +138,7 @@ def list_findings(
     category: str | None = None,
     analysis_run_id: str | None = Query(default=None),
     window: Window | None = Query(default=None),
+    source: FindingSource | None = Query(default=None, description="Where the finding's data came from."),
     db: Session = Depends(get_db),
     config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> list[FindingOut]:
@@ -129,6 +157,7 @@ def list_findings(
         query = query.where(FindingEntity.analysis_run_id == analysis_run_id)
     if window:
         query = query.where(FindingEntity.created_at >= _window_start(window))
+    query = _from_source(query, source)
     rows = db.execute(query.order_by(FindingEntity.importance_score.desc())).scalars().all()
     return _with_changes(db, list(rows), config)
 
@@ -144,6 +173,7 @@ def search_findings(
     analysis_run_id: str | None = Query(default=None),
     window: Window = Query(default="24h"),
     limit: int = Query(default=25, ge=1, le=200),
+    source: FindingSource | None = Query(default=None, description="Where the finding's data came from."),
     db: Session = Depends(get_db),
     config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> list[FindingOut]:
@@ -171,6 +201,7 @@ def search_findings(
                 func.lower(FindingEntity.category).like(pattern),
             )
         )
+    query = _from_source(query, source)
     rows = db.execute(query.order_by(FindingEntity.importance_score.desc(), FindingEntity.created_at.desc()).limit(limit)).scalars().all()
     return _with_changes(db, list(rows), config)
 

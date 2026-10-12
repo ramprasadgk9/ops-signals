@@ -1,4 +1,5 @@
 import { Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
+import { findingSourceLabel } from '../utils/findingSource';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
@@ -37,6 +38,8 @@ function seenAt(value?: string): string {
 export function FindingCard({ finding, onViewDetails, signals = [], repeats, usage }: Props) {
   const navigate = useNavigate();
   const connectionName = useConnectionName(finding.connection_id);
+  // Prometheus is the usual source; say so only for the others, which can't drill down by pod.
+  const sourceCaption = finding.source && finding.source !== 'prometheus' ? `via ${findingSourceLabel(finding.source)}` : null;
   const createCaseMutation = useMutation({
     mutationFn: (findingId: number) => api.createCase(findingId),
     onSuccess: (data) => {
@@ -69,7 +72,7 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
           <Stack sx={{ pr: 1, minWidth: 0 }}>
             <Typography variant="h6">{finding.title}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-              {[finding.service, finding.metric_name, finding.cluster, connectionName].filter(Boolean).join(' · ')}
+              {[finding.service, finding.metric_name, finding.cluster, connectionName, sourceCaption].filter(Boolean).join(' · ')}
             </Typography>
           </Stack>
           {badge ? (

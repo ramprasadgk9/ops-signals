@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { findingSourceLabel } from '../utils/findingSource';
 import { Box, Button, Chip, FormControlLabel, Grid2 as Grid, InputAdornment, MenuItem, Stack, Switch, TextField, Tooltip as MuiTooltip, Typography } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
@@ -115,7 +116,7 @@ export function FindingsPage() {
   useEffect(() => {
     setShown(PAGE_SIZE);
     setContextShown(PAGE_SIZE);
-  }, [searchQuery, sort, groupRepeats, window, searchParams.get('cluster')]);
+  }, [searchQuery, sort, groupRepeats, window, searchParams.get('cluster'), searchParams.get('source')]);
   const showRuns = (finding: Finding) => {
     const next = new URLSearchParams(searchParams);
     next.set('q', [finding.service, finding.metric_name, finding.cluster].filter(Boolean).join(' '));
@@ -131,13 +132,18 @@ export function FindingsPage() {
   const clusters = [...new Set(findings.map((finding) => finding.cluster).filter((cluster): cluster is string => Boolean(cluster)))].sort();
   const clusterFilter = searchParams.get('cluster');
   const clusterFindings = clusterFilter ? findings.filter((finding) => finding.cluster === clusterFilter) : findings;
-  const visibleFindings = searchFindings(clusterFindings, searchQuery, sort);
+  // Same idea for sources (Prometheus, OTLP, CSV): the filter appears only when there is a choice.
+  const sources = [...new Set(findings.map((finding) => finding.source).filter((source): source is string => Boolean(source)))].sort();
+  const sourceFilter = searchParams.get('source');
+  const sourceFindings = sourceFilter ? clusterFindings.filter((finding) => finding.source === sourceFilter) : clusterFindings;
+  const visibleFindings = searchFindings(sourceFindings, searchQuery, sort);
   const visibleGroups = groupRepeatedFindings(visibleFindings, groupRepeats);
   // Context findings (single-check spikes, patterns, forecasts) were no better than chance in tests:
   // they stay one click away instead of crowding the list that asks for attention.
   const attentionGroups = visibleGroups.filter((group) => needsAttention(group.finding));
   const contextGroups = visibleGroups.filter((group) => !needsAttention(group.finding));
   const setClusterFilter = (cluster: string | null) => setParam('cluster', cluster);
+  const setSourceFilter = (source: string | null) => setParam('source', source);
   // "#57" for a finding outside this window: offer to open it directly, as the deep link does.
   const searchedId = findingIdFromQuery(searchQuery);
   const searchedIdMissing = searchedId !== null && !visibleFindings.some((finding) => finding.id === searchedId);
@@ -305,6 +311,21 @@ export function FindingsPage() {
                 color={clusterFilter === cluster ? 'primary' : 'default'}
                 variant={clusterFilter === cluster ? 'filled' : 'outlined'}
                 onClick={() => setClusterFilter(cluster)}
+              />
+            ))}
+          </Stack>
+        ) : null}
+        {sources.length > 1 ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 2 }} aria-label="Filter by source">
+            <Typography variant="body2" sx={{ fontWeight: 750, color: ui.muted }}>Source</Typography>
+            <Chip label="All sources" color={sourceFilter ? 'default' : 'primary'} variant={sourceFilter ? 'outlined' : 'filled'} onClick={() => setSourceFilter(null)} />
+            {sources.map((source) => (
+              <Chip
+                key={source}
+                label={findingSourceLabel(source)}
+                color={sourceFilter === source ? 'primary' : 'default'}
+                variant={sourceFilter === source ? 'filled' : 'outlined'}
+                onClick={() => setSourceFilter(source)}
               />
             ))}
           </Stack>

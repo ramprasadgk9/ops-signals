@@ -172,6 +172,8 @@ class FindingOut(BaseModel):
     cluster: str | None = None
     # Prometheus connection (Mimir tenant) its run queried; None for CSV, OTLP and older runs.
     connection_id: str | None = None
+    # Where its data came from: "prometheus", "otlp" or "csv"; None when its run isn't known.
+    source: str | None = None
     title: str
     summary: str
     ai_summary: str | None = None

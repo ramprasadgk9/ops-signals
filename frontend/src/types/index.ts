@@ -166,6 +166,8 @@ export type Finding = {
   cluster?: string | null;
   /** Prometheus connection (Mimir tenant) the finding's run queried; null for CSV/OTLP runs. */
   connection_id?: string | null;
+  /** Where its data came from: 'prometheus', 'otlp' or 'csv'; null when its run isn't known. */
+  source?: string | null;
   title: string;
   summary: string;
   ai_summary?: string | null;
