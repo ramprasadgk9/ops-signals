@@ -75,6 +75,16 @@ def test_shipped_rules_load_with_otel_aliases_for_memory_and_cpu() -> None:
         assert BehaviorDefinitionValidator.validate(definition) == [], definition.id
 
 
+def test_shipped_aliases_cover_the_collector_docker_receiver_but_not_its_running_counters() -> None:
+    # Names a real OTel Collector (docker_stats receiver) sent on 2026-10-11.
+    memory = next(item for item in DEFINITIONS["memory_pressure_with_errors"].inputs if item.alias == "memory")
+    cpu = next(item for item in DEFINITIONS["server_slow"].inputs if item.alias == "cpu")
+    assert "container.memory.usage.total" in memory.aliases
+    assert "container.cpu.utilization" in cpu.aliases
+    # A cumulative counter only rises, so it would always look like an upward trend.
+    assert "container.cpu.usage.total" not in cpu.aliases
+
+
 def test_a_rule_fires_on_otel_names() -> None:
     definition = DEFINITIONS["server_slow"]
     signals = [

@@ -61,8 +61,8 @@ behavior_definitions:
     inputs:
       - alias: memory
         metric_name: memory_usage
-        # OpenTelemetry names for the same metric, as sent over OTLP
-        aliases: [container.memory.usage, k8s.pod.memory.usage]
+        # OpenTelemetry names for the same metric (Kubernetes kubelet and Docker receivers), as sent over OTLP
+        aliases: [container.memory.usage, container.memory.usage.total, k8s.pod.memory.usage]
         analyzers:
           - trend
           - baseline_shift
@@ -112,7 +112,9 @@ A metric often arrives under a different name than the rule uses: OpenTelemetry 
 `container.memory.usage`, a Prometheus exporter `container_memory_working_set_bytes`. List those
 under `aliases`. An input matches the first of `metric_name`, then each alias, that has signals in
 the run, so a rule written once fires on any source. The shipped packs alias `memory_usage` and
-`cpu_usage` to the per-workload OpenTelemetry names (`container.*`, `k8s.pod.*`). Add your own
+`cpu_usage` to the per-workload OpenTelemetry names the Collector's Kubernetes (kubelet) and Docker
+receivers send (`container.*`, `k8s.pod.*`). Running counters such as `container.cpu.usage.total`
+are left out: they only ever rise, so they'd always read as an upward trend. Add your own
 Prometheus or OTel names the same way; an input without `aliases` matches `metric_name` only.
 
 Drop a new file into `config/behavior_definitions.d/` (any filename - it's a directory of
