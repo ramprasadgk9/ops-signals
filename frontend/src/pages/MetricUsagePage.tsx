@@ -9,6 +9,7 @@ import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { FeatureNeedsSource } from '../components/FeatureNeedsSource';
+import { useFeatureAvailability } from '../hooks/useFeatureAvailability';
 import { MetricUsageValuePanel } from '../components/MetricUsageValuePanel';
 import { PageHeader, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, ui } from '../standalone/theme';
@@ -40,6 +41,8 @@ export function MetricUsagePage() {
     },
   });
 
+  // A check can't run without its source, so "Run now" would only fail.
+  const canRun = !useFeatureAvailability().isOff('metric_usage');
   const data = usageQuery.data;
   const snapshot = data?.snapshot ?? null;
   const items = data?.items ?? [];
@@ -59,9 +62,11 @@ export function MetricUsagePage() {
                 </Typography>
               </Tooltip>
             ) : null}
-            <Button variant="contained" onClick={() => runMutation.mutate()} disabled={runMutation.isPending} sx={{ textTransform: 'none', fontWeight: 800 }}>
-              {runMutation.isPending ? 'Checking…' : 'Run now'}
-            </Button>
+            {canRun ? (
+              <Button variant="contained" onClick={() => runMutation.mutate()} disabled={runMutation.isPending} sx={{ textTransform: 'none', fontWeight: 800 }}>
+                {runMutation.isPending ? 'Checking…' : 'Run now'}
+              </Button>
+            ) : null}
           </Stack>
         }
       />

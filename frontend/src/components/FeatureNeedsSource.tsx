@@ -53,7 +53,7 @@ function NeedsSourcePanel({ availability, compact }: { availability: FeatureAvai
         <Chip
           label={`Needs ${needs}`}
           size="small"
-          sx={{ alignSelf: 'flex-start', bgcolor: 'var(--os-tint-amber)', color: '#92400e', fontWeight: 750 }}
+          sx={{ alignSelf: 'flex-start', bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', fontWeight: 750 }}
         />
         {copy && !compact ? (
           <Typography component="h2" sx={{ fontSize: 22, fontWeight: 800 }}>

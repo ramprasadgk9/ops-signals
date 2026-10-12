@@ -163,6 +163,7 @@ describe('MetricUsagePage', () => {
     renderPage();
 
     expect(await screen.findByText('Find blind spots and metrics nobody uses')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run now' })).not.toBeInTheDocument();
     expect(screen.queryByText('No check has run yet')).not.toBeInTheDocument();
     expect(screen.queryByTestId('grafana-line')).not.toBeInTheDocument();
   });
@@ -185,6 +186,7 @@ describe('MetricUsagePage', () => {
 
     expect(await screen.findByTestId('metric-usage-tiles')).toBeInTheDocument();
     expect(screen.queryByTestId('feature-needs-source')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeInTheDocument();
   });
 });
 

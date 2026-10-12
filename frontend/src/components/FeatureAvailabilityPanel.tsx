@@ -8,7 +8,7 @@ import type { FeatureAvailability } from '../types';
 
 const STATE_CHIP: Record<FeatureAvailability['state'], { label: string; bg: string; color: string }> = {
   on: { label: 'On', bg: 'var(--os-tint-green)', color: 'var(--os-ink-green)' },
-  partly: { label: 'Partly', bg: 'var(--os-tint-amber)', color: '#92400e' },
+  partly: { label: 'Partly', bg: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)' },
   off: { label: 'Off', bg: 'var(--os-surface-alt)', color: 'var(--os-text-2)' },
 };
 

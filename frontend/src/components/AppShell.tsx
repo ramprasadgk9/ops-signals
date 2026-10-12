@@ -115,11 +115,11 @@ function NavButton({ item, nested = false, needsSource = false }: { item: NavIte
         '&:hover': { bgcolor: active ? 'rgba(255, 77, 87, 0.12)' : 'var(--os-surface-alt)' },
       }}
     >
-      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>
+      <Box component="span" title={item.label} sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>
         {item.label}
       </Box>
       {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-violet)', color: ui.purple, fontWeight: 800 }} /> : null}
-      {needsSource ? <Chip label="Connect" size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: '#92400e', fontWeight: 800 }} /> : null}
+      {needsSource ? <Chip label="Connect" size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', fontWeight: 800 }} /> : null}
     </Button>
   );
 }
