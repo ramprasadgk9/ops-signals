@@ -6,13 +6,15 @@ lives under /api/*. Still spec-compliant: an OTel Collector's otlphttp exporter 
 explicit `endpoint: http://<host>:<port>/api/otlp` and auto-appends /v1/metrics itself. See
 docs/design/otlp-metrics-ingestion-plan.md §3.
 
-Scope: metrics only (Gauge/Sum), OTLP/HTTP only (protobuf and JSON bodies), store-then-analyze-on-
+Scope: metrics only (Gauge/Sum), OTLP/HTTP only (protobuf and JSON bodies, plain or gzip - the
+Collector's otlphttp exporter gzips by default), store-then-analyze-on-
 a-timer rather than per-request analysis - see docs/design/otlp-metrics-ingestion-plan.md §2 for why.
 """
 
 from __future__ import annotations
 
 import logging
+import zlib
 
 from fastapi import APIRouter, Request, Response
 from google.protobuf import json_format
@@ -32,6 +34,27 @@ from backend.app.otlp.metrics import snapshot as otlp_metrics_snapshot
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/otlp", tags=["otlp"])
+
+# The OTel Collector's otlphttp exporter gzips by default; "identity" (or no header) is plain.
+_SUPPORTED_ENCODINGS = ("gzip", "identity", "")
+
+
+class _TooLarge(Exception):
+    pass
+
+
+def _gunzip(body: bytes, limit: int) -> bytes:
+    """Decompresses a gzip body, stopping past `limit` bytes so a small compressed request can't
+    inflate around the size limit. Raises zlib.error for a body that isn't gzip."""
+    decompressor = zlib.decompressobj(wbits=16 + zlib.MAX_WBITS)
+    data = decompressor.decompress(body, limit + 1)
+    if len(data) > limit or decompressor.unconsumed_tail:
+        raise _TooLarge
+    data += decompressor.flush()
+    if len(data) > limit:
+        raise _TooLarge
+    return data
+
 
 _JSON_CONTENT_TYPE = "application/json"
 _PROTOBUF_CONTENT_TYPE = "application/x-protobuf"
@@ -56,6 +79,26 @@ async def export_metrics(request: Request) -> Response:
             ),
             status_code=413,
         )
+
+    encoding = request.headers.get("content-encoding", "").strip().lower()
+    if encoding not in _SUPPORTED_ENCODINGS:
+        return Response(
+            content=f"unsupported Content-Encoding {encoding!r}: send gzip or uncompressed",
+            status_code=415,
+        )
+    if encoding == "gzip":
+        try:
+            body = _gunzip(body, MAX_OTLP_BYTES)
+        except _TooLarge:
+            return Response(
+                content=(
+                    f"decompressed request body exceeds the configured limit of {MAX_OTLP_BYTES} "
+                    "bytes (set OPS_SIGNALS_MAX_OTLP_BYTES to change)"
+                ),
+                status_code=413,
+            )
+        except zlib.error as exc:
+            return Response(content=f"malformed gzip body: {exc}", status_code=400)
 
     is_json = _is_json_request(request)
     export_request = ExportMetricsServiceRequest()

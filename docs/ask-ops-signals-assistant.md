@@ -172,7 +172,7 @@ the UI shows this as an "AI-generated" vs. "Evidence summary (no AI)" label.
 No API key, no cloud calls. Bundle a local model via Ollama:
 
 ```bash
-docker compose --profile ai up -d   # opt-in - not started by a plain `docker compose up`
+docker compose --profile ai up -d   # opt-in; pulls qwen2.5:3b unless OPS_SIGNALS_OLLAMA_MODEL is set
 ```
 
 Then point the backend at it (env vars, or `ai:` in `config.yaml`):

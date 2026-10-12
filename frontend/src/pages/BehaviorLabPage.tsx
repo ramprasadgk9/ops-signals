@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -233,6 +234,10 @@ export function BehaviorLabPage() {
 
   const factsQuery = useQuery({ queryKey: ['behavior-facts'], queryFn: api.behaviorFacts });
   const samplesQuery = useQuery({ queryKey: ['metric-analyzer-samples'], queryFn: api.metricAnalyzerSamples });
+  // Every metric name stored so far, offered as you type: the real names your sources send (an
+  // OTel name like container.memory.usage, a Prometheus one like process_resident_memory_bytes).
+  const metricsQuery = useQuery({ queryKey: ['behavior-available-metrics'], queryFn: api.behaviorAvailableMetrics, retry: false });
+  const metricOptions = Array.isArray(metricsQuery.data) ? metricsQuery.data : [];
   const sampleOptions = samplesQuery.data ?? [];
 
   const draft = buildDraft({
@@ -367,8 +372,15 @@ export function BehaviorLabPage() {
               <Tooltip title="Example: cpu — a short nickname for this metric. You'll use it in Conditions below, e.g. cpu.anomaly.present." arrow>
                 <TextField size="small" label="Alias" placeholder="cpu" value={row.alias} onChange={(e) => updateInput(index, { alias: e.target.value })} sx={{ flex: 1 }} />
               </Tooltip>
-              <Tooltip title="Example: cpu_usage or request_latency_p95 — the real metric name from your data. Check 'Select Existing Sample' further down to see metric names you actually have data for." arrow>
-                <TextField size="small" label="Metric name" placeholder="cpu_usage" value={row.metricName} onChange={(e) => updateInput(index, { metricName: e.target.value })} sx={{ flex: 2 }} />
+              <Tooltip title="Example: cpu_usage or request_latency_p95 — the real metric name from your data. Start typing to pick from the metric names Ops Signals has stored." arrow>
+                <Autocomplete
+                  freeSolo
+                  options={metricOptions}
+                  inputValue={row.metricName}
+                  onInputChange={(_event, value) => updateInput(index, { metricName: value })}
+                  sx={{ flex: 2 }}
+                  renderInput={(params) => <TextField {...params} size="small" label="Metric name" placeholder="cpu_usage" />}
+                />
               </Tooltip>
               <Tooltip title="Example: trend,anomaly_zscore — only count evidence from these analyzers for this input. Leave blank to use signals from any analyzer." arrow>
                 <TextField size="small" label="Analyzers (comma-separated, optional)" placeholder="trend,anomaly_zscore" value={row.analyzers} onChange={(e) => updateInput(index, { analyzers: e.target.value })} sx={{ flex: 2 }} />

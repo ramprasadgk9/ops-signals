@@ -5,6 +5,7 @@ import { api } from '../api/queries';
 import { AutonomousConfigurePanel } from '../autonomous/AutonomousConfigurePanel';
 import { AutonomousMonitoringDashboard } from '../autonomous/AutonomousMonitoringDashboard';
 import { buildAutonomousDashboardData, latestFinishedPolicyRun, type AutonomousPreviewResponse, type AutonomousRunResponse, type MonitoringCategory } from '../autonomous/dashboardModel';
+import { FeatureNeedsSource } from '../components/FeatureNeedsSource';
 import { PageHeader } from '../standalone/components';
 
 export function AutonomousMonitoringPage() {
@@ -92,27 +93,29 @@ export function AutonomousMonitoringPage() {
     <Box sx={{ mx: { xs: -2, md: 0 }, p: { xs: 1, md: 0 } }}>
       <Stack spacing={3}>
         <PageHeader title="Autonomous Analysis Configure" subtitle="Configure scope, monitoring categories, execution limits, and run autonomous analysis." />
-        <AutonomousConfigurePanel
-          onRunComplete={handleRunComplete}
-          onPreviewComplete={setPreviewResult}
-          enableCategoryRequest={enableCategoryRequest}
-          onEnableCategoryHandled={() => setEnableCategoryRequest(null)}
-          previewNowSignal={previewNowSignal}
-          onPreviewNowHandled={() => setPreviewNowSignal(false)}
-          onPreviewNowStateChange={setIsPreviewingNow}
-        />
-        <Box id="autonomous-overview">
-          <AutonomousMonitoringDashboard
-            data={dashboardData}
-            context={{ timeWindow: runResult?.analysis_window ?? scheduledWindow, policy: 'Current monitoring policy' }}
-            state={dashboardState}
-            error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
-            onRetry={refreshAutonomousData}
-            onEnableCategory={setEnableCategoryRequest}
-            onPreviewNow={() => setPreviewNowSignal(true)}
-            isPreviewingNow={isPreviewingNow}
+        <FeatureNeedsSource feature="autonomous_analysis">
+          <AutonomousConfigurePanel
+            onRunComplete={handleRunComplete}
+            onPreviewComplete={setPreviewResult}
+            enableCategoryRequest={enableCategoryRequest}
+            onEnableCategoryHandled={() => setEnableCategoryRequest(null)}
+            previewNowSignal={previewNowSignal}
+            onPreviewNowHandled={() => setPreviewNowSignal(false)}
+            onPreviewNowStateChange={setIsPreviewingNow}
           />
-        </Box>
+          <Box id="autonomous-overview">
+            <AutonomousMonitoringDashboard
+              data={dashboardData}
+              context={{ timeWindow: runResult?.analysis_window ?? scheduledWindow, policy: 'Current monitoring policy' }}
+              state={dashboardState}
+              error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
+              onRetry={refreshAutonomousData}
+              onEnableCategory={setEnableCategoryRequest}
+              onPreviewNow={() => setPreviewNowSignal(true)}
+              isPreviewingNow={isPreviewingNow}
+            />
+          </Box>
+        </FeatureNeedsSource>
       </Stack>
     </Box>
   );

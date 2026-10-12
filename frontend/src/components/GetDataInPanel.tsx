@@ -4,6 +4,7 @@ import ShowChartRoundedIcon from '@mui/icons-material/ShowChartRounded';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
+import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -12,7 +13,8 @@ import { api } from '../api/queries';
 import { WorkspacePanel } from '../standalone/components';
 import { LoadDemoDataButton, SendTestAlertButton } from './IntegrationActions';
 import { relativeTime, ui } from '../standalone/theme';
-import type { IngestionStatus } from '../types';
+import type { IngestionStatus, SourceId } from '../types';
+import { unlocksFor } from '../utils/featureUnlocks';
 
 type SourceState = 'receiving' | 'waiting' | 'disabled' | 'configured' | 'not_configured' | 'unreachable';
 
@@ -39,6 +41,12 @@ export function prometheusState(status: IngestionStatus): SourceState {
   const prometheus = status.sources.prometheus;
   if (!prometheus.configured) return 'not_configured';
   return prometheus.reachable === false ? 'unreachable' : 'configured';
+}
+
+export function grafanaState(status: IngestionStatus): SourceState {
+  const grafana = status.sources.grafana;
+  if (!grafana?.configured) return 'not_configured';
+  return grafana.reachable === false ? 'unreachable' : 'configured';
 }
 
 export function eventsState(status: IngestionStatus): SourceState {
@@ -103,6 +111,27 @@ function Snippet({ children }: { children: string }) {
     <Box component="pre" sx={{ m: 0, p: 1.5, borderRadius: '6px', bgcolor: '#0f172a', color: '#e2e8f0', fontSize: 12, lineHeight: 1.6, overflowX: 'auto' }}>
       {children}
     </Box>
+  );
+}
+
+/** "Unlocks: Autonomous analysis · Alert enrichment (with Alertmanager)": what this source turns
+ * on, each feature green once it is on. */
+function UnlocksLine({ source, status }: { source: SourceId; status: IngestionStatus }) {
+  const unlocks = unlocksFor(source, status.features);
+  if (!unlocks.length) return null;
+  return (
+    <Typography variant="body2" data-testid={`unlocks-${source}`} sx={{ pt: 1.25, borderTop: `1px solid ${ui.border}`, color: 'var(--os-text-2)' }}>
+      <Box component="strong" sx={{ fontWeight: 800 }}>Unlocks:</Box>{' '}
+      {unlocks.map((unlock, index) => (
+        <Box component="span" key={unlock.id}>
+          {index ? ' · ' : ''}
+          <Box component="span" sx={{ color: unlock.on ? 'var(--os-ink-green)' : 'inherit', fontWeight: unlock.on ? 700 : 400 }}>
+            {unlock.label}
+          </Box>
+          {unlock.note ? <Box component="span" sx={{ color: ui.muted }}> ({unlock.note})</Box> : null}
+        </Box>
+      ))}
+    </Typography>
   );
 }
 
@@ -171,6 +200,7 @@ export function IntegrationTiles({ status, exploring = true }: { status: Ingesti
           <OtlpActivity />
           <CopyableEndpoint url={otlpUrl} label="Copy OTLP endpoint URL" />
           <Snippet>{['exporters:', '  otlphttp/ops-signals:', `    metrics_endpoint: ${otlpUrl}`].join('\n')}</Snippet>
+          <UnlocksLine source="otlp" status={status} />
         </SourceTile>
       </Grid>
 
@@ -207,12 +237,19 @@ export function IntegrationTiles({ status, exploring = true }: { status: Ingesti
               </Button>
             </Stack>
           ) : null}
+          <UnlocksLine source="alertmanager" status={status} />
         </SourceTile>
       </Grid>
 
       <Grid size={{ xs: 12, lg: 6 }}>
         <DeployEventsTile status={status} />
       </Grid>
+
+      {status.sources.grafana ? (
+        <Grid size={{ xs: 12, lg: 6 }}>
+          <GrafanaTile status={status} />
+        </Grid>
+      ) : null}
 
 
       {exploring ? (
@@ -268,6 +305,37 @@ function PrometheusTile({ status, state }: { status: IngestionStatus; state: Sou
           Ops Signals can query an existing Prometheus on a schedule, and for each received alert. Set <code>OPS_SIGNALS_PROMETHEUS_URL</code> on the backend, then choose what to watch.
         </Typography>
       )}
+      <UnlocksLine source="prometheus" status={status} />
+    </SourceTile>
+  );
+}
+
+function GrafanaTile({ status }: { status: IngestionStatus }) {
+  const grafana = status.sources.grafana;
+  const state = grafanaState(status);
+  const label = !grafana?.configured ? 'Not configured' : grafana.reachable === false ? 'Unreachable' : grafana.reachable ? 'Connected' : 'Configured';
+  return (
+    <SourceTile icon={<SpaceDashboardOutlinedIcon />} title="Connect Grafana" chip={<StateChip state={state} label={label} />}>
+      <Typography variant="body2" color="text.secondary">
+        Read-only access to your dashboards and Grafana-managed alert rules, so Metric Usage can tell which metrics anyone watches.
+      </Typography>
+      {grafana?.url ? (
+        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 13, bgcolor: 'var(--os-surface-alt)', px: 1.5, py: 0.9, borderRadius: '6px', wordBreak: 'break-all' }}>
+          {grafana.url}
+        </Typography>
+      ) : null}
+      {state === 'unreachable' ? (
+        <Typography variant="body2" sx={{ bgcolor: '#fef3f2', color: '#912018', px: 1.5, py: 1, borderRadius: '6px' }}>
+          Ops Signals can’t reach this Grafana, or the token can’t list dashboards. Check <code>OPS_SIGNALS_GRAFANA_URL</code> and <code>OPS_SIGNALS_GRAFANA_TOKEN</code>.
+        </Typography>
+      ) : null}
+      {grafana?.configured ? null : (
+        <Typography variant="body2" color="text.secondary">
+          In Grafana, Administration → Service accounts → add one with the Viewer role and create a token. Then set <code>OPS_SIGNALS_GRAFANA_URL</code> and{' '}
+          <code>OPS_SIGNALS_GRAFANA_TOKEN</code> on the backend and restart it.
+        </Typography>
+      )}
+      <UnlocksLine source="grafana" status={status} />
     </SourceTile>
   );
 }
@@ -305,6 +373,7 @@ function DeployEventsTile({ status }: { status: IngestionStatus }) {
         <code>type</code> is one of deploy, config, feature_flag, scale, rollback or other. Optional: <code>author</code>, <code>url</code>, <code>description</code>, <code>timestamp</code>, <code>env</code>, and <code>cluster</code> when several clusters share one Prometheus or Mimir, so a deploy to one cluster isn’t shown on another’s findings.
         {events?.token_required ? <> The token is <code>OPS_SIGNALS_EVENTS_TOKEN</code> (or the API token) on the backend.</> : null}
       </Typography>
+      <UnlocksLine source="events" status={status} />
     </SourceTile>
   );
 }
@@ -355,6 +424,9 @@ export function SourceStatusStrip({ status }: { status: IngestionStatus }) {
     { label: 'Alertmanager', state: alertmanagerState(status), detail: status.sources.alertmanager.last_received_at ? relativeTime(status.sources.alertmanager.last_received_at) : alertmanagerState(status) === 'disabled' ? 'off' : undefined },
     { label: 'Prometheus', state: prometheusState(status), detail: status.sources.prometheus.reachable === false ? 'unreachable' : undefined },
     { label: 'Deploys', state: eventsState(status), detail: status.sources.events?.last_received_at ? relativeTime(status.sources.events.last_received_at) : undefined },
+    ...(status.sources.grafana
+      ? [{ label: 'Grafana', state: grafanaState(status), detail: status.sources.grafana.reachable === false ? 'unreachable' : undefined }]
+      : []),
   ];
   return (
     <Stack

@@ -13,6 +13,8 @@ behavior_definitions:
     inputs:
       - alias: memory
         metric_name: memory_usage
+        # OpenTelemetry names for the same metric (Kubernetes kubelet and Docker receivers), as sent over OTLP
+        aliases: [container.memory.usage, container.memory.usage.total, k8s.pod.memory.usage]
         analyzers:
           - trend
           - baseline_shift

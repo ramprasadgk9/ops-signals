@@ -8,6 +8,8 @@ import FunctionsRoundedIcon from '@mui/icons-material/FunctionsRounded';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
+import { FeatureNeedsSource } from '../components/FeatureNeedsSource';
+import { useFeatureAvailability } from '../hooks/useFeatureAvailability';
 import { MetricUsageValuePanel } from '../components/MetricUsageValuePanel';
 import { PageHeader, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, ui } from '../standalone/theme';
@@ -39,6 +41,8 @@ export function MetricUsagePage() {
     },
   });
 
+  // A check can't run without its source, so "Run now" would only fail.
+  const canRun = !useFeatureAvailability().isOff('metric_usage');
   const data = usageQuery.data;
   const snapshot = data?.snapshot ?? null;
   const items = data?.items ?? [];
@@ -58,40 +62,44 @@ export function MetricUsagePage() {
                 </Typography>
               </Tooltip>
             ) : null}
-            <Button variant="contained" onClick={() => runMutation.mutate()} disabled={runMutation.isPending} sx={{ textTransform: 'none', fontWeight: 800 }}>
-              {runMutation.isPending ? 'Checking…' : 'Run now'}
-            </Button>
+            {canRun ? (
+              <Button variant="contained" onClick={() => runMutation.mutate()} disabled={runMutation.isPending} sx={{ textTransform: 'none', fontWeight: 800 }}>
+                {runMutation.isPending ? 'Checking…' : 'Run now'}
+              </Button>
+            ) : null}
           </Stack>
         }
       />
 
-      <GrafanaLine status={grafanaQuery.data} snapshot={snapshot} />
+      <FeatureNeedsSource feature="metric_usage" keepContent={Boolean(snapshot)}>
+        <GrafanaLine status={grafanaQuery.data} snapshot={snapshot} />
 
-      {runMutation.isError ? <Alert severity="error">{(runMutation.error as Error).message}</Alert> : null}
-      {data?.last_failure ? (
-        <Alert severity="warning" data-testid="metric-usage-failure">
-          The latest check {relativeTime(data.last_failure.created_at)} failed: {data.last_failure.error}
-          {snapshot ? ' Showing the last good check.' : ''}
-        </Alert>
-      ) : null}
+        {runMutation.isError ? <Alert severity="error">{(runMutation.error as Error).message}</Alert> : null}
+        {data?.last_failure ? (
+          <Alert severity="warning" data-testid="metric-usage-failure">
+            The latest check {relativeTime(data.last_failure.created_at)} failed: {data.last_failure.error}
+            {snapshot ? ' Showing the last good check.' : ''}
+          </Alert>
+        ) : null}
 
-      {usageQuery.isLoading ? <CircularProgress size={22} /> : null}
-      {usageQuery.isError ? <Alert severity="error">Metric usage could not be loaded: {(usageQuery.error as Error).message}</Alert> : null}
-      {data && !snapshot ? <NoCheckYet data={data} /> : null}
+        {usageQuery.isLoading ? <CircularProgress size={22} /> : null}
+        {usageQuery.isError ? <Alert severity="error">Metric usage could not be loaded: {(usageQuery.error as Error).message}</Alert> : null}
+        {data && !snapshot ? <NoCheckYet data={data} /> : null}
 
-      {snapshot ? (
-        <>
-          <MetricUsageValuePanel snapshot={snapshot} cost={data?.cost ?? null} blindSpots={byStatus('blind_spot')} history={historyQuery.data ?? []} />
-          <SummaryTiles snapshot={snapshot} />
-          <StatusSection status="blind_spot" items={byStatus('blind_spot')} total={snapshot.blind_spots} defaultOpen
-            empty="No blind spots: every metric with a recent problem is on a dashboard or in an alert." />
-          {snapshot.missing ? <StatusSection status="missing" items={byStatus('missing')} total={snapshot.missing} defaultOpen /> : null}
-          <StatusSection status="watched" items={byStatus('watched')} total={snapshot.watched} defaultOpen preview={WATCHED_PREVIEW}
-            empty="No dashboard or alert reads any metric yet." />
-          <UnwatchedSection total={snapshot.unwatched} snapshotId={snapshot.id} />
-          <SourcesNote snapshot={snapshot} />
-        </>
-      ) : null}
+        {snapshot ? (
+          <>
+            <MetricUsageValuePanel snapshot={snapshot} cost={data?.cost ?? null} blindSpots={byStatus('blind_spot')} history={historyQuery.data ?? []} />
+            <SummaryTiles snapshot={snapshot} />
+            <StatusSection status="blind_spot" items={byStatus('blind_spot')} total={snapshot.blind_spots} defaultOpen
+              empty="No blind spots: every metric with a recent problem is on a dashboard or in an alert." />
+            {snapshot.missing ? <StatusSection status="missing" items={byStatus('missing')} total={snapshot.missing} defaultOpen /> : null}
+            <StatusSection status="watched" items={byStatus('watched')} total={snapshot.watched} defaultOpen preview={WATCHED_PREVIEW}
+              empty="No dashboard or alert reads any metric yet." />
+            <UnwatchedSection total={snapshot.unwatched} snapshotId={snapshot.id} />
+            <SourcesNote snapshot={snapshot} />
+          </>
+        ) : null}
+      </FeatureNeedsSource>
     </Stack>
   );
 }

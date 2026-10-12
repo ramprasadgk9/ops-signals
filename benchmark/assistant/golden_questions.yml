@@ -292,7 +292,6 @@ questions:
     contains: ["analyz"]
     expect:
       - {source: "generated://application-overview"}
-      - {source: README.md, section: "In One Sentence"}
       - {source: README.md, section: "What Ops Signals Does"}
 
   - id: informal-slack

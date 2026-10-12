@@ -11,6 +11,7 @@ import { PastCaseMatches } from './PastCaseMatches';
 import type { Finding, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
+import { breakdownMissingForSource, findingSourceLabel } from '../utils/findingSource';
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { changeChipLabel, findingChanges, findingWhatChanged } from '../utils/findingChanges';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
@@ -150,6 +151,14 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
         ) : null}
 
         {breakdown && <FindingBreakdown breakdown={breakdown} changes={changes} />}
+        {/* Data-quality findings are about the data, not the service, so never get a breakdown anyway. */}
+        {!breakdown && finding.category !== 'data_quality' && breakdownMissingForSource(finding.source) ? (
+          <Box data-testid="breakdown-source-note" sx={{ mb: 3, p: 1.5, border: 1, borderColor: 'divider', borderStyle: 'dashed', borderRadius: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              {breakdownMissingForSource(finding.source)}
+            </Typography>
+          </Box>
+        ) : null}
 
         <List dense>
           <ListItem>
@@ -168,6 +177,11 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
           {connectionName && (
             <ListItem>
               <ListItemText primary="Prometheus connection" secondary={connectionName} />
+            </ListItem>
+          )}
+          {finding.source && (
+            <ListItem>
+              <ListItemText primary="Data source" secondary={findingSourceLabel(finding.source)} />
             </ListItem>
           )}
           {whatChanged && (

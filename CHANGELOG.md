@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- **Feature availability by data source.** `GET /api/ingestion/status` now returns `features`:
+  each feature's state (`on`, `partly`, `off`) worked out from the connected sources, with the
+  sources it is missing. For example, with OTLP alone, findings, cases and memory are on, while
+  autonomous analysis, pod drill-down, alert enrichment and Metric Usage are off and name
+  Prometheus. The response also reports Grafana (configured, reachable; checked at most every 30s).
+- **The web UI follows what your sources can run.** Alerts, Autonomous Analysis and Metric Usage
+  move to a "More with Prometheus / Grafana" menu group, marked Connect, while their source isn't
+  connected; a viewer can hide them there and bring them back. Opening one explains what it does,
+  what it needs and links to Integrations, instead of an empty or failing page; earlier alerts or the
+  last Metric Usage check stay visible below. When availability can't be read, the menu and pages
+  look exactly as before.
+- **Findings say where their data came from.** `source` (`prometheus`, `otlp`, `csv`) on every
+  finding, and `?source=` on `/api/findings` and `/api/findings/search`. Cards say "via OTLP", the
+  drawer explains why such a finding has no pod breakdown, and the Findings page filters by source
+  when there is more than one.
+- **Integrations show what each source unlocks**: an "Unlocks:" line on every tile, a Grafana tile
+  with its status and setup steps, and a "What works with my data?" side panel. See
+  docs/integrations.md "What each source turns on".
+- **Behavior rule inputs accept `aliases`**, other names the same metric arrives under. The shipped
+  memory and CPU rules alias the per-workload OpenTelemetry names (`container.*`, `k8s.pod.*`), so
+  they fire on OTLP data. Inputs without aliases match as before.
+- **Behavior Lab suggests metric names as you type**, from every metric name Ops Signals has
+  stored, so a rule (or an alias) uses the name your source really sends.
+- **Fixed: a stock OpenTelemetry Collector's metrics were rejected.** Its `otlphttp` exporter gzips
+  by default, and the OTLP receiver answered every batch with a 400. Gzip bodies are now accepted,
+  with the size limit applied after decompression; other encodings get a 415.
+- **Fixed: analysis with many metrics ran Postgres out of connections.** Every analysis (each CSV
+  upload, Prometheus run and OTLP metric group) opened its own connection pool and never closed it;
+  an OTLP cycle over a real Collector's hundreds of metrics hit "too many clients". All analyses now
+  share one pool per database.
+- **Fixed: Ask Ops Signals scored below its golden floor after the README rewrite.** A section that
+  only lists links to other sections (the README's Contents) is no longer indexed, as it outranked
+  the sections holding the answers.
+
 - **Mimir tenants and clusters in the Grafana plugin**, as in the web UI (see
   docs/standalone-prometheus-analysis.md "In the web UI and the Grafana plugin").
   Autonomous Configure has a **Prometheus connection** picker (one per tenant, with a test) and an

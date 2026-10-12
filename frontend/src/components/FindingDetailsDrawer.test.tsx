@@ -167,6 +167,22 @@ describe('FindingDetailsDrawer drill-down breakdown', () => {
     expect(screen.queryByText('Where the change came from')).not.toBeInTheDocument();
     expect(screen.queryByText(/Breakdown by pod not available/)).not.toBeInTheDocument();
   });
+
+  it('says why an OTLP finding has no pod breakdown, and names its source', () => {
+    renderDrawer({ ...otlpFinding, analysis_run_id: undefined, source: 'otlp', category: 'behavior_change' });
+
+    expect(screen.getByTestId('breakdown-source-note')).toHaveTextContent("Breakdown by pod isn't available for OTLP data yet");
+    expect(screen.getByText('Data source')).toBeInTheDocument();
+  });
+
+  it('adds no source note for Prometheus findings or data-quality findings', () => {
+    const { unmount } = renderDrawer({ ...otlpFinding, analysis_run_id: undefined, source: 'prometheus', category: 'behavior_change' });
+    expect(screen.queryByTestId('breakdown-source-note')).not.toBeInTheDocument();
+    unmount();
+
+    renderDrawer({ ...otlpFinding, analysis_run_id: undefined, source: 'otlp', category: 'data_quality' });
+    expect(screen.queryByTestId('breakdown-source-note')).not.toBeInTheDocument();
+  });
 });
 
 describe('FindingDetailsDrawer evidence', () => {

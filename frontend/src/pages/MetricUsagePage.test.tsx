@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { MetricUsagePage } from './MetricUsagePage';
 import { api } from '../api/queries';
-import type { MetricUsageItem, MetricUsageResponse, MetricUsageSnapshot } from '../types';
+import type { IngestionStatus, MetricUsageItem, MetricUsageResponse, MetricUsageSnapshot } from '../types';
 
 vi.mock('../api/queries', () => ({
-  api: { metricUsage: vi.fn(), metricUsageHistory: vi.fn(), grafanaStatus: vi.fn(), runMetricUsageCheck: vi.fn(), createCase: vi.fn() },
+  api: { metricUsage: vi.fn(), metricUsageHistory: vi.fn(), grafanaStatus: vi.fn(), runMetricUsageCheck: vi.fn(), createCase: vi.fn(), ingestionStatus: vi.fn() },
 }));
 
 function renderPage() {
@@ -155,4 +155,50 @@ describe('MetricUsagePage', () => {
     await waitFor(() => expect(api.runMetricUsageCheck).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(api.metricUsage).toHaveBeenCalledTimes(2));
   });
+
+  it('explains what it needs instead of an empty page when no Prometheus-compatible source is connected', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(withMetricUsage('off'));
+    vi.mocked(api.metricUsage).mockResolvedValue(response({ enabled: false, grafana_configured: false, snapshot: null, items: [], items_total: 0 }));
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: false, url: null, reachable: false, message: 'Grafana is not connected.' });
+    renderPage();
+
+    expect(await screen.findByText('Find blind spots and metrics nobody uses')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run now' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No check has run yet')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('grafana-line')).not.toBeInTheDocument();
+  });
+
+  it('still shows the last check when the source has since been disconnected', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(withMetricUsage('off'));
+    vi.mocked(api.metricUsage).mockResolvedValue(response());
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: true, url: null, reachable: true, message: 'Connected' });
+    renderPage();
+
+    expect(await screen.findByTestId('metric-usage-tiles')).toBeInTheDocument();
+    expect(await screen.findByText(/is off until you connect/)).toBeInTheDocument();
+  });
+
+  it('shows the page as before when the feature is on', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(withMetricUsage('on'));
+    vi.mocked(api.metricUsage).mockResolvedValue(response());
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: true, url: null, reachable: true, message: 'Connected' });
+    renderPage();
+
+    expect(await screen.findByTestId('metric-usage-tiles')).toBeInTheDocument();
+    expect(screen.queryByTestId('feature-needs-source')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeInTheDocument();
+  });
 });
+
+function withMetricUsage(state: 'on' | 'off'): IngestionStatus {
+  return {
+    generated_at: new Date().toISOString(),
+    has_any_data: true,
+    sources: {
+      otlp: { endpoint_path: '/api/otlp/v1/metrics', last_received_at: null },
+      alertmanager: { endpoint_path: '/api/integrations/alertmanager', enabled: false, token_required: false, last_received_at: null, received_24h: 0 },
+      prometheus: { configured: state === 'on' },
+    },
+    features: [{ id: 'metric_usage', label: 'Metric Usage', state, missing: state === 'off' ? ['prometheus'] : [], detail: null }],
+  };
+}

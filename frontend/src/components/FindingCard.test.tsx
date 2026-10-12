@@ -104,6 +104,16 @@ describe('FindingCard connection', () => {
     await vi.waitFor(() => expect(api.prometheusConnections).toHaveBeenCalled());
     expect(screen.queryByText(/Default Prometheus/)).not.toBeInTheDocument();
   });
+
+  it('says when the data did not come from Prometheus', () => {
+    renderCard({ ...plain, source: 'otlp' });
+    expect(screen.getByText('drill-cart \u00b7 http_errors_total \u00b7 via OTLP')).toBeInTheDocument();
+  });
+
+  it('adds nothing for Prometheus or an unknown source', () => {
+    renderCard({ ...plain, source: 'prometheus' });
+    expect(screen.getByText('drill-cart \u00b7 http_errors_total')).toBeInTheDocument();
+  });
 });
 
 describe('FindingCard Create Case', () => {

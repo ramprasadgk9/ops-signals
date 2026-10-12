@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from backend.app.behavior_intelligence.fact_catalog import FACT_DESCRIPTORS
 from backend.app.behavior_intelligence.finding_builder import build_evaluation
-from backend.app.behavior_intelligence.fact_extractor import extract_facts
+from backend.app.behavior_intelligence.fact_extractor import input_facts
 from backend.app.behavior_intelligence.models import BehaviorCondition, BehaviorDefinition, BehaviorInput, BehaviorOutput
 from backend.app.behavior_intelligence.pattern_miner import mine_and_store
 from backend.app.behavior_intelligence.schemas import (
@@ -142,12 +142,9 @@ def dry_run_definition(payload: DryRunRequest, db: Session = Depends(get_db)) ->
 
     matched_inputs: dict[str, dict] = {}
     for item in definition.inputs:
-        metric_signals = [
-            s for s in signal_dicts
-            if s.get("metric_name") == item.metric_name and (not item.analyzers or s.get("analyzer_id") in item.analyzers)
-        ]
-        if metric_signals:
-            matched_inputs[item.alias] = extract_facts(metric_signals)[item.metric_name]
+        facts_for_input = input_facts(item.metric_names, item.analyzers, signal_dicts)
+        if facts_for_input is not None:
+            matched_inputs[item.alias] = facts_for_input
 
     if len(matched_inputs) < len(definition.inputs):
         missing = [item.alias for item in definition.inputs if item.alias not in matched_inputs]

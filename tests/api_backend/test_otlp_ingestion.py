@@ -4,10 +4,12 @@ docs/design/otlp-metrics-ingestion-plan.md for the design this implements."""
 
 from __future__ import annotations
 
+import gzip
 import time
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from google.protobuf import json_format
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 
@@ -118,6 +120,70 @@ def test_malformed_body_is_rejected_with_400() -> None:
             headers={"Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 400
+
+
+def test_gzip_body_is_decompressed_like_an_otel_collector_sends_it() -> None:
+    # The Collector's otlphttp exporter gzips by default; before this, every batch got a 400.
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/otlp/v1/metrics",
+            content=gzip.compress(_sample_request(service="gzip-api", point_count=3).SerializeToString()),
+            headers={"Content-Type": "application/x-protobuf", "Content-Encoding": "gzip"},
+        )
+        assert response.status_code == 200
+        with get_session_local()() as db:
+            assert db.query(OtlpPendingPointEntity).filter(OtlpPendingPointEntity.service == "gzip-api").count() == 3
+
+
+def test_gzip_json_body_is_decompressed_too() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        body = json_format.MessageToJson(_sample_request(service="gzip-json-api")).encode()
+        response = client.post(
+            "/api/otlp/v1/metrics",
+            content=gzip.compress(body),
+            headers={"Content-Type": "application/json", "Content-Encoding": "GZIP"},
+        )
+        assert response.status_code == 200
+
+
+def test_body_that_says_gzip_but_is_not_is_rejected_with_400() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/otlp/v1/metrics",
+            content=_sample_request().SerializeToString(),
+            headers={"Content-Type": "application/x-protobuf", "Content-Encoding": "gzip"},
+        )
+        assert response.status_code == 400
+        assert "gzip" in response.text
+
+
+def test_gzip_body_that_inflates_past_the_limit_is_rejected_with_413() -> None:
+    # A small compressed body must not get around the size limit by inflating after the check.
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client, patch("backend.app.api.otlp.MAX_OTLP_BYTES", 1000):
+        compressed = gzip.compress(b"\0" * 100_000)
+        assert len(compressed) < 1000
+        response = client.post(
+            "/api/otlp/v1/metrics",
+            content=compressed,
+            headers={"Content-Type": "application/x-protobuf", "Content-Encoding": "gzip"},
+        )
+        assert response.status_code == 413
+
+
+def test_an_unsupported_content_encoding_is_rejected_with_415() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/otlp/v1/metrics",
+            content=b"anything",
+            headers={"Content-Type": "application/x-protobuf", "Content-Encoding": "zstd"},
+        )
+        assert response.status_code == 415
+        assert "gzip" in response.text
 
 
 def test_oversized_body_is_rejected_with_413() -> None:

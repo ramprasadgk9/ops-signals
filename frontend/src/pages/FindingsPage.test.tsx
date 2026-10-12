@@ -189,6 +189,57 @@ describe('FindingsPage cluster filter', () => {
   });
 });
 
+describe('FindingsPage source filter', () => {
+  const from = (id: number, source: string | null): Finding => ({ ...finding, id, source, title: `Shift from ${source ?? 'unknown'}` });
+
+  beforeEach(() => {
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z',
+      window: '24h',
+      active_findings: 2,
+      open_cases: 0,
+      behavior_changes: 0,
+      impacted_services: 1,
+      memory_items: 0,
+      severity_trend: [],
+      category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.signalsByRunIds).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('marks findings that did not come from Prometheus and filters by source', async () => {
+    vi.mocked(api.findings).mockResolvedValue([from(1, 'prometheus'), from(2, 'otlp')]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('checkout-api · latency_p95 · via OTLP')).toBeInTheDocument();
+    expect(screen.getByText('checkout-api · latency_p95')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'OTLP' }));
+
+    await waitFor(() => expect(screen.queryByText('Shift from prometheus')).not.toBeInTheDocument());
+    expect(screen.getByText('Shift from otlp')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('source=otlp');
+
+    fireEvent.click(screen.getByRole('button', { name: 'All sources' }));
+    expect(await screen.findByText('Shift from prometheus')).toBeInTheDocument();
+  });
+
+  it('hides the source filter when every finding has the same source', async () => {
+    vi.mocked(api.findings).mockResolvedValue([from(1, 'otlp'), from(2, 'otlp')]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('Shift from otlp')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'All sources' })).not.toBeInTheDocument();
+  });
+});
+
 describe('FindingsPage search and sort', () => {
   const make = (id: number, service: string, metric: string, createdAt: string, importance: number): Finding => ({
     ...finding, id, service, metric_name: metric, title: `Finding ${id}`, created_at: createdAt, importance_score: importance,
