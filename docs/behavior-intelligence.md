@@ -61,6 +61,8 @@ behavior_definitions:
     inputs:
       - alias: memory
         metric_name: memory_usage
+        # OpenTelemetry names for the same metric, as sent over OTLP
+        aliases: [container.memory.usage, k8s.pod.memory.usage]
         analyzers:
           - trend
           - baseline_shift
@@ -106,6 +108,13 @@ moved up - a level change counts in either direction unless a condition says whi
 close in time the two signals need to be to count as related. `output` is what gets written as the
 Behavior Finding if everything matches.
 
+A metric often arrives under a different name than the rule uses: OpenTelemetry sends
+`container.memory.usage`, a Prometheus exporter `container_memory_working_set_bytes`. List those
+under `aliases`. An input matches the first of `metric_name`, then each alias, that has signals in
+the run, so a rule written once fires on any source. The shipped packs alias `memory_usage` and
+`cpu_usage` to the per-workload OpenTelemetry names (`container.*`, `k8s.pod.*`). Add your own
+Prometheus or OTel names the same way; an input without `aliases` matches `metric_name` only.
+
 Drop a new file into `config/behavior_definitions.d/` (any filename - it's a directory of
 independent packs, not one shared file) and restart the backend to pick it up.
 
@@ -134,6 +143,8 @@ The UI explanation includes:
 - Behavior findings are assistance, not autonomous action
 - Similarity or correlation does not prove root cause
 - Rules only evaluate normalized facts available in the signal record
+- Rules match metric names exactly; a metric under a name that is neither the rule's `metric_name`
+  nor one of its `aliases` is not matched
 
 ## Future Direction
 

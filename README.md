@@ -860,6 +860,9 @@ case is in [`docs/operational-cases.md`](docs/operational-cases.md).
 
 - Authentication is a single optional shared token, with no users or roles. Run it on a trusted
   network - see [`docs/security-model.md`](docs/security-model.md)
+- With OTLP or CSV alone, autonomous analysis, pod drill-down, alert enrichment and Metric Usage are
+  off: they need a Prometheus-compatible source (and Grafana, for Metric Usage dashboards). The UI
+  says so where you meet them - see [what each source turns on](docs/integrations.md#what-each-source-turns-on)
 - No autonomous remediation
 - No claim that similarity equals root-cause equivalence
 - Historical retrieval depends on the quality of stored summaries and metadata

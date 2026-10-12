@@ -13,6 +13,19 @@
   what it needs and links to Integrations, instead of an empty or failing page; earlier alerts or the
   last Metric Usage check stay visible below. When availability can't be read, the menu and pages
   look exactly as before.
+- **Findings say where their data came from.** `source` (`prometheus`, `otlp`, `csv`) on every
+  finding, and `?source=` on `/api/findings` and `/api/findings/search`. Cards say "via OTLP", the
+  drawer explains why such a finding has no pod breakdown, and the Findings page filters by source
+  when there is more than one.
+- **Integrations show what each source unlocks**: an "Unlocks:" line on every tile, a Grafana tile
+  with its status and setup steps, and a "What works with my data?" side panel. See
+  docs/integrations.md "What each source turns on".
+- **Behavior rule inputs accept `aliases`**, other names the same metric arrives under. The shipped
+  memory and CPU rules alias the per-workload OpenTelemetry names (`container.*`, `k8s.pod.*`), so
+  they fire on OTLP data. Inputs without aliases match as before.
+- **Fixed: Ask Ops Signals scored below its golden floor after the README rewrite.** A section that
+  only lists links to other sections (the README's Contents) is no longer indexed, as it outranked
+  the sections holding the answers.
 
 - **Mimir tenants and clusters in the Grafana plugin**, as in the web UI (see
   docs/standalone-prometheus-analysis.md "In the web UI and the Grafana plugin").

@@ -18,6 +18,27 @@ troubleshooting - when the two disagree, trust the linked page and fix this tabl
 | **OTLP metrics push** | An OpenTelemetry SDK or Collector pushes metrics instead of being scraped. | Push. `POST /api/otlp/v1/metrics` (point your OTel exporter at `<host>/api/otlp`, which appends `/v1/metrics`). Buffered, then folded into analysis runs. See [`design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md). |
 | **CSV upload** | One-off analysis of a metric you already have as a file, no live connection needed. | Upload. `POST /api/ingestion/csv-validate` to check it, then `POST /api/ingestion/csv-run` to analyze it - or the **Integrations** page uploader does both. |
 
+### What each source turns on
+
+You don't need every source. Findings, cases, operational memory, Slack notifications and the
+assistant work with any metrics source, including OTLP or CSV alone. These need a particular one:
+
+| Feature | Needs | Without it |
+|---|---|---|
+| Autonomous analysis | A Prometheus-compatible source | It finds and pulls metrics with PromQL |
+| Drill-down by pod | A Prometheus-compatible source | It re-runs the finding's query grouped by pod |
+| Alert enrichment | Alertmanager and a Prometheus-compatible source | It re-runs the alert's PromQL to see what changed |
+| Metric Usage | A Prometheus-compatible source; Grafana makes it complete | Without Grafana it reads Prometheus alert and recording rules only, not dashboards |
+| Deploy correlation | Deploy events (`POST /api/events`) | Findings can't say which deploy came just before |
+| Latency percentiles from OTLP | Not yet | OTLP histograms are rejected; percentiles come from Prometheus or CSV |
+
+The app works this out from what is connected and adapts. Features a source can't run yet move to
+a "More with Prometheus / Grafana" menu group, and opening one explains what it needs. Each tile on
+the **Integrations** page ends with what that source unlocks, and **What works with my data?**
+lists every feature with its status. Each finding says where its data came from ("via OTLP"). The
+same list is in `GET /api/ingestion/status` under `features`. A configured source that is briefly
+unreachable still counts as connected, so the menu doesn't reshuffle when a backend blips.
+
 ## Data in: context and history
 
 | Integration | What it's for | How it's wired |
