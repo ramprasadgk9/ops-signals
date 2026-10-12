@@ -64,6 +64,9 @@ class FeatureAvailability(BaseModel):
     # The sources to connect: the missing `needs` when off, the missing `better_with` when partly.
     missing: list[str]
     detail: str | None = None
+    # The feature's own requirements, so a source can list what it unlocks.
+    needs: list[str] = []
+    better_with: list[str] = []
 
 
 def evaluate(connected: set[str]) -> list[FeatureAvailability]:
@@ -79,5 +82,15 @@ def evaluate(connected: set[str]) -> list[FeatureAvailability]:
             state, missing, detail = "partly", [], reason
         else:
             state, missing, detail = "on", [], None
-        out.append(FeatureAvailability(id=feature.id, label=feature.label, state=state, missing=missing, detail=detail))
+        out.append(
+            FeatureAvailability(
+                id=feature.id,
+                label=feature.label,
+                state=state,
+                missing=missing,
+                detail=detail,
+                needs=list(feature.needs),
+                better_with=list(feature.better_with),
+            )
+        )
     return out

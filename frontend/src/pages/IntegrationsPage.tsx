@@ -2,6 +2,7 @@ import { Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { AiProviderCard } from '../components/AiProviderCard';
+import { FeatureAvailabilityPanel } from '../components/FeatureAvailabilityPanel';
 import { IntegrationTiles, OneOffAnalysisLine, SourceStatusStrip } from '../components/GetDataInPanel';
 import { ImportHistoryCard } from '../components/ImportHistoryCard';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -17,7 +18,14 @@ export function IntegrationsPage() {
       <PageHeader
         title="Integrations"
         subtitle="Everything that sends data into Ops Signals, and whether it is arriving"
-        action={status ? <SourceStatusStrip status={status} /> : undefined}
+        action={
+          status ? (
+            <Stack spacing={1} alignItems={{ xs: 'flex-start', md: 'flex-end' }}>
+              <SourceStatusStrip status={status} />
+              <FeatureAvailabilityPanel features={status.features} />
+            </Stack>
+          ) : undefined
+        }
       />
 
       {statusQuery.isLoading ? <LoadingSkeleton /> : null}

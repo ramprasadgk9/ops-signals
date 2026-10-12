@@ -124,6 +124,8 @@ def test_status_lists_grafana_and_the_features(monkeypatch: pytest.MonkeyPatch) 
         "state": "off",
         "missing": ["prometheus"],
         "detail": None,
+        "needs": ["prometheus"],
+        "better_with": [],
     }
 
 

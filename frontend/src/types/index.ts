@@ -1238,6 +1238,9 @@ export type FeatureAvailability = {
   /** Sources to connect: the missing requirements when off, the missing extras when partly. */
   missing: SourceId[];
   detail: string | null;
+  /** The feature's own requirements (absent from older backends). */
+  needs?: SourceId[];
+  better_with?: SourceId[];
 };
 
 export type OtlpStatus = {

@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { IntegrationsPage } from './IntegrationsPage';
 import { api } from '../api/queries';
-import type { IngestionStatus } from '../types';
+import type { FeatureAvailability, IngestionStatus } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -179,5 +179,85 @@ describe('IntegrationsPage', () => {
     // Without the tiles, the card is the one place left that shows the endpoint.
     expect(await screen.findByText('OTLP Metrics Ingestion')).toBeInTheDocument();
     expect(screen.getByText(`${window.location.origin}/api/otlp/v1/metrics`)).toBeInTheDocument();
+  });
+});
+
+describe('IntegrationsPage: what each source unlocks', () => {
+  const feature = (
+    id: string,
+    label: string,
+    state: FeatureAvailability['state'],
+    needs: FeatureAvailability['needs'] = [],
+    better_with: FeatureAvailability['better_with'] = [],
+    missing: FeatureAvailability['missing'] = [],
+  ): FeatureAvailability => ({ id, label, state, needs, better_with, missing, detail: null });
+
+  const otlpOnly: IngestionStatus = {
+    ...status,
+    sources: {
+      ...status.sources,
+      otlp: { endpoint_path: '/api/otlp/v1/metrics', last_received_at: new Date().toISOString() },
+      alertmanager: { ...status.sources.alertmanager, enabled: false, last_received_at: null, received_24h: 0 },
+      grafana: { configured: false, url: null, reachable: null },
+    },
+    features: [
+      feature('findings', 'Findings and analyzers', 'on'),
+      feature('cases', 'Cases and ticketing', 'on'),
+      feature('autonomous_analysis', 'Autonomous analysis', 'off', ['prometheus'], [], ['prometheus']),
+      feature('alert_enrichment', 'Alert enrichment', 'off', ['alertmanager', 'prometheus'], [], ['alertmanager', 'prometheus']),
+      feature('metric_usage', 'Metric Usage', 'off', ['prometheus'], ['grafana'], ['prometheus']),
+    ],
+  };
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('ends each source tile with what it turns on', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(otlpOnly);
+    vi.mocked(api.otlpStatus).mockResolvedValue(otlpStatus);
+    renderPage();
+
+    expect(await screen.findByTestId('unlocks-otlp')).toHaveTextContent('Unlocks: Findings and analyzers · Cases and ticketing');
+    expect(screen.getByTestId('unlocks-prometheus')).toHaveTextContent(
+      'Unlocks: Autonomous analysis · Alert enrichment (with Alertmanager) · Metric Usage'
+    );
+    expect(screen.getByTestId('unlocks-alertmanager')).toHaveTextContent('Unlocks: Alert enrichment (with Prometheus)');
+    expect(screen.getByTestId('unlocks-grafana')).toHaveTextContent('Unlocks: Metric Usage (more complete, with Prometheus)');
+  });
+
+  it('adds a Grafana tile with how to connect it', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(otlpOnly);
+    vi.mocked(api.otlpStatus).mockResolvedValue(otlpStatus);
+    renderPage();
+
+    expect(await screen.findByText('Connect Grafana')).toBeInTheDocument();
+    expect(screen.getByText(/Service accounts/)).toBeInTheDocument();
+    expect(within(screen.getByRole('status', { name: 'Data sources' })).getByText('Grafana')).toBeInTheDocument();
+  });
+
+  it('lists every feature and why it is off in a side panel', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(otlpOnly);
+    vi.mocked(api.otlpStatus).mockResolvedValue(otlpStatus);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'What works with my data?' }));
+
+    const table = await screen.findByRole('table', { name: 'Feature availability' });
+    expect(within(table).getByTestId('feature-row-findings')).toHaveTextContent('On');
+    expect(within(table).getByTestId('feature-row-alert_enrichment')).toHaveTextContent('Needs Alertmanager and a Prometheus-compatible source');
+    expect(screen.getByText('2 on')).toBeInTheDocument();
+    expect(screen.getByText('3 off')).toBeInTheDocument();
+  });
+
+  it('shows the page as before when the backend sends no feature list', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(status);
+    vi.mocked(api.otlpStatus).mockResolvedValue(otlpStatus);
+    renderPage();
+
+    expect(await screen.findByText('Send metrics via OTLP')).toBeInTheDocument();
+    expect(screen.queryByText(/Unlocks:/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Connect Grafana')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'What works with my data?' })).not.toBeInTheDocument();
   });
 });
