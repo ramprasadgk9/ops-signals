@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any, Callable, Iterator
 import pandas as pd
 from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select
 from sqlalchemy.dialects.postgresql import BIGINT
+from sqlalchemy.engine import Engine
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -52,10 +54,31 @@ def suppress_findings_hook() -> Iterator[None]:
         _findings_hook_suppressed.reset(token)
 
 
+# One engine, and so one connection pool, per database URL for the whole process. Every analysis
+# builds a PostgresStore (each CSV upload, Prometheus run and OTLP metric group); with an engine
+# each, never closed, an OTLP cycle over a real Collector's hundreds of groups ran Postgres out of
+# connections. In-memory SQLite stays one engine per store: each is its own fresh database.
+_shared_engines: dict[str, Engine] = {}
+_shared_engines_lock = threading.Lock()
+
+
+def _engine_for(url: str) -> Engine:
+    if ":memory:" in url:
+        return create_engine(url)
+    with _shared_engines_lock:
+        engine = _shared_engines.get(url)
+        if engine is None:
+            # pre_ping: a pooled connection the database closed (restart, idle timeout) is
+            # replaced rather than failing the next analysis.
+            engine = create_engine(url, pool_pre_ping=True)
+            _shared_engines[url] = engine
+        return engine
+
+
 class PostgresStore:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.engine = create_engine(self._connection_string())
+        self.engine = _engine_for(self._connection_string())
         self.metadata = MetaData()
         prefix = config.storage.postgres.table_prefix
         self.normalized_table = Table(

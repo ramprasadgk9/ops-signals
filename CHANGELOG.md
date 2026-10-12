@@ -25,6 +25,13 @@
   they fire on OTLP data. Inputs without aliases match as before.
 - **Behavior Lab suggests metric names as you type**, from every metric name Ops Signals has
   stored, so a rule (or an alias) uses the name your source really sends.
+- **Fixed: a stock OpenTelemetry Collector's metrics were rejected.** Its `otlphttp` exporter gzips
+  by default, and the OTLP receiver answered every batch with a 400. Gzip bodies are now accepted,
+  with the size limit applied after decompression; other encodings get a 415.
+- **Fixed: analysis with many metrics ran Postgres out of connections.** Every analysis (each CSV
+  upload, Prometheus run and OTLP metric group) opened its own connection pool and never closed it;
+  an OTLP cycle over a real Collector's hundreds of metrics hit "too many clients". All analyses now
+  share one pool per database.
 - **Fixed: Ask Ops Signals scored below its golden floor after the README rewrite.** A section that
   only lists links to other sections (the README's Contents) is no longer indexed, as it outranked
   the sections holding the answers.
