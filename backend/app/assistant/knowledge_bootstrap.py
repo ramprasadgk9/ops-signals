@@ -87,6 +87,16 @@ def _windows(text: str, size: int) -> list[str]:
     return pieces
 
 
+_ANCHOR_LINK = re.compile(r"\]\(#[^)]*\)")
+
+
+def _is_table_of_contents(body: str) -> bool:
+    """A section that only lists links to other sections of the same page (README "Contents").
+    It names every topic, so it outranks the sections that hold the answers without holding any."""
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    return bool(lines) and all(line.startswith(("- ", "* ")) and _ANCHOR_LINK.search(line) for line in lines)
+
+
 def _chunk_document(content: str, title: str) -> list[KnowledgeChunk]:
     """One chunk per Markdown section, so a search hit can be cited to the section that holds the
     answer. A section too long to embed is windowed, every window keeping its section's heading. A
@@ -105,7 +115,7 @@ def _chunk_document(content: str, title: str) -> list[KnowledgeChunk]:
         body = section.text
         if section.level:
             body = body.split("\n", 1)[1].strip() if "\n" in body else ""
-        if not body:
+        if not body or _is_table_of_contents(body):
             continue
         budget = max(CHUNK_CHARS - len(title) - len(breadcrumb) - 4, CHUNK_CHARS // 2)
         windows = _windows(body, budget)

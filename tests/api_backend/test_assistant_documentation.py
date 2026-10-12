@@ -108,6 +108,20 @@ def test_each_section_is_its_own_chunk_with_its_heading_path_and_anchor() -> Non
     assert by_section["Security: tokens & CORS > Clients"].embedding_text("Setup guide").startswith("Setup guide > Security: tokens & CORS > Clients\n")
 
 
+def test_a_table_of_contents_is_not_indexed_but_a_list_of_other_docs_is() -> None:
+    # A "Contents" list names every topic, so it outranked the sections holding the answers.
+    guide = (
+        "# Guide\n\n" + "Intro paragraph. " * 120 + "\n\n"
+        "## Contents\n\n- [Install](#install)\n- [Deploy](#deploy): [Helm](#helm) (screenshots)\n\n"
+        "## Further reading\n\n- [Security model](docs/security-model.md)\n- [FAQ](docs/faq.md)\n\n"
+        "## Install\n\nRun ./scripts/setup.sh and see [Deploy](#deploy) next.\n"
+    )
+    sections = {chunk.section for chunk in _chunk_document(guide, "Guide")}
+
+    assert "Contents" not in sections
+    assert {"Further reading", "Install"} <= sections
+
+
 def test_no_chunk_is_longer_than_the_embedder_reads() -> None:
     for document in _documents():
         for chunk in _chunk_document(document.content, document.title):
