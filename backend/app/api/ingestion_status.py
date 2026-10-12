@@ -1,5 +1,6 @@
 """GET /api/ingestion/status - one read for "is any data getting in?", behind the Overview page's
-first-run "Get data in" panel and its source-status strip.
+first-run "Get data in" panel and its source-status strip, and the list of features the connected
+sources turn on.
 
 Read-only and best-effort: every lookup that can fail degrades to "unknown" (None / False) rather
 than failing the request, so the Overview never breaks because of this card.
@@ -17,7 +18,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.config import PrometheusConnectionConfig, get_alert_enrichment_config, get_prometheus_connections
+from backend.app.capabilities.availability import FeatureAvailability, evaluate
+from backend.app.config import (
+    GrafanaConfig,
+    PrometheusConnectionConfig,
+    get_alert_enrichment_config,
+    get_metric_usage_config,
+    get_prometheus_connections,
+)
+from backend.app.integrations.grafana.client import GrafanaClient
 from backend.app.models.db import get_db
 from backend.app.models.entities import (
     AlertEnrichmentEntity,
@@ -43,6 +52,8 @@ PROMETHEUS_CHECK_TTL_SECONDS = 30.0
 PROMETHEUS_CHECK_TIMEOUT_SECONDS = 3.0
 # connection id -> (checked at, base_url, reachable)
 _prometheus_checks: dict[str, tuple[float, str, bool]] = {}
+# (checked at, base_url, reachable) of the last Grafana check, on the same TTL as Prometheus.
+_grafana_check: tuple[float, str, bool] | None = None
 # analysis_runs.source_type the OTLP backlog cycle writes (backend/app/autonomous/scheduler.py).
 OTLP_RUN_SOURCE_TYPE = "otel"
 
@@ -95,17 +106,28 @@ class EventsSourceStatus(BaseModel):
     last_event: LastChangeEvent | None = None
 
 
+class GrafanaSourceStatus(BaseModel):
+    """Grafana, read by the metric usage check (dashboards and Grafana-managed alert rules)."""
+
+    configured: bool
+    url: str | None = None  # without any user:password@ part
+    reachable: bool | None = None  # None when not configured
+
+
 class IngestionSources(BaseModel):
     otlp: OtlpSourceStatus
     alertmanager: AlertmanagerSourceStatus
     prometheus: PrometheusSourceStatus
     events: EventsSourceStatus
+    grafana: GrafanaSourceStatus
 
 
 class IngestionStatusOut(BaseModel):
     generated_at: datetime
     has_any_data: bool
     sources: IngestionSources
+    # What the connected sources turn on (backend/app/capabilities/availability.py).
+    features: list[FeatureAvailability] = Field(default_factory=list)
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -145,6 +167,31 @@ def _prometheus_reachable(config: PrometheusConnectionConfig) -> bool | None:
         reachable = False
     _prometheus_checks[config.id] = (now, config.base_url, reachable)
     return reachable
+
+
+def _grafana_reachable(config: GrafanaConfig) -> bool | None:
+    global _grafana_check
+    if not config.base_url:
+        return None
+    now = time.monotonic()
+    cached = _grafana_check
+    if cached and cached[1] == config.base_url and now - cached[0] < PROMETHEUS_CHECK_TTL_SECONDS:
+        return cached[2]
+    try:
+        GrafanaClient(config.model_copy(update={"timeout_seconds": PROMETHEUS_CHECK_TIMEOUT_SECONDS})).check()
+        reachable = True
+    except Exception:  # noqa: BLE001 - a status read never fails because Grafana is down
+        reachable = False
+    _grafana_check = (now, config.base_url, reachable)
+    return reachable
+
+
+def _grafana_status(config: GrafanaConfig, reachable: bool | None) -> GrafanaSourceStatus:
+    return GrafanaSourceStatus(
+        configured=config.configured,
+        url=display_url(config.base_url) if config.base_url else None,
+        reachable=reachable,
+    )
 
 
 def _prometheus_status(scheduled_policies: int, alert_enrichment_enabled: bool) -> PrometheusSourceStatus:
@@ -187,6 +234,11 @@ def _last_change_event(db: Session) -> ChangeEventEntity | None:
 def get_ingestion_status(db: Session = Depends(get_db)) -> IngestionStatusOut:
     now = datetime.now(timezone.utc)
     alert_config = get_alert_enrichment_config()
+    grafana_config = get_metric_usage_config().grafana
+    # Checked while the database and Prometheus lookups run, so a slow Grafana adds no extra wait.
+    grafana_pool = ThreadPoolExecutor(max_workers=1)
+    grafana_reachable = grafana_pool.submit(_grafana_reachable, grafana_config)
+    grafana_pool.shutdown(wait=False)
 
     otlp_last = _latest(
         otlp_last_received_at(),
@@ -231,9 +283,26 @@ def get_ingestion_status(db: Session = Depends(get_db)) -> IngestionStatusOut:
         "autonomous policies",
     )
 
+    prometheus = _prometheus_status(int(scheduled_policies or 0), alert_config.enabled)
+    grafana = _grafana_status(grafana_config, grafana_reachable.result())
+    # Configured counts as connected even when unreachable: that is a problem to fix on the
+    # Integrations page, not a reason to reshuffle the menu every time a backend blips.
+    connected = {
+        source
+        for source, present in (
+            ("otlp", otlp_last is not None),
+            ("prometheus", prometheus.configured),
+            ("alertmanager", alert_config.enabled),
+            ("grafana", grafana.configured),
+            ("events", last_event is not None),
+        )
+        if present
+    }
+
     return IngestionStatusOut(
         generated_at=now,
         has_any_data=has_any_data,
+        features=evaluate(connected),
         sources=IngestionSources(
             otlp=OtlpSourceStatus(endpoint_path=OTLP_ENDPOINT_PATH, last_received_at=otlp_last),
             alertmanager=AlertmanagerSourceStatus(
@@ -243,7 +312,8 @@ def get_ingestion_status(db: Session = Depends(get_db)) -> IngestionStatusOut:
                 last_received_at=alerts_last,
                 received_24h=int(alerts_24h or 0),
             ),
-            prometheus=_prometheus_status(int(scheduled_policies or 0), alert_config.enabled),
+            prometheus=prometheus,
+            grafana=grafana,
             events=EventsSourceStatus(
                 endpoint_path=EVENTS_ENDPOINT_PATH,
                 token_required=bool(receiver_token_or_api_token(alert_config.events_token)),

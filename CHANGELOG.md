@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Feature availability by data source.** `GET /api/ingestion/status` now returns `features`:
+  each feature's state (`on`, `partly`, `off`) worked out from the connected sources, with the
+  sources it is missing. For example, with OTLP alone, findings, cases and memory are on, while
+  autonomous analysis, pod drill-down, alert enrichment and Metric Usage are off and name
+  Prometheus. The response also reports Grafana (configured, reachable; checked at most every 30s).
+  This is the groundwork for a UI that groups and explains features by source.
+
 - **Mimir tenants and clusters in the Grafana plugin**, as in the web UI (see
   docs/standalone-prometheus-analysis.md "In the web UI and the Grafana plugin").
   Autonomous Configure has a **Prometheus connection** picker (one per tenant, with a test) and an

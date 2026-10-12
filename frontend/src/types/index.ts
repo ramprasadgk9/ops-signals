@@ -1214,7 +1214,28 @@ export type IngestionStatus = {
       received_24h: number;
       last_event: { service: string; type: string; version: string | null; env: string | null; timestamp: string } | null;
     };
+    /** Read by the metric usage check. */
+    grafana?: {
+      configured: boolean;
+      /** Without any user:password@ part. */
+      url: string | null;
+      /** null when not configured. */
+      reachable: boolean | null;
+    };
   };
+  /** What the connected sources turn on (backend/app/capabilities/availability.py). */
+  features?: FeatureAvailability[];
+};
+
+export type SourceId = 'otlp' | 'prometheus' | 'alertmanager' | 'grafana' | 'events';
+
+export type FeatureAvailability = {
+  id: string;
+  label: string;
+  state: 'on' | 'partly' | 'off';
+  /** Sources to connect: the missing requirements when off, the missing extras when partly. */
+  missing: SourceId[];
+  detail: string | null;
 };
 
 export type OtlpStatus = {
