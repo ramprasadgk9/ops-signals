@@ -40,7 +40,9 @@ import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
+import { useFeatureAvailability } from '../hooks/useFeatureAvailability';
 import { ui } from '../standalone/theme';
+import { showAllNavFeatures, useHiddenNavFeatures } from '../utils/hiddenNavFeatures';
 
 type NavItem = {
   label: string;
@@ -48,16 +50,19 @@ type NavItem = {
   icon: ReactNode;
   match?: (pathname: string) => boolean;
   badge?: string;
+  /** Feature id (backend/app/capabilities/availability.py) the page needs a source for. While it
+   * is off, the item moves to the "More with Prometheus / Grafana" group. */
+  feature?: string;
 };
 
 const navItems: NavItem[] = [
   { label: 'Overview', to: '/', icon: <HomeRoundedIcon />, match: (path) => path === '/' },
-  { label: 'Alerts', to: '/alerts', icon: <NotificationsActiveOutlinedIcon /> },
+  { label: 'Alerts', to: '/alerts', icon: <NotificationsActiveOutlinedIcon />, feature: 'alert_enrichment' },
   { label: 'Integrations', to: '/integrations', icon: <InputRoundedIcon /> },
-  { label: 'Autonomous Analysis Configure', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon /> },
+  { label: 'Autonomous Analysis Configure', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon />, feature: 'autonomous_analysis' },
   { label: 'Investigations', to: '/investigations', icon: <TravelExploreRoundedIcon /> },
   { label: 'Findings', to: '/findings', icon: <CrisisAlertRoundedIcon /> },
-  { label: 'Metric Usage', to: '/metric-usage', icon: <VisibilityOutlinedIcon /> },
+  { label: 'Metric Usage', to: '/metric-usage', icon: <VisibilityOutlinedIcon />, feature: 'metric_usage' },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
   { label: 'Behavior Intelligence', to: '/behavior-intelligence', icon: <HubRoundedIcon /> },
   { label: 'Behavior Lab', to: '/behavior-intelligence/lab', icon: <ScienceRoundedIcon /> },
@@ -85,7 +90,7 @@ const systemItems: NavItem[] = [
   { label: 'System', to: '/system', icon: <DnsRoundedIcon /> },
 ];
 
-function NavButton({ item, nested = false }: { item: NavItem; nested?: boolean }) {
+function NavButton({ item, nested = false, needsSource = false }: { item: NavItem; nested?: boolean; needsSource?: boolean }) {
   const location = useLocation();
   const active = item.match ? item.match(location.pathname) : location.pathname === item.to;
   return (
@@ -114,6 +119,7 @@ function NavButton({ item, nested = false }: { item: NavItem; nested?: boolean }
         {item.label}
       </Box>
       {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-violet)', color: ui.purple, fontWeight: 800 }} /> : null}
+      {needsSource ? <Chip label="Connect" size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: '#92400e', fontWeight: 800 }} /> : null}
     </Button>
   );
 }
@@ -178,6 +184,30 @@ function WorkbenchButton({
   );
 }
 
+/** Pages whose feature the connected sources can't run yet: kept findable, not mixed in with the
+ * ones that work. A viewer can hide an item from here and bring it back. */
+function NeedsSourceGroup({ items }: { items: NavItem[] }) {
+  const hidden = useHiddenNavFeatures();
+  if (!items.length) return null;
+  const shown = items.filter((item) => !hidden.includes(item.feature ?? ''));
+  const hiddenCount = items.length - shown.length;
+  return (
+    <Box data-testid="nav-needs-source" sx={{ pt: 1.4 }}>
+      <Typography sx={{ px: 1.6, pb: 0.6, fontSize: 12, fontWeight: 850, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--os-muted)' }}>
+        More with Prometheus / Grafana
+      </Typography>
+      <Stack spacing={0.8}>
+        {shown.map((item) => <NavButton key={item.label} item={item} needsSource />)}
+      </Stack>
+      {hiddenCount ? (
+        <Button onClick={showAllNavFeatures} size="small" sx={{ ml: 1, textTransform: 'none', fontWeight: 700, color: 'var(--os-muted)' }}>
+          Show {hiddenCount} hidden
+        </Button>
+      ) : null}
+    </Box>
+  );
+}
+
 function SystemStatus() {
   const healthQuery = useQuery({ queryKey: ['shell-health'], queryFn: api.health, retry: false });
   const memoryQuery = useQuery({ queryKey: ['shell-memory-health'], queryFn: api.memoryHealth, retry: false });
@@ -219,6 +249,9 @@ export function AppShell({ children }: PropsWithChildren) {
     analyzerWorkbenchItems.some((item) => location.pathname === item.to);
   const [analyzerWorkbenchOpen, setAnalyzerWorkbenchOpen] = useState(isAnalyzerWorkbenchPage);
   const [labsOpen, setLabsOpen] = useState(isAnalyzerWorkbenchPage);
+  const { isOff } = useFeatureAvailability();
+  const needsSourceItems = navItems.filter((item) => item.feature && isOff(item.feature));
+  const mainItems = navItems.filter((item) => !needsSourceItems.includes(item));
   useEffect(() => {
     if (isAnalyzerWorkbenchPage) setAnalyzerWorkbenchOpen(true);
   }, [isAnalyzerWorkbenchPage, location.pathname]);
@@ -284,7 +317,8 @@ export function AppShell({ children }: PropsWithChildren) {
           }}
         >
           <Stack spacing={0.8} sx={{ px: 1.5 }}>
-            {navItems.map((item) => <NavButton key={item.label} item={item} />)}
+            {mainItems.map((item) => <NavButton key={item.label} item={item} />)}
+            <NeedsSourceGroup items={needsSourceItems} />
             <Button
               onClick={() => setAnalyzerWorkbenchOpen((open) => !open)}
               endIcon={<KeyboardArrowDownRoundedIcon sx={{ transform: analyzerWorkbenchOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}

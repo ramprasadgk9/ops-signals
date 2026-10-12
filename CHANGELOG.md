@@ -7,7 +7,12 @@
   sources it is missing. For example, with OTLP alone, findings, cases and memory are on, while
   autonomous analysis, pod drill-down, alert enrichment and Metric Usage are off and name
   Prometheus. The response also reports Grafana (configured, reachable; checked at most every 30s).
-  This is the groundwork for a UI that groups and explains features by source.
+- **The web UI follows what your sources can run.** Alerts, Autonomous Analysis and Metric Usage
+  move to a "More with Prometheus / Grafana" menu group, marked Connect, while their source isn't
+  connected; a viewer can hide them there and bring them back. Opening one explains what it does,
+  what it needs and links to Integrations, instead of an empty or failing page; earlier alerts or the
+  last Metric Usage check stay visible below. When availability can't be read, the menu and pages
+  look exactly as before.
 
 - **Mimir tenants and clusters in the Grafana plugin**, as in the web UI (see
   docs/standalone-prometheus-analysis.md "In the web UI and the Grafana plugin").
