@@ -24,6 +24,19 @@ def _largest_change(signals: list[dict[str, Any]]) -> float:
     return max(changes, key=abs, default=0.0)
 
 
+def input_facts(metric_names: list[str], analyzers: list[str], signals: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Facts for one behavior input: the signals of the first of its metric names that has any
+    (from the input's analyzers, when it lists some). None when none of the names has signals."""
+    for name in metric_names:
+        matched = [
+            signal for signal in signals
+            if signal.get("metric_name") == name and (not analyzers or signal.get("analyzer_id") in analyzers)
+        ]
+        if matched:
+            return extract_facts(matched)[name]
+    return None
+
+
 def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     by_metric: dict[str, list[dict[str, Any]]] = defaultdict(list)

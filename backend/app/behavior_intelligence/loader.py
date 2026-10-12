@@ -16,7 +16,12 @@ def _parse_definitions(raw: dict, source_file: str) -> list[BehaviorDefinition]:
     out: list[BehaviorDefinition] = []
     for definition_id, details in defs.items():
         inputs = [
-            BehaviorInput(alias=item["alias"], metric_name=item["metric_name"], analyzers=list(item.get("analyzers", [])))
+            BehaviorInput(
+                alias=item["alias"],
+                metric_name=item["metric_name"],
+                analyzers=list(item.get("analyzers", [])),
+                aliases=list(item.get("aliases", []) or []),
+            )
             for item in details.get("inputs", [])
         ]
         conditions = {

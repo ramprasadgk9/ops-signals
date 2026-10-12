@@ -34,6 +34,8 @@ class BehaviorDefinitionValidator:
                 errors.append("every input must declare a non-empty alias")
             if not item.metric_name:
                 errors.append(f"input '{item.alias}' must declare a metric_name")
+            if any(not isinstance(name, str) or not name.strip() for name in item.aliases):
+                errors.append(f"input '{item.alias}' aliases must be non-empty metric names")
             if known_analyzer_ids is not None:
                 unknown = [a for a in item.analyzers if a not in known_analyzer_ids]
                 if unknown:

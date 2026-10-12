@@ -15,6 +15,13 @@ class BehaviorInput:
     alias: str
     metric_name: str
     analyzers: list[str] = field(default_factory=list)
+    # Other names the same metric arrives under (an OTel or Prometheus name for memory_usage).
+    # The input matches the first of metric_name, then these, that has signals.
+    aliases: list[str] = field(default_factory=list)
+
+    @property
+    def metric_names(self) -> list[str]:
+        return list(dict.fromkeys([self.metric_name, *self.aliases]))
 
 
 @dataclass(slots=True)

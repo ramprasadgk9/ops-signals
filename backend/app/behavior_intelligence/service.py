@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from backend.app.behavior_intelligence.fact_extractor import extract_facts
+from backend.app.behavior_intelligence.fact_extractor import input_facts
 from backend.app.behavior_intelligence.finding_builder import build_evaluation
 from backend.app.behavior_intelligence.loader import load_definitions
 from backend.app.behavior_intelligence.repository import BehaviorFindingRepository
@@ -37,13 +37,9 @@ class BehaviorIntelligenceService:
                 continue
             matched_inputs: dict[str, dict[str, Any]] = {}
             for item in definition.inputs:
-                metric_signals = [
-                    signal for signal in signals
-                    if signal.get("metric_name") == item.metric_name
-                    and (not item.analyzers or signal.get("analyzer_id") in item.analyzers)
-                ]
-                if metric_signals:
-                    matched_inputs[item.alias] = extract_facts(metric_signals)[item.metric_name]
+                facts_for_input = input_facts(item.metric_names, item.analyzers, signals)
+                if facts_for_input is not None:
+                    matched_inputs[item.alias] = facts_for_input
             if len(matched_inputs) < len(definition.inputs):
                 continue
             facts: dict[str, Any] = {}

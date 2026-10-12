@@ -11,6 +11,8 @@ behavior_definitions:
     inputs:
       - alias: cpu
         metric_name: cpu_usage
+        # OpenTelemetry names for the same metric, as sent over OTLP
+        aliases: [container.cpu.usage, k8s.pod.cpu.usage]
         analyzers:
           - anomaly_zscore
           - pyod_outlier
@@ -66,12 +68,16 @@ behavior_definitions:
     inputs:
       - alias: cpu
         metric_name: cpu_usage
+        # OpenTelemetry names for the same metric, as sent over OTLP
+        aliases: [container.cpu.usage, k8s.pod.cpu.usage]
         analyzers:
           - anomaly_zscore
           - pyod_outlier
           - baseline_shift
       - alias: memory
         metric_name: memory_usage
+        # OpenTelemetry names for the same metric, as sent over OTLP
+        aliases: [container.memory.usage, k8s.pod.memory.usage]
         analyzers:
           - anomaly_zscore
           - pyod_outlier
@@ -126,6 +132,8 @@ behavior_definitions:
     inputs:
       - alias: memory
         metric_name: memory_usage
+        # OpenTelemetry names for the same metric, as sent over OTLP
+        aliases: [container.memory.usage, k8s.pod.memory.usage]
         analyzers:
           - trend
           - baseline_shift
@@ -224,6 +232,8 @@ behavior_definitions:
           - trend
       - alias: cpu
         metric_name: cpu_usage
+        # OpenTelemetry names for the same metric, as sent over OTLP
+        aliases: [container.cpu.usage, k8s.pod.cpu.usage]
         analyzers:
           - trend
     conditions:
