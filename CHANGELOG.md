@@ -23,6 +23,8 @@
 - **Behavior rule inputs accept `aliases`**, other names the same metric arrives under. The shipped
   memory and CPU rules alias the per-workload OpenTelemetry names (`container.*`, `k8s.pod.*`), so
   they fire on OTLP data. Inputs without aliases match as before.
+- **Behavior Lab suggests metric names as you type**, from every metric name Ops Signals has
+  stored, so a rule (or an alias) uses the name your source really sends.
 - **Fixed: Ask Ops Signals scored below its golden floor after the README rewrite.** A section that
   only lists links to other sections (the README's Contents) is no longer indexed, as it outranked
   the sections holding the answers.
