@@ -733,6 +733,9 @@ appear in the UI:
 ./scripts/send_test_otlp_metrics.py --service demo-service
 ```
 
+To try a real OpenTelemetry Collector instead, sending this machine's host and Docker container
+metrics: `./scripts/otel_collector.sh start` (and `status`, `logs`, `stop`).
+
 Point `-t otlphttp` metrics in an OTel Collector config at Ops Signals like this:
 
 ```yaml
