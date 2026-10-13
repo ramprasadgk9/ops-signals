@@ -156,6 +156,33 @@ actual timestamps (`_infer_interval()`) — the same principle
 query's real `step_seconds` rather than assuming one). Regression-tested in
 `tests/api_backend/test_otlp_ingestion.py::test_infer_interval_matches_the_actual_gap_between_points`.
 
+**4. A live Collector gave no findings: each cycle analyzed one minute of points alone.**
+Found by sending a real OTel Collector's host and Docker metrics to an empty install
+(`scripts/otlp_sandbox.sh`): every cycle analyzed each series' 4-7 newest points and deleted
+them, while analyzers need 30-80, so 2,862 runs in 12 minutes executed no analyzer. The synthetic
+test script never showed it, as it sends a day of points in one request. Now
+(`backend/app/autonomous/scheduler.py`):
+
+- A series' points wait until the oldest has waited `OPS_SIGNALS_OTLP_ANALYSIS_INTERVAL_MINUTES`
+  (10), or `OPS_SIGNALS_OTLP_IMMEDIATE_BATCH_POINTS` (60) distinct timestamps arrive at once (a
+  backfill). Counted in timestamps, not rows: `system.cpu.time` sends one row per CPU state.
+- Each analysis reads the series' last `OPS_SIGNALS_OTLP_HISTORY_HOURS` (6) of stored points as
+  history, stores only the new ones, and skips stored gaps (NaN), which normalization rejects.
+- The cycle budget (`OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE`) takes whole series, never a slice.
+- A batch whose analysis fails is dropped, not retried each cycle: retried, one failure used up
+  every later cycle's budget and stopped all analysis.
+
+**5. Counters are turned into per-second rates on receipt.** A monotonic Sum is a running total,
+so analyzed raw every counter looked like a one-way trend. `backend/app/otlp/rates.py` keeps
+each cumulative series' previous point in memory and stores the rate (a reset counts from zero, as
+`rate()` does; each series' first point after a restart is only remembered). A delta Sum is
+divided by its interval; a non-monotonic Sum (memory in use) is a gauge.
+
+**6. A problem every run sees again is one problem.** Each run re-analyzes hours of history, so it
+reports the same problem again. `PostgresStore.save_findings` links a finding to the earlier one
+with the same series, kind (title) and connection whose event time overlaps (`problem_id`), and
+only those that are new or got worse reach the Slack hook. This applies to every source.
+
 ---
 
 ## 6. Volume and cardinality protection
