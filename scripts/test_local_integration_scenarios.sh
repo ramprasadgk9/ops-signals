@@ -91,6 +91,13 @@ done
 
 "$PYTHON_BIN" -m intelligence.cli init-db --config config.yaml
 
+# A log left on the runner is lost with it, so a startup failure prints the end of its log.
+show_log() {
+  echo "--- last 80 lines of $1 ---"
+  tail -n 80 "$1" 2>/dev/null || echo "(no log written)"
+  echo "---"
+}
+
 web_ui_backend_log="${ROOT_DIR}/.tmp_ops_signals_integration_web_ui_backend.log"
 plugin_backend_log="${ROOT_DIR}/.tmp_ops_signals_integration_plugin_backend.log"
 web_ui_frontend_log="${ROOT_DIR}/.tmp_ops_signals_integration_web_ui_frontend.log"
@@ -139,6 +146,7 @@ for attempt in {1..30}; do
   fi
   if [[ "$attempt" -eq 30 ]]; then
     echo "web-ui backend did not become ready in time; see $web_ui_backend_log"
+    show_log "$web_ui_backend_log"
     exit 1
   fi
   sleep 2
@@ -157,6 +165,7 @@ for attempt in {1..30}; do
   fi
   if [[ "$attempt" -eq 30 ]]; then
     echo "plugin backend did not become ready in time; see $plugin_backend_log"
+    show_log "$plugin_backend_log"
     exit 1
   fi
   sleep 2
@@ -173,6 +182,7 @@ for attempt in {1..30}; do
   fi
   if [[ "$attempt" -eq 30 ]]; then
     echo "web-ui frontend did not become ready in time; see $web_ui_frontend_log"
+    show_log "$web_ui_frontend_log"
     exit 1
   fi
   sleep 2
