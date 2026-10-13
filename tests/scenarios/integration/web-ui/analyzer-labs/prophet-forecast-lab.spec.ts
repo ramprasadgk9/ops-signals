@@ -8,13 +8,14 @@ import { expectFindingCreated, passFailChip } from './labScenario';
  * lab's own exposed controls) reliably clears the threshold — confirmed live: 31.3% relative error.
  */
 test('Prophet Forecast Lab creates a finding for a strong forecast breakout', async ({ page }) => {
+  test.setTimeout(120_000);
   await page.goto('/experiments/prophet-forecast-lab');
   await page.getByLabel('Pattern').click();
   await page.getByRole('option', { name: 'Forecast breakout', exact: true }).click();
   await page.getByLabel('Deviation %').fill('50');
   await page.getByRole('button', { name: 'Run Analyzer' }).click();
-  // Prophet fits a model server-side; give it the same 45s runLabScenario gives the other labs.
-  await expect(page.getByText(/^(FINDING_CREATED|NO_FINDING)$/)).toBeVisible({ timeout: 45_000 });
+  // Prophet fits a model server-side, and the suite's first fit is slow (49.8s seen in CI).
+  await expect(page.getByText(/^(FINDING_CREATED|NO_FINDING)$/)).toBeVisible({ timeout: 90_000 });
   await expectFindingCreated(page);
   await expect(passFailChip(page)).toHaveText('PASS');
 });
