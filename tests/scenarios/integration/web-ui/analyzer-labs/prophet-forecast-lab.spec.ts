@@ -13,6 +13,8 @@ test('Prophet Forecast Lab creates a finding for a strong forecast breakout', as
   await page.getByRole('option', { name: 'Forecast breakout', exact: true }).click();
   await page.getByLabel('Deviation %').fill('50');
   await page.getByRole('button', { name: 'Run Analyzer' }).click();
+  // Prophet fits a model server-side; give it the same 45s runLabScenario gives the other labs.
+  await expect(page.getByText(/^(FINDING_CREATED|NO_FINDING)$/)).toBeVisible({ timeout: 45_000 });
   await expectFindingCreated(page);
   await expect(passFailChip(page)).toHaveText('PASS');
 });

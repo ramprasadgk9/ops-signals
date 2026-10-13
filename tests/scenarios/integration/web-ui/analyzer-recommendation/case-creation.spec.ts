@@ -13,6 +13,9 @@ test('creating a case from a finding on the Findings page persists the correct s
 
   try {
     await page.goto('/findings');
+    // A seeded trend finding is "context only", listed in a collapsed group below the ones that
+    // need attention.
+    await page.getByRole('button', { name: /Context only/ }).click();
     // A generic `locator('div', { has: ... })` also matches every ancestor div of the title (not
     // just the card), and `.first()` picks the outermost one in DOM order — confirmed against a
     // live run, where that resolved two "Create Case" buttons. Scope to the MUI Card itself instead.

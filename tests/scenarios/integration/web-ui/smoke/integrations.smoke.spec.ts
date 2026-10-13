@@ -12,7 +12,8 @@ test('Integrations page loads and lists every data source', async ({ page }) => 
   await expect(page.getByRole('button', { name: 'Load demo data' })).toBeVisible();
   await expect(page.getByText(/\/api\/otlp\/v1\/metrics$/).first()).toBeVisible();
   await expect(page.getByRole('status', { name: 'Data sources' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Alerts', exact: true })).toBeVisible();
+  // Received alerts moved to their own page; Integrations links to it.
+  await expect(page.getByRole('link', { name: 'View received alerts →' })).toHaveAttribute('href', '/alerts');
 });
 
 test('Integrations is reachable from the sidebar', async ({ page }) => {
