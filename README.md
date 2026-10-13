@@ -6,13 +6,22 @@
 
 <h2 align="center"><i>"Never debug the same incident twice."</i></h2>
 
-Open-source and self-hosted for Prometheus: Ops Signals explains every metric change in plain
-language, links it to the deploy behind it, and remembers how each incident was fixed.
+Open-source and self-hosted for Prometheus and OpenTelemetry: Ops Signals explains every metric
+change in plain language, links it to the deploy behind it, and remembers how each incident was
+fixed.
 
 It sits next to your Prometheus, Grafana and Alertmanager, analyzes metrics with published
 detection methods, and needs no LLM. It adds to your observability stack; it doesn't replace it.
 
 ![Ops Signals demo: a deploy causes a latency shift, the alert is enriched with what happened, what changed, and a matching past incident](docs/screenshots/images/demo/ops-signals-demo.gif)
+
+### Already on OpenTelemetry?
+
+Point your Collector at Ops Signals; no Prometheus needed. Findings, cases, operational memory and
+Slack notifications work from OTLP alone; a few features still need Prometheus.
+[What you get with OTLP only →](#using-ops-signals-with-otlp-only)
+
+![OTLP only: from an empty install to findings from live Collector data](docs/screenshots/images/web/otlp-only.gif)
 
 ### Try it in one command
 
