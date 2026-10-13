@@ -8,6 +8,7 @@ import type { Finding, MetricUsageItem, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
+import { problemTiming } from '../utils/findingProblem';
 import { trustBadge } from '../utils/findingTrust';
 import { FindingTrustPanel } from './FindingTrustPanel';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
@@ -19,6 +20,10 @@ export type FindingRepeats = {
   count: number;
   firstSeen?: string;
   lastSeen?: string;
+  /** The most recent of them: it says whether the problem is still going on. */
+  latest?: Finding;
+  /** The earliest start any of them saw. */
+  startedAt?: string;
   onShowAll?: () => void;
 };
 
@@ -38,6 +43,7 @@ function seenAt(value?: string): string {
 export function FindingCard({ finding, onViewDetails, signals = [], repeats, usage }: Props) {
   const navigate = useNavigate();
   const connectionName = useConnectionName(finding.connection_id);
+  const timing = problemTiming(repeats?.latest ?? finding, repeats?.startedAt);
   // Prometheus is the usual source; say so only for the others, which can't drill down by pod.
   const sourceCaption = finding.source && finding.source !== 'prometheus' ? `via ${findingSourceLabel(finding.source)}` : null;
   const createCaseMutation = useMutation({
@@ -112,7 +118,27 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
             />
           </Tooltip>
         )}
-        {repeats && repeats.count > 1 && (
+        {timing && (
+          <Tooltip
+            title={
+              repeats && repeats.count > 1
+                ? `Seen by ${repeats.count} runs: first ${seenAt(repeats.firstSeen)}, latest ${seenAt(repeats.lastSeen)}. Counted as one problem.${repeats.onShowAll ? ' Click to list each run.' : ''}`
+                : 'When the problem happened, as of the latest analysis.'
+            }
+            arrow
+          >
+            <Chip
+              label={timing.label}
+              size="small"
+              color={timing.ongoing ? 'warning' : 'default'}
+              variant="outlined"
+              onClick={repeats && repeats.count > 1 ? repeats.onShowAll : undefined}
+              data-testid="finding-timing"
+              sx={{ mb: 1, mr: 1 }}
+            />
+          </Tooltip>
+        )}
+        {!timing && repeats && repeats.count > 1 && (
           <Tooltip
             title={`The same finding on this series in ${repeats.count} runs: first ${seenAt(repeats.firstSeen)}, latest ${seenAt(repeats.lastSeen)}. This card shows #${finding.id ?? '?'}.${repeats.onShowAll ? ' Click to list each run.' : ''}`}
             arrow

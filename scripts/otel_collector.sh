@@ -10,21 +10,23 @@
 #
 # Sends to the backend on BACKEND_PORT (default 8001, as run_all.sh). OPS_SIGNALS_API_TOKEN, from
 # the environment or .env, is sent as a bearer token when set.
+# OTEL_COLLECTOR_CONTAINER and OTEL_COLLECTOR_CONFIG let a second collector run next to this one
+# (scripts/otlp_sandbox.sh uses them).
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-8001}"
-CONTAINER="ops-signals-otel-collector"
+CONTAINER="${OTEL_COLLECTOR_CONTAINER:-ops-signals-otel-collector}"
 IMAGE="otel/opentelemetry-collector-contrib:latest"
-CONFIG="$ROOT_DIR/tmp/otelcol-local.yaml"
+CONFIG="${OTEL_COLLECTOR_CONFIG:-$ROOT_DIR/tmp/otelcol-local.yaml}"
 
 if [[ -z "${OPS_SIGNALS_API_TOKEN:-}" && -f "$ROOT_DIR/.env" ]]; then
   OPS_SIGNALS_API_TOKEN="$(grep -E '^OPS_SIGNALS_API_TOKEN=' "$ROOT_DIR/.env" | tail -1 | cut -d= -f2- || true)"
 fi
 
 write_config() {
-  mkdir -p "$ROOT_DIR/tmp"
+  mkdir -p "$(dirname "$CONFIG")"
   local headers=""
   if [[ -n "${OPS_SIGNALS_API_TOKEN:-}" ]]; then
     headers=$'\n    headers:\n      Authorization: "Bearer ${env:OPS_SIGNALS_API_TOKEN}"'
@@ -88,7 +90,7 @@ case "${1:-}" in
       -v "$CONFIG:/etc/otelcol-contrib/config.yaml:ro" \
       -v /var/run/docker.sock:/var/run/docker.sock:ro \
       "$IMAGE" >/dev/null
-    echo "Collector started, sending to http://localhost:${BACKEND_PORT}/api/otlp every 15s (config: tmp/otelcol-local.yaml)."
+    echo "Collector started, sending to http://localhost:${BACKEND_PORT}/api/otlp every 15s (config: ${CONFIG#"$ROOT_DIR"/})."
     echo "Waiting for the first batch..."
     sleep 30
     if docker logs "$CONTAINER" 2>&1 | grep -q "Exporting failed"; then
@@ -116,7 +118,7 @@ case "${1:-}" in
     docker rm -f "$CONTAINER" >/dev/null 2>&1 && echo "Collector stopped." || echo "Collector wasn't running."
     ;;
   *)
-    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

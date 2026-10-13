@@ -179,6 +179,12 @@ export type Finding = {
   comparison_json: Record<string, unknown>;
   analysis_run_id?: string;
   created_at?: string;
+  /** When the problem happened, and whether it was still going on at the end of the analyzed data. */
+  event_start?: string | null;
+  event_end?: string | null;
+  ongoing?: boolean | null;
+  /** The first finding of the same problem, seen by an earlier run; null when this one is the first. */
+  problem_id?: number | null;
   /** Deploys and other change events near the finding's change; read with utils/findingChanges. */
   changes?: unknown;
   /** How much to trust it (backend services/finding_trust.py); read with utils/findingTrust. */
@@ -480,8 +486,11 @@ export type CategoryBreakdown = {
 
 export type OverviewSummaryResponse = {
   generated_at: string;
-  window: '24h' | '7d';
+  window: '6h' | '24h' | '7d';
   active_findings: number;
+  /** active_findings split: problems that need attention, and the rest (context). */
+  attention_findings?: number;
+  context_findings?: number;
   open_cases: number;
   behavior_changes: number;
   impacted_services: number;
@@ -1207,6 +1216,8 @@ export type IngestionStatus = {
       reachable?: boolean | null;
       scheduled_policies?: number;
       alert_enrichment_enabled?: boolean;
+      /** One per configured connection; `reachable` above is true while any of them answers. */
+      connections?: Array<{ id: string; name: string; configured: boolean; url?: string | null; reachable?: boolean | null }>;
     };
     /** Deploys and other change events sent to POST /api/events. */
     events?: {

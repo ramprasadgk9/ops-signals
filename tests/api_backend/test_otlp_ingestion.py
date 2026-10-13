@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from backend.app.autonomous.scheduler import _infer_interval, _run_pending_otlp_analysis_once
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import OtlpPendingPointEntity
+from backend.app.models.entities import NormalizedPoint, OtlpPendingPointEntity
 from backend.app.otlp.limits import CardinalityTracker, RateLimiter
 
 
@@ -323,6 +323,8 @@ def test_scheduler_cycle_analyzes_pending_points_and_clears_the_backlog() -> Non
     session_local = get_session_local()
     with session_local() as db:
         assert db.query(OtlpPendingPointEntity).count() == 5
+        # Waited long enough to be due (see the tests below for when a series waits).
+        _age_pending(db, minutes=11)
 
     with patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls:
         _run_pending_otlp_analysis_once()
@@ -330,3 +332,234 @@ def test_scheduler_cycle_analyzes_pending_points_and_clears_the_backlog() -> Non
     assert mock_executor_cls.return_value.execute_dataframe.called
     with session_local() as db:
         assert db.query(OtlpPendingPointEntity).count() == 0
+
+
+def _age_pending(db, *, minutes: int) -> None:
+    received = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    db.query(OtlpPendingPointEntity).update({OtlpPendingPointEntity.received_at: received})
+    db.commit()
+
+
+def _pending(db, *, count: int, start: datetime, service: str = "payments-api", metric: str = "cpu_usage", per_timestamp: int = 1) -> None:
+    for index in range(count):
+        for state in range(per_timestamp):
+            db.add(
+                OtlpPendingPointEntity(
+                    metric_name=metric,
+                    metric_type="gauge",
+                    timestamp=start + timedelta(seconds=15 * index),
+                    value=float(index),
+                    service=service,
+                    attributes_json={"state": str(state)},
+                    received_at=datetime.now(timezone.utc),
+                )
+            )
+    db.commit()
+
+
+def test_a_collector_s_few_fresh_points_wait_instead_of_being_analyzed_alone(db_session) -> None:
+    # A Collector sends a few points per series every 15s. Analyzed alone, each batch is far
+    # below the 30-80 points analyzers need, so every check was skipped and no finding could
+    # ever appear from a live Collector.
+    # db_session points the engine at a fresh in-memory database; create_app alone would not.
+    session_local = get_session_local()
+    with session_local() as db:
+        _pending(db, count=6, start=datetime.now(timezone.utc) - timedelta(minutes=1))
+
+    with patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls:
+        _run_pending_otlp_analysis_once()
+
+    assert not mock_executor_cls.return_value.execute_dataframe.called
+    with session_local() as db:
+        assert db.query(OtlpPendingPointEntity).count() == 6
+
+
+def test_a_metric_with_many_rows_per_timestamp_still_waits(db_session) -> None:
+    # system.cpu.time sends one row per CPU state: 8 rows a scrape is not a backfill.
+    # db_session points the engine at a fresh in-memory database; create_app alone would not.
+    session_local = get_session_local()
+    with session_local() as db:
+        _pending(db, count=10, start=datetime.now(timezone.utc) - timedelta(minutes=3), per_timestamp=8)
+
+    with patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls:
+        _run_pending_otlp_analysis_once()
+
+    assert not mock_executor_cls.return_value.execute_dataframe.called
+
+
+def test_each_due_series_is_analyzed_whole_within_the_cycle_budget(db_session) -> None:
+    # A cycle that took the oldest N rows across all series analyzed each series on a slice of
+    # its points; the budget now stops between series instead.
+    # db_session points the engine at a fresh in-memory database; create_app alone would not.
+    session_local = get_session_local()
+    start = datetime.now(timezone.utc) - timedelta(minutes=12)
+    with session_local() as db:
+        _pending(db, count=40, start=start, service="a")
+        _pending(db, count=40, start=start, service="b")
+        _age_pending(db, minutes=11)
+
+    with (
+        patch("backend.app.autonomous.scheduler.MAX_BACKLOG_PER_CYCLE", 50),
+        patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls,
+    ):
+        _run_pending_otlp_analysis_once()
+
+    calls = mock_executor_cls.return_value.execute_dataframe.call_args_list
+    assert len(calls) == 1
+    assert len(calls[0].args[0]) == 40
+    with session_local() as db:
+        assert db.query(OtlpPendingPointEntity).count() == 40
+
+
+def test_a_large_batch_is_analyzed_at_once_as_a_backfill_needs(db_session) -> None:
+    # db_session points the engine at a fresh in-memory database; create_app alone would not.
+    session_local = get_session_local()
+    with session_local() as db:
+        _pending(db, count=288, start=datetime.now(timezone.utc) - timedelta(hours=24))
+
+    with patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls:
+        _run_pending_otlp_analysis_once()
+
+    assert mock_executor_cls.return_value.execute_dataframe.called
+
+
+def test_a_due_series_is_analyzed_with_its_stored_history_which_is_not_stored_twice(db_session) -> None:
+    # db_session points the engine at a fresh in-memory database; create_app alone would not.
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    new_from = now - timedelta(minutes=10)
+    with session_local() as db:
+        for index in range(100):
+            db.add(
+                NormalizedPoint(
+                    source="otel",
+                    metric_name="cpu_usage",
+                    service="payments-api",
+                    timestamp=new_from - timedelta(seconds=15 * (100 - index)),
+                    value=1.0,
+                )
+            )
+        # Other series, sources and old points are not this series' recent history.
+        db.add(NormalizedPoint(source="otel", metric_name="cpu_usage", service="checkout", timestamp=new_from - timedelta(minutes=5), value=9.0))
+        db.add(NormalizedPoint(source="prometheus", metric_name="cpu_usage", service="payments-api", timestamp=new_from - timedelta(minutes=5), value=9.0))
+        db.add(NormalizedPoint(source="otel", metric_name="cpu_usage", service="payments-api", timestamp=now - timedelta(days=2), value=9.0))
+        db.commit()
+        _pending(db, count=40, start=new_from)
+        _age_pending(db, minutes=11)
+
+    with patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls:
+        _run_pending_otlp_analysis_once()
+
+    call = mock_executor_cls.return_value.execute_dataframe.call_args
+    frame = call.args[0]
+    assert len(frame) == 140
+    assert set(frame["value"].head(100)) == {1.0}
+    assert call.kwargs["run_metadata"]["history_point_count"] == 100
+    last_history = new_from - timedelta(seconds=15)
+    assert call.kwargs["persist_points_after"] == last_history
+
+
+def test_a_batch_whose_analysis_fails_is_dropped_so_it_cannot_block_the_rest(db_session) -> None:
+    session_local = get_session_local()
+    with session_local() as db:
+        _pending(db, count=40, start=datetime.now(timezone.utc) - timedelta(minutes=12))
+        _age_pending(db, minutes=11)
+
+    with patch("backend.app.autonomous.scheduler.MetricAnalysisExecutor") as mock_executor_cls:
+        mock_executor_cls.return_value.execute_dataframe.side_effect = ValueError("bad input")
+        _run_pending_otlp_analysis_once()
+
+    with session_local() as db:
+        assert db.query(OtlpPendingPointEntity).count() == 0
+
+
+def test_gaps_stored_in_the_history_are_left_out() -> None:
+    # Stored points include NaN where a series had a gap. Read back as input they failed
+    # normalization, so from the third round on every series' analysis failed.
+    from backend.app.autonomous.scheduler import _otlp_history
+
+    # Postgres stores NaN; SQLite can't, so the query is stubbed with what Postgres returns.
+    new_from = datetime.now(timezone.utc)
+    stored = [
+        NormalizedPoint(source="otel", metric_name="m", service="s", timestamp=new_from - timedelta(minutes=3 - index), value=value)
+        for index, value in enumerate([1.0, float("nan"), 3.0])
+    ]
+
+    class _Query:
+        def filter(self, *args):
+            return self
+
+        def order_by(self, *args):
+            return self
+
+        def all(self):
+            return stored
+
+    class _Db:
+        def query(self, *args):
+            return _Query()
+
+    history = _otlp_history(_Db(), "s", "m", before=new_from)
+
+    assert [point["value"] for point in history] == [1.0, 3.0]
+
+
+def test_executor_stores_only_the_points_after_the_history(monkeypatch) -> None:
+    import pandas as pd
+
+    from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
+    from intelligence.config import load_config
+
+    saved: list[pd.DataFrame] = []
+
+    class _Store:
+        engine = None
+
+        def save_normalized_points(self, frame, analysis_run_id=None):
+            saved.append(frame)
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    config = load_config("config.yaml")
+    executor = MetricAnalysisExecutor(config, store=_Store())
+    monkeypatch.setattr(executor, "_route_analyzers", lambda frame: ([], {}, "test"))
+    monkeypatch.setattr(executor, "_build_analyzers", lambda routing: [])
+    monkeypatch.setattr(executor, "_evaluate_behavior_intelligence", lambda *args, **kwargs: None)
+    monkeypatch.setattr(executor, "_counts", lambda *args, **kwargs: (0, 0, 0))
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    normalized = pd.DataFrame(
+        {"timestamp": [start + timedelta(minutes=i) for i in range(10)], "metric_name": "cpu_usage", "service": "svc", "value": 1.0}
+    )
+
+    executor.execute_normalized(normalized, db=object(), persist_points_after=start + timedelta(minutes=5))
+
+    assert len(saved) == 1
+    assert list(saved[0]["timestamp"]) == [start + timedelta(minutes=i) for i in range(6, 10)]
+
+
+def test_a_running_total_counter_is_stored_as_its_rate() -> None:
+    from opentelemetry.proto.metrics.v1.metrics_pb2 import AggregationTemporality
+
+    start_ns = int(time.time() * 1e9) - 600_000_000_000
+
+    def export(seconds: int, total: float) -> bytes:
+        request = ExportMetricsServiceRequest()
+        rm = request.resource_metrics.add()
+        rm.resource.attributes.append(KeyValue(key="service.name", value=AnyValue(string_value="rates-test")))
+        metric = rm.scope_metrics.add().metrics.add()
+        metric.name = "container.cpu.usage.total"
+        metric.sum.is_monotonic = True
+        metric.sum.aggregation_temporality = AggregationTemporality.AGGREGATION_TEMPORALITY_CUMULATIVE
+        metric.sum.data_points.add(time_unix_nano=start_ns + seconds * 1_000_000_000, start_time_unix_nano=start_ns, as_double=total)
+        return request.SerializeToString()
+
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        for seconds, total in ((15, 1000.0), (30, 1300.0)):
+            response = client.post("/api/otlp/v1/metrics", content=export(seconds, total), headers={"Content-Type": "application/x-protobuf"})
+            assert response.status_code == 200
+
+    with get_session_local()() as db:
+        stored = db.query(OtlpPendingPointEntity).filter(OtlpPendingPointEntity.service == "rates-test").all()
+    assert [row.value for row in stored] == [20.0]

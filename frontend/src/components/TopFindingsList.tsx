@@ -17,14 +17,14 @@ type Props = {
 export function TopFindingsList({ groups, signals = [], onViewDetails, onShowRuns, usageByMetric }: Props) {
   return (
     <Grid container spacing={2}>
-      {groups.map(({ finding, runs, firstSeen, lastSeen }) => (
+      {groups.map(({ finding, runs, firstSeen, lastSeen, latest, startedAt }) => (
         <Grid key={finding.id} size={{ xs: 12, md: 6 }}>
           <FindingCard
             finding={finding}
             signals={signals}
             onViewDetails={onViewDetails}
             usage={usageByMetric?.[finding.metric_name]}
-            repeats={{ count: runs.length, firstSeen, lastSeen, onShowAll: onShowRuns ? () => onShowRuns(finding) : undefined }}
+            repeats={{ count: runs.length, firstSeen, lastSeen, latest, startedAt, onShowAll: onShowRuns ? () => onShowRuns(finding) : undefined }}
           />
         </Grid>
       ))}

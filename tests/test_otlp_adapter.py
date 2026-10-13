@@ -8,6 +8,7 @@ import time
 from google.protobuf import json_format
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+from opentelemetry.proto.metrics.v1.metrics_pb2 import AggregationTemporality
 
 from backend.app.otlp.converter import convert_export_request
 from backend.app.otlp.limits import CardinalityTracker, RateLimiter
@@ -33,6 +34,8 @@ def test_gauge_and_counter_points_are_flattened_with_resource_attributes() -> No
 
     counter_metric = scope_metrics.metrics.add()
     counter_metric.name = "request_count"
+    counter_metric.sum.is_monotonic = True
+    counter_metric.sum.aggregation_temporality = AggregationTemporality.AGGREGATION_TEMPORALITY_CUMULATIVE
     counter_point = counter_metric.sum.data_points.add()
     counter_point.time_unix_nano = int(time.time() * 1e9)
     counter_point.as_int = 42
@@ -53,6 +56,28 @@ def test_gauge_and_counter_points_are_flattened_with_resource_attributes() -> No
     counter = next(p for p in result.points if p.metric_name == "request_count")
     assert counter.metric_type == "counter"
     assert counter.value == 42.0
+    assert counter.cumulative
+
+
+def test_a_sum_that_can_go_down_is_a_gauge_and_a_delta_sum_is_not_cumulative() -> None:
+    request = ExportMetricsServiceRequest()
+    scope_metrics = _resource_metrics(request)
+    up_down = scope_metrics.metrics.add()
+    up_down.name = "system.memory.usage"
+    up_down.sum.is_monotonic = False
+    up_down.sum.data_points.add(time_unix_nano=int(time.time() * 1e9), as_int=512)
+    delta = scope_metrics.metrics.add()
+    delta.name = "requests"
+    delta.sum.is_monotonic = True
+    delta.sum.aggregation_temporality = AggregationTemporality.AGGREGATION_TEMPORALITY_DELTA
+    delta.sum.data_points.add(time_unix_nano=int(time.time() * 1e9), start_time_unix_nano=int((time.time() - 10) * 1e9), as_int=30)
+
+    points = {point.metric_name: point for point in convert_export_request(request).points}
+
+    assert points["system.memory.usage"].metric_type == "gauge"
+    assert points["requests"].metric_type == "counter"
+    assert not points["requests"].cumulative
+    assert points["requests"].start_time is not None
 
 
 def test_data_point_attributes_override_resource_attributes() -> None:

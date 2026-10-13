@@ -105,6 +105,16 @@ ALTER TABLE IF EXISTS ops_operational_signals
 ALTER TABLE IF EXISTS ops_operational_findings
     ADD COLUMN IF NOT EXISTS cluster TEXT;
 
+-- When a finding's problem happened, and the first finding of the same problem (NULL: this is the
+-- first), so a problem every run sees again is counted and alerted once.
+ALTER TABLE IF EXISTS ops_operational_findings
+    ADD COLUMN IF NOT EXISTS event_start TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS event_end TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS ongoing BOOLEAN,
+    ADD COLUMN IF NOT EXISTS problem_id BIGINT;
+
+CREATE INDEX IF NOT EXISTS idx_ops_finding_problem ON ops_operational_findings (problem_id);
+
 ALTER TABLE IF EXISTS ops_change_events
     ADD COLUMN IF NOT EXISTS cluster TEXT;
 

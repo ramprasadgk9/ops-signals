@@ -127,7 +127,7 @@ export const api = {
   metricUsageHistory: (limit = 28) => getJson<MetricUsageSnapshot[]>(`/api/metric-usage/history?limit=${limit}`),
   runMetricUsageCheck: () => postJson<Record<string, never>, MetricUsageSnapshot>('/api/metric-usage/run', {}),
   grafanaStatus: () => getJson<GrafanaStatus>('/api/metric-usage/grafana/status'),
-  overviewSummary: (window: '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
+  overviewSummary: (window: '6h' | '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
   services: () => getJson<string[]>('/api/services'),
   metrics: (service: string) => getJson<string[]>(`/api/services/${service}/metrics`),
   analysisRuns: () => getJson<AnalysisRun[]>('/api/analysis-runs'),

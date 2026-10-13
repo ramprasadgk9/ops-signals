@@ -12,7 +12,7 @@ import { makeRunId, seedFinding, createCaseFromFinding, cleanupRun } from '../..
  */
 async function fetchSummary() {
   const response = await fetch(`${env.webUiBackendUrl}/api/overview/summary?window=24h`);
-  return response.json() as Promise<{ active_findings: number; open_cases: number; impacted_services: number }>;
+  return response.json() as Promise<{ active_findings: number; attention_findings: number; open_cases: number; impacted_services: number }>;
 }
 
 test('creating a finding and case increases the Overview KPI tiles by exactly one', async ({ page }) => {
@@ -39,8 +39,9 @@ test('creating a finding and case increases the Overview KPI tiles by exactly on
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible({ timeout: 20_000 });
 
-    const activeFindingsTile = page.locator('a', { has: page.getByText('Active Findings', { exact: true }) });
-    await expect(activeFindingsTile.locator('p').first()).toHaveText(String(afterSeed.active_findings));
+    // The tile counts the problems needing attention; the rest are one click away in context.
+    const attentionTile = page.locator('a', { has: page.getByText('Need Attention', { exact: true }) });
+    await expect(attentionTile.locator('p').first()).toHaveText(String(afterSeed.attention_findings));
 
     const openCasesTile = page.locator('a', { has: page.getByText('Open Cases', { exact: true }) });
     await expect(openCasesTile.locator('p').first()).toHaveText(String(afterSeed.open_cases));

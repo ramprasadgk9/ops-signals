@@ -23,6 +23,14 @@ class OperationalFinding:
     analysis_run_id: str | None = None
     created_at: datetime | None = None
     cluster: str | None = None
+    # When the problem itself happened: its most recent event's start and end, and whether that
+    # event was still going on when the analyzed data ended (FindingAggregator).
+    event_start: datetime | None = None
+    event_end: datetime | None = None
+    ongoing: bool | None = None
+    # The first finding of the same problem seen by an earlier run; None when this one is the first
+    # (PostgresStore.save_findings).
+    problem_id: int | None = None
 
     def to_record(self) -> dict[str, Any]:
         payload = _sanitize_json(asdict(self))
@@ -31,3 +39,7 @@ class OperationalFinding:
         if payload.get("created_at") is None:
             payload.pop("created_at", None)
         return payload
+
+    def to_json(self) -> dict[str, Any]:
+        """to_record() with times as ISO strings, for JSON columns and reports."""
+        return {key: value.isoformat() if isinstance(value, datetime) else value for key, value in self.to_record().items()}

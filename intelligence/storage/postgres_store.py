@@ -4,6 +4,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -20,6 +21,12 @@ from intelligence.storage.database_url import database_url_from_env
 from intelligence.signals.schema import OperationalSignal
 
 logger = logging.getLogger(__name__)
+
+# Two findings are the same problem when they describe the same series (service, metric, cluster,
+# connection) the same way (title) and their events overlap, give or take this much: a later run,
+# with more data, can date the same event a few steps differently.
+PROBLEM_MATCH_TOLERANCE = timedelta(minutes=10)
+_HEALTH_RANK = {"normal": 0, "significant": 1, "critical": 2}
 
 # Optional post-write hook, set via register_findings_hook(). Kept generic (not
 # Slack-specific) so this storage layer stays framework-agnostic — it doesn't know or
@@ -150,6 +157,10 @@ class PostgresStore:
             Column("investigation_priority", Integer, nullable=False),
             Column("signal_ids", JSON, nullable=False),
             Column("comparison_json", JSON, nullable=False),
+            Column("event_start", TIMESTAMP(timezone=True)),
+            Column("event_end", TIMESTAMP(timezone=True)),
+            Column("ongoing", BOOLEAN),
+            Column("problem_id", BIGINT),
             Column("created_at", TIMESTAMP(timezone=True), server_default=func.now()),
         )
         Index(f"idx_{prefix}finding_metric", self.findings_table.c.metric_name, self.findings_table.c.created_at)
@@ -265,16 +276,70 @@ class PostgresStore:
             connection.execute(self.signals_table.insert(), records)
 
     def save_findings(self, findings: list[OperationalFinding]) -> None:
+        """Saves findings, linking each to the problem an earlier run already reported (problem_id).
+        The hook (Slack) only hears of new problems and of problems that got worse, not of every
+        run that sees the same problem again."""
         if not findings:
             return
-        records = [finding.to_record() for finding in findings]
         with self.engine.begin() as connection:
-            connection.execute(self.findings_table.insert(), records)
-        if _on_findings_saved is not None and not _findings_hook_suppressed.get():
+            to_notify = self._link_problems(connection, findings)
+            connection.execute(self.findings_table.insert(), [finding.to_record() for finding in findings])
+        if to_notify and _on_findings_saved is not None and not _findings_hook_suppressed.get():
             try:
-                _on_findings_saved(findings)
+                _on_findings_saved(to_notify)
             except Exception:
                 logger.warning("findings hook raised", exc_info=True)
+
+    def _link_problems(self, connection, findings: list[OperationalFinding]) -> list[OperationalFinding]:
+        run_ids = {finding.analysis_run_id for finding in findings if finding.analysis_run_id}
+        runs = self.analysis_runs_table
+        connection_ids = (
+            dict(connection.execute(select(runs.c.id, runs.c.connection_id).where(runs.c.id.in_(run_ids))).all()) if run_ids else {}
+        )
+        to_notify: list[OperationalFinding] = []
+        for finding in findings:
+            earlier = self._earlier_finding_of_same_problem(connection, finding, connection_ids.get(finding.analysis_run_id))
+            if earlier is None:
+                to_notify.append(finding)
+                continue
+            earlier_id, earlier_problem_id = earlier
+            finding.problem_id = earlier_problem_id or earlier_id
+            if _HEALTH_RANK.get(finding.health_status, 0) > self._worst_health(connection, finding.problem_id):
+                to_notify.append(finding)
+        return to_notify
+
+    def _earlier_finding_of_same_problem(self, connection, finding: OperationalFinding, connection_id: str | None) -> tuple[int, int | None] | None:
+        if finding.event_start is None or finding.event_end is None:
+            return None
+        findings, runs = self.findings_table, self.analysis_runs_table
+
+        def same(column, value):
+            return column.is_(None) if value is None else column == value
+
+        query = (
+            select(findings.c.id, findings.c.problem_id)
+            .select_from(findings.outerjoin(runs, findings.c.analysis_run_id == runs.c.id))
+            .where(
+                findings.c.metric_name == finding.metric_name,
+                findings.c.title == finding.title,
+                same(findings.c.service, finding.service),
+                same(findings.c.cluster, finding.cluster),
+                same(runs.c.connection_id, connection_id),
+                findings.c.event_end >= finding.event_start - PROBLEM_MATCH_TOLERANCE,
+                findings.c.event_start <= finding.event_end + PROBLEM_MATCH_TOLERANCE,
+            )
+            .order_by(findings.c.created_at.desc(), findings.c.id.desc())
+            .limit(1)
+        )
+        row = connection.execute(query).first()
+        return (row[0], row[1]) if row else None
+
+    def _worst_health(self, connection, problem_id: int) -> int:
+        findings = self.findings_table
+        statuses = connection.execute(
+            select(findings.c.health_status).where((findings.c.id == problem_id) | (findings.c.problem_id == problem_id))
+        ).scalars()
+        return max((_HEALTH_RANK.get(status, 0) for status in statuses), default=0)
 
     def fetch_signals(self) -> pd.DataFrame:
         with self.engine.begin() as connection:

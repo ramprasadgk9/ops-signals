@@ -63,9 +63,10 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
         *,
         run_metadata: dict[str, object] | None = None,
         db: Session | None = None,
+        persist_points_after: datetime | None = None,
     ) -> MetricAnalysisExecutionResult:
         normalized = normalize_timeseries(dataframe, self.config.input)
-        return self.execute_normalized(normalized, run_metadata=run_metadata, db=db)
+        return self.execute_normalized(normalized, run_metadata=run_metadata, db=db, persist_points_after=persist_points_after)
 
     def execute_normalized(
         self,
@@ -73,12 +74,19 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
         *,
         run_metadata: dict[str, object] | None = None,
         db: Session | None = None,
+        persist_points_after: datetime | None = None,
     ) -> MetricAnalysisExecutionResult:
+        """`persist_points_after`: store only the normalized points after this time, when the
+        earlier ones are history that is already stored (OTLP runs)."""
         analysis_run_id = uuid4().hex
         self._create_analysis_run(analysis_run_id, normalized, run_metadata)
         try:
             if self.config.output.save_normalized_data:
-                self.store.save_normalized_points(normalized, analysis_run_id=analysis_run_id)
+                to_save = normalized
+                if persist_points_after is not None:
+                    to_save = normalized[pd.to_datetime(normalized["timestamp"], utc=True) > pd.Timestamp(persist_points_after)]
+                if not to_save.empty:
+                    self.store.save_normalized_points(to_save, analysis_run_id=analysis_run_id)
 
             analyzer_routing, series_profile, registry_version = self._route_analyzers(normalized)
             analyzers = self._build_analyzers(analyzer_routing)
@@ -131,7 +139,7 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
             self.store.save_findings(findings)
             self.store.update_analysis_run_learning_snapshot(
                 analysis_run_id,
-                {"generated_findings_json": [finding.to_record() for finding in findings]},
+                {"generated_findings_json": [finding.to_json() for finding in findings]},
             )
             self._evaluate_behavior_intelligence(scored_signals, analysis_run_id, db=db)
 
@@ -181,6 +189,8 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
             "id": analysis_run_id,
             "source_type": self.config.input.source_type,
             "file_name": str(run_metadata.get("file_name")) if run_metadata and run_metadata.get("file_name") else None,
+            # The Prometheus connection (Mimir tenant) it queried, as SignalPipeline records it.
+            "connection_id": str(run_metadata["connection_id"]) if run_metadata and run_metadata.get("connection_id") else None,
             "provider": (self.config.input.provider or "generic").lower(),
             "service": str(normalized["service"].dropna().iloc[0]) if "service" in normalized.columns and not normalized["service"].dropna().empty else "unknown",
             "metric_name": str(normalized["metric_name"].dropna().iloc[0]),

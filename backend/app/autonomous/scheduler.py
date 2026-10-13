@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.app.autonomous.execution import execute_autonomous_plan_once
@@ -24,8 +25,13 @@ from backend.app.autonomous.repository import AutonomousPolicyRepository
 from backend.app.autonomous.schemas import AnalysisScope, AutonomousRunRequest, ExecutionPolicy, MonitoringSelection
 from backend.app.metric_usage.service import run_scheduled_check_if_due
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import AutonomousPolicyEntity, OtlpPendingPointEntity
-from backend.app.otlp.limits import MAX_BACKLOG_PER_CYCLE
+from backend.app.models.entities import AutonomousPolicyEntity, NormalizedPoint, OtlpPendingPointEntity
+from backend.app.otlp.limits import (
+    MAX_BACKLOG_PER_CYCLE,
+    OTLP_ANALYSIS_INTERVAL_MINUTES,
+    OTLP_HISTORY_HOURS,
+    OTLP_IMMEDIATE_BATCH_POINTS,
+)
 from backend.app.otlp.metrics import OTLP_ANALYSIS_CYCLE_DURATION_SECONDS, OTLP_ANALYSIS_CYCLE_GROUPS_PROCESSED
 from backend.app.services.prometheus_service import PrometheusQueryService, resolve_prometheus_connection
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
@@ -116,7 +122,73 @@ def _infer_interval(rows: list[OtlpPendingPointEntity]) -> str:
     return f"{average_seconds}s"
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _due_otlp_groups(db: Session, now: datetime) -> list[tuple[str, str, int]]:
+    """(service, metric_name, pending rows) of the series worth analyzing now, oldest first.
+    Analyzing every cycle would look at a minute of data each time, too little for any analyzer,
+    and would repeat each finding every minute. Counted in distinct timestamps, not rows: one
+    metric can send many rows per timestamp (system.cpu.time, one per CPU state)."""
+    rows = (
+        db.query(
+            OtlpPendingPointEntity.service,
+            OtlpPendingPointEntity.metric_name,
+            func.min(OtlpPendingPointEntity.received_at),
+            func.count(func.distinct(OtlpPendingPointEntity.timestamp)),
+            func.count(),
+        )
+        .group_by(OtlpPendingPointEntity.service, OtlpPendingPointEntity.metric_name)
+        .all()
+    )
+    wait = timedelta(minutes=OTLP_ANALYSIS_INTERVAL_MINUTES)
+    due = [
+        (oldest, service, metric_name, count)
+        for service, metric_name, oldest, timestamps, count in rows
+        if timestamps >= OTLP_IMMEDIATE_BATCH_POINTS or (oldest is not None and now - _as_utc(oldest) >= wait)
+    ]
+    due.sort(key=lambda item: _as_utc(item[0]) if item[0] is not None else now)
+    return [(service, metric_name, count) for _, service, metric_name, count in due]
+
+
+def _otlp_history(db: Session, service: str, metric_name: str, before: datetime) -> list[dict[str, object]]:
+    """The series' points from earlier OTLP runs (stored by MetricAnalysisExecutor), so analyzers
+    judge the new points against a baseline instead of only the last few minutes."""
+    points = (
+        db.query(NormalizedPoint)
+        .filter(
+            NormalizedPoint.source == "otel",
+            NormalizedPoint.service == service,
+            NormalizedPoint.metric_name == metric_name,
+            NormalizedPoint.timestamp >= before - timedelta(hours=OTLP_HISTORY_HOURS),
+            NormalizedPoint.timestamp < before,
+        )
+        .order_by(NormalizedPoint.timestamp)
+        .all()
+    )
+    return [
+        {
+            "timestamp": _as_utc(point.timestamp),
+            "metric_name": point.metric_name,
+            "value": point.value,
+            "service": point.service,
+            "source": "otel",
+            "host": point.host,
+            "namespace": point.namespace,
+            "pod": point.pod,
+            "env": point.env,
+            "metric_type": point.metric_type,
+        }
+        for point in points
+        # Gaps are stored as NaN; normalization rejects them as input and recreates the gaps anyway.
+        if point.value is not None and not math.isnan(point.value)
+    ]
+
+
 def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[OtlpPendingPointEntity]) -> None:
+    new_from = min(_as_utc(row.timestamp) for row in rows)
+    history = _otlp_history(db, service, metric_name, before=new_from)
     records = [
         {
             "timestamp": row.timestamp,
@@ -149,49 +221,64 @@ def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[
     row_ids = [row.id for row in rows]
     try:
         MetricAnalysisExecutor(pipeline_config).execute_dataframe(
-            pd.DataFrame.from_records(records),
+            pd.DataFrame.from_records([*history, *records]),
             run_metadata={
                 "trigger": "otlp_push",
                 "service": service,
                 "metric_name": metric_name,
                 "point_count": len(rows),
+                "history_point_count": len(history),
             },
             db=db,
+            # History is already stored; saving it again would double it on every run.
+            persist_points_after=history[-1]["timestamp"] if history else None,
         )
         db.query(OtlpPendingPointEntity).filter(OtlpPendingPointEntity.id.in_(row_ids)).delete(synchronize_session=False)
         db.commit()
     except Exception:
-        logger.exception("OTLP analysis cycle failed for service=%s metric_name=%s", service, metric_name)
+        logger.exception(
+            "OTLP analysis failed for service=%s metric_name=%s; dropping its %d new points", service, metric_name, len(row_ids)
+        )
         db.rollback()
+        # Kept, a batch that fails would fail again every cycle and use up the cycle budget,
+        # until no series was analyzed at all. Dropped, it costs this series one interval.
+        db.query(OtlpPendingPointEntity).filter(OtlpPendingPointEntity.id.in_(row_ids)).delete(synchronize_session=False)
+        db.commit()
 
 
 def _run_pending_otlp_analysis_once() -> None:
     """Synchronous body of one OTLP backlog analysis tick - groups buffered otlp_pending_points
-    rows by (service, metric_name) and runs each group through the same MetricAnalysisExecutor
+    rows by (service, metric_name) and runs each group that is due (_due_otlp_groups), with its
+    stored history, through the same MetricAnalysisExecutor
     path the Prometheus autonomous flow uses (backend/app/autonomous/execution.py). Bounded by
-    OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE so one large backlog can't make a cycle run
+    OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE (whole series at a time) so one large backlog can't make a cycle run
     indefinitely and starve the next one. Runs on a worker thread (see run_scheduler_loop)."""
     session_local = get_session_local()
     with session_local() as db:
-        pending = (
-            db.query(OtlpPendingPointEntity)
-            .order_by(OtlpPendingPointEntity.received_at)
-            .limit(MAX_BACKLOG_PER_CYCLE)
-            .all()
-        )
-        if not pending:
+        due = _due_otlp_groups(db, datetime.now(timezone.utc))
+        if not due:
             return
 
         started = time.perf_counter()
-        groups: dict[tuple[str, str], list[OtlpPendingPointEntity]] = defaultdict(list)
-        for row in pending:
-            groups[(row.service, row.metric_name)].append(row)
-
-        for (service, metric_name), rows in groups.items():
+        processed = 0
+        budget = MAX_BACKLOG_PER_CYCLE
+        for service, metric_name, count in due:
+            # Whole series only, so none is analyzed on a slice of its points; the first always
+            # runs, even when it alone is over the budget.
+            if processed and count > budget:
+                break
+            rows = (
+                db.query(OtlpPendingPointEntity)
+                .filter(OtlpPendingPointEntity.service == service, OtlpPendingPointEntity.metric_name == metric_name)
+                .order_by(OtlpPendingPointEntity.timestamp)
+                .all()
+            )
             _analyze_otlp_group(db, service, metric_name, rows)
+            processed += 1
+            budget -= count
 
         OTLP_ANALYSIS_CYCLE_DURATION_SECONDS.set(time.perf_counter() - started)
-        OTLP_ANALYSIS_CYCLE_GROUPS_PROCESSED.set(len(groups))
+        OTLP_ANALYSIS_CYCLE_GROUPS_PROCESSED.set(processed)
 
 
 def _run_metric_usage_check_if_due() -> None:

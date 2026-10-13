@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -268,6 +268,12 @@ class FindingEntity(Base):
     investigation_priority: Mapped[int] = mapped_column(Integer, default=3)
     signal_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     comparison_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    # When the problem happened, and the first finding of the same problem (None: this is the
+    # first). See intelligence/storage/postgres_store.py save_findings.
+    event_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ongoing: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    problem_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     # Optional, lazily-computed AI-polished rewrite of `summary`. Never a replacement: `summary`
     # stays the deterministic field this app has always had; ai_summary is additive and only used

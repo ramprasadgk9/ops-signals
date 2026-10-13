@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Sends a synthetic OTLP metrics export to a running Ops Signals backend, so OTLP ingestion can
 be exercised end-to-end through the UI without installing a real OTel Collector.
 

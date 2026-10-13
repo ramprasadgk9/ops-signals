@@ -185,6 +185,12 @@ class FindingOut(BaseModel):
     comparison_json: dict = Field(default_factory=dict)
     analysis_run_id: str | None = None
     created_at: datetime | None = None
+    # When the problem happened, and whether it was still going on at the end of the analyzed data.
+    event_start: datetime | None = None
+    event_end: datetime | None = None
+    ongoing: bool | None = None
+    # The first finding of the same problem; None when this finding is the first.
+    problem_id: int | None = None
     # Deploys and other change events near the finding's change (services/finding_changes.py).
     changes: dict | None = None
     # How much to trust it: group, needs-attention tier, tested numbers, the team's own answers

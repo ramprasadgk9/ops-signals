@@ -163,3 +163,20 @@ describe('FindingCard metric usage tag', () => {
     expect(screen.queryByTestId('finding-watched-by')).toBeNull();
   });
 });
+
+describe('FindingCard problem timing', () => {
+  it('shows whether the problem is still happening, from the latest run that saw it', () => {
+    const first = { ...newPodsFinding, id: 1, event_start: '2026-10-12T09:00:00Z', event_end: '2026-10-12T09:10:00Z', ongoing: true };
+    const latest = { ...first, id: 2, problem_id: 1, event_end: '2026-10-12T09:45:00Z', ongoing: false };
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <FindingCard finding={first} repeats={{ count: 2, latest }} />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('finding-timing')).toHaveTextContent(/· over$/);
+    expect(screen.queryByText('Seen in 2 runs')).not.toBeInTheDocument();
+  });
+});
