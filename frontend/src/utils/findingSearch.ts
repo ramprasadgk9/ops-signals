@@ -65,9 +65,16 @@ export type FindingGroup = {
   runs: Finding[];
   firstSeen?: string;
   lastSeen?: string;
+  /** The group's most recent finding: it says whether the problem is still going on. */
+  latest?: Finding;
+  /** The earliest start any of its runs saw: a later run's window may begin after the problem did. */
+  startedAt?: string;
 };
 
 function repeatKey(finding: Finding): string {
+  // Linked by the backend to the problem it repeats (same series, same kind, overlapping time).
+  if (finding.event_start) return `problem:${finding.problem_id ?? finding.id}`;
+  // Older findings carry no event time: the same kind of change on the same series.
   return JSON.stringify([finding.connection_id ?? null, finding.service ?? null, finding.metric_name, finding.cluster ?? null, finding.category, finding.title]);
 }
 
@@ -92,6 +99,8 @@ export function groupRepeatedFindings(findings: Finding[], group = true): Findin
     const times = entry.runs.map((run) => run.created_at).filter((value): value is string => Boolean(value)).sort((a, b) => Date.parse(a) - Date.parse(b));
     entry.firstSeen = times[0];
     entry.lastSeen = times[times.length - 1];
+    entry.startedAt = entry.runs.map((run) => run.event_start).filter((value): value is string => Boolean(value)).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+    entry.latest = entry.runs.reduce((latest, run) => (Date.parse(run.created_at ?? '') > Date.parse(latest.created_at ?? '') ? run : latest), entry.runs[0]);
   }
   return ordered;
 }

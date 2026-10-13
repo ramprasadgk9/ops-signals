@@ -24,6 +24,13 @@ MAX_POINTS_PER_MIN = _env_int("OPS_SIGNALS_OTLP_MAX_POINTS_PER_MIN", 60_000)
 MAX_SERIES_PER_METRIC = _env_int("OPS_SIGNALS_OTLP_MAX_SERIES_PER_METRIC", 2_000)
 MAX_BACKLOG_PER_CYCLE = _env_int("OPS_SIGNALS_OTLP_MAX_BACKLOG_PER_CYCLE", 5_000)
 
+# A Collector sends a few points per series every 10-60s, while analyzers need 30-80 points to judge
+# a series. So a series' points wait until the oldest has waited this long (or a batch this large
+# arrives at once, as a backfill does), and each analysis also reads the series' stored history.
+OTLP_ANALYSIS_INTERVAL_MINUTES = _env_int("OPS_SIGNALS_OTLP_ANALYSIS_INTERVAL_MINUTES", 10)
+OTLP_IMMEDIATE_BATCH_POINTS = _env_int("OPS_SIGNALS_OTLP_IMMEDIATE_BATCH_POINTS", 60)
+OTLP_HISTORY_HOURS = _env_int("OPS_SIGNALS_OTLP_HISTORY_HOURS", 6)
+
 
 class RateLimiter:
     """Fixed-window global point-rate limiter, checked once per request before any DB write."""

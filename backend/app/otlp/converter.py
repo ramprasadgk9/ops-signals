@@ -14,13 +14,14 @@ from datetime import datetime, timezone
 
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
-from opentelemetry.proto.metrics.v1.metrics_pb2 import ResourceMetrics
+from opentelemetry.proto.metrics.v1.metrics_pb2 import AggregationTemporality, ResourceMetrics
 
 
 @dataclass(slots=True)
 class OtlpPoint:
     metric_name: str
-    metric_type: str  # "gauge" or "counter"
+    # "gauge", or "counter" for a monotonic Sum (a Sum that can go down, e.g. memory in use, is a gauge)
+    metric_type: str
     timestamp: datetime
     value: float
     service: str
@@ -29,6 +30,9 @@ class OtlpPoint:
     namespace: str | None
     pod: str | None
     attributes: dict[str, str] = field(default_factory=dict)
+    # Counters only: a running total (cumulative) or the count since start_time (delta).
+    cumulative: bool = False
+    start_time: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -89,7 +93,7 @@ def convert_export_request(request: ExportMetricsServiceRequest) -> OtlpConversi
                     metric_type = "gauge"
                 elif kind == "sum":
                     data_points = metric.sum.data_points
-                    metric_type = "counter"
+                    metric_type = "counter" if metric.sum.is_monotonic else "gauge"
                 elif kind == "histogram":
                     rejected_unsupported_type += len(metric.histogram.data_points)
                     continue
@@ -127,6 +131,14 @@ def convert_export_request(request: ExportMetricsServiceRequest) -> OtlpConversi
                             namespace=dp_attrs.get("k8s.namespace.name") or namespace,
                             pod=dp_attrs.get("k8s.pod.name") or pod,
                             attributes=merged_attrs,
+                            # Unspecified temporality is invalid OTLP; cumulative is the common case.
+                            cumulative=metric_type == "counter"
+                            and metric.sum.aggregation_temporality != AggregationTemporality.AGGREGATION_TEMPORALITY_DELTA,
+                            start_time=(
+                                datetime.fromtimestamp(data_point.start_time_unix_nano / 1e9, tz=timezone.utc)
+                                if metric_type == "counter" and data_point.start_time_unix_nano
+                                else None
+                            ),
                         )
                     )
 

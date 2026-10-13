@@ -18,17 +18,18 @@ import { categoryDetail, categoryLabel, categoryShortDescription } from '../util
 import { findingIdFromQuery, findingSortFromParam, findingSorts, groupRepeatedFindings, searchFindings } from '../utils/findingSearch';
 import { needsAttention } from '../utils/findingTrust';
 
-type FindingsWindow = '24h' | '7d';
+type FindingsWindow = '6h' | '24h' | '7d';
 
 const categoryColors = ['#ff3b3f', '#ff8a1f', '#3b82f6', '#7c3aed', 'var(--os-muted)'];
 const windows: Array<{ id: FindingsWindow; label: string }> = [
+  { id: '6h', label: 'Last 6 hours' },
   { id: '24h', label: 'Last 24 hours' },
   { id: '7d', label: 'Last 7 days' },
 ];
 const PAGE_SIZE = 20;
 
 function windowFromParams(value: string | null): FindingsWindow {
-  return value === '7d' ? '7d' : '24h';
+  return value === '6h' || value === '7d' ? value : '24h';
 }
 
 export function FindingsPage() {

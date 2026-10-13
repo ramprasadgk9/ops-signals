@@ -16,11 +16,24 @@ import { relativeTime, ui } from '../standalone/theme';
 import type { IngestionStatus, SourceId } from '../types';
 import { unlocksFor } from '../utils/featureUnlocks';
 
-type SourceState = 'receiving' | 'waiting' | 'disabled' | 'configured' | 'not_configured' | 'unreachable';
+type SourceState = 'receiving' | 'stale' | 'waiting' | 'disabled' | 'configured' | 'partial' | 'not_configured' | 'unreachable';
+
+// A Collector exports every 10-60s, so a few minutes of silence already means it stopped.
+const OTLP_STALE_MS = 15 * 60 * 1000;
+// Alertmanager only calls when alerts fire, re-sending them every repeat_interval (4h by default):
+// silence shorter than that is normal, so only a longer one dims the dot.
+const ALERTMANAGER_STALE_MS = 4 * 60 * 60 * 1000;
+
+function olderThan(value: string, ms: number): boolean {
+  const time = new Date(value).getTime();
+  return !Number.isNaN(time) && Date.now() - time > ms;
+}
 
 const stateStyles: Record<SourceState, { bg: string; color: string; border: string; dot: string; filled: boolean }> = {
   receiving: { bg: 'var(--os-tint-green)', color: 'var(--os-ink-green)', border: 'var(--os-tint-green-border)', dot: ui.green, filled: true },
   configured: { bg: 'var(--os-tint-green)', color: 'var(--os-ink-green)', border: 'var(--os-tint-green-border)', dot: ui.green, filled: true },
+  stale: { bg: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', border: 'var(--os-tint-amber-border)', dot: '#d97706', filled: true },
+  partial: { bg: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', border: 'var(--os-tint-amber-border)', dot: '#d97706', filled: true },
   waiting: { bg: 'var(--os-surface)', color: 'var(--os-text-2)', border: 'var(--os-border-strong)', dot: 'var(--os-muted)', filled: false },
   not_configured: { bg: 'var(--os-surface)', color: 'var(--os-text-2)', border: 'var(--os-border-strong)', dot: 'var(--os-muted)', filled: false },
   disabled: { bg: 'var(--os-surface-alt)', color: 'var(--os-text-2)', border: 'var(--os-border)', dot: 'var(--os-muted)', filled: false },
@@ -28,19 +41,37 @@ const stateStyles: Record<SourceState, { bg: string; color: string; border: stri
 };
 
 export function otlpState(status: IngestionStatus): SourceState {
-  return status.sources.otlp.last_received_at ? 'receiving' : 'waiting';
+  const last = status.sources.otlp.last_received_at;
+  if (!last) return 'waiting';
+  return olderThan(last, OTLP_STALE_MS) ? 'stale' : 'receiving';
 }
 
 export function alertmanagerState(status: IngestionStatus): SourceState {
   const alertmanager = status.sources.alertmanager;
-  if (alertmanager.last_received_at) return 'receiving';
+  if (alertmanager.last_received_at) return olderThan(alertmanager.last_received_at, ALERTMANAGER_STALE_MS) ? 'stale' : 'receiving';
   return alertmanager.enabled ? 'waiting' : 'disabled';
 }
 
 export function prometheusState(status: IngestionStatus): SourceState {
   const prometheus = status.sources.prometheus;
   if (!prometheus.configured) return 'not_configured';
-  return prometheus.reachable === false ? 'unreachable' : 'configured';
+  if (prometheus.reachable === false) return 'unreachable';
+  return unreachableConnections(status).length ? 'partial' : 'configured';
+}
+
+/** Configured connections that don't answer. The overall `reachable` is true while any one does,
+ * so without this a down cluster hides behind a healthy one. */
+export function unreachableConnections(status: IngestionStatus) {
+  return (status.sources.prometheus.connections ?? []).filter((connection) => connection.configured && connection.reachable === false);
+}
+
+function prometheusStripDetail(status: IngestionStatus): string | undefined {
+  const prometheus = status.sources.prometheus;
+  if (prometheus.reachable === false) return 'unreachable';
+  const down = unreachableConnections(status);
+  if (!down.length) return undefined;
+  const configured = (prometheus.connections ?? []).filter((connection) => connection.configured).length;
+  return `${down.length} of ${configured} unreachable`;
 }
 
 export function grafanaState(status: IngestionStatus): SourceState {
@@ -57,6 +88,8 @@ function prometheusChipLabel(status: IngestionStatus): string {
   const prometheus = status.sources.prometheus;
   if (!prometheus.configured) return 'Not configured';
   if (prometheus.reachable === false) return 'Unreachable';
+  const down = unreachableConnections(status);
+  if (down.length) return `${down.length} unreachable`;
   return prometheus.reachable ? 'Connected' : 'Configured';
 }
 
@@ -193,7 +226,7 @@ export function IntegrationTiles({ status, exploring = true }: { status: Ingesti
   return (
     <Grid container spacing={2}>
       <Grid size={{ xs: 12, lg: 6 }}>
-        <SourceTile icon={<ShowChartRoundedIcon />} title="Send metrics via OTLP" chip={<StateChip state={otlpState(status)} label={status.sources.otlp.last_received_at ? `Receiving · ${relativeTime(status.sources.otlp.last_received_at)}` : 'Waiting for data'} />}>
+        <SourceTile icon={<ShowChartRoundedIcon />} title="Send metrics via OTLP" chip={<StateChip state={otlpState(status)} label={status.sources.otlp.last_received_at ? `${otlpState(status) === 'stale' ? 'Last data' : 'Receiving'} · ${relativeTime(status.sources.otlp.last_received_at)}` : 'Waiting for data'} />}>
           <Typography variant="body2" color="text.secondary">
             Point an OTel Collector’s <code>otlphttp</code> exporter, or an OTel SDK, at this endpoint. Gauge and Sum metrics are analyzed automatically.
           </Typography>
@@ -212,7 +245,7 @@ export function IntegrationTiles({ status, exploring = true }: { status: Ingesti
         <SourceTile
           icon={<NotificationsActiveOutlinedIcon />}
           title="Connect Alertmanager"
-          chip={<StateChip state={alertState} label={alertState === 'receiving' ? `Receiving · ${relativeTime(alertmanager.last_received_at)}` : alertState === 'waiting' ? 'Waiting for alerts' : 'Disabled'} />}
+          chip={<StateChip state={alertState} label={alertState === 'receiving' ? `Receiving · ${relativeTime(alertmanager.last_received_at)}` : alertState === 'stale' ? `Last alert · ${relativeTime(alertmanager.last_received_at)}` : alertState === 'waiting' ? 'Waiting for alerts' : 'Disabled'} />}
         >
           <Typography variant="body2" color="text.secondary">
             Add Ops Signals as a webhook receiver. Incoming alerts are enriched with related findings and recent changes.
@@ -284,6 +317,11 @@ function PrometheusTile({ status, state }: { status: IngestionStatus; state: Sou
           {state === 'unreachable' ? (
             <Typography variant="body2" sx={{ bgcolor: '#fef3f2', color: '#912018', px: 1.5, py: 1, borderRadius: '6px' }}>
               Ops Signals can’t reach this Prometheus. Check <code>OPS_SIGNALS_PROMETHEUS_URL</code> and that the backend can reach it over the network.
+            </Typography>
+          ) : null}
+          {state === 'partial' ? (
+            <Typography variant="body2" sx={{ bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', px: 1.5, py: 1, borderRadius: '6px' }}>
+              Can’t reach {unreachableConnections(status).map((connection) => `${connection.name} (${connection.url ?? connection.id})`).join(', ')}. The other connections still answer.
             </Typography>
           ) : null}
           <Stack spacing={0.5} aria-label="Used by">
@@ -419,10 +457,10 @@ export function GetDataInPanel({ status, onDismiss }: { status: IngestionStatus;
 }
 
 export function SourceStatusStrip({ status }: { status: IngestionStatus }) {
-  const items: Array<{ label: string; state: SourceState; detail?: string }> = [
+  const items: Array<{ label: string; state: SourceState; detail?: string; title?: string }> = [
     { label: 'OTLP', state: otlpState(status), detail: status.sources.otlp.last_received_at ? relativeTime(status.sources.otlp.last_received_at) : undefined },
     { label: 'Alertmanager', state: alertmanagerState(status), detail: status.sources.alertmanager.last_received_at ? relativeTime(status.sources.alertmanager.last_received_at) : alertmanagerState(status) === 'disabled' ? 'off' : undefined },
-    { label: 'Prometheus', state: prometheusState(status), detail: status.sources.prometheus.reachable === false ? 'unreachable' : undefined },
+    { label: 'Prometheus', state: prometheusState(status), detail: prometheusStripDetail(status), title: unreachableConnections(status).map((connection) => `${connection.name} (${connection.url ?? connection.id}) is unreachable`).join('\n') || undefined },
     { label: 'Deploys', state: eventsState(status), detail: status.sources.events?.last_received_at ? relativeTime(status.sources.events.last_received_at) : undefined },
     ...(status.sources.grafana
       ? [{ label: 'Grafana', state: grafanaState(status), detail: status.sources.grafana.reachable === false ? 'unreachable' : undefined }]
@@ -438,7 +476,7 @@ export function SourceStatusStrip({ status }: { status: IngestionStatus }) {
       sx={{ px: 1.75, py: 0.9, bgcolor: 'var(--os-surface)', border: `1px solid ${ui.border}`, borderRadius: '999px', fontSize: 13, color: 'var(--os-text-2)', flexWrap: 'wrap', rowGap: 0.5 }}
     >
       {items.map((item) => (
-        <Stack key={item.label} direction="row" alignItems="center" spacing={0.75}>
+        <Stack key={item.label} direction="row" alignItems="center" spacing={0.75} title={item.title ?? (item.state === 'stale' ? `Nothing received from ${item.label} recently` : undefined)}>
           <StatusDot state={item.state} />
           <Typography component="span" sx={{ fontSize: 13 }}>
             {item.label}

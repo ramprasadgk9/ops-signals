@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Iterable
 
 import pandas as pd
@@ -16,6 +17,11 @@ from intelligence.window_compare import compare_windows
 # own finding per metric instead of joining the metric's behavior finding, so "the data is broken"
 # is never blended with - or allowed to rescue - a behavior finding built on that same data.
 DATA_HEALTH_SIGNAL_TYPES = {"data_gap", "flatline"}
+
+# An event ending this close to the last analyzed point is still going on. Wider for coarse data,
+# where the last few steps are the same event's tail.
+ONGOING_MIN_TOLERANCE = timedelta(minutes=5)
+ONGOING_TOLERANCE_STEPS = 3
 
 
 @dataclass(slots=True)
@@ -60,6 +66,7 @@ class FindingAggregator:
             category = self._category(grouped_signals)
             title = self._title(metric_name, grouped_signals, comparison_json, series_profile)
             summary = self._summary(metric_name, grouped_signals, comparison_json, series_profile)
+            event_start, event_end, ongoing = self._event_time(grouped_signals, metric_points)
             findings.append(
                 OperationalFinding(
                     service=service,
@@ -73,6 +80,9 @@ class FindingAggregator:
                     signal_ids=signal_ids,
                     comparison_json=comparison_json,
                     cluster=cluster,
+                    event_start=event_start,
+                    event_end=event_end,
+                    ongoing=ongoing,
                 )
             )
 
@@ -117,6 +127,26 @@ class FindingAggregator:
         if counts.get("anomaly", 0):
             return "unusual_activity"
         return "operational_insight"
+
+    @staticmethod
+    def _event_time(signals: list[OperationalSignal], points: pd.DataFrame) -> tuple[datetime | None, datetime | None, bool | None]:
+        """The most recent event's start and end, and whether it was still going on at the last
+        analyzed point. The most recent, not the whole span: a later run that still sees an old
+        event next to a new one must date the finding by the new one."""
+        timed = [
+            (start, end)
+            for start, end in ((_utc(signal.start_time), _utc(signal.end_time)) for signal in signals)
+            if start is not None and end is not None
+        ]
+        if not timed:
+            return None, None, None
+        event_start, event_end = max(timed, key=lambda item: (item[0], item[1]))
+        timestamps = pd.to_datetime(points["timestamp"], utc=True, errors="coerce").dropna().sort_values() if "timestamp" in points else pd.Series(dtype="datetime64[ns, UTC]")
+        if timestamps.empty:
+            return event_start, event_end, None
+        step = timestamps.diff().median()
+        tolerance = max(ONGOING_MIN_TOLERANCE, step * ONGOING_TOLERANCE_STEPS) if pd.notna(step) else ONGOING_MIN_TOLERANCE
+        return event_start, event_end, bool(event_end >= timestamps.iloc[-1].to_pydatetime() - tolerance)
 
     def _health_status(self, importance_score: float) -> str:
         if importance_score >= 0.8:
@@ -282,3 +312,13 @@ class FindingAggregator:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+
+def _utc(value: object) -> datetime | None:
+    if value is None:
+        return None
+    timestamp = pd.Timestamp(value)
+    if pd.isna(timestamp):
+        return None
+    timestamp = timestamp.tz_localize("UTC") if timestamp.tzinfo is None else timestamp.tz_convert("UTC")
+    return timestamp.to_pydatetime()

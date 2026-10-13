@@ -61,6 +61,10 @@ def _to_finding_out(
         comparison_json=finding.comparison_json or {},
         analysis_run_id=finding.analysis_run_id,
         created_at=finding.created_at,
+        event_start=finding.event_start,
+        event_end=finding.event_end,
+        ongoing=finding.ongoing,
+        problem_id=finding.problem_id,
         changes=changes,
         trust=trust,
     )

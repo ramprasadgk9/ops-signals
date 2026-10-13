@@ -59,6 +59,25 @@ def ensure_ai_narrative_schema(engine: Engine) -> None:
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
 
 
+# When a finding's problem happened and which earlier finding it repeats, so a problem that every
+# run sees again is counted and alerted once (intelligence/storage/postgres_store.py).
+_FINDING_PROBLEM_COLUMNS = {"event_start": "TIMESTAMPTZ", "event_end": "TIMESTAMPTZ", "ongoing": "BOOLEAN", "problem_id": "BIGINT"}
+
+
+def ensure_finding_problem_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if "ops_operational_findings" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("ops_operational_findings")}
+    missing = {name: ddl for name, ddl in _FINDING_PROBLEM_COLUMNS.items() if name not in existing}
+    if not missing:
+        return
+    with engine.begin() as connection:
+        for name, ddl in missing.items():
+            connection.execute(text(f"ALTER TABLE ops_operational_findings ADD COLUMN {name} {ddl}"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_ops_finding_problem ON ops_operational_findings (problem_id)"))
+
+
 _CLUSTER_TABLES = ("ops_normalized_timeseries_points", "ops_operational_signals", "ops_operational_findings", "ops_change_events")
 
 

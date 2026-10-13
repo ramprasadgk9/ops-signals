@@ -278,6 +278,33 @@ describe('OverviewPage integration resilience', () => {
       vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
     }
 
+    it('counts the problems that need attention and says how many more are context', async () => {
+      mockEmptyOverview();
+      vi.mocked(api.overviewSummary).mockResolvedValue({ ...emptySummary, active_findings: 299, attention_findings: 57, context_findings: 242 });
+
+      renderOverview();
+
+      const tile = (await screen.findByText('Need Attention')).closest('a') as HTMLElement;
+      expect(tile).toHaveTextContent('57');
+      expect(tile).toHaveTextContent('+242 in context');
+      expect(screen.queryByText('Active Findings')).not.toBeInTheDocument();
+      expect(screen.getByText(/57 findings need attention, 242 more in context\./)).toBeInTheDocument();
+    });
+
+    it('lists only findings that need attention in the Needs Attention table', async () => {
+      mockEmptyOverview();
+      const base = { service: 'checkout-api', category: 'behavior_change', health_status: 'significant', importance_score: 0.7, investigation_priority: 2, signal_ids: [], comparison_json: {}, summary: '' };
+      vi.mocked(api.findings).mockResolvedValue([
+        { ...base, id: 1, metric_name: 'cpu_usage', title: 'cpu needs a look', trust: { tier: 'needs_attention' } },
+        { ...base, id: 2, metric_name: 'disk_bytes', title: 'disk burst in context', trust: { tier: 'context' } },
+      ] as never);
+
+      renderOverview();
+
+      expect(await screen.findByText('cpu needs a look')).toBeInTheDocument();
+      expect(screen.queryByText('disk burst in context')).not.toBeInTheDocument();
+    });
+
     it('shows the get-data-in panel and dashes instead of zero KPIs on a fresh install', async () => {
       mockEmptyOverview();
       vi.mocked(api.ingestionStatus).mockResolvedValue(ingestion());

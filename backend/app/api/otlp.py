@@ -30,6 +30,7 @@ from backend.app.otlp.converter import OtlpPoint, convert_export_request
 from backend.app.otlp.limits import MAX_OTLP_BYTES, cardinality_tracker, rate_limiter
 from backend.app.otlp.metrics import OTLP_POINTS_RECEIVED_TOTAL, OTLP_POINTS_REJECTED_TOTAL, mark_points_received
 from backend.app.otlp.metrics import snapshot as otlp_metrics_snapshot
+from backend.app.otlp.rates import counter_rates
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,7 @@ async def export_metrics(request: Request) -> Response:
             rejected_cardinality += 1
 
     if accepted:
-        _persist_pending_points(accepted)
+        _persist_pending_points(counter_rates.convert(accepted))
         OTLP_POINTS_RECEIVED_TOTAL.inc(len(accepted))
         mark_points_received()
     if conversion.rejected_unsupported_type:

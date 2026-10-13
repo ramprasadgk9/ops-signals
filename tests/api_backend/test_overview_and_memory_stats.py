@@ -129,6 +129,23 @@ def test_overview_summary_honors_time_window() -> None:
         assert res_7d.json()["severity_trend"][0]["critical"] == 1
 
 
+def test_overview_summary_supports_six_hour_window() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    now = datetime.utcnow()
+    with TestClient(app) as client:
+        session_local = get_session_local()
+        with session_local() as db:
+            db.add(_finding(1, "checkout-api", "critical", "behavior_change", now - timedelta(hours=2)))
+            db.add(_finding(2, "payments", "high", "behavior_change", now - timedelta(hours=10)))
+            db.commit()
+
+        res_6h = client.get("/api/overview/summary", params={"window": "6h"})
+        assert res_6h.status_code == 200
+        assert res_6h.json()["window"] == "6h"
+        assert res_6h.json()["active_findings"] == 1
+        assert client.get("/api/overview/summary", params={"window": "24h"}).json()["active_findings"] == 2
+
+
 def test_overview_summary_rejects_invalid_window() -> None:
     app = create_app("sqlite+pysqlite:///:memory:")
     with TestClient(app) as client:
@@ -257,3 +274,50 @@ def test_memory_stats_returns_service_error_for_vector_store_failure() -> None:
         memory_api._services["vector_store"] = BrokenStore()
         res = client.get("/api/memory/stats")
         assert res.status_code == 500
+
+
+def test_overview_counts_a_problem_seen_by_several_runs_once() -> None:
+    # Scheduled runs re-analyze overlapping windows, so the same problem is saved once per run,
+    # linked to the first by problem_id (intelligence/storage/postgres_store.py).
+    app = create_app("sqlite+pysqlite:///:memory:")
+    now = datetime.utcnow()
+    with TestClient(app) as client:
+        with get_session_local()() as db:
+            first = _finding(1, "checkout-api", "critical", "behavior_change", now - timedelta(hours=2))
+            repeats = [_finding(finding_id, "checkout-api", "critical", "behavior_change", now - timedelta(hours=1)) for finding_id in (2, 3)]
+            for repeat in repeats:
+                repeat.problem_id = 1
+            other = _finding(4, "payments", "critical", "behavior_change", now - timedelta(hours=1))
+            closed_first = _finding(5, "search", "critical", "behavior_change", now - timedelta(hours=3))
+            closed_repeat = _finding(6, "search", "critical", "behavior_change", now - timedelta(hours=1))
+            closed_repeat.problem_id = 5
+            db.add_all([first, *repeats, other, closed_first, closed_repeat])
+            db.add(_case(1, 5, "closed", "resolved", "indexed", now))
+            db.commit()
+
+        payload = client.get("/api/overview/summary", params={"window": "24h"}).json()
+
+    assert payload["active_findings"] == 2
+    assert payload["category_breakdown"] == [{"category": "behavior_change", "count": 3}]
+
+
+def test_overview_splits_problems_into_needing_attention_and_context(monkeypatch) -> None:
+    # A problem needs attention when any of its findings does (services/finding_trust.py).
+    from backend.app.api import overview as overview_api
+
+    tiers = {1: "context", 2: "needs_attention", 3: "context"}
+    monkeypatch.setattr(overview_api, "finding_trust", lambda db, rows: {row.id: {"tier": tiers[row.id]} for row in rows})
+    app = create_app("sqlite+pysqlite:///:memory:")
+    now = datetime.utcnow()
+    with TestClient(app) as client:
+        with get_session_local()() as db:
+            first = _finding(1, "checkout-api", "critical", "behavior_change", now - timedelta(hours=2))
+            repeat = _finding(2, "checkout-api", "critical", "behavior_change", now - timedelta(hours=1))
+            repeat.problem_id = 1
+            other = _finding(3, "payments", "critical", "behavior_change", now - timedelta(hours=1))
+            db.add_all([first, repeat, other])
+            db.commit()
+
+        payload = client.get("/api/overview/summary", params={"window": "24h"}).json()
+
+    assert (payload["active_findings"], payload["attention_findings"], payload["context_findings"]) == (2, 1, 1)

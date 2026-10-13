@@ -144,7 +144,7 @@ class SignalPipeline(RegistryAnalyzerSelection):
             self.store.save_findings(findings)
             self.store.update_analysis_run_learning_snapshot(
                 analysis_run_id,
-                {"generated_findings_json": [finding.to_record() for finding in findings]},
+                {"generated_findings_json": [finding.to_json() for finding in findings]},
             )
 
             self._evaluate_behavior_intelligence(signals, analysis_run_id)

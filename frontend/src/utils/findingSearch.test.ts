@@ -84,6 +84,20 @@ describe('groupRepeatedFindings', () => {
     expect(groupRepeatedFindings(findings)).toHaveLength(5);
   });
 
+  it('groups by the problem the backend linked, so the same kind of problem at another time stays apart', () => {
+    const timed = { event_start: '2026-10-12T09:00:00Z', event_end: '2026-10-12T09:45:00Z' };
+    const findings = [
+      run(1, '2026-10-12T09:10:00Z', { ...timed, problem_id: null }),
+      run(2, '2026-10-12T09:20:00Z', { ...timed, problem_id: 1 }),
+      run(3, '2026-10-12T14:10:00Z', { event_start: '2026-10-12T14:00:00Z', event_end: '2026-10-12T14:10:00Z', problem_id: null }),
+    ];
+
+    const groups = groupRepeatedFindings(findings);
+
+    expect(groups.map((group) => group.runs.map((item) => item.id))).toEqual([[1, 2], [3]]);
+    expect(groups[0].latest?.id).toBe(2);
+  });
+
   it('keeps the list order and lists every run when grouping is off', () => {
     const findings = [run(1, '2026-10-04T10:00:00Z'), run(2, '2026-10-04T09:00:00Z', { cluster: 'us' }), run(3, '2026-10-04T08:00:00Z')];
     expect(groupRepeatedFindings(findings).map((group) => group.finding.id)).toEqual([1, 2]);

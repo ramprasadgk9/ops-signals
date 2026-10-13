@@ -19,6 +19,8 @@ import { MetricUsageStrip } from '../components/MetricUsageStrip';
 import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
 import { relativeTime, titleCase, ui } from '../standalone/theme';
 import { findingLevel } from '../utils/findingLevel';
+import { groupRepeatedFindings } from '../utils/findingSearch';
+import { needsAttention } from '../utils/findingTrust';
 import { toCaseRows } from '../standalone/casesService';
 import { buildAutonomousDashboardData, type AutonomousDashboardData, type AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AlertItem, Finding, OperationalCase } from '../types';
@@ -69,7 +71,11 @@ export function OverviewPage() {
   const policyRuns = autonomousPolicyRunsQuery.data ?? [];
   const caseRows = toCaseRows(cases);
   const openCases = caseRows.filter((item) => item.isOpen);
-  const prioritizedFindings = [...findings].sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0));
+  // One row per problem: a problem every run sees again is listed once, at its most important.
+  const prioritizedFindings = groupRepeatedFindings([...findings].sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0)))
+    .map((group) => group.finding)
+    // Context findings stay on the Findings page, as there.
+    .filter(needsAttention);
   const autonomousData = buildAutonomousDashboardData({
     findings,
     cases,
@@ -95,6 +101,8 @@ export function OverviewPage() {
 
       <OperationalSummary
         activeFindings={summaryQuery.error ? null : summary?.active_findings ?? findings.length}
+        attentionFindings={summaryQuery.error ? undefined : summary?.attention_findings}
+        contextFindings={summary?.context_findings}
         impactedServices={summaryQuery.error ? null : summary?.impacted_services ?? 0}
         failedJobs={failedJobs}
         topIssue={topIssue}
@@ -102,7 +110,12 @@ export function OverviewPage() {
       />
 
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WarningAmberRoundedIcon />} value={kpiValue(summary?.active_findings)} label="Active Findings" delta="Needs review" to="/findings?window=24h" bg="var(--os-tint-rose)" color={ui.red} /></Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>{summary?.attention_findings !== undefined ? (
+          // Problems that need attention; context findings are one click away, as on the Findings page.
+          <KpiCard icon={<WarningAmberRoundedIcon />} value={kpiValue(summary.attention_findings)} label="Need Attention" delta={summary.context_findings ? `+${summary.context_findings} in context` : 'Needs review'} to="/findings?window=24h" bg="var(--os-tint-rose)" color={ui.red} />
+        ) : (
+          <KpiCard icon={<WarningAmberRoundedIcon />} value={kpiValue(summary?.active_findings)} label="Active Findings" delta="Needs review" to="/findings?window=24h" bg="var(--os-tint-rose)" color={ui.red} />
+        )}</Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<WorkOutlineRoundedIcon />} value={kpiValue(summary?.open_cases)} label="Open Cases" delta="Investigation backlog" to="/cases" bg="var(--os-tint-orange)" color={ui.orange} /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<DnsRoundedIcon />} value={kpiValue(summary?.impacted_services)} label="Impacted Services" delta={topFinding?.service ?? 'No service impacted'} to="/findings?window=24h" bg="var(--os-tint-blue)" color="#3b82f6" /></Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiCard icon={<CheckCircleRoundedIcon />} value={awaitingFirstData ? '—' : failedJobs > 0 ? 'Needs attention' : 'Healthy'} label="Automation" delta={awaitingFirstData ? 'Waiting for first data' : `${failedJobs} failed jobs`} to="/autonomous-monitoring" bg="var(--os-tint-green)" color={failedJobs > 0 ? ui.red : ui.green} /></Grid>
@@ -134,8 +147,13 @@ function latestPolicyRun(policyRuns: AutonomousPolicyRun[]) {
   })[0] ?? null;
 }
 
-function OperationalSummary({ activeFindings, impactedServices, failedJobs, topIssue, awaitingFirstData = false }: { activeFindings: number | null; impactedServices: number | null; failedJobs: number; topIssue: string; awaitingFirstData?: boolean }) {
-  const findingText = activeFindings === null ? 'Findings unavailable.' : `${activeFindings} active ${activeFindings === 1 ? 'finding' : 'findings'}.`;
+function OperationalSummary({ activeFindings, attentionFindings, contextFindings, impactedServices, failedJobs, topIssue, awaitingFirstData = false }: { activeFindings: number | null; attentionFindings?: number; contextFindings?: number; impactedServices: number | null; failedJobs: number; topIssue: string; awaitingFirstData?: boolean }) {
+  const findingText =
+    activeFindings === null
+      ? 'Findings unavailable.'
+      : attentionFindings !== undefined
+        ? `${attentionFindings} ${attentionFindings === 1 ? 'finding needs' : 'findings need'} attention${contextFindings ? `, ${contextFindings} more in context` : ''}.`
+        : `${activeFindings} active ${activeFindings === 1 ? 'finding' : 'findings'}.`;
   const serviceText = impactedServices === null ? 'Service impact unavailable.' : `${impactedServices} ${impactedServices === 1 ? 'service' : 'services'} impacted.`;
   const automationText = failedJobs > 0 ? `Automation needs attention with ${failedJobs} failed ${failedJobs === 1 ? 'job' : 'jobs'}.` : 'Automation healthy.';
   return (

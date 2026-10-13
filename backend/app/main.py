@@ -70,6 +70,7 @@ from backend.app.models.schema_compat import (
     ensure_case_behavior_link_schema,
     ensure_case_import_schema,
     ensure_cluster_schema,
+    ensure_finding_problem_schema,
     ensure_metric_usage_schema,
     ensure_learning_schema,
     ensure_ticketing_schema,
@@ -259,6 +260,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_autonomous_policy_scheduling_schema(get_engine())
         ensure_ticketing_schema(get_engine())
         ensure_cluster_schema(get_engine())
+        ensure_finding_problem_schema(get_engine())
         ensure_metric_usage_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
