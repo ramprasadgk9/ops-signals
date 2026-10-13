@@ -139,12 +139,15 @@ BACKEND_PORT="$WEB_UI_BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PRO
   "$PYTHON_BIN" -m uvicorn backend.app.main:app --port "$WEB_UI_BACKEND_PORT" >"$web_ui_backend_log" 2>&1 &
 web_ui_backend_pid=$!
 
+# The first backend on a fresh Qdrant embeds every doc into the knowledge index before it serves
+# (about 1,100 chunks): seconds on a laptop, over a minute on a CPU-only CI runner. The second
+# backend finds them unchanged and starts quickly.
 echo "Waiting for web-ui backend to become ready..."
-for attempt in {1..30}; do
+for attempt in {1..90}; do
   if curl -fsS "http://localhost:${WEB_UI_BACKEND_PORT}/api/health" >/dev/null 2>&1; then
     break
   fi
-  if [[ "$attempt" -eq 30 ]]; then
+  if [[ "$attempt" -eq 90 ]]; then
     echo "web-ui backend did not become ready in time; see $web_ui_backend_log"
     show_log "$web_ui_backend_log"
     exit 1
