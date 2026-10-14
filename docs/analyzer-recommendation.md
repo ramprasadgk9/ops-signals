@@ -363,8 +363,10 @@ How `recommended_threshold` fills its slots:
 3. **Only analyzers that can really run take a slot.** A router candidate with no pipeline
    analyzer (darts, adtk, ...) is skipped, and so is one whose optional library isn't installed
    (`requires_library` in `config/analyzer_registry.d/`): without the `prophet` package,
-   `ProphetAnalyzer` fits a straight line, not the model the router scored. Such analyzers still
-   run in `all` mode.
+   `ProphetAnalyzer` fits a straight line, not the model the router scored. The router marks such
+   an analyzer `REJECTED`, with the reason "the prophet library is not installed", rather than
+   recommending it. Such analyzers still run in `all` mode. The router benchmark scores as if
+   every library were installed, since it grades the router's choice, not this machine.
 
 `always_run` analyzers (`data_health`) run outside this contest.
 

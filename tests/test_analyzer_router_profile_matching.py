@@ -337,3 +337,26 @@ def test_pyod_outlier_is_not_shape_gated_on_a_seasonal_profile() -> None:
     assert decision.parameters_tested["profile_match"] is False
     assert decision.final_score == 0.76
     assert decision.recommendation == "OPTIONAL"
+
+
+def test_an_analyzer_whose_library_is_missing_is_rejected_not_recommended() -> None:
+    profile = _profile(detected_profiles=["seasonal", "repeating_pattern", "trend"])
+
+    installed = {
+        decision.analyzer: decision
+        for decision in UniversalTimeSeriesRouter(missing_libraries={}).recommend_analyzers_for_profile(profile)
+    }
+    missing = {
+        decision.analyzer: decision
+        for decision in UniversalTimeSeriesRouter(missing_libraries={"prophet": "prophet"}).recommend_analyzers_for_profile(profile)
+    }
+
+    assert installed["prophet"].eligible is True
+    assert installed["prophet"].recommendation != "REJECTED"
+    assert missing["prophet"].eligible is False
+    assert missing["prophet"].recommendation == "REJECTED"
+    assert missing["prophet"].final_score == 0.0
+    assert missing["prophet"].routing_reason == (
+        "Prophet was rejected because the prophet library is not installed, so this analyzer does not run."
+    )
+    assert missing["stumpy"].recommendation == installed["stumpy"].recommendation

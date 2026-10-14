@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -155,6 +156,22 @@ def _parse_entry(analyzer_id: str, data: dict[str, Any], source_file: str) -> An
         always_run=bool(data.get("always_run", False)),
         requires_library=data.get("requires_library"),
     )
+
+
+def library_installed(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def missing_libraries(config_path: str | Path) -> dict[str, str]:
+    """Analyzer id -> the optional library it declares (requires_library) that isn't installed."""
+    return {
+        registration.analyzer_id: registration.requires_library
+        for registration in load_registrations(config_path)
+        if registration.requires_library and not library_installed(registration.requires_library)
+    }
 
 
 def load_registrations(config_path: str | Path, *, validate: bool = True) -> list[AnalyzerRegistration]:

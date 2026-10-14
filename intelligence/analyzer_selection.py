@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +10,7 @@ from intelligence.analyzer_registry import (
     AnalyzerRegistration,
     AnalyzerRegistrationError,
     instantiate,
+    library_installed,
     load_registrations,
 )
 from intelligence.analyzers.base import Analyzer
@@ -29,13 +29,6 @@ PROFILE_GROUPS = {
     "seasonal": {"seasonal", "repeating_pattern"},
     "trend": {"trend"},
 }
-
-
-def _library_installed(name: str) -> bool:
-    try:
-        return importlib.util.find_spec(name) is not None
-    except (ImportError, ValueError):
-        return False
 
 
 class RegistryAnalyzerSelection:
@@ -249,7 +242,7 @@ class RegistryAnalyzerSelection:
         return {
             registration.analyzer_id
             for registration in self._enabled_registrations()
-            if not registration.requires_library or _library_installed(registration.requires_library)
+            if not registration.requires_library or library_installed(registration.requires_library)
         }
 
     def _enabled_registrations(self) -> list[AnalyzerRegistration]:
@@ -297,6 +290,8 @@ class RegistryAnalyzerSelection:
                 status = "skipped"
                 if recommended:
                     reason = "Recommended, but below the execution threshold or capped by max_analyzers."
+                elif decision.get("recommendation") == "REJECTED" and decision.get("routing_reason"):
+                    reason = str(decision["routing_reason"])
                 else:
                     reason = f"Router decision was {decision.get('recommendation')}."
             elif not matching_executed:

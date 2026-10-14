@@ -11,6 +11,7 @@ import pandas as pd
 import yaml
 
 from backend.app.services.timeseries_routing_service import TimeSeriesRoutingService, build_csv_routing_config
+from experiments.analyzer_router.router import UniversalTimeSeriesRouter
 from intelligence.analyzer_registry import AnalyzerRegistrationError, instantiate, load_registrations
 from intelligence.finding_aggregator import FindingAggregator
 
@@ -103,7 +104,10 @@ def run_router(scenario_dir: Path) -> tuple[dict[str, list[dict[str, Any]]], dic
         preview=True,
     )
     try:
-        result = TimeSeriesRoutingService().route_dataframe(dataframe, config.input)
+        # Grades the router's scoring, so it treats every optional library as installed: whether
+        # prophet is on this machine says nothing about whether the router picked it correctly.
+        router = UniversalTimeSeriesRouter(missing_libraries={})
+        result = TimeSeriesRoutingService(router).route_dataframe(dataframe, config.input)
     except ValueError as exc:
         raise RouterBenchmarkExecutionError(str(exc)) from exc
     return normalize_router_decisions(result.analyzer_routing), result.profile, result.normalized
