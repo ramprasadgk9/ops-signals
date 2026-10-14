@@ -7,7 +7,7 @@ import type { SeedPoint } from './db';
 // sample_data/ops_signals_test_series/README.md. Reused as-is rather than inventing new waveforms.
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../sample_data/ops_signals_test_series');
 
-export type RoutingOutcome = 'recommended' | 'optional' | 'conditional' | 'not_recommended';
+export type RoutingOutcome = 'recommended' | 'optional' | 'conditional' | 'not_recommended' | 'rejected';
 
 /** Title Case bucket labels used by ValidateDataPage's Router Decisions panel — see
  * routerBucketLabel() in frontend/src/pages/ValidateDataPage.tsx. Distinct vocabulary from the
@@ -47,7 +47,9 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     csvPath: path.join(FIXTURE_DIR, '02_trend_smooth_linear_increase.csv'),
     service: 'test-trend-smooth-linear-increase',
     metricName: 'cpu_usage',
-    expectedOutcomes: { trend_regression: 'recommended', prophet: 'recommended' },
+    // prophet is rejected, not recommended: the prophet package isn't in requirements.txt, and the
+    // router rejects an analyzer whose requires_library is missing (af162d6).
+    expectedOutcomes: { trend_regression: 'recommended', prophet: 'rejected' },
     csvRouterOutcomes: { trend_regression: 'Recommended', stumpy: 'Not Recommended', ruptures: 'Optional' },
   },
   stumpy: {
