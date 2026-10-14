@@ -64,6 +64,9 @@ wired.
 
 What analyzers are, why a given one gets picked for a given metric, and how much to trust that pick.
 
+- [`analyzers-explained.md`](analyzers-explained.md) - **start here for analyzers.** The nine
+  analyzers in plain words, each with a chart of the behavior it catches, a one-page comparison and
+  when each one runs.
 - [`analyzer-plugin-framework.md`](analyzer-plugin-framework.md) - what an analyzer is, the
   two-registry model (pipeline vs. router), and how to add your own.
 - [`http-analyzer-contract.md`](http-analyzer-contract.md) - connect your own model or detection

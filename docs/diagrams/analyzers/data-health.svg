@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 230" width="720" height="230" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Memory (%)">
+<rect x="1" y="1" width="718" height="228" rx="10" fill="#f6f9fd" stroke="#d9e3ef"/>
+<text x="20" y="28" font-size="14" font-weight="700" fill="#16233a">Memory (%)</text>
+<line x1="64" y1="186.0" x2="696" y2="186.0" stroke="#e3eaf3"/>
+<text x="56" y="190.0" font-size="11" fill="#5b6b82" text-anchor="end">36</text>
+<line x1="64" y1="118.0" x2="696" y2="118.0" stroke="#e3eaf3"/>
+<text x="56" y="122.0" font-size="11" fill="#5b6b82" text-anchor="end">43</text>
+<line x1="64" y1="50.0" x2="696" y2="50.0" stroke="#e3eaf3"/>
+<text x="56" y="54.0" font-size="11" fill="#5b6b82" text-anchor="end">50</text>
+<text x="64.0" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:00</text>
+<text x="154.3" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:05</text>
+<text x="244.6" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:10</text>
+<text x="334.9" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:15</text>
+<text x="425.1" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:20</text>
+<text x="515.4" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:25</text>
+<text x="605.7" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:30</text>
+<text x="696.0" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10:35</text>
+<rect x="244.6" y="46" width="451.4" height="140" fill="#fbe3e3"/>
+<text x="470.3" y="58" font-size="12" font-weight="600" fill="#d63b3b" text-anchor="middle">exactly 45.0 - not changing</text>
+<polyline points="64.0,147.1 154.3,127.7 244.6,98.6 334.9,98.6 425.1,98.6 515.4,98.6 605.7,98.6 696.0,98.6" fill="none" stroke="#2563b8" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="64.0" cy="147.1" r="3.5" fill="#2563b8"/><circle cx="154.3" cy="127.7" r="3.5" fill="#2563b8"/><circle cx="244.6" cy="98.6" r="3.5" fill="#2563b8"/><circle cx="334.9" cy="98.6" r="3.5" fill="#2563b8"/><circle cx="425.1" cy="98.6" r="3.5" fill="#2563b8"/><circle cx="515.4" cy="98.6" r="3.5" fill="#2563b8"/><circle cx="605.7" cy="98.6" r="3.5" fill="#2563b8"/><circle cx="696.0" cy="98.6" r="3.5" fill="#2563b8"/>
+</svg>

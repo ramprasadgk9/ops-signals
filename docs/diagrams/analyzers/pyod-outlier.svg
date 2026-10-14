@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 230" width="720" height="230" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Readings (each dot is one reading)">
+<rect x="1" y="1" width="718" height="228" rx="10" fill="#f6f9fd" stroke="#d9e3ef"/>
+<text x="20" y="28" font-size="14" font-weight="700" fill="#16233a">Readings (each dot is one reading)</text>
+<line x1="64" y1="186.0" x2="696" y2="186.0" stroke="#e3eaf3"/>
+<text x="56" y="190.0" font-size="11" fill="#5b6b82" text-anchor="end">32</text>
+<line x1="64" y1="118.0" x2="696" y2="118.0" stroke="#e3eaf3"/>
+<text x="56" y="122.0" font-size="11" fill="#5b6b82" text-anchor="end">62</text>
+<line x1="64" y1="50.0" x2="696" y2="50.0" stroke="#e3eaf3"/>
+<text x="56" y="54.0" font-size="11" fill="#5b6b82" text-anchor="end">92</text>
+<text x="64.0" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#1</text>
+<text x="154.3" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#2</text>
+<text x="244.6" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#3</text>
+<text x="334.9" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#4</text>
+<text x="425.1" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#5</text>
+<text x="515.4" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#6</text>
+<text x="605.7" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#7</text>
+<text x="696.0" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">#8</text>
+<circle cx="64.0" cy="168.0" r="6" fill="#2563b8"/><circle cx="154.3" cy="163.5" r="6" fill="#2563b8"/><circle cx="244.6" cy="170.3" r="6" fill="#2563b8"/><circle cx="334.9" cy="165.8" r="6" fill="#2563b8"/><circle cx="425.1" cy="161.2" r="6" fill="#2563b8"/><circle cx="515.4" cy="168.0" r="6" fill="#2563b8"/><circle cx="696.0" cy="165.8" r="6" fill="#2563b8"/>
+<circle cx="605.7" cy="65.7" r="6" fill="#d63b3b" stroke="#fff" stroke-width="2"/>
+<text x="605.7" y="53.7" font-size="12" font-weight="600" fill="#d63b3b" text-anchor="middle">85 - doesn&#x27;t fit the others</text>
+</svg>

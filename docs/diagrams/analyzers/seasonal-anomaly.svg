@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 230" width="720" height="230" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="CPU (%) by hour of day">
+<rect x="1" y="1" width="718" height="228" rx="10" fill="#f6f9fd" stroke="#d9e3ef"/>
+<text x="20" y="28" font-size="14" font-weight="700" fill="#16233a">CPU (%) by hour of day</text>
+<line x1="64" y1="186.0" x2="696" y2="186.0" stroke="#e3eaf3"/>
+<text x="56" y="190.0" font-size="11" fill="#5b6b82" text-anchor="end">0</text>
+<line x1="64" y1="118.0" x2="696" y2="118.0" stroke="#e3eaf3"/>
+<text x="56" y="122.0" font-size="11" fill="#5b6b82" text-anchor="end">55</text>
+<line x1="64" y1="50.0" x2="696" y2="50.0" stroke="#e3eaf3"/>
+<text x="56" y="54.0" font-size="11" fill="#5b6b82" text-anchor="end">110</text>
+<text x="64.0" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">12 AM</text>
+<text x="121.5" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">2 AM</text>
+<text x="178.9" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">4 AM</text>
+<text x="236.4" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">6 AM</text>
+<text x="293.8" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">8 AM</text>
+<text x="351.3" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10 AM</text>
+<text x="408.7" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">12 PM</text>
+<text x="466.2" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">2 PM</text>
+<text x="523.6" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">4 PM</text>
+<text x="581.1" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">6 PM</text>
+<text x="638.5" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">8 PM</text>
+<text x="696.0" y="206" font-size="11" fill="#5b6b82" text-anchor="middle">10 PM</text>
+<rect x="529" y="18" width="18" height="10" fill="#e07b28" fill-opacity="0.25"/><text x="553" y="27" font-size="11" fill="#5b6b82">usual for this hour</text>
+<line x1="460" y1="23" x2="478" y2="23" stroke="#2563b8" stroke-width="3"/><text x="484" y="27" font-size="11" fill="#5b6b82">today</text>
+<polygon points="64.0,148.9 121.5,151.4 178.9,150.1 236.4,132.8 293.8,89.6 351.3,67.3 408.7,101.9 466.2,108.1 523.6,111.8 581.1,120.5 638.5,132.8 696.0,144.0 696.0,163.7 638.5,152.6 581.1,140.3 523.6,131.6 466.2,127.9 408.7,121.7 351.3,87.1 293.8,109.3 236.4,152.6 178.9,169.9 121.5,171.2 64.0,168.7" fill="#e07b28" fill-opacity="0.14"/>
+<polyline points="64.0,158.8 121.5,74.7 178.9,160.0 236.4,142.7 293.8,99.5 351.3,77.2 408.7,111.8 466.2,118.0 523.6,121.7 581.1,130.4 638.5,142.7 696.0,153.9" fill="none" stroke="#2563b8" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="64.0" cy="158.8" r="3.5" fill="#2563b8"/><circle cx="121.5" cy="74.7" r="3.5" fill="#2563b8"/><circle cx="178.9" cy="160.0" r="3.5" fill="#2563b8"/><circle cx="236.4" cy="142.7" r="3.5" fill="#2563b8"/><circle cx="293.8" cy="99.5" r="3.5" fill="#2563b8"/><circle cx="351.3" cy="77.2" r="3.5" fill="#2563b8"/><circle cx="408.7" cy="111.8" r="3.5" fill="#2563b8"/><circle cx="466.2" cy="118.0" r="3.5" fill="#2563b8"/><circle cx="523.6" cy="121.7" r="3.5" fill="#2563b8"/><circle cx="581.1" cy="130.4" r="3.5" fill="#2563b8"/><circle cx="638.5" cy="142.7" r="3.5" fill="#2563b8"/><circle cx="696.0" cy="153.9" r="3.5" fill="#2563b8"/>
+<circle cx="121.5" cy="74.7" r="6" fill="#d63b3b" stroke="#fff" stroke-width="2"/>
+<text x="133.5" y="78.7" font-size="12" font-weight="600" fill="#d63b3b" text-anchor="start">90% at 2 AM - unusual</text>
+<text x="351.3" y="63.2" font-size="12" font-weight="600" fill="#5b6b82" text-anchor="middle">90% at 10 AM - normal</text>
+</svg>

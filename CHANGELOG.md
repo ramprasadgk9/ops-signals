@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Analyzers explained, with pictures.** `docs/analyzers-explained.md` describes the nine
+  analyzers in plain words, each with a chart of the behavior it catches, a one-page comparison and
+  when each one runs. `scripts/build_analyzer_guide.py` regenerates the charts and prints the guide
+  as a PDF.
 - **Feature availability by data source.** `GET /api/ingestion/status` now returns `features`:
   each feature's state (`on`, `partly`, `off`) worked out from the connected sources, with the
   sources it is missing. For example, with OTLP alone, findings, cases and memory are on, while
