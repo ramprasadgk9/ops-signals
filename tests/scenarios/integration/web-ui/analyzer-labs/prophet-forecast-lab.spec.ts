@@ -8,11 +8,15 @@ import { expectFindingCreated, passFailChip } from './labScenario';
  * lab's own exposed controls) reliably clears the threshold — confirmed live: 31.3% relative error.
  */
 test('Prophet Forecast Lab creates a finding for a strong forecast breakout', async ({ page }) => {
+  test.setTimeout(120_000);
   await page.goto('/experiments/prophet-forecast-lab');
   await page.getByLabel('Pattern').click();
   await page.getByRole('option', { name: 'Forecast breakout', exact: true }).click();
   await page.getByLabel('Deviation %').fill('50');
   await page.getByRole('button', { name: 'Run Analyzer' }).click();
+  // The suite's first lab run is slow (49.8s seen in CI). Not Prophet itself: it isn't installed,
+  // so the analyzer uses its straight-line fallback.
+  await expect(page.getByText(/^(FINDING_CREATED|NO_FINDING)$/)).toBeVisible({ timeout: 90_000 });
   await expectFindingCreated(page);
   await expect(passFailChip(page)).toHaveText('PASS');
 });

@@ -114,6 +114,27 @@ def test_findings_do_not_claim_previous_day_without_comparison_data() -> None:
     assert finding.comparison_json["comparison_type"] == "selected_window_split"
 
 
+def test_a_rejected_analyzer_is_skipped_with_the_routers_reason() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    config = load_config(project_root / "config.yaml")
+    pipeline = SignalPipeline(config=config, store=InMemoryStore(), embedder=StubEmbedder())
+    reason = "Prophet was excluded because the prophet library is not installed, so this analyzer does not run."
+
+    snapshots = pipeline._executed_analyzer_snapshots(
+        [
+            {"analyzer_id": "prophet", "display_name": "Prophet", "recommendation": "REJECTED", "routing_reason": reason},
+            {"analyzer_id": "adtk", "display_name": "ADTK", "recommendation": "REJECTED"},
+        ],
+        [],
+        selected_analyzers=set(),
+    )
+
+    by_id = {item["router_analyzer_id"]: item for item in snapshots}
+    assert by_id["prophet"]["execution_status"] == "skipped"
+    assert by_id["prophet"]["execution_reason"] == reason
+    assert by_id["adtk"]["execution_reason"] == "Router decision was REJECTED."
+
+
 def test_pipeline_records_recommended_analyzers_that_are_skipped() -> None:
     project_root = Path(__file__).resolve().parents[1]
     config = load_config(project_root / "config.yaml")
@@ -204,7 +225,7 @@ SPIKY_ROUTING = [
 
 
 def test_a_detected_spike_profile_gets_an_outlier_detector_even_when_it_scores_lower(monkeypatch) -> None:
-    monkeypatch.setattr("intelligence.analyzer_selection._library_installed", lambda name: True)
+    monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: True)
     pipeline = _threshold_pipeline()
 
     allowed = pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING)
@@ -215,14 +236,14 @@ def test_a_detected_spike_profile_gets_an_outlier_detector_even_when_it_scores_l
 
 
 def test_profile_coverage_can_be_turned_off_to_rank_by_score_alone(monkeypatch) -> None:
-    monkeypatch.setattr("intelligence.analyzer_selection._library_installed", lambda name: True)
+    monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: True)
     pipeline = _threshold_pipeline(cover_detected_profiles=False)
 
     assert pipeline._allowed_pipeline_analyzers(SPIKY_ROUTING) == {"prophet", "trend", "ruptures", "data_health", "stumpy"}
 
 
 def test_an_analyzer_missing_its_optional_library_does_not_take_a_slot(monkeypatch) -> None:
-    monkeypatch.setattr("intelligence.analyzer_selection._library_installed", lambda name: name != "prophet")
+    monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: name != "prophet")
     pipeline = _threshold_pipeline(cover_detected_profiles=False)
 
     # prophet would run a straight-line fallback, not the model the router scored.

@@ -26,6 +26,8 @@ BEHAVIORAL_PROFILES = {
     "outlier",
     "mixed",
 }
+_PIPELINE_REGISTRY_DIR = Path(__file__).resolve().parents[2] / "config" / "analyzer_registry.d"
+
 PROFILE_MATCH_BONUS = 0.10
 PROFILE_MISMATCH_CAP = 0.54
 
@@ -61,11 +63,19 @@ class UniversalTimeSeriesRouter:
         registry_path: str | Path | None = None,
         config: dict | None = None,
         config_path: str | Path | None = None,
+        missing_libraries: dict[str, str] | None = None,
     ) -> None:
         self.registry = registry or AnalyzerRegistry(registry_path)
         self._explicit_config = config
         self.config_path = Path(config_path) if config_path else None
         self.config = self._load_config()
+        # Analyzer id -> its optional library that isn't installed. Such an analyzer runs only a
+        # fallback, not the method scored here, so it is rejected rather than recommended.
+        if missing_libraries is None:
+            from intelligence.analyzer_registry import missing_libraries as find_missing_libraries
+
+            missing_libraries = find_missing_libraries(_PIPELINE_REGISTRY_DIR)
+        self.missing_libraries = missing_libraries
 
     def _load_config(self) -> dict:
         if self._explicit_config:
@@ -291,6 +301,11 @@ class UniversalTimeSeriesRouter:
 
     def _build_decision(self, capability, profile) -> AnalyzerDecision:
         eligibility = evaluate_eligibility(capability, profile)
+        missing_library = self.missing_libraries.get(capability.analyzer)
+        if missing_library:
+            eligibility.eligible = False
+            eligibility.eligibility_score = 0.0
+            eligibility.reasons.insert(0, f"The {missing_library} library is not installed, so this analyzer does not run.")
         suitability = self._suitability_score(capability, profile) if eligibility.eligible else 0.0
         final_score = round(min(1.0, eligibility.eligibility_score * suitability), 4) if eligibility.eligible else 0.0
         recommendation = self._recommendation(final_score, eligibility.eligible)
