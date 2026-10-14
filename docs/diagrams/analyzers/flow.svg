@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 150" width="720" height="150" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Raw metrics, profile and route, analyzers, findings, investigate">
+<rect x="1" y="1" width="718" height="148" rx="10" fill="#ffffff" stroke="#d9e3ef"/>
+<rect x="21.0" y="20" width="118" height="74" rx="9" fill="#eaf1fb" stroke="#b9cde8"/><text x="80.0" y="53" font-size="13" font-weight="700" fill="#16233a" text-anchor="middle">Raw metrics</text><text x="80.0" y="74" font-size="11" fill="#5b6b82" text-anchor="middle">CPU, latency</text>
+<rect x="161.0" y="20" width="118" height="74" rx="9" fill="#eaf1fb" stroke="#b9cde8"/><text x="220.0" y="53" font-size="13" font-weight="700" fill="#16233a" text-anchor="middle">Profile + route</text><text x="220.0" y="74" font-size="11" fill="#5b6b82" text-anchor="middle">Choose methods</text>
+<line x1="142.0" y1="57" x2="157.0" y2="57" stroke="#2563b8" stroke-width="2"/><path d="M152.0,52 L158.0,57 L152.0,62" fill="none" stroke="#2563b8" stroke-width="2"/>
+<rect x="301.0" y="20" width="118" height="74" rx="9" fill="#eaf1fb" stroke="#b9cde8"/><text x="360.0" y="53" font-size="13" font-weight="700" fill="#16233a" text-anchor="middle">Analyzers</text><text x="360.0" y="74" font-size="11" fill="#5b6b82" text-anchor="middle">Detect behavior</text>
+<line x1="282.0" y1="57" x2="297.0" y2="57" stroke="#2563b8" stroke-width="2"/><path d="M292.0,52 L298.0,57 L292.0,62" fill="none" stroke="#2563b8" stroke-width="2"/>
+<rect x="441.0" y="20" width="118" height="74" rx="9" fill="#eaf1fb" stroke="#b9cde8"/><text x="500.0" y="53" font-size="13" font-weight="700" fill="#16233a" text-anchor="middle">Findings</text><text x="500.0" y="74" font-size="11" fill="#5b6b82" text-anchor="middle">Plain language</text>
+<line x1="422.0" y1="57" x2="437.0" y2="57" stroke="#2563b8" stroke-width="2"/><path d="M432.0,52 L438.0,57 L432.0,62" fill="none" stroke="#2563b8" stroke-width="2"/>
+<rect x="581.0" y="20" width="118" height="74" rx="9" fill="#eaf1fb" stroke="#b9cde8"/><text x="640.0" y="53" font-size="13" font-weight="700" fill="#16233a" text-anchor="middle">Investigate</text><text x="640.0" y="74" font-size="11" fill="#5b6b82" text-anchor="middle">Correlate evidence</text>
+<line x1="562.0" y1="57" x2="577.0" y2="57" stroke="#2563b8" stroke-width="2"/><path d="M572.0,52 L578.0,57 L572.0,62" fill="none" stroke="#2563b8" stroke-width="2"/>
+<text x="360.0" y="132" font-size="12" fill="#5b6b82" text-anchor="middle">Investigation outcomes can become reusable operational cases</text>
+</svg>
