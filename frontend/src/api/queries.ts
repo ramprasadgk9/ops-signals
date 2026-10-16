@@ -1,4 +1,4 @@
-import { deleteJson, getJson, postForm, postJson, patchJson } from './client';
+import { deleteJson, getHealth, getJson, postForm, postJson, patchJson } from './client';
 import type {
   AnalyzerConfigSuggestion,
   AnalyzerConfigSuggestionInput,
@@ -102,7 +102,7 @@ export type AutonomousQuestionAnswer = {
 const SIGNAL_RUNS_PER_REQUEST = 100;
 
 export const api = {
-  health: () => getJson<{ status: string }>('/api/health'),
+  health: () => getHealth(),
   otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
   ingestionStatus: () => getJson<IngestionStatus>('/api/ingestion/status'),
   sendTestAlert: () => postJson<Record<string, never>, AlertReceipt>('/api/integrations/alertmanager/test', {}),

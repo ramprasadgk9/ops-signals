@@ -8,9 +8,9 @@ export function SystemPage() {
   const healthQuery = useQuery({ queryKey: ['system-health'], queryFn: api.health, retry: false });
   const memoryQuery = useQuery({ queryKey: ['system-memory-health'], queryFn: api.memoryHealth, retry: false });
   const services = [
-    { name: 'Backend', status: healthQuery.isError ? 'unavailable' : healthQuery.isLoading ? 'loading' : healthQuery.data?.status ?? 'unknown', detail: 'Source: GET /api/health', retry: () => healthQuery.refetch() },
+    { name: 'Backend', status: healthQuery.isError ? 'unavailable' : healthQuery.isLoading ? 'loading' : healthQuery.data ? 'ok' : 'unknown', detail: 'Source: GET /api/health', retry: () => healthQuery.refetch() },
     { name: 'Qdrant', status: memoryQuery.isError ? 'unavailable' : memoryQuery.isLoading ? 'loading' : memoryQuery.data?.status ?? 'unknown', detail: 'Source: GET /api/memory/health', retry: () => memoryQuery.refetch() },
-    { name: 'Database', status: 'not exposed', detail: 'No standalone read-only health endpoint is exposed for this service.' },
+    { name: 'Database', status: healthQuery.isError ? 'unknown' : healthQuery.isLoading ? 'loading' : healthQuery.data?.database ?? 'unknown', detail: 'Source: GET /api/health (checks the database on every call)', retry: () => healthQuery.refetch() },
     { name: 'MCP Server', status: 'not exposed', detail: 'MCP health is verified by smoke scripts, not a standalone UI endpoint.' },
   ];
   return (

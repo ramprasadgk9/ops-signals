@@ -238,7 +238,7 @@ def list_tools() -> list[dict[str, Any]]:
             "method": "GET",
             "path": "/api/health",
             "kind": "read",
-            "description": "Check backend liveness.",
+            "description": "Check the backend and its database.",
             "inputSchema": _TOOL_SCHEMAS["health"],
         },
         {

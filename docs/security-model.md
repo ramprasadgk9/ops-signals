@@ -30,7 +30,8 @@ export OPS_SIGNALS_API_TOKEN="$(openssl rand -hex 32)"
 
 After that, every request needs `Authorization: Bearer <token>`, except:
 
-- `GET /api/health`, so load balancers and container health checks still work.
+- `GET /api/health` (readiness: 503 when the database is unreachable) and `GET /api/health/live`
+  (liveness: the process is up), so load balancers and container health checks still work.
 - The receivers: `POST /api/integrations/alertmanager`, `POST /api/alerts` and `POST /api/events`.
   Each one checks its own token (`OPS_SIGNALS_ALERT_RECEIVER_TOKEN` or `OPS_SIGNALS_EVENTS_TOKEN`)
   if you set one. Otherwise it uses the API token, so setting only `OPS_SIGNALS_API_TOKEN` never

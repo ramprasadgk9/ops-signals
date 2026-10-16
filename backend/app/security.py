@@ -13,6 +13,7 @@ from backend.app.config import SecurityConfig, get_security_config
 PUBLIC_ROUTES = frozenset(
     {
         ("GET", "/api/health"),
+        ("GET", "/api/health/live"),
         ("POST", "/api/integrations/alertmanager"),
         ("POST", "/api/alerts"),
         ("POST", "/api/events"),
