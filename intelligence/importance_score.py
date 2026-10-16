@@ -23,11 +23,29 @@ def _signal_magnitude(signal: OperationalSignal) -> float:
     evidence = signal.evidence
     if signal.signal_type == "baseline_shift":
         return _clamp(abs(float(evidence.get("percent_change", 0.0))) / 100.0)
+    if signal.signal_type == "ruptures" and evidence.get("percent_change") is not None:
+        # Same scale as baseline_shift; it was a flat 0.5 whether the change was 5% or 500%.
+        return _clamp(abs(float(evidence["percent_change"])) / 100.0)
     if signal.signal_type == "trend":
         return _clamp(abs(float(evidence.get("slope_percent", 0.0))) / 100.0)
     if signal.signal_type == "anomaly":
-        return _clamp(abs(float(evidence.get("max_abs_zscore", 0.0))) / 6.0)
+        return _clamp(_anomaly_zscore(evidence) / 6.0)
     return 0.5
+
+
+def _anomaly_zscore(evidence: dict[str, object]) -> float:
+    """How far out an anomaly is, in standard deviations. pyod_outlier reports `range_excess`
+    (ranges beyond the 5th-95th percentile range) instead of a z-score; on normal data that range
+    spans 3.29 standard deviations and its edge sits at 1.645, so z = 1.645 + 3.29 * range_excess -
+    the same conversion behind its 0.56 rule (z = 3.5). Without this every PyOD spike, however big,
+    scored zero for size."""
+    zscore = evidence.get("max_abs_zscore")
+    if zscore is not None:
+        return abs(float(zscore))
+    range_excess = evidence.get("range_excess")
+    if range_excess is not None and float(range_excess) > 0:
+        return 1.645 + 3.29 * float(range_excess)
+    return 0.0
 
 
 def _duration_score(signal: OperationalSignal) -> float:
