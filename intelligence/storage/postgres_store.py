@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import pandas as pd
-from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select
+from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select, text
 from sqlalchemy.dialects.postgresql import BIGINT
 from sqlalchemy.engine import Engine
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
@@ -369,6 +369,14 @@ class PostgresStore:
         if not capabilities:
             return
         with self.engine.begin() as connection:
+            if self.engine.dialect.name == "postgresql":
+                # Every analysis run rewrites this catalog, and runs overlap (API uploads, the
+                # scheduler, alert enrichment). Two rewrites at once hit duplicate keys or
+                # deadlocked, failing one whole run. The lock makes them take turns for the few
+                # milliseconds this takes; reads still go through. SQLite allows one writer anyway.
+                preparer = self.engine.dialect.identifier_preparer
+                tables = ", ".join(preparer.format_table(table) for table in (self.capabilities_table, self.capability_questions_table))
+                connection.execute(text(f"LOCK TABLE {tables} IN SHARE ROW EXCLUSIVE MODE"))
             connection.execute(self.capabilities_table.delete())
             connection.execute(self.capability_questions_table.delete())
             for capability in capabilities:
