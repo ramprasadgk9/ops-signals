@@ -76,4 +76,11 @@ describe('imported cases', () => {
     expect(filterCaseRows(rows, { search: '', status: 'all', severity: 'all', origin: 'detected' }).map((row) => row.id)).toEqual([7]);
     expect(filterCaseRows(rows, { search: 'q1abc23', status: 'all', severity: 'all' }).map((row) => row.id)).toEqual([8]);
   });
+
+  it('marks a resolved case whose root cause is not verified, and only that one', () => {
+    expect(toCaseRow(makeCase({ case_status: 'resolved', outcome_status: 'resolved', root_cause_verified: false })).rootCauseUnconfirmed).toBe(true);
+    expect(toCaseRow(makeCase({ case_status: 'resolved', outcome_status: 'resolved', root_cause_verified: true })).rootCauseUnconfirmed).toBe(false);
+    expect(toCaseRow(makeCase({ case_status: 'in_progress', root_cause_verified: false })).rootCauseUnconfirmed).toBe(false);
+    expect(toCaseRow(makeCase({ case_status: 'resolved', root_cause_verified: false, source: 'jira' })).rootCauseUnconfirmed).toBe(false);
+  });
 });

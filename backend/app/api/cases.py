@@ -28,6 +28,7 @@ from backend.app.models.api_schema import (
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.analyzer_learning_service import AnalyzerLearningService, LearningOutcomeError
+from backend.app.services.case_status import CLOSING_OUTCOMES, derive_case_status, sync_case_status
 
 logger = logging.getLogger(__name__)
 
@@ -76,51 +77,8 @@ def _refresh_case_memory(
     db.commit()
 
 
-def _compute_case_status(case: OperationalCaseEntity) -> tuple[str, str]:
-    """
-    Compute case_status and investigation_status based on case data.
-    
-    Rules:
-    1. IF investigation notes exist → investigation_status = "in_progress"
-    2. IF RCA exists (has summary) AND Resolution exists (has corrective_action) → case_status = "in_progress"
-    3. IF RCA verified AND corrective_action exists AND outcome exists → case_status = "resolved" + investigation_status = "completed"
-    
-    Returns: (case_status, investigation_status)
-
-    Imported cases arrive already resolved from their postmortem and keep the stored statuses.
-    """
-    if case.is_imported:
-        return case.case_status, case.investigation_status
-    investigation_status = case.investigation_status
-    case_status = case.case_status
-    
-    # Rule 1: Investigation has notes
-    if case.investigation_notes and len(case.investigation_notes) > 0:
-        investigation_status = "in_progress"
-    
-    # Rule 2: RCA and Resolution both exist
-    has_rca = case.root_cause_summary is not None and len(case.root_cause_summary.strip()) > 0
-    has_resolution = case.corrective_action is not None and len(case.corrective_action.strip()) > 0
-    
-    # Rule 3: RCA verified, Resolution exists, Outcome exists
-    if (
-        case.root_cause_verified
-        and has_resolution
-        and case.outcome_summary is not None
-        and len(case.outcome_summary.strip()) > 0
-    ):
-        case_status = "resolved"
-        investigation_status = "completed"
-    # Rule 2 (fallback if rule 3 not met)
-    elif has_rca and has_resolution:
-        case_status = "in_progress"
-    
-    return case_status, investigation_status
-
-
 def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
-    # Compute derived statuses
-    computed_case_status, computed_investigation_status = _compute_case_status(case)
+    computed_case_status, computed_investigation_status = derive_case_status(case)
     
     return CaseOut(
         id=case.id,
@@ -370,6 +328,7 @@ def update_investigation(
         })
         case.investigation_notes = notes
     
+    sync_case_status(case)
     case.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(case)
@@ -393,6 +352,7 @@ def update_root_cause_analysis(
     case.root_cause_summary = payload.root_cause_summary
     case.root_cause_confidence = payload.root_cause_confidence
     case.root_cause_verified = payload.root_cause_verified
+    sync_case_status(case)
     case.updated_at = datetime.utcnow()
 
     # Outbound resolution sync: when RCA is approved/verified AND case is resolved/mitigated
@@ -559,7 +519,7 @@ def update_resolution(
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     
-    final_states = {"resolved", "mitigated", "won_t_fix"}
+    final_states = CLOSING_OUTCOMES
     # Learning outcomes score the analyzers behind a detection; an imported case has none.
     learns = not case.is_imported
     if learns and payload.outcome_status in final_states and not payload.learning_outcome_status:
@@ -571,6 +531,7 @@ def update_resolution(
     case.outcome_status = payload.outcome_status
     case.outcome_summary = payload.outcome_summary
     case.corrective_action = payload.corrective_action
+    sync_case_status(case)
     case.updated_at = datetime.utcnow()
 
     if learns and payload.outcome_status in final_states and payload.learning_outcome_status:

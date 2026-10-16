@@ -154,7 +154,8 @@ def test_get_case_and_lifecycle_updates(client) -> None:
     )
     assert resolution.status_code == 200
     assert resolution.json()['corrective_action'] == 'Rollback deploy'
-    assert resolution.json()['case_status'] == 'in_progress'
+    # A closing outcome (mitigated) closes the case even before the RCA is verified.
+    assert resolution.json()['case_status'] == 'resolved'
 
     verified = client.patch(
         f'/api/cases/{case_id}/rca',

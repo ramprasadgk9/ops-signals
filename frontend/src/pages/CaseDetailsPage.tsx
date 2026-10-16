@@ -37,6 +37,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
+import { RootCauseUnconfirmedBadge, isRootCauseUnconfirmed } from '../components/RootCauseUnconfirmedBadge';
 import { NoveltyBadge } from '../components/NoveltyBadge';
 import { SameFixElsewhere } from '../components/FixHistory';
 import { PastCaseMatches } from '../components/PastCaseMatches';
@@ -288,6 +289,7 @@ export function CaseDetailsPage() {
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: 'wrap' }}>
                 <Typography variant="h4">Investigation #{caseData.id}</Typography>
                 <Chip label={statusLabel(caseData.case_status)} color={caseData.case_status === 'resolved' ? 'success' : 'default'} size="small" />
+                {isRootCauseUnconfirmed({ case_status: caseData.case_status, rootCauseVerified: caseData.root_cause_verified, source: caseData.source }) ? <RootCauseUnconfirmedBadge /> : null}
                 <Chip label={`Case ${memoryLabel}`} size="small" variant="outlined" />
               </Stack>
               <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 400 }}>

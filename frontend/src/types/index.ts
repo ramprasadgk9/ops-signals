@@ -260,6 +260,7 @@ export type PastCaseMatch = {
   source_id?: string | null;
   source_url?: string | null;
   case_status?: string;
+  rca_verified?: boolean;
   root_cause_summary?: string | null;
   corrective_action?: string | null;
   outcome_summary?: string | null;

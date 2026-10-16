@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Button, Chip, Link, Stack, Typography } from '@mui/material';
 import { CaseOriginBadge } from './CaseOriginBadge';
+import { isRootCauseUnconfirmed } from './RootCauseUnconfirmedBadge';
 import { ui } from '../standalone/theme';
 import type { PastCaseMatch } from '../types';
 import { rankPastMatches } from '../utils/pastCaseMatches';
@@ -65,7 +66,14 @@ function MatchRow({ match }: { match: PastCaseMatch }) {
       <Typography sx={{ fontSize: 12, color: ui.muted, mt: 0.25 }}>
         {[match.service, match.metric_name ?? (match.origin === 'imported' ? 'past incident' : null)].filter(Boolean).join(' · ')}
       </Typography>
-      {match.root_cause_summary ? <Typography sx={{ fontSize: 13, mt: 0.75 }}><b>Cause:</b> {match.root_cause_summary}</Typography> : null}
+      {match.root_cause_summary ? (
+        <Typography sx={{ fontSize: 13, mt: 0.75 }}>
+          <b>Cause:</b> {match.root_cause_summary}
+          {isRootCauseUnconfirmed({ case_status: match.case_status, rootCauseVerified: match.rca_verified, source: match.source }) ? (
+            <Typography component="span" sx={{ fontSize: 12, color: 'warning.main', fontWeight: 700 }}> (root cause unconfirmed)</Typography>
+          ) : null}
+        </Typography>
+      ) : null}
       {fix ? <Typography sx={{ fontSize: 13, mt: 0.25 }}><b>Fix:</b> {fix}</Typography> : null}
       {copies.length ? (
         <Box sx={{ mt: 0.75 }}>

@@ -54,6 +54,7 @@ from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.notifications.slack_client import SlackNotifier
+from backend.app.services.case_status import backfill_case_statuses
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.ai.config import apply_ai_env_overrides
 from backend.app.ai.factory import build_optional_ai_services
@@ -265,6 +266,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
+        try:
+            with session_local() as db:
+                backfill_case_statuses(db)
+        except Exception as e:
+            logger.warning(f"Case status backfill failed; resolved cases may still count as open: {e}")
 
         # Load memory config at startup
         backfill_task: asyncio.Task | None = None

@@ -15,6 +15,7 @@ from backend.app.memory.schemas import MemoryIndexResponse
 from backend.app.memory.vector_names import RESOLUTION_VECTOR, SYMPTOM_VECTOR
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import OperationalCaseEntity
+from backend.app.services.case_status import derive_case_status
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +254,7 @@ class CaseMemoryIndexer:
             "severity": finding.get("health_status"),
             "importance_score": finding.get("importance_score", 0.0),
             "case_status": case.case_status,
-            "investigation_status": case.investigation_status,
+            "investigation_status": derive_case_status(case)[1],
             "rca_status": case.root_cause_status,
             "rca_verified": case.root_cause_verified,
             "outcome_status": case.outcome_status,

@@ -107,7 +107,7 @@ export function SameFixElsewhere({ caseId }: { caseId: number }) {
               <FixOutcomeChip outcome={match.outcome} />
             </Stack>
             <Typography sx={{ fontSize: 12, color: ui.muted }}>
-              {[match.service, `${Math.round(match.similarity_score * 100)}% same cause and fix`, match.rca_verified ? 'verified cause' : null].filter(Boolean).join(' · ')}
+              {[match.service, `${Math.round(match.similarity_score * 100)}% same cause and fix`, match.rca_verified ? 'verified cause' : 'root cause unconfirmed'].filter(Boolean).join(' · ')}
             </Typography>
             {match.corrective_action ? <Typography sx={{ fontSize: 13, mt: 0.25 }}><b>Fix:</b> {match.corrective_action}</Typography> : null}
           </Box>

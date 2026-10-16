@@ -28,6 +28,7 @@ import { filterCaseRows, toCaseRows } from '../standalone/casesService';
 import { CaseTicketCard } from '../components/CaseTicketCard';
 import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
+import { RootCauseUnconfirmedBadge } from '../components/RootCauseUnconfirmedBadge';
 
 export function CasesPage() {
   const casesQuery = useQuery({ queryKey: ['cases'], queryFn: () => api.cases(200) });
@@ -130,11 +131,16 @@ export function CasesPage() {
                         </Stack>
                       </TableCell>
                       <TableCell><Pill label={item.severity} tone="severity" /></TableCell>
-                      <TableCell><Pill label={item.status} /></TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                          <Pill label={item.status} />
+                          {item.rootCauseUnconfirmed ? <RootCauseUnconfirmedBadge /> : null}
+                        </Stack>
+                      </TableCell>
                       <TableCell sx={{ color: ui.muted }}>Assignment not supported</TableCell>
                       <TableCell>{formatDateTime(item.createdAt)}</TableCell>
                       <TableCell>{relativeTime(item.updatedAt)}</TableCell>
-                      <TableCell>{item.outcome === 'resolved' ? <Pill label="verified" /> : '--'}</TableCell>
+                      <TableCell>{item.outcome === 'resolved' && !item.rootCauseUnconfirmed ? <Pill label="verified" /> : '--'}</TableCell>
                     </TableRow>
                   );
                 })}
@@ -152,6 +158,7 @@ export function CasesPage() {
                 <Box><Typography sx={{ color: ui.muted, fontSize: 13, mb: 0.5 }}>Root Cause</Typography><Typography>{selected.rootCause ?? 'Not identified yet.'}</Typography></Box>
                 <Box><Typography sx={{ color: ui.muted, fontSize: 13, mb: 0.5 }}>Resolution</Typography><Typography>{selected.resolution ?? 'Pending investigation.'}</Typography></Box>
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Outcome</Typography><Pill label={selected.outcome} /></Stack>
+                {selected.rootCauseUnconfirmed ? <Stack direction="row" justifyContent="flex-end"><RootCauseUnconfirmedBadge /></Stack> : null}
                 <Stack direction="row" justifyContent="space-between"><Typography color={ui.muted}>Resolved At</Typography><Typography>{selected.resolvedAt ? formatDateTime(selected.resolvedAt) : 'Not resolved'}</Typography></Stack>
                 <Button component={RouterLink} to={`/cases/${selected.id}`} endIcon={<ArrowForwardRoundedIcon />} variant="outlined" sx={{ borderColor: ui.border, color: 'var(--os-text-2)', textTransform: 'none', fontWeight: 850 }}>View Case Details</Button>
                 <CaseTicketCard caseId={selected.id} />
