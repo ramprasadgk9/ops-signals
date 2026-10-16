@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-15
+
+Includes Grafana plugin 1.0.33.
 
 - **Analyzers explained, with pictures.** `docs/analyzers-explained.md` describes the nine
   analyzers in plain words, each with a chart of the behavior it catches, a one-page comparison and
