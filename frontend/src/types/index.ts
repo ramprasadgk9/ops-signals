@@ -702,6 +702,9 @@ export type CsvRunResult = {
   metric_name: string;
   sample_count: number;
   findings_count: number;
+  requested_interval?: string;
+  interval?: string;
+  warnings?: string[];
 };
 
 export type ValidationSignal = {
@@ -738,6 +741,9 @@ export type CsvValidationResult = {
   service: string;
   metric_name: string;
   sample_count: number;
+  requested_interval?: string;
+  interval?: string;
+  warnings?: string[];
   normalized_preview: Array<Record<string, unknown>>;
   signals: ValidationSignal[];
   findings: ValidationFinding[];

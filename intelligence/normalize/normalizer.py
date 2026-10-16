@@ -16,6 +16,19 @@ logger = logging.getLogger(__name__)
 # and traffic feeds have multi-hour outages, and rejecting them hid those series from analysis.
 GAP_POLICIES = {"warn", "reject"}
 VALIDATION_WARNINGS_ATTR = "validation_warnings"
+# The interval(s) each series was actually resampled at, in first-seen order. With "auto" this is
+# what was measured from the data, so callers can show it instead of the word "auto".
+RESOLVED_INTERVALS_ATTR = "resolved_intervals"
+
+# "auto" (or blank) measures each series' own spacing instead of assuming one. A CSV sampled every
+# 15 minutes and resampled at a fixed 5m gets two empty buckets per real point, and every analyzer
+# then rejects the series for missing values.
+AUTO_INTERVAL = "auto"
+# Used when a series has too few distinct timestamps to measure a spacing.
+FALLBACK_INTERVAL = "5m"
+# An explicitly chosen interval that leaves more than this share of buckets empty is almost
+# certainly finer than the data, so the caller is told what the data's spacing actually is.
+EMPTY_BUCKET_WARNING_RATIO = 0.5
 
 # `cluster` is the external label that tells apart otherwise identical series from different
 # clusters behind one Mimir/Thanos endpoint; empty for single-cluster data.
@@ -55,20 +68,37 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     metadata_columns = [column for column in CORE_COLUMNS if column not in {"timestamp", "value"}]
     group_columns = [column for column in metadata_columns if column in working.columns]
 
+    requested_interval = (config.interval or "").strip()
+    auto_interval = requested_interval.lower() in {"", AUTO_INTERVAL}
+    resolved_intervals: list[str] = []
+
     normalized_frames: list[pd.DataFrame] = []
     for keys, group in working.groupby(group_columns, dropna=False):
         group = group.sort_values("timestamp")
-        freq_str = config.interval.replace('m', 'min') if config.interval.endswith('m') else config.interval
+        measured_interval = _measure_interval(group["timestamp"])
+        interval = (measured_interval or FALLBACK_INTERVAL) if auto_interval else requested_interval
+        if interval not in resolved_intervals:
+            resolved_intervals.append(interval)
         aggregation = "last" if _is_running_total(group) else "mean"
         resampled = (
             group.set_index("timestamp")
-            .resample(freq_str)["value"]
+            .resample(_pandas_frequency(interval))["value"]
             .agg(aggregation)
             .reset_index()
         )
 
         if not isinstance(keys, tuple):
             keys = (keys,)
+
+        if not auto_interval and measured_interval and measured_interval != interval and not resampled.empty:
+            empty_ratio = float(resampled["value"].isna().mean())
+            if empty_ratio > EMPTY_BUCKET_WARNING_RATIO:
+                series_label = _series_label(dict(zip(group_columns, keys)))
+                validation_warnings.append(
+                    f"Interval {interval} leaves {empty_ratio:.0%} of time slots empty for {series_label}: "
+                    f"the data has a point about every {measured_interval}. "
+                    f"Set Interval to auto or {measured_interval}."
+                )
 
         for column, value in zip(group_columns, keys):
             resampled[column] = value
@@ -106,7 +136,37 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     normalized["tags_json"] = normalized.apply(build_tags, axis=1)
     normalized = normalized.sort_values(["metric_name", "timestamp"]).reset_index(drop=True)
     normalized.attrs[VALIDATION_WARNINGS_ATTR] = validation_warnings
+    normalized.attrs[RESOLVED_INTERVALS_ATTR] = resolved_intervals
     return normalized
+
+
+def _measure_interval(timestamps: pd.Series) -> str | None:
+    """The series' typical spacing: the median gap between distinct timestamps. The median, not
+    span / count, so one long outage in a 5-minute series doesn't stretch the answer to an hour.
+    Rounded to whole minutes from a minute up, whole seconds below, so small export jitter
+    (14:59 instead of 15:00) doesn't produce odd buckets. None when it can't be measured."""
+    distinct = pd.Series(timestamps.dropna().unique()).sort_values()
+    if len(distinct) < 2:
+        return None
+    median_seconds = float(distinct.diff().dt.total_seconds().dropna().median())
+    if median_seconds <= 0:
+        return None
+    if median_seconds >= 60:
+        return f"{max(round(median_seconds / 60), 1)}m"
+    return f"{max(round(median_seconds), 1)}s"
+
+
+def _pandas_frequency(interval: str) -> str:
+    return interval.replace("m", "min") if interval.endswith("m") else interval
+
+
+def _series_label(labels: dict[str, object]) -> str:
+    parts = [
+        str(labels[column])
+        for column in ("service", "metric_name")
+        if labels.get(column) is not None and not pd.isna(labels[column]) and labels[column] != ""
+    ]
+    return " / ".join(parts) or "the series"
 
 
 def _is_running_total(group: pd.DataFrame) -> bool:

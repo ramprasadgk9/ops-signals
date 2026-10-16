@@ -41,7 +41,7 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'rec
 import { findingLevel } from '../utils/findingLevel';
 import { api } from '../api/queries';
 import { panelSx, ui } from '../standalone/theme';
-import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
+import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, CsvValidationResult, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -130,6 +130,13 @@ function formatRangeDate(value: Date | string | null | undefined) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return 'n/a';
   return date.toLocaleString(undefined, { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+}
+
+/** " at a 15m interval (detected from the data)", or "" for a backend that doesn't report it. */
+export function describeInterval(result: Pick<CsvValidationResult, 'interval' | 'requested_interval'>) {
+  if (!result.interval) return '';
+  const detected = (result.requested_interval ?? 'auto').toLowerCase() === 'auto';
+  return ` at a ${result.interval} interval${detected ? ' (detected from the data)' : ''}`;
 }
 
 function formatNumber(value: number | null | undefined) {
@@ -330,8 +337,11 @@ export function ValidateDataPage() {
   const [service, setService] = useState('ruptures-lab');
   const [metricName, setMetricName] = useState('ops_signal_lab_value');
   const [metricNames, setMetricNames] = useState<string[]>(['ops_signal_lab_value']);
-  const [interval, setInterval] = useState('5m');
+  // 'auto' lets the backend measure each series' spacing from the file; a fixed 5m turned a
+  // 15-minute export into mostly empty slots and every analyzer rejected it.
+  const [interval, setInterval] = useState('auto');
   const [file, setFile] = useState<File | null>(null);
+  const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
   const [resultSignals, setResultSignals] = useState<ValidationSignal[]>([]);
   const [resultFindings, setResultFindings] = useState<ValidationFinding[]>([]);
   const [routerDecisions, setRouterDecisions] = useState<CsvAnalyzerRoutingDecision[]>([]);
@@ -445,7 +455,8 @@ export function ValidateDataPage() {
       setError(null);
       const modeLabel = result.analyzer_selection_mode === 'manual_override' ? 'manual analyzer override' : 'router';
       const executed = result.executed_analyzers?.length ? ` Executed: ${result.executed_analyzers.join(', ')}.` : '';
-      setMessage(`Preview generated via ${modeLabel} with ${result.sample_count} samples.${executed}`);
+      setMessage(`Preview generated via ${modeLabel} with ${result.sample_count} samples${describeInterval(result)}.${executed}`);
+      setCsvWarnings(result.warnings ?? []);
       setResultSignals(result.signals);
       setResultFindings(result.findings);
       setRouterDecisions((result.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]);
@@ -455,6 +466,7 @@ export function ValidateDataPage() {
     },
     onError: (err: unknown) => {
       setMessage(null);
+      setCsvWarnings([]);
       setError(err instanceof Error ? err.message : 'Validation failed');
     },
   });
@@ -646,7 +658,7 @@ export function ValidateDataPage() {
                 <FormControl fullWidth><InputLabel>Analyzer</InputLabel><Select value={analyzerId} label="Analyzer" onChange={(e) => setAnalyzerId(e.target.value)}>{analyzerOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}</Select></FormControl>
                 <TextField fullWidth label="Service" value={service} onChange={(e) => setService(e.target.value)} />
                 <TextField fullWidth label="Metric" value={metricName} onChange={(e) => setMetricName(e.target.value)} />
-                <TextField fullWidth label="Interval" value={interval} onChange={(e) => setInterval(e.target.value)} />
+                <TextField fullWidth label="Interval" value={interval} onChange={(e) => setInterval(e.target.value)} helperText="auto measures it from your file, or type one like 5m" />
               </Stack>
               {provider === 'custom' ? (
                 <Stack spacing={1.5}>
@@ -699,6 +711,7 @@ export function ValidateDataPage() {
               <Box><Button variant="contained" disabled={csvMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button></Box>
               {customMappingIncomplete ? <Alert severity="warning">Fill in all 3 column names above before validating.</Alert> : null}
               {message ? <Alert severity="success">{message}</Alert> : null}
+              {csvWarnings.map((warning) => <Alert key={warning} severity="warning">{warning}</Alert>)}
               {error ? <Alert severity="error">{error}</Alert> : null}
             </Stack>
           </CardContent>

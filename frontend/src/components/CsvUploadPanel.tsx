@@ -24,7 +24,7 @@ export function CsvUploadPanel() {
   const [provider, setProvider] = useState<Provider>('prometheus');
   const [service, setService] = useState('checkout');
   const [metricName, setMetricName] = useState('cpu_usage');
-  const [interval, setInterval] = useState('5m');
+  const [interval, setInterval] = useState('auto');
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

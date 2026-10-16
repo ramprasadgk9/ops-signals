@@ -21,6 +21,7 @@ from backend.app.models.api_schema import (
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
 from backend.app.services.timeseries_routing_service import build_csv_routing_config, repo_root
+from intelligence.normalize.normalizer import AUTO_INTERVAL, RESOLVED_INTERVALS_ATTR, VALIDATION_WARNINGS_ATTR
 from intelligence.pipeline import SignalPipeline
 
 router = APIRouter(prefix="/api/ingestion", tags=["ingestion"])
@@ -222,7 +223,7 @@ async def run_csv_analysis(
     provider: str = Form(default="generic"),
     service: str = Form(default="uploaded-service"),
     metric_name: str = Form(default="uploaded_metric"),
-    interval: str = Form(default="5m"),
+    interval: str = Form(default=AUTO_INTERVAL),
     custom_timestamp_column: str | None = Form(default=None),
     custom_value_column: str | None = Form(default=None),
     custom_metric_name_column: str | None = Form(default=None),
@@ -282,6 +283,7 @@ async def run_csv_analysis(
         metric_name=metric_name,
         sample_count=int(len(normalized)),
         findings_count=int(findings_count),
+        **_interval_fields(interval, normalized),
     )
 
 
@@ -292,7 +294,7 @@ async def validate_csv_analysis(
     analyzer_id: str = Form(default="ruptures"),
     service: str = Form(default="uploaded-service"),
     metric_name: str = Form(default="uploaded_metric"),
-    interval: str = Form(default="5m"),
+    interval: str = Form(default=AUTO_INTERVAL),
     analyzer_overrides: str | None = Form(default=None),
     custom_timestamp_column: str | None = Form(default=None),
     custom_value_column: str | None = Form(default=None),
@@ -384,6 +386,7 @@ async def validate_csv_analysis(
             service=service_name,
             metric_name=metric_name_value,
             sample_count=int(len(normalized)),
+            **_interval_fields(interval, normalized),
             normalized_preview=preview_records,
             signals=signal_payloads,
             findings=finding_payloads,
@@ -400,6 +403,18 @@ async def validate_csv_analysis(
         raise HTTPException(status_code=500, detail=f"validation failed: {exc}") from exc
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+def _interval_fields(requested: str, normalized: pd.DataFrame) -> dict[str, object]:
+    """What the upload asked for, what each series was actually resampled at, and any warning
+    about the choice - so a user who left Interval on auto sees the measured value, and one who
+    typed an interval finer than the data is told why most slots came out empty."""
+    resolved = normalized.attrs.get(RESOLVED_INTERVALS_ATTR) or []
+    return {
+        "requested_interval": (requested or "").strip() or AUTO_INTERVAL,
+        "interval": ", ".join(resolved) if resolved else (requested or "").strip(),
+        "warnings": list(normalized.attrs.get(VALIDATION_WARNINGS_ATTR) or []),
+    }
 
 
 def _parse_analyzer_overrides(raw: str | None) -> dict[str, dict[str, object]] | None:

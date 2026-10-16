@@ -68,6 +68,10 @@ class CsvRunOut(BaseModel):
     metric_name: str
     sample_count: int
     findings_count: int
+    # "auto" unless the upload named one; `interval` is what was actually used per series.
+    requested_interval: str = "auto"
+    interval: str = ""
+    warnings: list[str] = Field(default_factory=list)
 
 
 class PrometheusMetricSample(BaseModel):
@@ -155,6 +159,9 @@ class CsvValidationOut(BaseModel):
     service: str
     metric_name: str
     sample_count: int
+    requested_interval: str = "auto"
+    interval: str = ""
+    warnings: list[str] = Field(default_factory=list)
     normalized_preview: list[dict]
     signals: list[ValidationSignalOut]
     findings: list[ValidationFindingOut]
