@@ -753,3 +753,31 @@ class MetricUsageItemEntity(Base):
     latest_finding_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     analyzed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     series: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class SlackNotificationEntity(Base):
+    """One finding message for Slack and whether it arrived. Sending used to be one try with only a
+    log line on failure, and a later run of the same problem counted it as reported, so a Slack
+    hiccup lost the alert for good. Pending messages are retried (notifications/slack_client.py)."""
+
+    __tablename__ = "ops_slack_notifications"
+    __table_args__ = (
+        Index("idx_slack_notifications_due", "status", "next_attempt_at"),
+        Index("idx_slack_notifications_problem", "problem_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # The problem's first finding id: a finding's problem_id, or its own id when it starts one.
+    problem_key: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    finding_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    service: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metric_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # pending (not sent yet, or waiting to retry) | delivered | failed (gave up after max attempts)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

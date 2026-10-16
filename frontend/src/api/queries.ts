@@ -36,6 +36,7 @@ import type {
   Question,
   QuestionAnswer,
   Signal,
+  SlackStatus,
   TimeseriesPoint,
   OverviewSummaryResponse,
   MemoryStatsResponse,
@@ -103,6 +104,7 @@ const SIGNAL_RUNS_PER_REQUEST = 100;
 
 export const api = {
   health: () => getHealth(),
+  slackStatus: () => getJson<SlackStatus>('/api/notifications/slack'),
   otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
   ingestionStatus: () => getJson<IngestionStatus>('/api/ingestion/status'),
   sendTestAlert: () => postJson<Record<string, never>, AlertReceipt>('/api/integrations/alertmanager/test', {}),

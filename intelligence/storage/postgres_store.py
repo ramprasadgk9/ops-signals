@@ -32,17 +32,24 @@ _HEALTH_RANK = {"normal": 0, "significant": 1, "critical": 2}
 # Slack-specific) so this storage layer stays framework-agnostic — it doesn't know or
 # care what consumes the signal, only that findings were just persisted.
 _on_findings_saved: Callable[[list[OperationalFinding]], None] | None = None
+_on_findings_seen_again: Callable[[list[OperationalFinding]], None] | None = None
 
 
-def register_findings_hook(callback: Callable[[list[OperationalFinding]], None] | None) -> None:
-    """Register a callback invoked with every batch of findings right after they're saved.
+def register_findings_hook(
+    callback: Callable[[list[OperationalFinding]], None] | None,
+    on_seen_again: Callable[[list[OperationalFinding]], None] | None = None,
+) -> None:
+    """Register a callback invoked with every batch of findings right after they're saved: the new
+    problems and those that got worse. `on_seen_again` gets the rest - findings of a problem
+    already reported - so a notifier whose earlier message never arrived can send it after all.
 
-    Best-effort: an exception raised by the callback is logged and swallowed by
+    Best-effort: an exception raised by a callback is logged and swallowed by
     save_findings, never propagated, so a broken downstream integration can never fail
     the analysis pipeline that just produced these findings.
     """
-    global _on_findings_saved
+    global _on_findings_saved, _on_findings_seen_again
     _on_findings_saved = callback
+    _on_findings_seen_again = on_seen_again
 
 
 # Set by callers that do their own notification for the run they're about to execute (alert
@@ -283,12 +290,23 @@ class PostgresStore:
             return
         with self.engine.begin() as connection:
             to_notify = self._link_problems(connection, findings)
-            connection.execute(self.findings_table.insert(), [finding.to_record() for finding in findings])
-        if to_notify and _on_findings_saved is not None and not _findings_hook_suppressed.get():
-            try:
-                _on_findings_saved(to_notify)
-            except Exception:
-                logger.warning("findings hook raised", exc_info=True)
+            # The ids let a notifier tie a message to its problem (a new problem's id is its key).
+            inserted = connection.execute(
+                self.findings_table.insert().returning(self.findings_table.c.id, sort_by_parameter_order=True),
+                [finding.to_record() for finding in findings],
+            ).all()
+        for finding, row in zip(findings, inserted):
+            finding.id = row.id
+        if _findings_hook_suppressed.get():
+            return
+        notified = {id(finding) for finding in to_notify}
+        seen_again = [finding for finding in findings if id(finding) not in notified]
+        for callback, batch in ((_on_findings_saved, to_notify), (_on_findings_seen_again, seen_again)):
+            if batch and callback is not None:
+                try:
+                    callback(batch)
+                except Exception:
+                    logger.warning("findings hook raised", exc_info=True)
 
     def _link_problems(self, connection, findings: list[OperationalFinding]) -> list[OperationalFinding]:
         run_ids = {finding.analysis_run_id for finding in findings if finding.analysis_run_id}

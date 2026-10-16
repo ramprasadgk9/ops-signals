@@ -41,6 +41,7 @@ from backend.app.api.metric_usage import router as metric_usage_router
 from backend.app.api.otlp import router as otlp_router
 from backend.app.api.overview import router as overview_router
 from backend.app.api.questions import router as questions_router
+from backend.app.api.notifications import router as notifications_router
 from backend.app.api.services import router as services_router
 from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
@@ -54,6 +55,7 @@ from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.notifications.slack_client import SlackNotifier
+from backend.app.notifications.worker import run_slack_retry_loop
 from backend.app.services.case_status import backfill_case_statuses
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.ai.config import apply_ai_env_overrides
@@ -316,11 +318,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
         # and a webhook URL are both set. SlackNotifier no-ops internally when disabled, so
         # this registration is unconditional — one code path either way.
         slack_config = get_slack_config()
-        if slack_config.enabled and slack_config.webhook_url:
+        slack_notifier = SlackNotifier(slack_config, session_local)
+        register_findings_hook(slack_notifier.notify_findings, on_seen_again=slack_notifier.notify_seen_again)
+        slack_task: asyncio.Task | None = None
+        if slack_notifier.enabled:
             logger.info("Slack notifications enabled")
+            slack_task = asyncio.create_task(run_slack_retry_loop(slack_notifier))
         else:
             logger.info("Slack notifications disabled")
-        register_findings_hook(SlackNotifier(slack_config).notify_findings)
 
         scheduler_task: asyncio.Task | None = None
         if os.getenv("OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED", "true").lower() != "false":
@@ -345,6 +350,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
         if backfill_task is not None and not backfill_task.done():
             backfill_task.cancel()
 
+        if slack_task is not None:
+            slack_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await slack_task
         if ticketing_task is not None:
             ticketing_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -408,6 +417,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(ai_router)
     app.include_router(events_router)
     app.include_router(metric_usage_router)
+    app.include_router(notifications_router)
     
     # Register memory router
     app.include_router(memory_router)
