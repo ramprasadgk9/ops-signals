@@ -85,7 +85,8 @@ def choose_start_time(
     `analyzer_id`, `signal_type`, `start_time` and `evidence` / `evidence_json`.
 
     A step change wins over a spike (a lasting jump is the strongest sign of a change event);
-    among spikes, the latest one before the alert. Moments later than `after` past the alert, or
+    among spikes, the latest one before the alert. Signals whose own finding rule didn't match are
+    ignored. Moments later than `after` past the alert, or
     older than the lookback, can't be what fired it and are ignored. With `series` (the alert's
     data), a change point the metric didn't stay shifted after counts as a spike, not a step."""
     alert_at = as_utc(alert_starts_at)
@@ -97,6 +98,9 @@ def choose_start_time(
         analyzer_id = getattr(signal, "analyzer_id", None)
         signal_type = getattr(signal, "signal_type", None)
         evidence = getattr(signal, "evidence", None) or getattr(signal, "evidence_json", None) or {}
+        if evidence.get("finding_rule_matched") is False:
+            # Below its analyzer's own rule: noise, not the moment that fired the alert.
+            continue
         if analyzer_id in STEP_ANALYZERS:
             moment = _parse(evidence.get("change_point_time"))
             if not moment or moment > latest:

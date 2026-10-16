@@ -113,3 +113,21 @@ def test_ended_spike_older_than_the_spike_lookback_is_dropped() -> None:
     start = choose_start_time([step("ruptures", WINDOW_START + timedelta(minutes=CHANGE_MIN))], ALERT, step_lookback=None,
                               spike_lookback=timedelta(minutes=30), after=timedelta(minutes=5), series=series)
     assert start.basis == ALERT_TIME
+
+
+def test_a_spike_below_its_analyzers_own_rule_does_not_set_the_start_time() -> None:
+    # QA-03: PyOD reports every unusual point, however small; one of those noise points dated the
+    # alert an hour early and the deploy just before the real spike was missed.
+    noise = SimpleNamespace(analyzer_id="pyod_outlier", signal_type="anomaly", start_time=ALERT - timedelta(minutes=50), evidence={"finding_rule_matched": False})
+    real = SimpleNamespace(analyzer_id="pyod_outlier", signal_type="anomaly", start_time=ALERT - timedelta(minutes=20), evidence={"finding_rule_matched": True})
+    later_noise = SimpleNamespace(analyzer_id="pyod_outlier", signal_type="anomaly", start_time=ALERT - timedelta(minutes=2), evidence={"finding_rule_matched": False})
+
+    start = choose([noise, real, later_noise])
+
+    assert (start.basis, start.time) == (SPIKE, ALERT - timedelta(minutes=20))
+
+
+def test_only_noise_falls_back_to_the_alert_time() -> None:
+    noise = SimpleNamespace(analyzer_id="pyod_outlier", signal_type="anomaly", start_time=ALERT - timedelta(minutes=5), evidence={"finding_rule_matched": False})
+
+    assert choose([noise]).basis == ALERT_TIME
