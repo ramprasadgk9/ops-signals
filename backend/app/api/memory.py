@@ -84,8 +84,11 @@ def get_embedder() -> Embedder | None:
     return _services.get("embedder")
 
 
+# The handlers in this module are plain def: embedding and Qdrant calls block (for the full timeout
+# when Qdrant is slow or down), so FastAPI runs them in its threadpool. As `async def` they ran on
+# the event loop and held up every other request meanwhile.
 @router.post("/cases/{case_id}/memory/index", response_model=MemoryIndexResponse)
-async def index_case_memory(
+def index_case_memory(
     case_id: int,
     db: Session = Depends(get_db),
     indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
@@ -127,7 +130,7 @@ async def index_case_memory(
 
 
 @router.delete("/cases/{case_id}/memory")
-async def delete_case_memory(
+def delete_case_memory(
     case_id: int,
     db: Session = Depends(get_db),
     indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
@@ -174,7 +177,7 @@ async def delete_case_memory(
 
 
 @router.get("/cases/{case_id}/memory/status", response_model=MemoryStatusResponse)
-async def get_case_memory_status(
+def get_case_memory_status(
     case_id: int,
     db: Session = Depends(get_db),
 ) -> MemoryStatusResponse:
@@ -298,7 +301,7 @@ def case_same_fix(
 
 
 @router.get("/cases/{case_id}/similar", response_model=SimilarCasesResponse)
-async def find_similar_cases(
+def find_similar_cases(
     case_id: int,
     db: Session = Depends(get_db),
     service: SimilarityService | None = Depends(get_similarity_service),
@@ -346,7 +349,7 @@ async def find_similar_cases(
 
 
 @router.post("/memory/chat", response_model=MemoryChatResponse)
-async def chat_memory(
+def chat_memory(
     payload: MemoryChatRequest,
     db: Session = Depends(get_db),
     service: SimilarityService | None = Depends(get_similarity_service),
@@ -480,7 +483,7 @@ async def chat_memory(
 
 
 @router.get("/memory/health", response_model=MemoryHealthResponse)
-async def get_memory_health(
+def get_memory_health(
     store: VectorStore | None = Depends(get_vector_store),
     config: MemoryConfig | None = Depends(get_memory_config),
 ) -> MemoryHealthResponse:
@@ -541,7 +544,7 @@ async def get_memory_health(
 
 
 @router.get("/memory/stats", response_model=MemoryStatsResponse)
-async def get_memory_stats(
+def get_memory_stats(
     db: Session = Depends(get_db),
     store: VectorStore | None = Depends(get_vector_store),
     config: MemoryConfig | None = Depends(get_memory_config),

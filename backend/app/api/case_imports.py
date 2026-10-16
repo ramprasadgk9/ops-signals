@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -27,6 +29,8 @@ from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.models.db import get_db
 
 router = APIRouter(prefix="/api/case-imports", tags=["case-imports"])
+
+IMPORT_RUN_LOCK = threading.Lock()
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "case_import" / "templates"
 
@@ -122,7 +126,8 @@ async def preview_import(
     settings: str | None = Form(None),
     db: Session = Depends(get_db),
 ) -> ImportPreviewOut:
-    plan = CaseImportService(db).plan(await _parse_upload(files, settings))
+    upload = await _parse_upload(files, settings)
+    plan = await run_in_threadpool(CaseImportService(db).plan, upload)
     return _preview_out(plan)
 
 
@@ -136,7 +141,15 @@ async def run_import(
 ) -> ImportResultOut:
     upload = await _parse_upload(files, settings)
     service = CaseImportService(db, indexer, config)
-    result = service.apply(service.plan(upload), source_files=[file.filename or "" for file in files])
+    source_files = [file.filename or "" for file in files]
+
+    def plan_and_apply():
+        # One import at a time, as before: two at once could each plan the same record as new.
+        with IMPORT_RUN_LOCK:
+            return service.apply(service.plan(upload), source_files=source_files)
+
+    # Planning, one database write per case and memory indexing block: run them off the event loop.
+    result = await run_in_threadpool(plan_and_apply)
     return ImportResultOut(
         **_preview_out(result.plan).model_dump(),
         batch_id=result.batch_id,
@@ -174,6 +187,10 @@ async def _parse_upload(files: list[UploadFile], settings_json: str | None):
                 detail=f"upload exceeds {MAX_UPLOAD_BYTES} bytes (set OPS_SIGNALS_MAX_UPLOAD_BYTES to change)",
             )
         contents.append((file.filename or "upload", data))
+    return await run_in_threadpool(_parse_contents, contents, settings_json)
+
+
+def _parse_contents(contents: list[tuple[str, bytes]], settings_json: str | None):
     try:
         settings = ImportSettings.from_dict(json.loads(settings_json) if settings_json else {})
         return parse_files(contents, settings)
