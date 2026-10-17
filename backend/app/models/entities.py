@@ -334,6 +334,10 @@ class OperationalCaseEntity(Base):
         # (docs/importing-incident-history.md) links to neither and carries its source's record ID.
         CheckConstraint(CASE_SOURCE_LINK_CHECK, name="ck_case_source_link"),
         Index("uq_case_source_record", "source", "source_id", unique=True),
+        # One case per finding or behavior: two people opening a case for the same one at once
+        # must get the same case, not two (see ensure_case_link_unique_schema).
+        Index("idx_ops_case_finding", "finding_id", unique=True),
+        Index("idx_ops_case_behavior_finding", "behavior_finding_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

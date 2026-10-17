@@ -73,6 +73,7 @@ from backend.app.models.schema_compat import (
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
     ensure_case_import_schema,
+    ensure_case_link_unique_schema,
     ensure_case_memory_schema,
     ensure_cluster_schema,
     ensure_finding_problem_schema,
@@ -262,6 +263,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_ai_narrative_schema(get_engine())
         ensure_case_behavior_link_schema(get_engine())
         ensure_case_import_schema(get_engine())
+        ensure_case_link_unique_schema(get_engine())
         ensure_autonomous_policy_scheduling_schema(get_engine())
         ensure_ticketing_schema(get_engine())
         ensure_cluster_schema(get_engine())

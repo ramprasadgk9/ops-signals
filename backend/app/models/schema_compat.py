@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
+logger = logging.getLogger(__name__)
 
 ANALYSIS_RUN_COLUMN_SQL = {
     "router_version": "VARCHAR(100)",
@@ -179,6 +182,42 @@ CASE_IMPORT_COLUMN_SQL = {
     "import_batch_id": "VARCHAR(32)",
     "content_hash": "VARCHAR(64)",
 }
+
+
+_CASE_LINK_UNIQUE_INDEXES = {
+    "idx_ops_case_finding": "finding_id",
+    "idx_ops_case_behavior_finding": "behavior_finding_id",
+}
+
+
+def ensure_case_link_unique_schema(engine: Engine) -> None:
+    """One case per finding and per behavior. Only sql/init.sql created the finding index, so a
+    database built by the backend itself (Helm, SQLite) had neither, and two people opening a case
+    for the same finding at once got two cases. A database that already holds such duplicates is
+    left as it is, with a warning: picking which case to drop is the operator's call."""
+    inspector = inspect(engine)
+    if "ops_operational_cases" not in inspector.get_table_names():
+        return
+    existing = {index["name"] for index in inspector.get_indexes("ops_operational_cases")}
+    for name, column in _CASE_LINK_UNIQUE_INDEXES.items():
+        if name in existing:
+            continue
+        with engine.begin() as connection:
+            duplicates = connection.execute(
+                text(
+                    f"SELECT {column} FROM ops_operational_cases WHERE {column} IS NOT NULL "
+                    f"GROUP BY {column} HAVING COUNT(*) > 1 LIMIT 5"
+                )
+            ).scalars().all()
+            if duplicates:
+                logger.warning(
+                    "Not adding unique index %s: several cases share %s %s. Merge or delete the extra cases, then restart.",
+                    name,
+                    column,
+                    ", ".join(str(value) for value in duplicates),
+                )
+                continue
+            connection.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {name} ON ops_operational_cases ({column})"))
 
 
 def ensure_case_import_schema(engine: Engine) -> None:

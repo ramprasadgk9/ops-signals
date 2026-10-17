@@ -5,6 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.app.ai.services.narrative_service import synthesize_narrative
@@ -206,7 +207,17 @@ def create_case_from_finding(
     )
     
     db.add(case)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Someone else opened a case for this finding between the check above and this insert.
+        existing_case = _case_created_concurrently(db, OperationalCaseEntity.finding_id == finding_id)
+        return CaseCreateResponse(
+            case_id=existing_case.id,
+            finding_id=finding_id,
+            case_status=existing_case.case_status,
+            memory_status=existing_case.memory_status,
+        )
     db.refresh(case)
 
     _auto_index_new_case(case, db, indexer, config)
@@ -217,6 +228,16 @@ def create_case_from_finding(
         case_status=case.case_status,
         memory_status=case.memory_status,
     )
+
+
+def _case_created_concurrently(db: Session, link) -> OperationalCaseEntity:
+    """The case a concurrent request inserted first; the unique index rejected ours. Any other
+    integrity error has no such case and is raised as before."""
+    db.rollback()
+    existing_case = db.execute(select(OperationalCaseEntity).where(link)).scalar_one_or_none()
+    if existing_case is None:
+        raise
+    return existing_case
 
 
 def _behavior_snapshot(behavior: BehaviorFindingEntity) -> dict:
@@ -291,7 +312,16 @@ def create_case_from_behavior(
     )
 
     db.add(case)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        existing_case = _case_created_concurrently(db, OperationalCaseEntity.behavior_finding_id == behavior_finding_id)
+        return CaseCreateResponse(
+            case_id=existing_case.id,
+            behavior_finding_id=behavior_finding_id,
+            case_status=existing_case.case_status,
+            memory_status=existing_case.memory_status,
+        )
     db.refresh(case)
 
     behavior.case_id = case.id
