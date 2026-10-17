@@ -24,6 +24,7 @@ from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity, NormalizedPoint
 from backend.app.questions.composer import AnswerComposer
 from backend.app.questions.router import QuestionRouter
+from backend.app.models.api_schema import INVESTIGATION_STATUSES, OUTCOME_STATUSES, ROOT_CAUSE_STATUSES
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
@@ -152,7 +153,7 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "payload": {
                 "type": "object",
                 "properties": {
-                    "investigation_status": {"type": "string"},
+                    "investigation_status": {"type": "string", "enum": list(INVESTIGATION_STATUSES)},
                     "investigation_note": {"type": "string"},
                 },
                 "required": ["investigation_status"],
@@ -169,9 +170,9 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "payload": {
                 "type": "object",
                 "properties": {
-                    "root_cause_status": {"type": "string"},
+                    "root_cause_status": {"type": "string", "enum": list(ROOT_CAUSE_STATUSES)},
                     "root_cause_summary": {"type": "string"},
-                    "root_cause_confidence": {"type": "number"},
+                    "root_cause_confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     "root_cause_verified": {"type": "boolean"},
                 },
                 "required": ["root_cause_status"],
@@ -188,7 +189,7 @@ _TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "payload": {
                 "type": "object",
                 "properties": {
-                    "outcome_status": {"type": "string"},
+                    "outcome_status": {"type": "string", "enum": list(OUTCOME_STATUSES)},
                     "outcome_summary": {"type": "string"},
                     "corrective_action": {"type": "string"},
                     "learning_outcome_status": {

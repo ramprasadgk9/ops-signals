@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
 
@@ -244,20 +244,30 @@ class CaseOut(BaseModel):
     import_batch_id: str | None = None
 
 
+# Every value a client sends today: the web UI, the Grafana plugin, MCP, imports and Jira sync.
+# Any string used to be stored ("banana"), and a confidence of 7 or -1 too.
+InvestigationStatus = Literal["not_started", "in_progress", "on_hold", "completed"]
+RootCauseStatus = Literal["unknown", "investigating", "hypothesis", "identified", "confirmed", "ruled_out"]
+OutcomeStatus = Literal["pending", "in_progress", "escalated", "mitigated", "resolved", "won_t_fix"]
+INVESTIGATION_STATUSES = get_args(InvestigationStatus)
+ROOT_CAUSE_STATUSES = get_args(RootCauseStatus)
+OUTCOME_STATUSES = get_args(OutcomeStatus)
+
+
 class InvestigationUpdateRequest(BaseModel):
-    investigation_status: str
+    investigation_status: InvestigationStatus
     investigation_note: str | None = None
 
 
 class RCAUpdateRequest(BaseModel):
-    root_cause_status: str
+    root_cause_status: RootCauseStatus
     root_cause_summary: str | None = None
-    root_cause_confidence: float | None = None
+    root_cause_confidence: float | None = Field(default=None, ge=0, le=1)
     root_cause_verified: bool = False
 
 
 class ResolutionUpdateRequest(BaseModel):
-    outcome_status: str
+    outcome_status: OutcomeStatus
     outcome_summary: str | None = None
     corrective_action: str | None = None
     learning_outcome_status: Literal["confirmed", "partially_confirmed", "rejected", "inconclusive"] | None = None
