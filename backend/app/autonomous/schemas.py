@@ -361,7 +361,9 @@ class AutonomousRunResponse(BaseModel):
     status: Literal["completed", "partial", "failed", "dry_run"]
     planned_jobs: int
     executed_jobs: int
+    # Planned jobs that didn't run (e.g. no data); excluded_jobs are metrics screened out before planning.
     skipped_jobs: int
+    excluded_jobs: int = 0
     failed_jobs: int
     budget_limited_jobs: int = 0
     budget_excluded_metrics_count: int = 0

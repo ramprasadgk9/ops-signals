@@ -14,10 +14,32 @@ async function errorMessage(res: Response) {
   return text;
 }
 
+/** A failed API call, with its HTTP status so callers can tell "not found" from "server down". */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/** A 4xx answer: asking again gets the same answer, so it isn't worth retrying. */
+export function isClientError(error: unknown): boolean {
+  return error instanceof ApiError && error.status >= 400 && error.status < 500;
+}
+
+/** The web UI's query retry rule: up to 3 retries, none for a 4xx. Retrying a 404 three times kept
+ * a missing case's page on a loading skeleton for about 7 seconds before it said anything. */
+export function retryUnlessClientError(failureCount: number, error: unknown): boolean {
+  return !isClientError(error) && failureCount < 3;
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) {
-    throw new Error(await errorMessage(res));
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json() as Promise<T>;
 }
@@ -35,7 +57,7 @@ export async function getHealth(): Promise<HealthStatus> {
       // Not our JSON: a proxy's error page; fall through to the error below.
     }
   }
-  throw new Error(`Request failed: ${res.status}`);
+  throw new ApiError(res.status, `Request failed: ${res.status}`);
 }
 
 export async function postJson<TRequest, TResponse>(path: string, body: TRequest): Promise<TResponse> {
@@ -45,7 +67,7 @@ export async function postJson<TRequest, TResponse>(path: string, body: TRequest
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error(await errorMessage(res));
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json() as Promise<TResponse>;
 }
@@ -57,7 +79,7 @@ export async function patchJson<TRequest, TResponse>(path: string, body: TReques
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error(await errorMessage(res));
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json() as Promise<TResponse>;
 }
@@ -67,7 +89,7 @@ export async function deleteJson<TResponse>(path: string): Promise<TResponse> {
     method: 'DELETE',
   });
   if (!res.ok) {
-    throw new Error(await errorMessage(res));
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json() as Promise<TResponse>;
 }
@@ -78,7 +100,7 @@ export async function postForm<TResponse>(path: string, body: FormData): Promise
     body,
   });
   if (!res.ok) {
-    throw new Error(await errorMessage(res));
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json() as Promise<TResponse>;
 }

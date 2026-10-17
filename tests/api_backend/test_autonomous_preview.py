@@ -935,3 +935,27 @@ def test_policy_runs_api_surfaces_budget_coverage() -> None:
         assert len(run_dict["budget_excluded_metrics"]) == 2
 
 
+
+
+def test_run_counts_add_up_with_excluded_metrics_counted_apart(monkeypatch) -> None:
+    # QA-23: a run read "planned 4, executed 4, skipped 3": metrics screened out before planning
+    # were added to skipped_jobs, so executed + skipped + failed came out above planned.
+    monkeypatch.setattr(autonomous_execution, "MetricAnalysisExecutor", FakeMetricAnalysisExecutor)
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider([metric("cpu_usage", "checkout"), metric("request_latency_p95", "checkout")])
+    body = {
+        "scope": {"all_services": True, "all_namespaces": True},
+        "monitoring_categories": ["capacity"],
+        "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 500, "max_parallel_jobs": 20},
+    }
+    with TestClient(app) as client:
+        run = client.post("/api/autonomous/run-once", json=body).json()
+        policy_run = client.get(f"/api/autonomous/policy-runs/{run['policy_run_id']}").json()
+        dry_run = client.post("/api/autonomous/run-once", json={**body, "dry_run": True}).json()
+
+    assert (run["planned_jobs"], run["executed_jobs"], run["skipped_jobs"], run["failed_jobs"]) == (1, 1, 0, 0)
+    assert run["excluded_jobs"] == 1
+    assert run["summary"]["jobs_excluded"] == 1
+    assert policy_run["jobs_skipped"] == 0
+    assert (dry_run["planned_jobs"], dry_run["skipped_jobs"], dry_run["excluded_jobs"]) == (1, 1, 1)
+    assert dry_run["summary"]["jobs_skipped"] == 1
