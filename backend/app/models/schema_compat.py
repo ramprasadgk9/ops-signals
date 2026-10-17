@@ -184,6 +184,38 @@ CASE_IMPORT_COLUMN_SQL = {
 }
 
 
+def ensure_server_defaults(engine: Engine) -> None:
+    """Adds the model's database defaults (server_default) to existing Postgres columns that lack
+    them. The analysis pipeline inserts through its own table definitions without those values, so
+    on a database the backend built from the models alone (Helm, no sql/init.sql) every save failed
+    with "null value in column created_at". New databases get the defaults from create_all; SQLite
+    can't add a default in place, and its databases here are created fresh."""
+    if engine.dialect.name != "postgresql":
+        return
+    from sqlalchemy.sql.elements import ClauseElement
+
+    from backend.app.models.entities import Base
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as connection:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            current = {column["name"]: column.get("default") for column in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.server_default is None or column.name not in current or current[column.name] is not None:
+                    continue
+                arg = column.server_default.arg
+                default = (
+                    str(arg.compile(dialect=engine.dialect))
+                    if isinstance(arg, ClauseElement)
+                    else "'" + str(arg).replace("'", "''") + "'"
+                )
+                connection.execute(text(f'ALTER TABLE "{table.name}" ALTER COLUMN "{column.name}" SET DEFAULT {default}'))
+                logger.info("Added database default %s to %s.%s", default, table.name, column.name)
+
+
 _CASE_LINK_UNIQUE_INDEXES = {
     "idx_ops_case_finding": "finding_id",
     "idx_ops_case_behavior_finding": "behavior_finding_id",

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,14 +20,16 @@ from backend.app.memory.seen_before import find_seen_before
 _NOTHING = (None, None, None, None, None, None)
 
 
-def _qdrant_down_then_up():
+def _qdrant_down_until(qdrant_up: threading.Event):
+    """Qdrant stays down, however often the backend retries, until the test sets qdrant_up: on a
+    slow CI runner a fixed "up on the second try" came back before the test had looked."""
     store = SimpleNamespace(health=lambda: {"status": "healthy"})
     indexer = SimpleNamespace(name="indexer")
     attempts = {"count": 0}
 
     def initialize(_config):
         attempts["count"] += 1
-        if attempts["count"] == 1:
+        if not qdrant_up.is_set():
             availability.mark(availability.UNAVAILABLE)
             return _NOTHING
         return store, object(), indexer, object(), None, None
@@ -39,7 +42,8 @@ async def _no_catch_up(*_args, **_kwargs) -> None:
 
 
 def test_memory_reports_unavailable_then_starts_once_qdrant_is_back() -> None:
-    initialize, indexer, attempts = _qdrant_down_then_up()
+    qdrant_up = threading.Event()
+    initialize, indexer, attempts = _qdrant_down_until(qdrant_up)
     with (
         patch.object(main_module, "load_memory_config", lambda: MemoryConfig(enabled=True)),
         patch.object(main_module, "initialize_memory_services", initialize),
@@ -55,11 +59,12 @@ def test_memory_reports_unavailable_then_starts_once_qdrant_is_back() -> None:
             assert "can't reach its vector store" in down["detail"]
             assert client.get("/api/memory/stats").json()["status"] == "unavailable"
 
+            qdrant_up.set()
             deadline = time.monotonic() + 5
             while memory_module._services["indexer"] is not indexer and time.monotonic() < deadline:
                 time.sleep(0.05)
 
-            assert attempts["count"] == 2
+            assert attempts["count"] >= 2
             up = client.get("/api/memory/health").json()
             assert up["status"] == "healthy"
             assert up["detail"] is None
