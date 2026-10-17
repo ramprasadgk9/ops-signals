@@ -7,6 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from backend.app.api.errors import internal_error
 
 from experiments.analyzer_router.config_loader import build_request
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
@@ -23,10 +25,25 @@ async def route_analyzers(
     routing_mode: str = Form(default="automatic_with_override"),
     selected_analyzers: str = Form(default=""),
 ):
+    data = await file.read()
+    # Profiling the series blocks: run it off the event loop.
+    return await run_in_threadpool(
+        _route_upload, data, file.filename, timestamp_column, value_column, routing_mode, selected_analyzers
+    )
+
+
+def _route_upload(
+    data: bytes,
+    file_name: str | None,
+    timestamp_column: str | None,
+    value_column: str | None,
+    routing_mode: str,
+    selected_analyzers: str,
+):
     try:
-        suffix = Path(file.filename or "upload.csv").suffix or ".csv"
+        suffix = Path(file_name or "upload.csv").suffix or ".csv"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
+            tmp.write(data)
             tmp_path = Path(tmp.name)
 
         router_service = UniversalTimeSeriesRouter()
@@ -50,4 +67,4 @@ async def route_analyzers(
         return json.loads(json.dumps(payload, default=str))
     except Exception as exc:
         logger.exception("Analyzer router failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise internal_error("Routing failed", exc) from exc

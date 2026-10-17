@@ -62,4 +62,19 @@ describe('PastCaseMatches', () => {
     render(<PastCaseMatches service="checkout" emptyText="Nothing like this yet." matches={[]} />);
     expect(screen.getByText('Nothing like this yet.')).toBeInTheDocument();
   });
+
+  it('says when a past case was resolved without a verified root cause', () => {
+    render(
+      <PastCaseMatches
+        service="checkout"
+        emptyText="none"
+        matches={[
+          match({ case_id: 1, title: 'Unverified', case_status: 'resolved', rca_verified: false, root_cause_summary: 'db query issues' }),
+          match({ case_id: 2, title: 'Verified', case_status: 'resolved', rca_verified: true, root_cause_summary: 'missing index' }),
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText(/root cause unconfirmed/)).toHaveLength(1);
+  });
 });

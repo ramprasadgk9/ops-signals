@@ -17,6 +17,7 @@ import logging
 import zlib
 
 from fastapi import APIRouter, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from google.protobuf import json_format
 from google.protobuf.message import DecodeError
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceResponse
@@ -72,6 +73,14 @@ async def otlp_status() -> dict[str, object]:
 @router.post("/v1/metrics")
 async def export_metrics(request: Request) -> Response:
     body = await request.body()
+    # Decoding and the database insert block; run them in the threadpool, not on the event loop,
+    # where every Collector export held up all other requests (and all of them while the DB was slow).
+    return await run_in_threadpool(
+        _export_metrics, body, request.headers.get("content-encoding", "").strip().lower(), _is_json_request(request)
+    )
+
+
+def _export_metrics(body: bytes, encoding: str, is_json: bool) -> Response:
     if len(body) > MAX_OTLP_BYTES:
         return Response(
             content=(
@@ -81,7 +90,6 @@ async def export_metrics(request: Request) -> Response:
             status_code=413,
         )
 
-    encoding = request.headers.get("content-encoding", "").strip().lower()
     if encoding not in _SUPPORTED_ENCODINGS:
         return Response(
             content=f"unsupported Content-Encoding {encoding!r}: send gzip or uncompressed",
@@ -101,7 +109,6 @@ async def export_metrics(request: Request) -> Response:
         except zlib.error as exc:
             return Response(content=f"malformed gzip body: {exc}", status_code=400)
 
-    is_json = _is_json_request(request)
     export_request = ExportMetricsServiceRequest()
     try:
         if is_json:

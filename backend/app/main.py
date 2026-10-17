@@ -41,6 +41,7 @@ from backend.app.api.metric_usage import router as metric_usage_router
 from backend.app.api.otlp import router as otlp_router
 from backend.app.api.overview import router as overview_router
 from backend.app.api.questions import router as questions_router
+from backend.app.api.notifications import router as notifications_router
 from backend.app.api.services import router as services_router
 from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
@@ -51,9 +52,12 @@ from backend.app.config import AIConfig, TicketingConfig, get_ticketing_config
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
+from backend.app.memory.catch_up import run_memory_catch_up_loop, waiting_at_startup
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.notifications.slack_client import SlackNotifier
+from backend.app.notifications.worker import run_slack_retry_loop
+from backend.app.services.case_status import backfill_case_statuses
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.ai.config import apply_ai_env_overrides
 from backend.app.ai.factory import build_optional_ai_services
@@ -69,6 +73,7 @@ from backend.app.models.schema_compat import (
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
     ensure_case_import_schema,
+    ensure_case_memory_schema,
     ensure_cluster_schema,
     ensure_finding_problem_schema,
     ensure_metric_usage_schema,
@@ -262,12 +267,19 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_cluster_schema(get_engine())
         ensure_finding_problem_schema(get_engine())
         ensure_metric_usage_schema(get_engine())
+        ensure_case_memory_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
+        try:
+            with session_local() as db:
+                backfill_case_statuses(db)
+        except Exception as e:
+            logger.warning(f"Case status backfill failed; resolved cases may still count as open: {e}")
 
         # Load memory config at startup
         backfill_task: asyncio.Task | None = None
+        memory_catch_up_task: asyncio.Task | None = None
         memory_config = load_memory_config()
         memory_services["ai_config"] = load_ai_config()
         memory_services["config"] = memory_config
@@ -284,6 +296,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 memory_services["knowledge_bootstrap"],
             ) = initialize_memory_services(memory_config)
             indexer = memory_services["indexer"]
+            if indexer is not None:
+                memory_catch_up_task = asyncio.create_task(
+                    run_memory_catch_up_loop(indexer, memory_config, session_local, run_now=waiting_at_startup(session_local, memory_config))
+                )
             if indexer is not None and _needs_backfill(indexer):
                 # Cases indexed before symptom/resolution/keyword vectors get them, in the background:
                 # it embeds each older case, and recall uses the full document until it is done.
@@ -310,11 +326,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
         # and a webhook URL are both set. SlackNotifier no-ops internally when disabled, so
         # this registration is unconditional — one code path either way.
         slack_config = get_slack_config()
-        if slack_config.enabled and slack_config.webhook_url:
+        slack_notifier = SlackNotifier(slack_config, session_local)
+        register_findings_hook(slack_notifier.notify_findings, on_seen_again=slack_notifier.notify_seen_again)
+        slack_task: asyncio.Task | None = None
+        if slack_notifier.enabled:
             logger.info("Slack notifications enabled")
+            slack_task = asyncio.create_task(run_slack_retry_loop(slack_notifier))
         else:
             logger.info("Slack notifications disabled")
-        register_findings_hook(SlackNotifier(slack_config).notify_findings)
 
         scheduler_task: asyncio.Task | None = None
         if os.getenv("OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED", "true").lower() != "false":
@@ -338,7 +357,15 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         if backfill_task is not None and not backfill_task.done():
             backfill_task.cancel()
+        if memory_catch_up_task is not None:
+            memory_catch_up_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await memory_catch_up_task
 
+        if slack_task is not None:
+            slack_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await slack_task
         if ticketing_task is not None:
             ticketing_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -354,11 +381,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "OPS_SIGNALS_API_TOKEN is not set: the API is open to anyone who can reach it. "
             "Only run it on a trusted network (docs/security-model.md)."
         )
+    # With an API token, the interactive API docs and the OpenAPI schema are off: FastAPI serves
+    # them outside the token check, and a browser can't send the token to them anyway.
+    docs_open = not security.api_token
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         lifespan=lifespan,
         dependencies=[Depends(require_api_token)],
+        docs_url="/docs" if docs_open else None,
+        redoc_url="/redoc" if docs_open else None,
+        openapi_url="/openapi.json" if docs_open else None,
     )
 
     app.add_middleware(
@@ -402,6 +435,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(ai_router)
     app.include_router(events_router)
     app.include_router(metric_usage_router)
+    app.include_router(notifications_router)
     
     # Register memory router
     app.include_router(memory_router)

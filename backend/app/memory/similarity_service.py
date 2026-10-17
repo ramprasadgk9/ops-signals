@@ -16,6 +16,7 @@ from backend.app.memory.schemas import SimilarCaseMatch, SimilarCasesResponse
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import OperationalCaseEntity
+from backend.app.services.case_status import derive_case_status
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,7 @@ class SimilarityService:
                     source=matched_case.source,
                     source_id=matched_case.source_id,
                     case_status=matched_case.case_status,
-                    investigation_status=matched_case.investigation_status,
+                    investigation_status=derive_case_status(matched_case)[1],
                     rca_verified=matched_case.root_cause_verified,
                     root_cause_summary=matched_case.root_cause_summary,
                     corrective_action=matched_case.corrective_action,

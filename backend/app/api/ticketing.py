@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from backend.app.api.assistant import get_assistant
@@ -308,6 +309,7 @@ async def receive_ticketing_webhook(
     service: CaseTicketing = Depends(get_ticketing_service),
 ) -> Any:
     raw_body = await request.body()
-    status_code, result = service.accept_webhook(provider, raw_body, request.headers)
+    # Signature check and database commit block: run them off the event loop.
+    status_code, result = await run_in_threadpool(service.accept_webhook, provider, raw_body, request.headers)
     response.status_code = status_code
     return result

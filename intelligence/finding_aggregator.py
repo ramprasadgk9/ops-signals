@@ -51,6 +51,11 @@ class FindingAggregator:
         for (service, metric_name, cluster, _), grouped_signals in signals_by_key.items():
             if any(self._skip_by_finding_rule(grouped_signals, analyzer_id) for analyzer_id in self._FINDING_RULE_GATED_ANALYZERS):
                 continue
+            # The group is finding-worthy, but its signals whose own rule didn't match are noise:
+            # PyOD reports every unusual point, however small. Letting them in made a 9x spike read
+            # "0.28x its normal range" (the first, weakest point) and dated the finding by
+            # whichever noise point came last. They stay saved with the run, not on the finding.
+            grouped_signals = self._rule_matched(grouped_signals)
 
             metric_points = points.copy()
             metric_points = metric_points[metric_points["metric_name"].astype(str) == str(metric_name)]
@@ -96,6 +101,15 @@ class FindingAggregator:
     # emit a signal once their own threshold is already crossed, so their mere presence already
     # means a real detection.
     _FINDING_RULE_GATED_ANALYZERS = {"pyod_outlier", "stumpy", "prophet", "anomaly_zscore"}
+
+    @staticmethod
+    def _rule_matched(signals: list[OperationalSignal]) -> list[OperationalSignal]:
+        """Drops signals that report their own finding rule didn't match. Signals that don't carry
+        the flag (trend, ruptures, baseline_shift: emitted only once their threshold is crossed)
+        stay. Falls back to all signals if that would leave none, which _skip_by_finding_rule
+        already prevents."""
+        matched = [signal for signal in signals if signal.evidence.get("finding_rule_matched") is not False]
+        return matched or signals
 
     def _skip_by_finding_rule(self, signals: list[OperationalSignal], analyzer_id: str) -> bool:
         own_signals = [signal for signal in signals if signal.analyzer_id == analyzer_id]
@@ -204,7 +218,9 @@ class FindingAggregator:
         ruptures = next((signal for signal in signals if signal.signal_type == "ruptures"), None)
         baseline = next((signal for signal in signals if signal.signal_type == "baseline_shift"), None)
         trend = next((signal for signal in signals if signal.signal_type == "trend"), None)
-        anomaly = next((signal for signal in signals if signal.signal_type in {"anomaly", "spike", "outlier"}), None)
+        anomalies = [signal for signal in signals if signal.signal_type in {"anomaly", "spike", "outlier"}]
+        # The strongest one leads the summary, not whichever was found first.
+        anomaly = max(anomalies, key=lambda signal: signal.importance_score) if anomalies else None
         forecast_signals = [signal for signal in signals if signal.signal_type in {"forecast", "seasonality", "seasonal"}]
         anomaly_count = sum(1 for signal in signals if signal.signal_type in {"anomaly", "spike", "outlier"})
 

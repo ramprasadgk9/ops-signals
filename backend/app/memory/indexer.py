@@ -15,6 +15,7 @@ from backend.app.memory.schemas import MemoryIndexResponse
 from backend.app.memory.vector_names import RESOLUTION_VECTOR, SYMPTOM_VECTOR
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import OperationalCaseEntity
+from backend.app.services.case_status import derive_case_status
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ class CaseMemoryIndexer:
 
             # Step 6-8: Update case metadata
             case.memory_status = "indexed"
+            case.memory_opted_out = False
             case.memory_indexed_at = datetime.utcnow()
             case.memory_content_version = CaseDocumentBuilder.get_content_version()
             case.memory_error = None
@@ -203,8 +205,10 @@ class CaseMemoryIndexer:
         except Exception as e:
             logger.warning(f"Case {case.id}: Failed to delete from Qdrant: {e}")
 
-        # Always update DB status regardless of Qdrant success
+        # Always update DB status regardless of Qdrant success. Opted out: catch-up indexing
+        # (memory/catch_up.py) must not add back a case the user removed.
         case.memory_status = "not_indexed"
+        case.memory_opted_out = True
         case.memory_indexed_at = None
         case.memory_error = None
         db.commit()
@@ -253,7 +257,7 @@ class CaseMemoryIndexer:
             "severity": finding.get("health_status"),
             "importance_score": finding.get("importance_score", 0.0),
             "case_status": case.case_status,
-            "investigation_status": case.investigation_status,
+            "investigation_status": derive_case_status(case)[1],
             "rca_status": case.root_cause_status,
             "rca_verified": case.root_cause_verified,
             "outcome_status": case.outcome_status,

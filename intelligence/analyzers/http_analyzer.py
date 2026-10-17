@@ -42,6 +42,9 @@ class HttpAnalyzerError(RuntimeError):
 class HttpAnalyzer(Analyzer):
     """An analyzer implemented by an external HTTP service (see docs/http-analyzer-contract.md)."""
 
+    # Computes in another process, so it doesn't take series_identity.IN_PROCESS_ANALYZER_LOCK.
+    runs_remotely = True
+
     def __init__(self, analyzer_id: str, spec: HttpAnalyzerSpec, params: dict[str, Any] | None = None, display_name: str | None = None) -> None:
         self._analyzer_id = analyzer_id
         self.spec = spec

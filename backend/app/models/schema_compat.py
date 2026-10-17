@@ -245,3 +245,20 @@ def ensure_metric_usage_schema(engine: Engine) -> None:
         with engine.begin() as connection:
             for name, ddl in missing.items():
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
+
+
+def ensure_case_memory_schema(engine: Engine) -> None:
+    """Adds memory_opted_out to cases tables created before it existed (memory/catch_up.py)."""
+    inspector = inspect(engine)
+    if "ops_operational_cases" not in inspector.get_table_names():
+        return
+    if "memory_opted_out" in {column["name"] for column in inspector.get_columns("ops_operational_cases")}:
+        return
+    false, true = ("FALSE", "TRUE") if engine.dialect.name == "postgresql" else ("0", "1")
+    with engine.begin() as connection:
+        connection.execute(text(f"ALTER TABLE ops_operational_cases ADD COLUMN memory_opted_out BOOLEAN NOT NULL DEFAULT {false}"))
+        # Before this column, a case the user removed from memory and one an outage kept out were
+        # both just not_indexed. Treat existing ones as removed, so catch-up never re-adds a case
+        # someone took out; "Add to memory" still brings any of them back. Failed cases stay
+        # eligible: a failure is never a user's choice.
+        connection.execute(text(f"UPDATE ops_operational_cases SET memory_opted_out = {true} WHERE memory_status = 'not_indexed'"))

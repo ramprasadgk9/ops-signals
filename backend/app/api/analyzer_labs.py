@@ -35,6 +35,7 @@ from intelligence.analyzers.http_analyzer import safe_url
 from intelligence.config import InputConfig
 from intelligence.normalize.normalizer import normalize_timeseries
 from intelligence.pipeline import SignalPipeline
+from intelligence.series_identity import analyzer_slot
 
 router = APIRouter(prefix="/api/analyzer-labs", tags=["analyzer-labs"])
 
@@ -954,7 +955,8 @@ def run_execution_test(draft_id: int, payload: ExecutionTestIn = Body(default=Ex
                 health_issue = analyzer_instance.check_health()
                 if health_issue:
                     raise RuntimeError(health_issue)
-            signals = analyzer_instance.analyze(normalized)
+            with analyzer_slot(analyzer_instance):
+                signals = analyzer_instance.analyze(normalized)
             ran = (
                 f"called {safe_url(registration.http.analyze_url)}"
                 if is_http

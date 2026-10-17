@@ -51,6 +51,8 @@ class MemoryStatsResponse(BaseModel):
     stale_cases: int
     error_cases: int
     total_cases: int
+    # Cases catch-up indexing will still add (memory/catch_up.py): left out by an outage.
+    waiting_to_index: int = 0
     source: str = "ops_operational_cases.memory_status"
 
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from sqlalchemy import Integer
+from sqlalchemy import Integer, select
 
 from intelligence.findings.schema import OperationalFinding
 from intelligence.signals.schema import OperationalSignal
@@ -478,3 +478,17 @@ def test_save_question_answers_persists_records(store: PostgresStore) -> None:
     assert len(rows) == 1
     assert rows[0]["headline"] == "CPU is elevated"
     assert rows[0]["key_points_json"] == ["point-1"]
+
+
+def test_save_capabilities_replaces_the_catalog_with_this_runs_analyzers(store: PostgresStore) -> None:
+    first = [{"id": "trend_detection", "analyzer_id": "trend", "title": "Trend", "description": "d", "supported_question_ids": ["q1"]}]
+    second = [{"id": "change_point_analysis", "analyzer_id": "ruptures", "title": "Change", "description": "d", "supported_question_ids": ["q2"]}]
+
+    store.save_capabilities(first)
+    store.save_capabilities(second)
+
+    with store.engine.begin() as connection:
+        ids = [row.id for row in connection.execute(select(store.capabilities_table))]
+        links = [(row.capability_id, row.question_id) for row in connection.execute(select(store.capability_questions_table))]
+    assert ids == ["change_point_analysis"]
+    assert links == [("change_point_analysis", "q2")]

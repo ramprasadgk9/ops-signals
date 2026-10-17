@@ -211,11 +211,13 @@ function NeedsSourceGroup({ items }: { items: NavItem[] }) {
 function SystemStatus() {
   const healthQuery = useQuery({ queryKey: ['shell-health'], queryFn: api.health, retry: false });
   const memoryQuery = useQuery({ queryKey: ['shell-memory-health'], queryFn: api.memoryHealth, retry: false });
-  const backendHealthy = healthQuery.data?.status === 'ok' || healthQuery.data?.status === 'healthy';
+  // A 503 from /api/health still has a body: the backend is up and only the database is down.
+  const backendHealthy = Boolean(healthQuery.data);
+  const database = healthQuery.data?.database;
   const memoryHealthy = memoryQuery.data?.status === 'ok' || memoryQuery.data?.status === 'healthy';
   const rows = [
     ['Backend', healthQuery.isError ? 'unavailable' : backendHealthy ? 'healthy' : healthQuery.isLoading ? 'loading' : healthQuery.data?.status ?? 'unknown'],
-    ['Database', 'not exposed'],
+    ['Database', healthQuery.isError ? 'unknown' : database === 'ok' ? 'healthy' : healthQuery.isLoading ? 'loading' : database ?? 'unknown'],
     ['Qdrant', memoryQuery.isError ? 'unavailable' : memoryHealthy ? 'healthy' : memoryQuery.isLoading ? 'loading' : memoryQuery.data?.status ?? 'unknown'],
     ['MCP Server', 'not exposed'],
   ];

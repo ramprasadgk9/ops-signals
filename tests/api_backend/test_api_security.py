@@ -46,6 +46,7 @@ def test_without_token_the_api_stays_open(make_client) -> None:
 def test_token_protects_every_route_except_health(make_client) -> None:
     with make_client(OPS_SIGNALS_API_TOKEN=TOKEN) as client:
         assert client.get("/api/health").status_code == 200
+        assert client.get("/api/health/live").status_code == 200
         assert client.get("/api/findings").status_code == 401
         assert client.get("/api/findings", headers={"Authorization": "Bearer wrong"}).status_code == 401
         assert client.get("/api/findings", headers=AUTH).status_code == 200
@@ -141,3 +142,17 @@ def test_adapter_stub_keeps_user_text_out_of_the_code() -> None:
         if kw.arg == "title"
     )
     assert title == hostile
+
+
+def test_api_docs_are_off_with_a_token(make_client) -> None:
+    # QA-21: FastAPI serves these outside the token check.
+    with make_client(OPS_SIGNALS_API_TOKEN=TOKEN) as client:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 404
+            assert client.get(path, headers=AUTH).status_code == 404
+
+
+def test_api_docs_stay_on_without_a_token(make_client) -> None:
+    with make_client() as client:
+        assert client.get("/openapi.json").status_code == 200
+        assert client.get("/docs").status_code == 200

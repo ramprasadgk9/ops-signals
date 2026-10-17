@@ -37,6 +37,8 @@ from backend.app.memory.suggested_fixes import RunbookDraft, SuggestedFixesRespo
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.api.errors import internal_error
+from backend.app.memory.catch_up import count_waiting
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.document_builder import CaseDocumentBuilder
 
@@ -84,8 +86,11 @@ def get_embedder() -> Embedder | None:
     return _services.get("embedder")
 
 
+# The handlers in this module are plain def: embedding and Qdrant calls block (for the full timeout
+# when Qdrant is slow or down), so FastAPI runs them in its threadpool. As `async def` they ran on
+# the event loop and held up every other request meanwhile.
 @router.post("/cases/{case_id}/memory/index", response_model=MemoryIndexResponse)
-async def index_case_memory(
+def index_case_memory(
     case_id: int,
     db: Session = Depends(get_db),
     indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
@@ -123,11 +128,11 @@ async def index_case_memory(
         return indexer.index_case(case, db)
     except Exception as e:
         logger.error(f"Failed to index case {case_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
+        raise internal_error("Indexing failed", e)
 
 
 @router.delete("/cases/{case_id}/memory")
-async def delete_case_memory(
+def delete_case_memory(
     case_id: int,
     db: Session = Depends(get_db),
     indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
@@ -170,11 +175,11 @@ async def delete_case_memory(
         }
     except Exception as e:
         logger.error(f"Failed to delete case {case_id} from memory: {e}")
-        raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
+        raise internal_error("Deletion failed", e)
 
 
 @router.get("/cases/{case_id}/memory/status", response_model=MemoryStatusResponse)
-async def get_case_memory_status(
+def get_case_memory_status(
     case_id: int,
     db: Session = Depends(get_db),
 ) -> MemoryStatusResponse:
@@ -298,7 +303,7 @@ def case_same_fix(
 
 
 @router.get("/cases/{case_id}/similar", response_model=SimilarCasesResponse)
-async def find_similar_cases(
+def find_similar_cases(
     case_id: int,
     db: Session = Depends(get_db),
     service: SimilarityService | None = Depends(get_similarity_service),
@@ -342,11 +347,11 @@ async def find_similar_cases(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to search similar cases for {case_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+        raise internal_error("Search failed", e)
 
 
 @router.post("/memory/chat", response_model=MemoryChatResponse)
-async def chat_memory(
+def chat_memory(
     payload: MemoryChatRequest,
     db: Session = Depends(get_db),
     service: SimilarityService | None = Depends(get_similarity_service),
@@ -476,11 +481,11 @@ async def chat_memory(
         )
     except Exception as e:
         logger.error(f"Failed to answer memory chat request: {e}")
-        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+        raise internal_error("Chat failed", e)
 
 
 @router.get("/memory/health", response_model=MemoryHealthResponse)
-async def get_memory_health(
+def get_memory_health(
     store: VectorStore | None = Depends(get_vector_store),
     config: MemoryConfig | None = Depends(get_memory_config),
 ) -> MemoryHealthResponse:
@@ -541,7 +546,7 @@ async def get_memory_health(
 
 
 @router.get("/memory/stats", response_model=MemoryStatsResponse)
-async def get_memory_stats(
+def get_memory_stats(
     db: Session = Depends(get_db),
     store: VectorStore | None = Depends(get_vector_store),
     config: MemoryConfig | None = Depends(get_memory_config),
@@ -570,8 +575,10 @@ async def get_memory_stats(
         indexed_cases=counts.get("indexed", 0),
         not_indexed_cases=counts.get("not_indexed", 0),
         stale_cases=counts.get("stale", 0),
-        error_cases=counts.get("error", 0),
+        # The indexer records a failure as "failed"; "error" is kept for rows written before.
+        error_cases=counts.get("failed", 0) + counts.get("error", 0),
         total_cases=sum(counts.values()),
+        waiting_to_index=count_waiting(db, config),
     )
 
 

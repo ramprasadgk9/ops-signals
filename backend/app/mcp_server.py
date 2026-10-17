@@ -13,6 +13,7 @@ from backend.app.api.findings import _to_finding_out
 from backend.app.api.mcp import list_tools as list_http_tools
 from backend.app.api.mcp import list_read_only_tools as list_read_only_http_tools
 from backend.app.api.mcp import _recommendation_service
+from backend.app.api.services import database_reachable
 from backend.app.assistant.schemas import AssistantChatRequest
 from backend.app.memory.diversity import leaders_only
 from backend.app.memory.document_builder import CaseDocumentBuilder
@@ -97,7 +98,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
     db = next(db_gen)
     try:
         if name == "health":
-            return {"status": "ok"}
+            return {"status": "ok", "database": "ok"} if database_reachable() else {"status": "degraded", "database": "unavailable"}
         if name == "services":
             rows = db.execute(select(distinct(NormalizedPoint.service))).all()
             return [row[0] for row in rows if row[0]]

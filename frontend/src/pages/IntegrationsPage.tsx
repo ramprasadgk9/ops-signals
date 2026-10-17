@@ -7,6 +7,7 @@ import { IntegrationTiles, OneOffAnalysisLine, SourceStatusStrip } from '../comp
 import { ImportHistoryCard } from '../components/ImportHistoryCard';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { OtlpIngestionCard } from '../components/OtlpIngestionCard';
+import { SlackDeliveryCard } from '../components/SlackDeliveryCard';
 import { PageHeader, WorkspacePanel } from '../standalone/components';
 
 export function IntegrationsPage() {
@@ -40,6 +41,8 @@ export function IntegrationsPage() {
       {statusQuery.isError ? <OtlpIngestionCard /> : null}
 
       <ImportHistoryCard />
+
+      <SlackDeliveryCard />
 
       <AiProviderCard />
 

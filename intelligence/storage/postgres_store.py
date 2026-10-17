@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import pandas as pd
-from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select
+from sqlalchemy import BOOLEAN, JSON, TIMESTAMP, Column, Float, Index, Integer, MetaData, String, Table, Text, create_engine, func, inspect, select, text
 from sqlalchemy.dialects.postgresql import BIGINT
 from sqlalchemy.engine import Engine
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
@@ -26,23 +26,31 @@ logger = logging.getLogger(__name__)
 # connection) the same way (title) and their events overlap, give or take this much: a later run,
 # with more data, can date the same event a few steps differently.
 PROBLEM_MATCH_TOLERANCE = timedelta(minutes=10)
+NORMALIZED_LABEL_COLUMNS = ("metric_name", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster")
 _HEALTH_RANK = {"normal": 0, "significant": 1, "critical": 2}
 
 # Optional post-write hook, set via register_findings_hook(). Kept generic (not
 # Slack-specific) so this storage layer stays framework-agnostic — it doesn't know or
 # care what consumes the signal, only that findings were just persisted.
 _on_findings_saved: Callable[[list[OperationalFinding]], None] | None = None
+_on_findings_seen_again: Callable[[list[OperationalFinding]], None] | None = None
 
 
-def register_findings_hook(callback: Callable[[list[OperationalFinding]], None] | None) -> None:
-    """Register a callback invoked with every batch of findings right after they're saved.
+def register_findings_hook(
+    callback: Callable[[list[OperationalFinding]], None] | None,
+    on_seen_again: Callable[[list[OperationalFinding]], None] | None = None,
+) -> None:
+    """Register a callback invoked with every batch of findings right after they're saved: the new
+    problems and those that got worse. `on_seen_again` gets the rest - findings of a problem
+    already reported - so a notifier whose earlier message never arrived can send it after all.
 
-    Best-effort: an exception raised by the callback is logged and swallowed by
+    Best-effort: an exception raised by a callback is logged and swallowed by
     save_findings, never propagated, so a broken downstream integration can never fail
     the analysis pipeline that just produced these findings.
     """
-    global _on_findings_saved
+    global _on_findings_saved, _on_findings_seen_again
     _on_findings_saved = callback
+    _on_findings_seen_again = on_seen_again
 
 
 # Set by callers that do their own notification for the run they're about to execute (alert
@@ -257,9 +265,15 @@ class PostgresStore:
             connection.exec_driver_sql(sql_text)
 
     def save_normalized_points(self, dataframe: pd.DataFrame, analysis_run_id: str | None = None) -> None:
+        dataframe = dataframe.copy()
         if analysis_run_id:
-            dataframe = dataframe.copy()
             dataframe["analysis_run_id"] = analysis_run_id
+        # A missing label (env, host, cluster...) is NaN after normalizing; written to a text column
+        # it became the string 'NaN', which /api/timeseries returned and cluster grouping treated as
+        # a real cluster. Store NULL instead.
+        for column in NORMALIZED_LABEL_COLUMNS:
+            if column in dataframe.columns:
+                dataframe[column] = dataframe[column].astype(object).where(dataframe[column].notna(), None)
         records = dataframe.to_dict(orient="records")
         with self.engine.begin() as connection:
             connection.execute(self.normalized_table.insert(), records)
@@ -283,12 +297,23 @@ class PostgresStore:
             return
         with self.engine.begin() as connection:
             to_notify = self._link_problems(connection, findings)
-            connection.execute(self.findings_table.insert(), [finding.to_record() for finding in findings])
-        if to_notify and _on_findings_saved is not None and not _findings_hook_suppressed.get():
-            try:
-                _on_findings_saved(to_notify)
-            except Exception:
-                logger.warning("findings hook raised", exc_info=True)
+            # The ids let a notifier tie a message to its problem (a new problem's id is its key).
+            inserted = connection.execute(
+                self.findings_table.insert().returning(self.findings_table.c.id, sort_by_parameter_order=True),
+                [finding.to_record() for finding in findings],
+            ).all()
+        for finding, row in zip(findings, inserted):
+            finding.id = row.id
+        if _findings_hook_suppressed.get():
+            return
+        notified = {id(finding) for finding in to_notify}
+        seen_again = [finding for finding in findings if id(finding) not in notified]
+        for callback, batch in ((_on_findings_saved, to_notify), (_on_findings_seen_again, seen_again)):
+            if batch and callback is not None:
+                try:
+                    callback(batch)
+                except Exception:
+                    logger.warning("findings hook raised", exc_info=True)
 
     def _link_problems(self, connection, findings: list[OperationalFinding]) -> list[OperationalFinding]:
         run_ids = {finding.analysis_run_id for finding in findings if finding.analysis_run_id}
@@ -369,6 +394,14 @@ class PostgresStore:
         if not capabilities:
             return
         with self.engine.begin() as connection:
+            if self.engine.dialect.name == "postgresql":
+                # Every analysis run rewrites this catalog, and runs overlap (API uploads, the
+                # scheduler, alert enrichment). Two rewrites at once hit duplicate keys or
+                # deadlocked, failing one whole run. The lock makes them take turns for the few
+                # milliseconds this takes; reads still go through. SQLite allows one writer anyway.
+                preparer = self.engine.dialect.identifier_preparer
+                tables = ", ".join(preparer.format_table(table) for table in (self.capabilities_table, self.capability_questions_table))
+                connection.execute(text(f"LOCK TABLE {tables} IN SHARE ROW EXCLUSIVE MODE"))
             connection.execute(self.capabilities_table.delete())
             connection.execute(self.capability_questions_table.delete())
             for capability in capabilities:

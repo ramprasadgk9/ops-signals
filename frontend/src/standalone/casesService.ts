@@ -1,3 +1,4 @@
+import { isRootCauseUnconfirmed } from '../components/RootCauseUnconfirmedBadge';
 import type { OperationalCase } from '../types';
 
 const CLOSED_CASE_STATUSES = new Set(['resolved', 'verified', 'closed', 'completed']);
@@ -29,6 +30,8 @@ export type CaseRow = {
   source: string;
   sourceId: string | null;
   sourceUrl: string | null;
+  /** Resolved without a verified root cause (see RootCauseUnconfirmedBadge). */
+  rootCauseUnconfirmed: boolean;
 };
 
 export function isClosedCaseStatus(status?: string | null) {
@@ -67,6 +70,7 @@ export function toCaseRow(item: OperationalCase): CaseRow {
     source: item.source ?? 'detected',
     sourceId: item.source_id ?? null,
     sourceUrl: item.source_url ?? null,
+    rootCauseUnconfirmed: isRootCauseUnconfirmed({ case_status: item.case_status, rootCauseVerified: item.root_cause_verified, source: item.source }),
   };
 }
 

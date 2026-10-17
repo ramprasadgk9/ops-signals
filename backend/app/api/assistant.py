@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from backend.app.api.errors import internal_error
 from backend.app.assistant.knowledge_bootstrap import (
     ApplicationKnowledgeBootstrapResult,
     ApplicationKnowledgeBootstrapService,
@@ -70,7 +71,7 @@ def chat_assistant(
         raise
     except Exception as e:
         logger.error(f"Assistant chat failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Assistant chat failed: {str(e)}")
+        raise internal_error("Assistant chat failed", e)
 
 
 @router.get("/knowledge/status", response_model=ApplicationKnowledgeStatus)

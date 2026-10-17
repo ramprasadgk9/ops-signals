@@ -260,6 +260,7 @@ export type PastCaseMatch = {
   source_id?: string | null;
   source_url?: string | null;
   case_status?: string;
+  rca_verified?: boolean;
   root_cause_summary?: string | null;
   corrective_action?: string | null;
   outcome_summary?: string | null;
@@ -702,6 +703,9 @@ export type CsvRunResult = {
   metric_name: string;
   sample_count: number;
   findings_count: number;
+  requested_interval?: string;
+  interval?: string;
+  warnings?: string[];
 };
 
 export type ValidationSignal = {
@@ -738,6 +742,9 @@ export type CsvValidationResult = {
   service: string;
   metric_name: string;
   sample_count: number;
+  requested_interval?: string;
+  interval?: string;
+  warnings?: string[];
   normalized_preview: Array<Record<string, unknown>>;
   signals: ValidationSignal[];
   findings: ValidationFinding[];
@@ -1430,4 +1437,21 @@ export type GrafanaStatus = {
   reachable: boolean;
   version?: string | null;
   message: string;
+};
+
+export type SlackStatus = {
+  enabled: boolean;
+  delivered_last_24h: number;
+  retrying: number;
+  failed_last_24h: number;
+  last_failure?: {
+    title: string;
+    service?: string | null;
+    metric_name?: string | null;
+    error?: string | null;
+    attempts: number;
+    status: 'pending' | 'failed' | string;
+    created_at: string;
+    next_retry_at?: string | null;
+  } | null;
 };

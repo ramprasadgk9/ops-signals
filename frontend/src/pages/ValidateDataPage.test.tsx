@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ValidateDataPage } from './ValidateDataPage';
+import { ValidateDataPage, describeInterval } from './ValidateDataPage';
 import { api } from '../api/queries';
 
 vi.mock('../api/queries', () => ({
@@ -123,6 +123,49 @@ describe('ValidateDataPage source modes', () => {
     expect(submittedForm.get('custom_timestamp_column')).toBe('event_time');
     expect(submittedForm.get('custom_value_column')).toBe('measurement');
     expect(submittedForm.get('custom_metric_name_column')).toBe('metric');
+  });
+
+  it('sends auto by default and shows the detected interval and any warning', async () => {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
+    vi.mocked(api.prometheusLabelValues).mockResolvedValue({ connection_id: 'default', label: 'service', values: [] });
+    vi.mocked(api.runCsvValidation).mockResolvedValue({
+      provider: 'prometheus',
+      source_type: 'csv',
+      analyzer_id: 'router',
+      service: 'svc',
+      metric_name: 'cpu_usage',
+      sample_count: 288,
+      requested_interval: 'auto',
+      interval: '15m',
+      warnings: ['Interval 5m leaves 67% of time slots empty for svc / cpu_usage: the data has a point about every 15m.'],
+      normalized_preview: [],
+      signals: [],
+      findings: [],
+      analyzer_selection_mode: 'all',
+      analyzer_routing: [],
+      executed_analyzers: [],
+    });
+
+    renderPage();
+
+    expect(await screen.findByLabelText('Interval')).toHaveValue('auto');
+
+    const file = new File(['timestamp,metric,value\n2026-01-01T00:00:00Z,cpu_usage,42.5'], 'cpu.csv', { type: 'text/csv' });
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate Data' }));
+
+    expect(await screen.findByText(/288 samples at a 15m interval \(detected from the data\)/)).toBeInTheDocument();
+    expect(screen.getByText(/leaves 67% of time slots empty/)).toBeInTheDocument();
+    expect(vi.mocked(api.runCsvValidation).mock.calls[0][0].get('interval')).toBe('auto');
+  });
+});
+
+describe('describeInterval', () => {
+  it('marks a measured interval as detected and leaves a typed one plain', () => {
+    expect(describeInterval({ requested_interval: 'auto', interval: '15m' })).toBe(' at a 15m interval (detected from the data)');
+    expect(describeInterval({ requested_interval: '5m', interval: '5m' })).toBe(' at a 5m interval');
+    expect(describeInterval({})).toBe('');
   });
 });
 
