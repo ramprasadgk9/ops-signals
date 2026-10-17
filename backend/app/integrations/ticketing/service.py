@@ -16,7 +16,7 @@ from backend.app.ai.services.comment_triage_service import (
     CommentTriageEvaluation,
     CommentTriageService,
 )
-from backend.app.config import TicketingConfig
+from backend.app.config import TicketingConfig, ui_base_url
 from backend.app.integrations.ticketing.jira.adapter import JiraTicketProvider
 from backend.app.integrations.ticketing.models import (
     AmbiguousResolutionRequest,
@@ -1088,7 +1088,7 @@ class CaseTicketing:
 
                 remote_id = link.remote_id
                 display_key = link.display_key
-                ui_base = os.getenv("OPS_SIGNALS_UI_BASE_URL", "http://localhost:3000").rstrip("/")
+                ui_base = ui_base_url()
                 resolution = TicketResolutionDraft(
                     case_id=case.id,
                     display_key=link.display_key,
@@ -1097,7 +1097,7 @@ class CaseTicketing:
                     corrective_action=case.corrective_action,
                     outcome_status=case.outcome_status or "resolved",
                     outcome_summary=case.outcome_summary,
-                    deep_link_url=f"{ui_base}/cases/{case.id}",
+                    deep_link_url=f"{ui_base}/cases/{case.id}" if ui_base else None,
                 )
 
             if not hasattr(provider, "resolve_ticket"):
@@ -1334,7 +1334,7 @@ class CaseTicketing:
             health_status = finding_snapshot.get("health_status") or "warning"
             importance = float(finding_snapshot.get("importance_score") or 0.5)
 
-            ui_base = os.getenv("OPS_SIGNALS_UI_BASE_URL", "http://localhost:3000").rstrip("/")
+            ui_base = ui_base_url()
             return TicketDraft(
                 case_id=case.id,
                 case_title=case.case_title,
@@ -1346,7 +1346,7 @@ class CaseTicketing:
                 analysis_run_id=case.analysis_run_id,
                 rca_summary=case.root_cause_summary,
                 outcome_summary=case.outcome_summary,
-                deep_link_url=f"{ui_base}/cases/{case.id}",
+                deep_link_url=f"{ui_base}/cases/{case.id}" if ui_base else None,
                 raw_findings=[finding_snapshot],
             )
 

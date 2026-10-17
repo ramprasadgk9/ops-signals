@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.app.memory.availability import unavailable_reason
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.indexer import CaseMemoryIndexer
@@ -137,7 +138,7 @@ def build_coverage_report(
 ) -> CoverageReport:
     report = CoverageReport(available=False, window_days=days)
     if embedder is None:
-        report.reason = "Operational memory is not enabled, so incidents can't be compared with findings."
+        report.reason = unavailable_reason("incidents can't be compared with findings")
         return report
     since = _naive(now or datetime.now(timezone.utc)) - timedelta(days=days)
     imported = db.execute(

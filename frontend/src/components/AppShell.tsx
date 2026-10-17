@@ -279,7 +279,7 @@ export function AppShell({ children }: PropsWithChildren) {
           <Avatar sx={{ width: 42, height: 42, bgcolor: ui.red, fontSize: 15, fontWeight: 900 }}>OS</Avatar>
           <Typography sx={{ fontSize: 20, fontWeight: 900, letterSpacing: 0 }}>Ops Signals</Typography>
           <Tooltip title="Collapse navigation">
-            <IconButton sx={{ ml: { xs: 0, lg: 'auto' }, display: { xs: 'none', lg: 'inline-flex' } }}>
+            <IconButton aria-label="Collapse navigation" sx={{ ml: { xs: 0, lg: 'auto' }, display: { xs: 'none', lg: 'inline-flex' } }}>
               <MenuRoundedIcon />
             </IconButton>
           </Tooltip>
@@ -289,7 +289,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
         <Stack direction="row" alignItems="center" spacing={1.2} justifyContent="flex-end">
           {[<NotificationsNoneRoundedIcon />, <HelpOutlineRoundedIcon />, <LightModeRoundedIcon />].map((icon, index) => (
-            <IconButton key={index} sx={{ display: { xs: index > 0 ? 'none' : 'inline-flex', sm: 'inline-flex' } }}>
+            <IconButton key={index} aria-label={['Notifications', 'Help', 'Theme'][index]} sx={{ display: { xs: index > 0 ? 'none' : 'inline-flex', sm: 'inline-flex' } }}>
               {index === 0 ? (
                 <Badge color="error" badgeContent={1}>
                   {icon}

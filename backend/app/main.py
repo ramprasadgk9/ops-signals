@@ -48,10 +48,11 @@ from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
 from backend.app.config import MemoryConfig, get_prometheus_connections, get_security_config, get_settings, get_slack_config
-from backend.app.config import AIConfig, TicketingConfig, get_ticketing_config
+from backend.app.config import AIConfig, TicketingConfig, get_alert_enrichment_config, get_ticketing_config, ui_base_url
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
+from backend.app.memory import availability as memory_availability
 from backend.app.memory.catch_up import run_memory_catch_up_loop, waiting_at_startup
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
@@ -212,7 +213,38 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
 
     except Exception as e:
         logger.error(f"Failed to initialize memory services: {e}")
+        memory_availability.mark(memory_availability.UNAVAILABLE)
         return None, None, None, None, None, None
+
+
+MEMORY_RETRY_FIRST_SECONDS = 15
+MEMORY_RETRY_MAX_SECONDS = 300
+
+
+def _publish_memory_services(memory_services: dict) -> None:
+    """Shares the memory services with the API modules that read them."""
+    from backend.app.api import ai as ai_module
+    from backend.app.api import assistant as assistant_module
+    from backend.app.api import memory as memory_module
+
+    for key in ("indexer", "similarity_service", "config", "vector_store", "embedder"):
+        memory_module._services[key] = memory_services[key]
+    assistant_module._services["assistant"] = memory_services["assistant"]
+    assistant_module._services["knowledge_bootstrap"] = memory_services["knowledge_bootstrap"]
+    ai_module._services["config"] = memory_services["ai_config"]
+
+
+def warn_if_links_have_no_ui_address() -> None:
+    """Alert messages and tickets link back to the UI; without OPS_SIGNALS_UI_BASE_URL those links
+    are left out (they used to point at localhost:3000), so say so where an operator looks."""
+    if ui_base_url():
+        return
+    users = [name for name, on in (("alert messages", get_alert_enrichment_config().enabled), ("tickets", get_ticketing_config().enabled)) if on]
+    if users:
+        logger.warning(
+            "OPS_SIGNALS_UI_BASE_URL is not set, so %s won't link to Ops Signals. Set it to the address people open the web UI at.",
+            " and ".join(users),
+        )
 
 
 def ticketing_worker_enabled(config: TicketingConfig) -> bool:
@@ -280,15 +312,14 @@ def create_app(database_url: str | None = None) -> FastAPI:
             logger.warning(f"Case status backfill failed; resolved cases may still count as open: {e}")
 
         # Load memory config at startup
-        backfill_task: asyncio.Task | None = None
-        memory_catch_up_task: asyncio.Task | None = None
+        memory_tasks: list[asyncio.Task] = []
         memory_config = load_memory_config()
         memory_services["ai_config"] = load_ai_config()
         memory_services["config"] = memory_config
-        
-        # Initialize memory services if enabled
-        if memory_config and memory_config.enabled:
-            logger.info("Initializing operational memory services...")
+
+        def install_memory_services(services: tuple) -> bool:
+            """Publishes started memory services to the API and starts their background jobs;
+            False when they didn't start (Qdrant unreachable)."""
             (
                 memory_services["vector_store"],
                 memory_services["embedder"],
@@ -296,33 +327,47 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 memory_services["similarity_service"],
                 memory_services["assistant"],
                 memory_services["knowledge_bootstrap"],
-            ) = initialize_memory_services(memory_config)
+            ) = services
+            _publish_memory_services(memory_services)
             indexer = memory_services["indexer"]
-            if indexer is not None:
-                memory_catch_up_task = asyncio.create_task(
+            if indexer is None:
+                return False
+            memory_availability.mark(memory_availability.READY)
+            memory_tasks.append(
+                asyncio.create_task(
                     run_memory_catch_up_loop(indexer, memory_config, session_local, run_now=waiting_at_startup(session_local, memory_config))
                 )
-            if indexer is not None and _needs_backfill(indexer):
+            )
+            if _needs_backfill(indexer):
                 # Cases indexed before symptom/resolution/keyword vectors get them, in the background:
                 # it embeds each older case, and recall uses the full document until it is done.
                 # Started only when there is something to fill, so a normal startup runs nothing.
-                backfill_task = asyncio.create_task(asyncio.to_thread(_backfill_vectors, indexer, session_local))
-            logger.info(f"✓ Memory services initialized successfully")
-        else:
-            logger.info(f"Memory services disabled")
+                memory_tasks.append(asyncio.create_task(asyncio.to_thread(_backfill_vectors, indexer, session_local)))
+            return True
 
-        # Populate the shared services container for the API endpoints
-        from backend.app.api import memory as memory_module
-        memory_module._services["indexer"] = memory_services["indexer"]
-        memory_module._services["similarity_service"] = memory_services["similarity_service"]
-        memory_module._services["config"] = memory_services["config"]
-        memory_module._services["vector_store"] = memory_services["vector_store"]
-        memory_module._services["embedder"] = memory_services["embedder"]
-        from backend.app.api import assistant as assistant_module
-        assistant_module._services["assistant"] = memory_services["assistant"]
-        assistant_module._services["knowledge_bootstrap"] = memory_services["knowledge_bootstrap"]
-        from backend.app.api import ai as ai_module
-        ai_module._services["config"] = memory_services["ai_config"]
+        async def retry_memory_start() -> None:
+            """Qdrant was unreachable at startup: keep trying, so memory comes up when Qdrant does
+            instead of staying off until the backend is restarted."""
+            delay = MEMORY_RETRY_FIRST_SECONDS
+            while True:
+                await asyncio.sleep(delay)
+                if install_memory_services(await asyncio.to_thread(initialize_memory_services, memory_config)):
+                    logger.info("✓ Operational memory connected after startup")
+                    return
+                delay = min(delay * 2, MEMORY_RETRY_MAX_SECONDS)
+
+        if memory_config and memory_config.enabled:
+            logger.info("Initializing operational memory services...")
+            memory_availability.mark(memory_availability.STARTING)
+            if install_memory_services(initialize_memory_services(memory_config)):
+                logger.info(f"✓ Memory services initialized successfully")
+            else:
+                logger.warning("Operational memory is unavailable; retrying in the background")
+                memory_tasks.append(asyncio.create_task(retry_memory_start()))
+        else:
+            memory_availability.mark(memory_availability.DISABLED)
+            _publish_memory_services(memory_services)
+            logger.info(f"Memory services disabled")
 
         # Slack notifications: config-driven, disabled unless OPS_SIGNALS_SLACK_ENABLED=true
         # and a webhook URL are both set. SlackNotifier no-ops internally when disabled, so
@@ -357,12 +402,11 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         yield
 
-        if backfill_task is not None and not backfill_task.done():
-            backfill_task.cancel()
-        if memory_catch_up_task is not None:
-            memory_catch_up_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await memory_catch_up_task
+        for task in memory_tasks:
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
 
         if slack_task is not None:
             slack_task.cancel()
@@ -377,6 +421,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             with suppress(asyncio.CancelledError):
                 await scheduler_task
 
+    warn_if_links_have_no_ui_address()
     security = get_security_config()
     if not security.api_token:
         logger.warning(

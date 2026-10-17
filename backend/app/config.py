@@ -260,7 +260,8 @@ class AlertEnrichmentConfig(BaseModel):
     # A new pod that first reported up to this long after a deploy counts as started by it.
     deploy_rollout_seconds: int = 900
     excluded_analyzers: list[str] = Field(default_factory=lambda: ["prophet"])
-    ui_base_url: str = "http://localhost:3000"
+    # Where people open the web UI, for links in alert messages; None leaves the links out.
+    ui_base_url: str | None = None
     max_concurrent_analyses: int = 4
 
     @field_validator("notify")
@@ -448,6 +449,13 @@ def _parse_list(value: str | None) -> list[str] | None:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def ui_base_url() -> str | None:
+    """OPS_SIGNALS_UI_BASE_URL without a trailing slash, or None when unset. It used to default to
+    http://localhost:3000, so alert and ticket links pointed at the reader's own machine."""
+    value = (_env("OPS_SIGNALS_UI_BASE_URL") or "").strip().rstrip("/")
+    return value or None
+
+
 def get_alert_enrichment_config() -> AlertEnrichmentConfig:
     config = AlertEnrichmentConfig(
         enabled=_parse_bool(_env("OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED"), False),
@@ -456,7 +464,7 @@ def get_alert_enrichment_config() -> AlertEnrichmentConfig:
         notify=_env("OPS_SIGNALS_ALERT_NOTIFY") or "slack",
         slack_webhook_url=_env("OPS_SIGNALS_ALERT_SLACK_WEBHOOK_URL") or _env("OPS_SIGNALS_SLACK_WEBHOOK_URL"),
         notify_on_resolve=_parse_bool(_env("OPS_SIGNALS_ALERT_NOTIFY_ON_RESOLVE"), True),
-        ui_base_url=(_env("OPS_SIGNALS_UI_BASE_URL") or "http://localhost:3000").rstrip("/"),
+        ui_base_url=ui_base_url(),
     )
     severities = _parse_list(_env("OPS_SIGNALS_ALERT_NOTIFY_SEVERITIES"))
     if severities is not None:

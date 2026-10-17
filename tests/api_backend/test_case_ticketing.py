@@ -908,7 +908,8 @@ def test_sync_operation_triggers_comment_triage():
         assert "Cleared blocked queue" in case.investigation_notes[0]["note"]
 
 
-def test_request_resolve_and_outbox_processing():
+def test_request_resolve_and_outbox_processing(monkeypatch):
+    monkeypatch.setenv("OPS_SIGNALS_UI_BASE_URL", "https://ops.example.com/")
     session_local = get_session_local()
     now = datetime.now(timezone.utc)
     with session_local() as db:
@@ -973,8 +974,7 @@ def test_request_resolve_and_outbox_processing():
     assert call_args["display_key"] == "OPS-99"
     assert call_args["resolution"].root_cause_verified is True
     assert call_args["resolution"].corrective_action == "Added row-level lock"
-    assert call_args["resolution"].deep_link_url.startswith("http")
-    assert f"/cases/{case_id}" in call_args["resolution"].deep_link_url
+    assert call_args["resolution"].deep_link_url == f"https://ops.example.com/cases/{case_id}"
 
     # Verify link updated and event recorded
     with session_local() as db:

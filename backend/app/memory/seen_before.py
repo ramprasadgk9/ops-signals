@@ -24,6 +24,7 @@ from backend.app.memory.similarity_service import (
 )
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.memory.availability import unavailable_reason
 
 MAX_MATCHES = 8
 
@@ -42,7 +43,7 @@ def find_seen_before(
         return SeenBeforeResponse(
             finding_id=finding.id,
             available=False,
-            reason="Operational memory is not enabled, so past cases can't be searched.",
+            reason=unavailable_reason("past cases can't be searched"),
             service=finding.service,
         )
 

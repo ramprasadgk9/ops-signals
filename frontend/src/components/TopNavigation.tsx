@@ -28,7 +28,7 @@ export function TopNavigation() {
               Ops Signals
             </Typography>
           </Box>
-          <IconButton size="small" sx={{ ml: 1 }}>
+          <IconButton size="small" sx={{ ml: 1 }} aria-label="Menu">
             <MenuRoundedIcon />
           </IconButton>
           <Typography variant="body2" color="text.secondary">
@@ -61,7 +61,7 @@ export function TopNavigation() {
               ⌘K
             </Typography>
           </Box>
-          <IconButton size="small">
+          <IconButton size="small" aria-label="Notifications">
             <NotificationsNoneRoundedIcon />
           </IconButton>
           <Box
@@ -80,7 +80,7 @@ export function TopNavigation() {
           >
             3
           </Box>
-          <IconButton size="small" onClick={toggle}>
+          <IconButton size="small" onClick={toggle} aria-label={mode === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}>
             {mode === 'light' ? <DarkModeRoundedIcon /> : <LightModeRoundedIcon />}
           </IconButton>
           <Box

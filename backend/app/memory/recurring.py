@@ -36,6 +36,7 @@ from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.vector_names import RESOLUTION_VECTOR, SYMPTOM_VECTOR
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import OperationalCaseEntity
+from backend.app.memory.availability import unavailable_reason
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ def find_recurring_problems(
         available=False, window_days=days, min_occurrences=min_occurrences, group_by=group_by, group_similarity=threshold,
     )
     if store is None:
-        response.reason = "Operational memory is not enabled, so past cases can't be compared."
+        response.reason = unavailable_reason("past cases can't be compared")
         return response
 
     since = (now or datetime.now(timezone.utc)) - timedelta(days=days)
