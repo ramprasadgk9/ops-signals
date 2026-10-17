@@ -143,18 +143,14 @@ def evaluate_metric_sample(
         analysis_run_id = str(analysis_run_id).strip() or None
     if not service_name or not metric_name:
         raise HTTPException(status_code=400, detail="service and metric_name are required")
+    selected = service.find_sample(db, service_name, metric_name, analysis_run_id)
+    if not selected:
+        raise HTTPException(status_code=404, detail="sample not found")
+    analysis_run_id = selected["analysis_run_id"]
     try:
         profile, timeseries = service.profile_sample(db, service_name, metric_name, analysis_run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    sample = service.list_samples(db)
-    selected = next(
-        (item for item in sample if item["service"] == service_name and item["metric_name"] == metric_name and item["analysis_run_id"] == analysis_run_id),
-        None,
-    )
-    if not selected:
-        raise HTTPException(status_code=404, detail="sample not found")
 
     analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
     selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))

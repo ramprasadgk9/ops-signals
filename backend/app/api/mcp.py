@@ -733,23 +733,13 @@ def evaluate_metric_sample(payload: dict[str, Any], db: Session = Depends(get_db
         analysis_run_id = str(analysis_run_id).strip() or None
     if not service_name or not metric_name:
         raise HTTPException(status_code=400, detail="service and metric_name are required")
-    try:
-        profile, timeseries = _recommendation_service.profile_sample(db, service_name, metric_name, analysis_run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    sample = next(
-        (
-            item
-            for item in _recommendation_service.list_samples(db)
-            if item["service"] == service_name
-            and item["metric_name"] == metric_name
-            and item["analysis_run_id"] == analysis_run_id
-        ),
-        None,
-    )
+    sample = _recommendation_service.find_sample(db, service_name, metric_name, analysis_run_id)
     if not sample:
         raise HTTPException(status_code=404, detail="sample not found")
+    try:
+        profile, timeseries = _recommendation_service.profile_sample(db, service_name, metric_name, sample["analysis_run_id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
     selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
