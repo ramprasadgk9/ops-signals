@@ -219,6 +219,7 @@ Enrichment and posting are separate. Every setting below still enriches and stor
 | `OPS_SIGNALS_ALERT_NOTIFY_SEVERITIES=critical,warning` | Post only these severities |
 | `OPS_SIGNALS_ALERT_NOTIFY_ON_RESOLVE=false` | No resolve follow-ups |
 | annotation `ops_signals_notify: "false"` | Don't post this rule's alerts |
+| `OPS_SIGNALS_UI_BASE_URL=https://ops.example.com` | Link messages to findings and cases at this address. Unset: no links, and a startup warning |
 
 All settings, with their defaults, are listed in `.env.example`.
 

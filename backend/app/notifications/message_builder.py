@@ -67,6 +67,12 @@ def _link(url: str | None, label: str) -> str:
     return f"<{url}|{label}>" if url else label
 
 
+def _ui_link(ui_base_url: str | None, path: str, label: str) -> str:
+    """A link into the Ops Signals UI, or just the label when OPS_SIGNALS_UI_BASE_URL isn't set:
+    the old localhost:3000 default opened nothing for anyone reading the message elsewhere."""
+    return _link(f"{ui_base_url}{path}" if ui_base_url else None, label)
+
+
 def _hhmm(iso_value: str | None) -> str:
     return iso_value[11:16] + " UTC" if iso_value and len(iso_value) >= 16 else "unknown time"
 
@@ -201,7 +207,7 @@ def _what_changed(changes: dict | None, service: str | None, timing: dict | None
     if changes is None:
         return "Change-event lookup unavailable."
     if not changes.get("service_has_any_events"):
-        where = _link(f"{ui_base_url}/integrations", "Integrations → Send deploy events") if ui_base_url else "Integrations → Send deploy events"
+        where = _ui_link(ui_base_url, "/integrations", "Integrations → Send deploy events")
         return f"No change events have ever been recorded for `{service}`. Send deploys from your CI to see them here: {where}."
     timing = timing or {}
     basis = timing.get("basis") or "alert_time"
@@ -246,7 +252,7 @@ def _what_changed(changes: dict | None, service: str | None, timing: dict | None
     return "\n".join(lines)
 
 
-def _seen_before(context: dict | None, ui_base_url: str) -> str:
+def _seen_before(context: dict | None, ui_base_url: str | None) -> str:
     if not context:
         return "History lookup unavailable."
     history = context.get("history") or {}
@@ -264,7 +270,7 @@ def _seen_before(context: dict | None, ui_base_url: str) -> str:
             lines.append(f"Most common cause: _{history['most_common_root_cause']}_")
     if similar:
         top = similar[0]
-        title = _link(f"{ui_base_url}/cases/{top['case_id']}", f"#{top['case_id']} {top.get('title', '')}".strip())
+        title = _ui_link(ui_base_url, f"/cases/{top['case_id']}", f"#{top['case_id']} {top.get('title', '')}".strip())
         origin = ""
         if top.get("origin") == "imported":
             origin = f", imported from {top.get('source')}" + (f" {top['source_id']}" if top.get("source_id") and not top["source_id"].startswith("fp-") else "")
@@ -285,7 +291,7 @@ def _seen_before(context: dict | None, ui_base_url: str) -> str:
     return "\n".join(lines)
 
 
-def build_alert_enrichment_blocks(enrichment: dict, ui_base_url: str) -> dict:
+def build_alert_enrichment_blocks(enrichment: dict, ui_base_url: str | None) -> dict:
     alert = enrichment.get("alert") or {}
     source_label = _SOURCE_LABEL.get(enrichment.get("source"), "External alert")
     analysis = enrichment.get("analysis") or {}
@@ -313,19 +319,19 @@ def build_alert_enrichment_blocks(enrichment: dict, ui_base_url: str) -> dict:
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🚀 What changed*\n" + _what_changed(enrichment.get("changes"), service, analysis.get("timing"), ui_base_url))}},
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🧠 Seen before*\n" + _seen_before(enrichment.get("context"), ui_base_url))}},
     ]
-    links = [_link(f"{ui_base_url}/findings", "Open findings"), _link(f"{ui_base_url}/cases", "Create a case")]
+    links = [_ui_link(ui_base_url, "/findings", "Open findings"), _ui_link(ui_base_url, "/cases", "Create a case")] if ui_base_url else []
     fingerprint = alert.get("fingerprint")
     footer = (
         f"Enriched by Ops Signals from an {source_label.lower()}"
         + (f" · fingerprint `{fingerprint}`" if fingerprint else "")
         + (f" · metric `{alert['metric_key']}`" if alert.get("metric_key") else "")
-        + " · " + " · ".join(links)
+        + "".join(f" · {link}" for link in links)
     )
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": _clip(footer, 2900)}]})
     return {"text": header_text[:_HEADER_MAX_LEN], "blocks": blocks}
 
 
-def build_alert_resolved_blocks(enrichment: dict, ui_base_url: str, open_minutes: float | None) -> dict:
+def build_alert_resolved_blocks(enrichment: dict, ui_base_url: str | None, open_minutes: float | None) -> dict:
     alert = enrichment.get("alert") or {}
     source_label = _SOURCE_LABEL.get(enrichment.get("source"), "External alert")
     service = alert.get("service")
@@ -333,7 +339,7 @@ def build_alert_resolved_blocks(enrichment: dict, ui_base_url: str, open_minutes
     duration = f" after {_minutes(open_minutes)}" if open_minutes is not None else ""
     body = (
         f"🔔 *{source_label}* `{alert.get('name', 'alert')}` resolved{duration}.\n"
-        f"Was it real? Record the outcome on a {_link(f'{ui_base_url}/cases', 'case')} so the next alert knows."
+        f"Was it real? Record the outcome on a {_ui_link(ui_base_url, '/cases', 'case')} so the next alert knows."
     )
     fingerprint = alert.get("fingerprint")
     footer = f"Enriched by Ops Signals from an {source_label.lower()}" + (f" · fingerprint `{fingerprint}`" if fingerprint else "")

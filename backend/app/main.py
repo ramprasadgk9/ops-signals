@@ -48,7 +48,7 @@ from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
 from backend.app.config import MemoryConfig, get_prometheus_connections, get_security_config, get_settings, get_slack_config
-from backend.app.config import AIConfig, TicketingConfig, get_ticketing_config
+from backend.app.config import AIConfig, TicketingConfig, get_alert_enrichment_config, get_ticketing_config, ui_base_url
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
@@ -215,6 +215,19 @@ def initialize_memory_services(memory_config: MemoryConfig) -> tuple:
         return None, None, None, None, None, None
 
 
+def warn_if_links_have_no_ui_address() -> None:
+    """Alert messages and tickets link back to the UI; without OPS_SIGNALS_UI_BASE_URL those links
+    are left out (they used to point at localhost:3000), so say so where an operator looks."""
+    if ui_base_url():
+        return
+    users = [name for name, on in (("alert messages", get_alert_enrichment_config().enabled), ("tickets", get_ticketing_config().enabled)) if on]
+    if users:
+        logger.warning(
+            "OPS_SIGNALS_UI_BASE_URL is not set, so %s won't link to Ops Signals. Set it to the address people open the web UI at.",
+            " and ".join(users),
+        )
+
+
 def ticketing_worker_enabled(config: TicketingConfig) -> bool:
     """The outbox worker only runs when ticketing is on; OPS_SIGNALS_TICKETING_WORKER_ENABLED=false
     turns it off even then (e.g. to run the worker in a separate process)."""
@@ -377,6 +390,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             with suppress(asyncio.CancelledError):
                 await scheduler_task
 
+    warn_if_links_have_no_ui_address()
     security = get_security_config()
     if not security.api_token:
         logger.warning(
