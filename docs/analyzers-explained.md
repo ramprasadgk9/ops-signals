@@ -179,6 +179,44 @@ changing (a flatline).
 | Seasonal Anomaly (`seasonal_anomaly`) | Unusual for this time? | High CPU at 2 AM | When you select it |
 | Data Health (`data_health`) | Can we trust the data? | Metric stops updating | Every analysis |
 
+## Overlapping analyzers: what runs by default
+
+Two pairs of analyzers answer nearly the same question. By default the router runs one of each
+pair. Read this before you expect a Baseline Shift or Z-Score finding.
+
+**Baseline Shift and Ruptures: Ruptures runs.** Both use the same change-point detector.
+Baseline Shift adds one rule: it reports only when the level moved by at least 25%. So every shift
+Baseline Shift would report, Ruptures reports too, at the same point in time. Ruptures also reports
+smaller, clear shifts. The finding still reads as a baseline shift, for example "*cpu_usage showed
+a persistent baseline shift of 42.0%*". Running both was measured: about 30% slower, timeouts on
+very long series, and no extra detections.
+
+**Z-Score and PyOD Outlier: PyOD runs, on spiky series.** These are different methods, so the
+overlap isn't complete:
+
+| | Z-Score | PyOD Outlier |
+| --- | --- | --- |
+| How it judges a reading | Distance from the average, in standard deviations | Distance from its nearest neighbors |
+| Minimum data | 3 points | 50 points |
+| Data with two usual levels | Confused: the average sits between them | Handles it |
+| Long unusual stretch inside the normal range | Misses it | Catches 8 or more close together |
+| After a level change | Judges readings against the new level | Judges against the whole series |
+| False alarms | Many on public benchmark data | Far fewer |
+
+PyOD was chosen for the lower false-alarm rate. What that costs today:
+
+- **Series under 50 points get no spike detector.** A 40-point CSV with one big spike can produce
+  no spike finding. STUMPY still runs, but it looks for unusual stretches, not single readings.
+- **A mildly spiky series may get no spike detector.** PyOD runs only when the router rates the
+  series as clearly spiky.
+
+Both gaps are known and tracked to be fixed.
+
+**To run Baseline Shift or Z-Score anyway**, select them in `config/analyzers.yaml`. With
+`selection_mode: manual_override` and `selected_analyzers: [anomaly_zscore]`, Z-Score runs along
+with every analyzer the router recommends. `selection_mode: all` runs every enabled analyzer.
+Expect more findings, and for Z-Score, more false alarms.
+
 <!-- pdf: page break -->
 
 ## How the analyzers work together
