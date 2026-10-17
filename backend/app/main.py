@@ -381,11 +381,17 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "OPS_SIGNALS_API_TOKEN is not set: the API is open to anyone who can reach it. "
             "Only run it on a trusted network (docs/security-model.md)."
         )
+    # With an API token, the interactive API docs and the OpenAPI schema are off: FastAPI serves
+    # them outside the token check, and a browser can't send the token to them anyway.
+    docs_open = not security.api_token
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         lifespan=lifespan,
         dependencies=[Depends(require_api_token)],
+        docs_url="/docs" if docs_open else None,
+        redoc_url="/redoc" if docs_open else None,
+        openapi_url="/openapi.json" if docs_open else None,
     )
 
     app.add_middleware(
