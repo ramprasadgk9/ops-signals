@@ -4,20 +4,24 @@ stored under the file's own service column, "qa-svc". Prometheus runs echoed the
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
-from backend.app.api.ingestion import _stored_identity
+from backend.app.api.ingestion import PreviewPipelineStore, _stored_identity
+from intelligence.pipeline import SignalPipeline
 
 SAMPLE_CSV = Path(__file__).resolve().parents[2] / "sample_data" / "cpu_usage_sample.csv"
 
 
 def test_a_csv_run_reports_the_service_its_data_was_stored_under(client) -> None:
-    response = client.post(
-        "/api/ingestion/csv-run",
-        data={"provider": "generic", "service": "qa-svc2", "metric_name": "cpu_usage", "interval": "auto"},
-        files={"file": ("cpu.csv", SAMPLE_CSV.read_bytes(), "text/csv")},
-    )
+    # The real pipeline, with a store that writes nothing: its default store is config.yaml's Postgres.
+    with patch("backend.app.api.ingestion.SignalPipeline", lambda config: SignalPipeline(config, store=PreviewPipelineStore())):
+        response = client.post(
+            "/api/ingestion/csv-run",
+            data={"provider": "generic", "service": "qa-svc2", "metric_name": "cpu_usage", "interval": "auto"},
+            files={"file": ("cpu.csv", SAMPLE_CSV.read_bytes(), "text/csv")},
+        )
 
     assert response.status_code == 200
     body = response.json()
