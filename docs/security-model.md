@@ -43,6 +43,14 @@ After that, every request needs `Authorization: Bearer <token>`, except:
   (e.g., `OPS_SIGNALS_JIRA_WEBHOOK_SECRET`). Requests failing signature verification are rejected with HTTP 401,
   and so is every webhook while no secret is configured: without one there is nothing to verify.
 
+With a token set, the interactive API docs (`/docs`, `/redoc`) and the OpenAPI schema
+(`/openapi.json`) are switched off. FastAPI serves them outside the token check, and a browser
+can't send the token to them. Without a token they stay available as before.
+
+Unexpected server errors (HTTP 500) don't include internal details such as driver messages or
+database hosts. The response gives a short error id, and the details are in the backend log under
+that id.
+
 The token also covers `GET /api/metrics`. If Prometheus scrapes the backend, give the scrape job the
 token (`authorization: { credentials: <token> }`).
 

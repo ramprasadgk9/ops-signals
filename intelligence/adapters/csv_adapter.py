@@ -22,7 +22,13 @@ class CSVAdapter:
 
     def load(self) -> pd.DataFrame:
         csv_path = (self.base_path / self.config.file_path).resolve()
-        dataframe = pd.read_csv(csv_path)
+        # pandas' own messages ("'utf-8' codec can't decode byte 0x95...") mean nothing to a user.
+        try:
+            dataframe = pd.read_csv(csv_path)
+        except UnicodeDecodeError as exc:
+            raise ValueError("The file isn't a readable CSV: it should be plain UTF-8 text.") from exc
+        except pd.errors.EmptyDataError as exc:
+            raise ValueError("The CSV file is empty.") from exc
         self._validate_row_count(dataframe)
         self._validate_columns(dataframe)
         return dataframe

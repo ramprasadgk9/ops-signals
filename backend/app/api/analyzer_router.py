@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from backend.app.api.errors import internal_error
 
 from experiments.analyzer_router.config_loader import build_request
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
@@ -66,4 +67,4 @@ def _route_upload(
         return json.loads(json.dumps(payload, default=str))
     except Exception as exc:
         logger.exception("Analyzer router failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise internal_error("Routing failed", exc) from exc

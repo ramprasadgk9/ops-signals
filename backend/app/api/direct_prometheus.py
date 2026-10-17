@@ -31,6 +31,7 @@ from backend.app.services.prometheus_service import (
     get_prometheus_connection,
 )
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
+from backend.app.api.errors import internal_error
 from intelligence.pipeline import SignalPipeline
 
 
@@ -181,7 +182,7 @@ def run_direct_prometheus_analysis(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"analysis failed: {exc}") from exc
+        raise internal_error("Analysis failed", exc) from exc
 
     finding_rows = db.execute(select(FindingEntity).where(FindingEntity.analysis_run_id == result.analysis_run_id)).scalars().all()
     signal_rows = db.execute(select(SignalEntity).where(SignalEntity.analysis_run_id == result.analysis_run_id)).scalars().all()

@@ -36,6 +36,9 @@ CORE_COLUMNS = ["metric_name", "timestamp", "value", "service", "env", "host", "
 
 
 def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.DataFrame:
+    if dataframe.empty:
+        # Resampling would otherwise fail with pandas' "No objects to concatenate".
+        raise ValueError("The data has no rows to analyze: only a header, or nothing at all.")
     working = dataframe.copy()
     working = _apply_provider_mappings(working, config)
     working = _apply_core_renames(working, config)

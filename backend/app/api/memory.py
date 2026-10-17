@@ -37,6 +37,7 @@ from backend.app.memory.suggested_fixes import RunbookDraft, SuggestedFixesRespo
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.api.errors import internal_error
 from backend.app.memory.catch_up import count_waiting
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.document_builder import CaseDocumentBuilder
@@ -127,7 +128,7 @@ def index_case_memory(
         return indexer.index_case(case, db)
     except Exception as e:
         logger.error(f"Failed to index case {case_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
+        raise internal_error("Indexing failed", e)
 
 
 @router.delete("/cases/{case_id}/memory")
@@ -174,7 +175,7 @@ def delete_case_memory(
         }
     except Exception as e:
         logger.error(f"Failed to delete case {case_id} from memory: {e}")
-        raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
+        raise internal_error("Deletion failed", e)
 
 
 @router.get("/cases/{case_id}/memory/status", response_model=MemoryStatusResponse)
@@ -346,7 +347,7 @@ def find_similar_cases(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to search similar cases for {case_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+        raise internal_error("Search failed", e)
 
 
 @router.post("/memory/chat", response_model=MemoryChatResponse)
@@ -480,7 +481,7 @@ def chat_memory(
         )
     except Exception as e:
         logger.error(f"Failed to answer memory chat request: {e}")
-        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+        raise internal_error("Chat failed", e)
 
 
 @router.get("/memory/health", response_model=MemoryHealthResponse)

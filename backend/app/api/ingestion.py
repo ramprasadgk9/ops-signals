@@ -23,6 +23,7 @@ from backend.app.models.api_schema import (
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
 from backend.app.services.timeseries_routing_service import build_csv_routing_config, repo_root
+from backend.app.api.errors import internal_error
 from intelligence.normalize.normalizer import AUTO_INTERVAL, RESOLVED_INTERVALS_ATTR, VALIDATION_WARNINGS_ATTR
 from intelligence.pipeline import SignalPipeline
 
@@ -192,7 +193,7 @@ def run_prometheus_analysis(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"analysis failed: {exc}") from exc
+        raise internal_error("Analysis failed", exc) from exc
 
     findings_count = db.execute(
         select(func.count(FindingEntity.id)).where(FindingEntity.analysis_run_id == result.analysis_run_id)
@@ -286,7 +287,7 @@ def _run_csv_upload(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"analysis failed: {exc}") from exc
+        raise internal_error("Analysis failed", exc) from exc
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -440,7 +441,7 @@ def _validate_csv_upload(
     except HTTPException:
         raise
     except Exception as exc:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"validation failed: {exc}") from exc
+        raise internal_error("Validation failed", exc) from exc
     finally:
         temp_path.unlink(missing_ok=True)
 
