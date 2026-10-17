@@ -72,6 +72,14 @@ async def otlp_status() -> dict[str, object]:
 
 @router.post("/v1/metrics")
 async def export_metrics(request: Request) -> Response:
+    media_type = _media_type(request)
+    # Anything else used to be parsed as protobuf and answered 400 "wire format corrupt". A missing
+    # header is still read as protobuf, the OTLP default.
+    if media_type and media_type not in (_PROTOBUF_CONTENT_TYPE, _JSON_CONTENT_TYPE):
+        return Response(
+            content=f"unsupported Content-Type {media_type!r}: send {_PROTOBUF_CONTENT_TYPE} or {_JSON_CONTENT_TYPE}",
+            status_code=415,
+        )
     body = await request.body()
     # Decoding and the database insert block; run them in the threadpool, not on the event loop,
     # where every Collector export held up all other requests (and all of them while the DB was slow).
@@ -172,9 +180,12 @@ def _export_metrics(body: bytes, encoding: str, is_json: bool) -> Response:
     return _respond(is_json, response_proto)
 
 
+def _media_type(request: Request) -> str:
+    return (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+
+
 def _is_json_request(request: Request) -> bool:
-    content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
-    return content_type == _JSON_CONTENT_TYPE
+    return _media_type(request) == _JSON_CONTENT_TYPE
 
 
 def _respond(is_json: bool, response_proto: ExportMetricsServiceResponse) -> Response:

@@ -186,6 +186,21 @@ def test_an_unsupported_content_encoding_is_rejected_with_415() -> None:
         assert "gzip" in response.text
 
 
+def test_an_unsupported_content_type_is_rejected_with_415() -> None:
+    # QA-25: text/plain was parsed as protobuf and answered 400 "wire format corrupt".
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        response = client.post("/api/otlp/v1/metrics", content=b"cpu_usage 70", headers={"Content-Type": "text/plain"})
+        assert response.status_code == 415
+        assert "application/x-protobuf" in response.text
+
+        # No Content-Type at all is still read as protobuf.
+        untyped = client.post(
+            "/api/otlp/v1/metrics", content=_sample_request().SerializeToString(), headers={"Content-Type": ""}
+        )
+        assert untyped.status_code == 200
+
+
 def test_oversized_body_is_rejected_with_413() -> None:
     app = create_app("sqlite+pysqlite:///:memory:")
     with TestClient(app) as client, patch("backend.app.api.otlp.MAX_OTLP_BYTES", 10):
