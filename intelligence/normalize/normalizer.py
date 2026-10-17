@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 import pandas as pd
 from pandas.api.types import is_datetime64_any_dtype, is_object_dtype
 
@@ -48,7 +49,10 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
 
     working["timestamp"] = _parse_timestamps(working["timestamp"], config.provider)
     working["value"] = _parse_values(working["value"])
+    working, infinite_warning = _drop_infinite_values(working, config)
     validation_warnings = _validate_rules(working, config)
+    if infinite_warning:
+        validation_warnings.append(infinite_warning)
 
     for column in config.optional_columns:
         if column not in working.columns:
@@ -272,6 +276,21 @@ def _parse_timestamps(series: pd.Series, provider: str) -> pd.Series:
         bad_rows = [int(i) + 2 for i in parsed[invalid].index[:5].tolist()]
         raise ValueError(f"Invalid timestamp values at CSV rows: {bad_rows}")
     return parsed
+
+
+def _drop_infinite_values(dataframe: pd.DataFrame, config: InputConfig) -> tuple[pd.DataFrame, str | None]:
+    """An infinite value was stored as Infinity and served back as null, with no finding or note;
+    -inf was even reported as "negative". A CSV upload is the user's own file, so it's rejected with
+    the rows to fix. Live sources (Prometheus, OTLP) can return +Inf legitimately - a histogram's
+    top bucket, a division by zero - so those points are dropped with a warning instead of losing
+    the whole series."""
+    infinite = np.isinf(dataframe["value"].to_numpy(dtype=float))
+    if not infinite.any():
+        return dataframe, None
+    if (config.source_type or "csv").lower() == "csv":
+        bad_rows = [int(i) + 2 for i in dataframe.index[infinite][:5].tolist()]
+        raise ValueError(f"Infinite values (inf or -inf) at CSV rows: {bad_rows}. Use a finite number, or leave the row out.")
+    return dataframe[~infinite], f"Dropped {int(infinite.sum())} infinite value(s); they can't be analyzed."
 
 
 def _parse_values(series: pd.Series) -> pd.Series:
