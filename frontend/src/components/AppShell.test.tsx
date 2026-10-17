@@ -126,3 +126,23 @@ describe('AppShell navigation by feature availability', () => {
     expect(within(group).getByRole('link', { name: /Metric Usage/ })).toBeInTheDocument();
   });
 });
+
+describe('AppShell accessibility (QA-20)', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()));
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('gives every button a name a screen reader can read out', async () => {
+    vi.mocked(api.ingestionStatus).mockResolvedValue(status(OTLP_ONLY));
+    renderShell();
+    await screen.findByRole('link', { name: /Findings/ });
+
+    const unnamed = screen.getAllByRole('button').filter((button) => !button.getAttribute('aria-label') && !button.textContent?.trim());
+    expect(unnamed).toEqual([]);
+    for (const name of ['Notifications', 'Help', 'Theme', 'Collapse navigation']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+  });
+});

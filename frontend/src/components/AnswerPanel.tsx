@@ -149,6 +149,8 @@ export function AnswerPanel({ question, answer, signals, timeseries }: Props) {
           >
             <IconButton
               size="small"
+              aria-label={detailsExpanded ? 'Hide raw technical details' : 'Show raw technical details'}
+              aria-expanded={detailsExpanded}
               sx={{
                 transform: detailsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                 transition: 'transform 200ms',
