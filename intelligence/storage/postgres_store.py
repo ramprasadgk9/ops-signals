@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # connection) the same way (title) and their events overlap, give or take this much: a later run,
 # with more data, can date the same event a few steps differently.
 PROBLEM_MATCH_TOLERANCE = timedelta(minutes=10)
+NORMALIZED_LABEL_COLUMNS = ("metric_name", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster")
 _HEALTH_RANK = {"normal": 0, "significant": 1, "critical": 2}
 
 # Optional post-write hook, set via register_findings_hook(). Kept generic (not
@@ -264,9 +265,15 @@ class PostgresStore:
             connection.exec_driver_sql(sql_text)
 
     def save_normalized_points(self, dataframe: pd.DataFrame, analysis_run_id: str | None = None) -> None:
+        dataframe = dataframe.copy()
         if analysis_run_id:
-            dataframe = dataframe.copy()
             dataframe["analysis_run_id"] = analysis_run_id
+        # A missing label (env, host, cluster...) is NaN after normalizing; written to a text column
+        # it became the string 'NaN', which /api/timeseries returned and cluster grouping treated as
+        # a real cluster. Store NULL instead.
+        for column in NORMALIZED_LABEL_COLUMNS:
+            if column in dataframe.columns:
+                dataframe[column] = dataframe[column].astype(object).where(dataframe[column].notna(), None)
         records = dataframe.to_dict(orient="records")
         with self.engine.begin() as connection:
             connection.execute(self.normalized_table.insert(), records)
