@@ -26,6 +26,7 @@ from backend.app.memory.recall_scoring import service_key
 from backend.app.memory.vector_names import RESOLUTION_VECTOR, SYMPTOM_VECTOR
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.entities import OperationalCaseEntity
+from backend.app.memory.availability import unavailable_reason
 
 RECURRENCE_DAYS = 30
 # The same symptom, as measured for recurring-problem groups (recurring.GROUP_SIMILARITY["symptom"]).
@@ -134,7 +135,7 @@ class SameFixResponse(BaseModel):
 def find_same_fix(db: Session, store: VectorStore | None, embedder: Embedder | None, case: OperationalCaseEntity) -> SameFixResponse:
     """Other cases resolved by the same cause and fix as `case`, with how each fix turned out."""
     if store is None or embedder is None:
-        return SameFixResponse(case_id=case.id, available=False, reason="Operational memory is not enabled.")
+        return SameFixResponse(case_id=case.id, available=False, reason=unavailable_reason())
     resolution = CaseDocumentBuilder.build_resolution(case)
     if not resolution:
         return SameFixResponse(case_id=case.id, available=False, reason="No cause or fix recorded for this case yet.")

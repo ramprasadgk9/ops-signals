@@ -38,6 +38,7 @@ from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
 from backend.app.api.errors import internal_error
+from backend.app.memory import availability as memory_availability
 from backend.app.memory.catch_up import count_waiting
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.document_builder import CaseDocumentBuilder
@@ -484,6 +485,12 @@ def chat_memory(
         raise internal_error("Chat failed", e)
 
 
+def _not_started_status() -> str:
+    """Memory is enabled but has no vector store: "unavailable" once starting it has failed (it is
+    retried in the background), "initializing" only while the first attempt runs."""
+    return "unavailable" if memory_availability.status() == memory_availability.UNAVAILABLE else "initializing"
+
+
 @router.get("/memory/health", response_model=MemoryHealthResponse)
 def get_memory_health(
     store: VectorStore | None = Depends(get_vector_store),
@@ -525,7 +532,8 @@ def get_memory_health(
         return MemoryHealthResponse(
             enabled=True,
             provider=config.vector_store.provider,
-            status="initializing",
+            status=_not_started_status(),
+            detail=memory_availability.unavailable_reason(),
             collection=config.vector_store.collection_name,
             embedding_model=config.embedding.model,
             dimension=config.embedding.dimension,
@@ -562,7 +570,7 @@ def get_memory_stats(
         status = "disabled"
     elif not store:
         enabled = True
-        status = "initializing"
+        status = _not_started_status()
     else:
         health = store.health()
         status = str(health.get("status", "unknown"))

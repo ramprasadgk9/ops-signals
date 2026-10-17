@@ -321,7 +321,7 @@ export const api = {
       `/api/cases/${caseId}/memory`
     ),
   memoryHealth: () =>
-    getJson<{ enabled: boolean; provider: string; status: string; collection: string }>(
+    getJson<{ enabled: boolean; provider: string; status: string; collection: string; detail?: string | null }>(
       '/api/memory/health'
     ),
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),

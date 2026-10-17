@@ -49,4 +49,20 @@ describe('SystemPage', () => {
     await screen.findAllByText('Ok');
     expect(cardStatus('Database')).toContain('Ok');
   });
+
+  it('says why memory is unavailable instead of "initializing" (QA-10)', async () => {
+    vi.mocked(api.health).mockResolvedValue({ status: 'ok', database: 'ok' });
+    vi.mocked(api.memoryHealth).mockResolvedValue({
+      enabled: true,
+      provider: 'qdrant',
+      status: 'unavailable',
+      collection: 'operational_cases',
+      detail: "Operational memory can't reach its vector store right now; Ops Signals keeps retrying.",
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/can't reach its vector store/)).toBeInTheDocument();
+    expect(cardStatus('Qdrant')).toContain('Unavailable');
+  });
 });

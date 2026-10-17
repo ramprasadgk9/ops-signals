@@ -21,6 +21,7 @@ from backend.app.memory.schemas import SeenBeforeResponse
 from backend.app.memory.vector_names import RESOLUTION_VECTOR
 from backend.app.memory.vector_store import VectorStore, cosine_similarity
 from backend.app.models.entities import OperationalCaseEntity
+from backend.app.memory.availability import unavailable_reason
 
 MAX_FIXES = 5
 
@@ -65,7 +66,7 @@ class RunbookDraft(BaseModel):
 def suggest_fixes(db: Session, store: VectorStore | None, seen_before: SeenBeforeResponse) -> SuggestedFixesResponse:
     response = SuggestedFixesResponse(finding_id=seen_before.finding_id, available=False)
     if store is None or not seen_before.available:
-        response.reason = seen_before.reason or "Operational memory is not enabled."
+        response.reason = seen_before.reason or unavailable_reason()
         return response
     # Same-service matches only: a fix from another service is shown under Seen before?, but
     # isn't suggested as the fix for this one.

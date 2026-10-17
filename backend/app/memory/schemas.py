@@ -38,6 +38,8 @@ class MemoryHealthResponse(BaseModel):
     collection: str
     embedding_model: str
     dimension: int
+    # Why memory isn't up yet, when it isn't (the connection error itself is only logged).
+    detail: str | None = None
 
 
 class MemoryStatsResponse(BaseModel):
