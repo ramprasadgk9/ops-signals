@@ -256,9 +256,9 @@ recommendation for one of these executes a mapped fallback instead (see the mapp
 
 | Analyzer name | Library | Used in real execution? | Why used, with example |
 | --- | --- | --- | --- |
-| `baseline_shift` | [ruptures](https://github.com/deepcharles/ruptures) + pandas preprocessing | Yes - the user-facing/runtime analyzer | Sustained level changes. CPU average moves from 40% to 70% after a deploy. |
-| `ruptures` | [ruptures](https://github.com/deepcharles/ruptures) | Implementation concept - router recommendations map to `baseline_shift` | Detection engine behind baseline/regime-shift analysis. |
-| `anomaly_zscore` | Internal z-score logic (pandas) | Yes, internal logic, not ADTK/PyOD | Isolated unusual values. Memory normally ~55%, one window jumps to 95%. |
+| `baseline_shift` | [ruptures](https://github.com/deepcharles/ruptures) + pandas preprocessing | Yes, but no router entry: runs in `all`/`manual_override` mode only. `ruptures` finds the same change point | Sustained level changes of at least 25%. CPU average moves from 40% to 70% after a deploy. |
+| `ruptures` | [ruptures](https://github.com/deepcharles/ruptures) | Yes - the router's change-point analyzer | Baseline/regime shifts and when they happened. |
+| `anomaly_zscore` | Internal z-score logic (pandas) | Yes, but no router entry: runs in `all`/`manual_override` mode only. `pyod_outlier` covers spikes when routed | Isolated unusual values. Memory normally ~55%, one window jumps to 95%. |
 | `trend` | [statsmodels](https://www.statsmodels.org/) OLS | Yes | Gradual directional movement. Disk grows 50% → 85% over days. |
 | `stumpy` | [STUMPY](https://stumpy.readthedocs.io/en/latest/) | Yes, when installed (numpy fallback otherwise) | Repeated motifs. Request traffic repeats the same daily shape. |
 | `prophet` | [Prophet](https://facebook.github.io/prophet/docs/quick_start.html) | Optional - falls back to `numpy.polyfit` if not installed | Forecastable metrics with trend/seasonality. |
@@ -271,7 +271,10 @@ recommendation for one of these executes a mapped fallback instead (see the mapp
 | `river` | [River](https://github.com/online-ml/river) | No - pipeline is batch-oriented, not streaming | Online, point-by-point anomaly scoring. |
 
 **Use this table as the source of truth for whether a router recommendation can execute today.**
-`baseline_shift` is the product/domain analyzer name; `ruptures` the library underneath it.
+`baseline_shift` and `ruptures` share the same change-point code; `baseline_shift` adds a 25% level
+rule. Routing both was measured and rejected (about 29% slower, timeouts on large series, no new
+detections), and `anomaly_zscore` stays unrouted because of its false-alarm rate on NAB. Behavior
+rules read `ruptures` and `pyod_outlier` facts, so they still match in the default mode.
 
 **Correction (verified against `intelligence/pipeline.py` while investigating the NAB
 benchmark):** this table and the mapping below previously
@@ -377,7 +380,7 @@ An unknown `selection_mode` does not fail validation - it falls back to unrestri
 
 | Scenario | Observed profile | Likely recommendation | Likely execution |
 | --- | --- | --- | --- |
-| Baseline shift | Regular sampling, clear jump, elevated `shift_index` | `ruptures` RECOMMENDED | `ruptures`, `baseline_shift` |
+| Baseline shift | Regular sampling, clear jump, elevated `shift_index` | `ruptures` RECOMMENDED | `ruptures` (`baseline_shift` only in `all`/`manual_override`) |
 | Repeating/seasonal pattern | Regular sampling, high `seasonality_strength` | `stumpy` RECOMMENDED, `prophet` maybe OPTIONAL | `stumpy`, maybe `prophet` |
 | Irregular spiky stream | Irregular sampling, high `spikiness`, weak seasonality | `river`/`adtk`/`pyod` may score higher | Today, none of `river`/`adtk`/`pyod` have an executable path (see "Router-to-pipeline mapping") - `pyod_outlier` is the real analyzer that actually runs for this shape |
 | Short/invalid/low-information series | Too few samples, mostly constant, high missingness | Many `REJECTED` | Often nothing, in `recommended_only` |

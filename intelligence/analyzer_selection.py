@@ -269,6 +269,8 @@ class RegistryAnalyzerSelection:
         snapshots = []
         routed_ids = {str(decision.get("analyzer_id")) for decision in analyzer_routing}
         router_to_pipeline = self._router_to_pipeline_analyzers()
+        available_ids = self._available_pipeline_analyzer_ids()
+        slot_eligible_ids = self._slot_eligible_pipeline_analyzer_ids()
         for decision in analyzer_routing:
             router_analyzer_id = str(decision.get("analyzer_id"))
             pipeline_ids = sorted(router_to_pipeline.get(router_analyzer_id, {router_analyzer_id}))
@@ -288,7 +290,12 @@ class RegistryAnalyzerSelection:
             if not selected:
                 selected = False
                 status = "skipped"
-                if recommended:
+                if recommended and not set(pipeline_ids) & available_ids:
+                    # e.g. adtk, darts: the router scores them, but nothing in the pipeline runs them.
+                    reason = "Recommended, but no pipeline analyzer implements it yet, so it can't run; the score is for reference."
+                elif recommended and not set(pipeline_ids) & slot_eligible_ids:
+                    reason = "Recommended, but its library isn't installed, so it doesn't run."
+                elif recommended:
                     reason = "Recommended, but below the execution threshold or capped by max_analyzers."
                 elif decision.get("recommendation") == "REJECTED" and decision.get("routing_reason"):
                     reason = str(decision["routing_reason"])

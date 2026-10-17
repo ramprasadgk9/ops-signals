@@ -317,7 +317,9 @@ class UniversalTimeSeriesRouter:
             profile_reason = self._profile_match_reason(capability, profile)
             reasons.append(profile_reason)
             reasons.extend(self._suitability_reasons(capability, profile))
-            if capability.explanation_templates.get("selected"):
+            # The template describes the shape the analyzer is built for ("sustained baseline
+            # changes"), so it's only true when that shape was detected - not on every eligible series.
+            if capability.explanation_templates.get("selected") and profile_match:
                 reasons.append(capability.explanation_templates["selected"])
         else:
             if capability.explanation_templates.get("excluded"):
