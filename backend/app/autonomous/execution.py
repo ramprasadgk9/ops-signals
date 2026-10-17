@@ -100,7 +100,7 @@ def execute_autonomous_plan_once(
             policy_run.id,
             status="completed",
             jobs_completed=0,
-            jobs_skipped=len(preview.items),
+            jobs_skipped=len(planned_items),
             jobs_failed=0,
             findings_created=0,
         )
@@ -110,6 +110,7 @@ def execute_autonomous_plan_once(
             planned_jobs=len(planned_items),
             executed_jobs=0,
             skipped_jobs=len(planned_items),
+            excluded_jobs=len(skipped_items),
             failed_jobs=0,
             budget_limited_jobs=budget_limited_jobs,
             budget_excluded_metrics_count=budget_excluded_metrics_count,
@@ -118,11 +119,12 @@ def execute_autonomous_plan_once(
                 preview,
                 len(planned_items),
                 0,
-                len(preview.items),
+                len(planned_items),
                 0,
                 0,
                 policy_run.started_at,
                 utc_now(),
+                excluded_jobs=len(skipped_items),
                 budget_limited_jobs=budget_limited_jobs,
                 budget_excluded_metrics=budget_excluded_metrics,
             ),
@@ -160,7 +162,11 @@ def execute_autonomous_plan_once(
     ]
     executed = sum(1 for result in results if result.status == "completed")
     failed = sum(1 for result in results if result.status == "failed")
-    skipped = len(skipped_items) + sum(1 for result in results if result.status == "skipped")
+    # Metrics screened out before planning (budget, filters) are counted apart from planned jobs that
+    # were skipped, so planned = executed + skipped + failed. Mixed together, a run read "planned 4,
+    # executed 4, skipped 3".
+    skipped = sum(1 for result in results if result.status == "skipped")
+    excluded = len(skipped_items)
     status = "completed" if executed and not failed else "partial" if executed else "failed"
     findings_created = sum(result.findings_count + result.behavior_findings_count for result in results)
     error_summary = "; ".join(result.error for result in results if result.error) or None
@@ -179,6 +185,7 @@ def execute_autonomous_plan_once(
         planned_jobs=len(planned_items),
         executed_jobs=executed,
         skipped_jobs=skipped,
+        excluded_jobs=excluded,
         failed_jobs=failed,
         budget_limited_jobs=budget_limited_jobs,
         budget_excluded_metrics_count=budget_excluded_metrics_count,
@@ -192,6 +199,7 @@ def execute_autonomous_plan_once(
             findings_created,
             completed_run.started_at,
             completed_run.completed_at,
+            excluded_jobs=excluded,
             budget_limited_jobs=budget_limited_jobs,
             budget_excluded_metrics=budget_excluded_metrics,
         ),
@@ -431,6 +439,7 @@ def _summary(
     findings: int,
     started_at: datetime | None,
     completed_at: datetime | None,
+    excluded_jobs: int = 0,
     budget_limited_jobs: int = 0,
     budget_excluded_metrics: list[str] | None = None,
 ) -> dict:
@@ -448,6 +457,7 @@ def _summary(
         "jobs_planned": planned,
         "jobs_completed": completed,
         "jobs_skipped": skipped,
+        "jobs_excluded": excluded_jobs,
         "jobs_failed": failed,
         "budget_limited_jobs": budget_limited_jobs,
         "budget_excluded_metrics_count": len(excluded),

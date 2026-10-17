@@ -332,6 +332,7 @@ export type AutonomousRunResponse = {
   planned_jobs: number;
   executed_jobs: number;
   skipped_jobs: number;
+  excluded_jobs?: number;
   failed_jobs: number;
   budget_limited_jobs?: number;
   budget_excluded_metrics_count?: number;

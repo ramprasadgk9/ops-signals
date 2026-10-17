@@ -400,9 +400,9 @@ def _priority_from_findings(findings: list[FindingEntity], failed_count: int) ->
 def _evidence_text_for_llm(run, findings: list[FindingEntity], jobs, cases: list[OperationalCaseEntity]) -> str:
     lines = [f"Autonomous policy run {run.id}: status={run.status}, metrics_discovered={run.metrics_discovered or 0}, metrics_selected={run.metrics_selected or 0}."]
     failed_jobs = [job for job in jobs if job.status == "failed"]
-    skipped_jobs = [job for job in jobs if job.status == "screened_out"]
-    if failed_jobs or skipped_jobs:
-        lines.append(f"{len(failed_jobs)} job(s) failed, {len(skipped_jobs)} job(s) skipped.")
+    excluded_jobs = [job for job in jobs if job.status == "screened_out"]
+    if failed_jobs or excluded_jobs:
+        lines.append(f"{len(failed_jobs)} job(s) failed, {len(excluded_jobs)} metric(s) excluded before planning.")
     for finding in findings[:8]:
         lines.append(f"- Finding: {_finding_label(finding)} (importance {finding.importance_score:.2f}, health {finding.health_status}). {finding.summary}")
     for case in cases[:5]:

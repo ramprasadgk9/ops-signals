@@ -3536,6 +3536,7 @@ function AutonomousRunPanel({ result }: { result: AutonomousRunResponse | null }
         <Kpi label="Planned jobs" value={result.planned_jobs} />
         <Kpi label="Executed" value={result.executed_jobs} tone="#3fcf8e" />
         <Kpi label="Skipped" value={result.skipped_jobs} />
+        {result.excluded_jobs ? <Kpi label="Excluded before planning" value={result.excluded_jobs} /> : null}
         {result.budget_limited_jobs ? (
           <Kpi label="Budget-limited" value={result.budget_limited_jobs} tone="#ffb357" />
         ) : null}
