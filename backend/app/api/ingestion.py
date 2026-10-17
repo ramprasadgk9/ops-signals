@@ -205,14 +205,15 @@ def run_prometheus_analysis(
         select(func.count(BehaviorFindingEntity.id)).where(BehaviorFindingEntity.analysis_run_id == result.analysis_run_id)
     ).scalar() or 0
 
+    stored_service, stored_metric, identity_warnings = _stored_identity(result.normalized_points, payload.service, payload.metric_name)
     return PrometheusRunOut(
         analysis_run_id=result.analysis_run_id,
         provider="prometheus",
         source_type="prometheus",
         datasource_uid=payload.datasource_uid,
         datasource_name=payload.datasource_name,
-        service=payload.service,
-        metric_name=payload.metric_name,
+        service=stored_service,
+        metric_name=stored_metric,
         promql=payload.promql,
         from_time=payload.from_time,
         to_time=payload.to_time,
@@ -222,7 +223,7 @@ def run_prometheus_analysis(
         findings_count=int(findings_count),
         signal_count=int(signal_count),
         behavior_findings_count=int(behavior_count),
-        warnings=payload.warnings,
+        warnings=[*payload.warnings, *identity_warnings],
         analyzer_selection_mode=config.analysis.selection_mode,
         analyzer_routing=result.analyzer_routing,
         executed_analyzers=result.executed_analyzers,
@@ -297,16 +298,18 @@ def _run_csv_upload(
     ).scalar() or 0
 
     normalized = result.normalized_points
+    stored_service, stored_metric, identity_warnings = _stored_identity(normalized, service, metric_name)
+    interval_fields = _interval_fields(interval, normalized)
     return CsvRunOut(
         analysis_run_id=result.analysis_run_id,
         file_name=file_name,
         provider=provider_lower,
         source_type="csv",
-        service=service,
-        metric_name=metric_name,
+        service=stored_service,
+        metric_name=stored_metric,
         sample_count=int(len(normalized)),
         findings_count=int(findings_count),
-        **_interval_fields(interval, normalized),
+        **{**interval_fields, "warnings": [*interval_fields["warnings"], *identity_warnings]},
     )
 
 
@@ -385,8 +388,8 @@ def _validate_csv_upload(
             normalized_preview["timestamp"] = normalized_preview["timestamp"].astype(str)
         preview_records = normalized_preview.to_dict(orient="records")
 
-        service_name = str(normalized["service"].dropna().iloc[0]) if "service" in normalized.columns and not normalized["service"].dropna().empty else service
-        metric_name_value = str(normalized["metric_name"].dropna().iloc[0]) if "metric_name" in normalized.columns and not normalized["metric_name"].dropna().empty else metric_name
+        service_name, metric_name_value, identity_warnings = _stored_identity(normalized, service, metric_name)
+        interval_fields = _interval_fields(interval, normalized)
 
         signal_payloads = [
             ValidationSignalOut(
@@ -427,7 +430,7 @@ def _validate_csv_upload(
             service=service_name,
             metric_name=metric_name_value,
             sample_count=int(len(normalized)),
-            **_interval_fields(interval, normalized),
+            **{**interval_fields, "warnings": [*interval_fields["warnings"], *identity_warnings]},
             normalized_preview=preview_records,
             signals=signal_payloads,
             findings=finding_payloads,
@@ -453,6 +456,24 @@ def _write_upload(data: bytes, file_name: str) -> Path:
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=upload_dir) as handle:
         handle.write(data)
         return Path(handle.name)
+
+
+def _stored_identity(normalized: pd.DataFrame, service: str, metric_name: str) -> tuple[str, str, list[str]]:
+    """The service and metric the data was stored under, with a warning for each the request named
+    differently. A service or metric column in the data wins; the request's value only fills rows
+    without one. Responses used to echo the request, so a run named "qa-svc2" reported that while
+    its findings were stored under the file's "qa-svc". Several values are listed together."""
+    stored: list[str] = []
+    warnings: list[str] = []
+    for column, requested, label in (("service", service, "service"), ("metric_name", metric_name, "metric name")):
+        values = sorted({str(value) for value in normalized[column].dropna()}) if column in normalized.columns else []
+        value = ", ".join(values) if values else requested
+        stored.append(value)
+        if requested and values and requested not in values:
+            warnings.append(
+                f"Stored under {label} {value} from the data; the {label} you entered ({requested}) only fills rows that have none."
+            )
+    return stored[0], stored[1], warnings
 
 
 def _interval_fields(requested: str, normalized: pd.DataFrame) -> dict[str, object]:
