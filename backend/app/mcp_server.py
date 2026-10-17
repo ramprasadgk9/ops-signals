@@ -247,10 +247,10 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
             analysis_run_id = payload.get("analysis_run_id")
             if analysis_run_id is not None:
                 analysis_run_id = str(analysis_run_id).strip() or None
-            profile, timeseries = service.profile_sample(db, service_name, metric_name, analysis_run_id)
-            sample = next((item for item in service.list_samples(db) if item["service"] == service_name and item["metric_name"] == metric_name and item["analysis_run_id"] == analysis_run_id), None)
+            sample = service.find_sample(db, service_name, metric_name, analysis_run_id)
             if not sample:
                 raise ValueError("sample not found")
+            profile, timeseries = service.profile_sample(db, service_name, metric_name, sample["analysis_run_id"])
             analysis_config = _analyzer_config.get("analysis", {}) if isinstance(_analyzer_config, dict) else {}
             selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
             selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])

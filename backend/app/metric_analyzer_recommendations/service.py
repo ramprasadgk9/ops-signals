@@ -108,6 +108,19 @@ class MetricAnalyzerRecommendationService:
             )
         return samples
 
+    def find_sample(self, db: Session, service: str, metric_name: str, analysis_run_id: str | None = None) -> dict[str, Any] | None:
+        """The stored sample for this service and metric: the given run's, or, when no run id is
+        given, the most recent run's. The run id is optional in the API, but without this every
+        call that left it out was a 404: no sample has a run id of None."""
+        matches = [
+            sample
+            for sample in self.list_samples(db)
+            if sample["service"] == service and sample["metric_name"] == metric_name
+        ]
+        if analysis_run_id is not None:
+            return next((sample for sample in matches if sample["analysis_run_id"] == analysis_run_id), None)
+        return max(matches, key=lambda sample: sample["end_time"], default=None)
+
     def profile_sample(self, db: Session, service: str, metric_name: str, analysis_run_id: str | None = None) -> tuple[MetricProfile, list[tuple[Any, float]]]:
         query = select(NormalizedPoint).where(
             NormalizedPoint.service == service,

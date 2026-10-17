@@ -60,3 +60,39 @@ def test_metric_analyzer_recommendations_metrics_ignores_non_finite_values() -> 
     assert samples[0]['sample_count'] == 4
     assert samples[0]['missing_ratio'] == 0.25
     assert samples[0]['mean_value'] == 2.0
+
+
+def test_evaluate_without_a_run_id_uses_the_latest_run() -> None:
+    # QA-15: analysis_run_id is optional, but leaving it out was always a 404 "sample not found".
+    app = create_app('sqlite+pysqlite:///:memory:')
+    with TestClient(app) as client:
+        session_local = get_session_local()
+        with session_local() as db:
+            start = datetime.utcnow() - timedelta(hours=6)
+            for run_id, offset, count in (('run-old', 0, 60), ('run-new', 180, 80)):
+                for index in range(count):
+                    db.add(
+                        NormalizedPoint(
+                            metric_name='memory_usage',
+                            timestamp=start + timedelta(minutes=offset + index * 2),
+                            value=100 + index * 0.5,
+                            service='checkout-service',
+                            analysis_run_id=run_id,
+                        )
+                    )
+            db.commit()
+
+        for path in ('/api/metric-analyzer-recommendations/evaluate', '/api/mcp/metric-analyzer-recommendations/evaluate'):
+            response = client.post(path, json={'service': 'checkout-service', 'metric_name': 'memory_usage'})
+
+            assert response.status_code == 200, path
+            assert response.json()['sample']['analysis_run_id'] == 'run-new'
+            # Only the latest run's points, not every run's merged together.
+            assert response.json()['profile']['sample_count'] == 80
+
+        assert client.post(
+            '/api/metric-analyzer-recommendations/evaluate',
+            json={'service': 'checkout-service', 'metric_name': 'memory_usage', 'analysis_run_id': 'run-old'},
+        ).json()['profile']['sample_count'] == 60
+        missing = client.post('/api/metric-analyzer-recommendations/evaluate', json={'service': 'checkout-service', 'metric_name': 'nope'})
+        assert missing.status_code == 404

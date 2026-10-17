@@ -17,7 +17,8 @@ An analyzer detects a behavior. A finding explains that behavior in everyday lan
 and investigation are needed before making a root-cause claim.
 
 You don't pick analyzers yourself: the router profiles each metric and chooses the ones that suit
-it. Data Health and STUMPY run on every series, and Seasonal Anomaly runs only when you select it.
+it. Data Health and STUMPY run on every series. Baseline Shift, Z-Score and Seasonal Anomaly run
+only when you select them (selection mode `all` or `manual_override`).
 The "When it runs" column in the [comparison](#one-page-comparison) has the details.
 
 ## 1. Baseline Shift - Has the normal level changed?
@@ -32,6 +33,10 @@ remains there.
 **What it tells us:** latency has moved to a new, lower baseline.
 
 **Why it's useful:** it tells a lasting improvement or degradation apart from a short-lived spike.
+
+> **Good to know:** the router doesn't choose it. It finds the same change point as Ruptures, which
+> the router does choose for shifted series, and adds a rule that the level moved at least 25%.
+> Running both doubled the work for no new detections.
 
 ## 2. Ruptures - When did the behavior change?
 
@@ -61,6 +66,10 @@ how much the metric normally varies.
 **What it tells us:** this reading is unusually far from the recent average.
 
 **Why it's useful:** it catches isolated spikes and drops.
+
+> **Good to know:** the router doesn't choose it; PyOD Outlier covers spikes in automatic mode.
+> Measured on the NAB benchmark, Z-Score raised far more false alarms. It's still useful on short
+> series (under 50 points, where PyOD doesn't run), so select it when you need that.
 
 ## 4. PyOD Outlier - Does this reading fit the others?
 
@@ -160,15 +169,53 @@ changing (a flatline).
 
 | Analyzer | Question | Example | When it runs |
 | --- | --- | --- | --- |
-| Baseline Shift (`baseline_shift`) | Did the normal level change? | Latency 620 → 425 ms | Chosen by the router |
+| Baseline Shift (`baseline_shift`) | Did the normal level change? | Latency 620 → 425 ms | When you select it (Ruptures covers it otherwise) |
 | Ruptures (`ruptures`) | When did it change? | CPU jumps after a deploy | Chosen by the router |
-| Z-Score Anomaly (`anomaly_zscore`) | Far from the average? | CPU reaches 96% | Chosen by the router |
+| Z-Score Anomaly (`anomaly_zscore`) | Far from the average? | CPU reaches 96% | When you select it (PyOD covers it otherwise) |
 | PyOD Outlier (`pyod_outlier`) | Unlike the other readings? | One reading of 85 among ~40s | Chosen by the router |
 | Trend Analysis (`trend`) | Steadily rising or falling? | Memory grows every hour | Chosen by the router |
 | STUMPY (`stumpy`) | Is a stretch unlike the rest? | Wednesday's CPU surge doesn't end | Every series |
 | Prophet (`prophet`) | What should we expect? | Sunday traffic double the forecast | Chosen by the router, when `prophet` is installed |
 | Seasonal Anomaly (`seasonal_anomaly`) | Unusual for this time? | High CPU at 2 AM | When you select it |
 | Data Health (`data_health`) | Can we trust the data? | Metric stops updating | Every analysis |
+
+## Overlapping analyzers: what runs by default
+
+Two pairs of analyzers answer nearly the same question. By default the router runs one of each
+pair. Read this before you expect a Baseline Shift or Z-Score finding.
+
+**Baseline Shift and Ruptures: Ruptures runs.** Both use the same change-point detector.
+Baseline Shift adds one rule: it reports only when the level moved by at least 25%. So every shift
+Baseline Shift would report, Ruptures reports too, at the same point in time. Ruptures also reports
+smaller, clear shifts. The finding still reads as a baseline shift, for example "*cpu_usage showed
+a persistent baseline shift of 42.0%*". Running both was measured: about 30% slower, timeouts on
+very long series, and no extra detections.
+
+**Z-Score and PyOD Outlier: PyOD runs, on spiky series.** These are different methods, so the
+overlap isn't complete:
+
+| | Z-Score | PyOD Outlier |
+| --- | --- | --- |
+| How it judges a reading | Distance from the average, in standard deviations | Distance from its nearest neighbors |
+| Minimum data | 3 points | 50 points |
+| Data with two usual levels | Confused: the average sits between them | Handles it |
+| Long unusual stretch inside the normal range | Misses it | Catches 8 or more close together |
+| After a level change | Judges readings against the new level | Judges against the whole series |
+| False alarms | Many on public benchmark data | Far fewer |
+
+PyOD was chosen for the lower false-alarm rate. What that costs today:
+
+- **Series under 50 points get no spike detector.** A 40-point CSV with one big spike can produce
+  no spike finding. STUMPY still runs, but it looks for unusual stretches, not single readings.
+- **A mildly spiky series may get no spike detector.** PyOD runs only when the router rates the
+  series as clearly spiky.
+
+Both gaps are known and tracked to be fixed.
+
+**To run Baseline Shift or Z-Score anyway**, select them in `config/analyzers.yaml`. With
+`selection_mode: manual_override` and `selected_analyzers: [anomaly_zscore]`, Z-Score runs along
+with every analyzer the router recommends. `selection_mode: all` runs every enabled analyzer.
+Expect more findings, and for Z-Score, more false alarms.
 
 <!-- pdf: page break -->
 

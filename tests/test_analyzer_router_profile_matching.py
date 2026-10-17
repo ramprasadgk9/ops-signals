@@ -360,3 +360,19 @@ def test_an_analyzer_whose_library_is_missing_is_rejected_not_recommended() -> N
         "Prophet was rejected because the prophet library is not installed, so this analyzer does not run."
     )
     assert missing["stumpy"].recommendation == installed["stumpy"].recommendation
+
+
+def test_an_analyzers_shape_sentence_is_only_given_when_that_shape_was_detected() -> None:
+    # QA-07: a flat series with one spike was told Ruptures saw "sustained baseline changes" and
+    # STUMPY saw "repeat similar shapes".
+    router = UniversalTimeSeriesRouter()
+    spike_only = {decision.analyzer: decision for decision in router.recommend_analyzers_for_profile(
+        _profile(spikiness=0.7, detected_profiles=["spike"])
+    )}
+    shifted = {decision.analyzer: decision for decision in router.recommend_analyzers_for_profile(
+        _profile(shift_index=0.3, detected_profiles=["baseline_shift"])
+    )}
+
+    assert not any("sustained baseline changes" in reason for reason in spike_only["ruptures"].reasons)
+    assert not any("repeat similar shapes" in reason for reason in spike_only["stumpy"].reasons)
+    assert any("sustained baseline changes" in reason for reason in shifted["ruptures"].reasons)

@@ -27,6 +27,50 @@ def _trend_percent(values: pd.Series) -> float:
     return trend_percent if np.isfinite(trend_percent) else 0.0
 
 
+LEVEL_CHANGE_PERCENT = 25.0
+TREND_CHANGE_PERCENT = 10.0
+
+
+def _level_ratio_percent(previous_mean: float, current_mean: float) -> float:
+    """How far apart the two halves' averages are, as the larger over the smaller, so a fall and the
+    mirrored rise count the same. change_percent (relative to the first half) made 70 to 41 a
+    -23% "consistent" window while 41 to 70 was a +30% "significant" one."""
+    low, high = sorted((abs(previous_mean), abs(current_mean)))
+    if high <= 1e-9:
+        return 0.0
+    if (previous_mean < 0) != (current_mean < 0) or low <= 1e-9:
+        return float("inf")
+    return (high / low - 1.0) * 100.0
+
+
+def _summary(
+    previous_mean: float,
+    current_mean: float,
+    change_percent: float,
+    added_anomalies: int,
+    trend_difference: float,
+    level_changed: bool,
+) -> str:
+    """Says what differs between the halves, so the sentence can't contradict the numbers: a single
+    spike used to make a flat window "differ significantly" with no hint that the spike was why."""
+    averages = f"from {previous_mean:.4g} to {current_mean:.4g}"
+    reasons = []
+    if level_changed:
+        direction = "higher" if current_mean > previous_mean else "lower"
+        reasons.append(f"its average is {abs(change_percent):.1f}% {direction} ({averages})")
+    if added_anomalies:
+        reasons.append(f"it has {added_anomalies} more anomal{'y' if added_anomalies == 1 else 'ies'}")
+    if trend_difference:
+        direction = "upward" if trend_difference > 0 else "downward"
+        reasons.append(f"its trend is {abs(trend_difference):.1f}% more {direction}")
+    if not reasons:
+        return (
+            "The first and second half of the selected time window are broadly similar "
+            f"(average {averages}, {change_percent:+.1f}%)."
+        )
+    return f"The second half of the selected time window differs from the first: {'; '.join(reasons)}."
+
+
 def compare_windows(points: pd.DataFrame, signals: Iterable[object] | None = None) -> dict[str, object]:
     if points.empty:
         return {
@@ -92,12 +136,17 @@ def compare_windows(points: pd.DataFrame, signals: Iterable[object] | None = Non
     anomaly_count_difference = current_anomaly_count - previous_anomaly_count
     signal_count_difference = current_signal_count - previous_signal_count
     trend_difference = current_trend - previous_trend
-    new_behavior = abs(change_percent) >= 25.0 or anomaly_count_difference > 0 or abs(trend_difference) >= 10.0
-
-    summary = (
-        "Current-window behaviour differs significantly between the first and second half of the selected time window."
-        if new_behavior
-        else "Current behaviour is broadly consistent between the first and second half of the selected time window."
+    level_changed = _level_ratio_percent(previous_mean, current_mean) >= LEVEL_CHANGE_PERCENT
+    anomalies_added = anomaly_count_difference > 0
+    trend_changed = abs(trend_difference) >= TREND_CHANGE_PERCENT
+    new_behavior = level_changed or anomalies_added or trend_changed
+    summary = _summary(
+        previous_mean,
+        current_mean,
+        change_percent,
+        anomaly_count_difference if anomalies_added else 0,
+        trend_difference if trend_changed else 0.0,
+        level_changed,
     )
 
     return {

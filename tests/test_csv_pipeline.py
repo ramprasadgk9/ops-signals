@@ -135,6 +135,27 @@ def test_a_rejected_analyzer_is_skipped_with_the_routers_reason() -> None:
     assert by_id["adtk"]["execution_reason"] == "Router decision was REJECTED."
 
 
+def test_a_recommended_analyzer_with_nothing_to_run_says_so() -> None:
+    # QA-07: ADTK, the top-scoring recommendation on a spike, was skipped as "below the execution
+    # threshold or capped by max_analyzers"; really no pipeline analyzer implements it.
+    project_root = Path(__file__).resolve().parents[1]
+    config = load_config(project_root / "config.yaml")
+    pipeline = SignalPipeline(config=config, store=InMemoryStore(), embedder=StubEmbedder())
+
+    snapshots = pipeline._executed_analyzer_snapshots(
+        [
+            {"analyzer_id": "adtk", "display_name": "ADTK", "recommendation": "RECOMMENDED"},
+            {"analyzer_id": "ruptures", "display_name": "Ruptures", "recommendation": "RECOMMENDED"},
+        ],
+        [],
+        selected_analyzers=set(),
+    )
+
+    by_id = {item["router_analyzer_id"]: item for item in snapshots}
+    assert "no pipeline analyzer implements it" in by_id["adtk"]["execution_reason"]
+    assert by_id["ruptures"]["execution_reason"] == "Recommended, but below the execution threshold or capped by max_analyzers."
+
+
 def test_pipeline_records_recommended_analyzers_that_are_skipped() -> None:
     project_root = Path(__file__).resolve().parents[1]
     config = load_config(project_root / "config.yaml")
