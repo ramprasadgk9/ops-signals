@@ -361,6 +361,9 @@ class OperationalCaseEntity(Base):
     memory_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_indexed")
     memory_indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     memory_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Set by "Remove from memory", cleared when the case is indexed again. Tells a case the user
+    # took out of memory apart from one an outage kept out, which catch-up indexing adds back.
+    memory_opted_out: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     memory_content_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

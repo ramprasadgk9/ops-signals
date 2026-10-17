@@ -37,6 +37,7 @@ from backend.app.memory.suggested_fixes import RunbookDraft, SuggestedFixesRespo
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.memory.catch_up import count_waiting
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.document_builder import CaseDocumentBuilder
 
@@ -573,8 +574,10 @@ def get_memory_stats(
         indexed_cases=counts.get("indexed", 0),
         not_indexed_cases=counts.get("not_indexed", 0),
         stale_cases=counts.get("stale", 0),
-        error_cases=counts.get("error", 0),
+        # The indexer records a failure as "failed"; "error" is kept for rows written before.
+        error_cases=counts.get("failed", 0) + counts.get("error", 0),
         total_cases=sum(counts.values()),
+        waiting_to_index=count_waiting(db, config),
     )
 
 

@@ -92,6 +92,7 @@ class CaseMemoryIndexer:
 
             # Step 6-8: Update case metadata
             case.memory_status = "indexed"
+            case.memory_opted_out = False
             case.memory_indexed_at = datetime.utcnow()
             case.memory_content_version = CaseDocumentBuilder.get_content_version()
             case.memory_error = None
@@ -204,8 +205,10 @@ class CaseMemoryIndexer:
         except Exception as e:
             logger.warning(f"Case {case.id}: Failed to delete from Qdrant: {e}")
 
-        # Always update DB status regardless of Qdrant success
+        # Always update DB status regardless of Qdrant success. Opted out: catch-up indexing
+        # (memory/catch_up.py) must not add back a case the user removed.
         case.memory_status = "not_indexed"
+        case.memory_opted_out = True
         case.memory_indexed_at = None
         case.memory_error = None
         db.commit()

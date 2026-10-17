@@ -52,6 +52,7 @@ from backend.app.config import AIConfig, TicketingConfig, get_ticketing_config
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
 from backend.app.memory.evidence_indexer import EvidenceMemoryIndexer
+from backend.app.memory.catch_up import run_memory_catch_up_loop, waiting_at_startup
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.notifications.slack_client import SlackNotifier
@@ -72,6 +73,7 @@ from backend.app.models.schema_compat import (
     ensure_autonomous_policy_scheduling_schema,
     ensure_case_behavior_link_schema,
     ensure_case_import_schema,
+    ensure_case_memory_schema,
     ensure_cluster_schema,
     ensure_finding_problem_schema,
     ensure_metric_usage_schema,
@@ -265,6 +267,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_cluster_schema(get_engine())
         ensure_finding_problem_schema(get_engine())
         ensure_metric_usage_schema(get_engine())
+        ensure_case_memory_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)
@@ -276,6 +279,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         # Load memory config at startup
         backfill_task: asyncio.Task | None = None
+        memory_catch_up_task: asyncio.Task | None = None
         memory_config = load_memory_config()
         memory_services["ai_config"] = load_ai_config()
         memory_services["config"] = memory_config
@@ -292,6 +296,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
                 memory_services["knowledge_bootstrap"],
             ) = initialize_memory_services(memory_config)
             indexer = memory_services["indexer"]
+            if indexer is not None:
+                memory_catch_up_task = asyncio.create_task(
+                    run_memory_catch_up_loop(indexer, memory_config, session_local, run_now=waiting_at_startup(session_local, memory_config))
+                )
             if indexer is not None and _needs_backfill(indexer):
                 # Cases indexed before symptom/resolution/keyword vectors get them, in the background:
                 # it embeds each older case, and recall uses the full document until it is done.
@@ -349,6 +357,10 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
         if backfill_task is not None and not backfill_task.done():
             backfill_task.cancel()
+        if memory_catch_up_task is not None:
+            memory_catch_up_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await memory_catch_up_task
 
         if slack_task is not None:
             slack_task.cancel()
