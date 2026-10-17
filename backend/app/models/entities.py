@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -10,6 +10,10 @@ class Base(DeclarativeBase):
     pass
 
 
+# Columns the analysis pipeline also writes through its own tables (intelligence/storage/
+# postgres_store.py), which send no value and rely on a database default, carry server_default as
+# well as default: a database built from these models alone (Helm, no sql/init.sql) had none, so
+# saving any analysis failed. ensure_server_defaults adds them to databases created before.
 class NormalizedPoint(Base):
     __tablename__ = "ops_normalized_timeseries_points"
 
@@ -28,7 +32,7 @@ class NormalizedPoint(Base):
     cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     analysis_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
 class SignalEntity(Base):
@@ -48,11 +52,11 @@ class SignalEntity(Base):
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    importance_score: Mapped[float] = mapped_column(Float, default=0.0)
+    importance_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     status: Mapped[str] = mapped_column(String(32), default="new")
     embedding_json: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     analysis_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
 class CapabilityEntity(Base):
@@ -64,8 +68,8 @@ class CapabilityEntity(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
 class QuestionCatalogEntity(Base):
@@ -76,7 +80,7 @@ class QuestionCatalogEntity(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
 class CapabilityQuestionEntity(Base):
@@ -100,7 +104,7 @@ class AnalysisRunEntity(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="generic")
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="generic", server_default="generic")
     service: Mapped[str] = mapped_column(String(128), nullable=False)
     metric_name: Mapped[str] = mapped_column(String(128), nullable=False)
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -116,7 +120,7 @@ class AnalysisRunEntity(Base):
     generated_findings_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     # The Prometheus connection (Mimir tenant) a run queried; None for CSV, OTLP and older runs.
     connection_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
 class AnalyzerConfigSuggestionEntity(Base):
@@ -274,7 +278,7 @@ class FindingEntity(Base):
     event_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ongoing: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     problem_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
     # Optional, lazily-computed AI-polished rewrite of `summary`. Never a replacement: `summary`
     # stays the deterministic field this app has always had; ai_summary is additive and only used
     # when present, so a finding is fully functional identically to before if AI is never enabled.
@@ -318,7 +322,7 @@ class QuestionAnswerEntity(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     key_points_json: Mapped[list[str]] = mapped_column(JSON, default=list)
     evidence_signal_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
 CASE_SOURCE_LINK_CHECK = (

@@ -79,6 +79,7 @@ from backend.app.models.schema_compat import (
     ensure_cluster_schema,
     ensure_finding_problem_schema,
     ensure_metric_usage_schema,
+    ensure_server_defaults,
     ensure_learning_schema,
     ensure_ticketing_schema,
 )
@@ -291,6 +292,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         get_prometheus_connections()
         init_engine(database_url)
         Base.metadata.create_all(bind=get_engine())
+        ensure_server_defaults(get_engine())
         ensure_learning_schema(get_engine())
         ensure_ai_narrative_schema(get_engine())
         ensure_case_behavior_link_schema(get_engine())
