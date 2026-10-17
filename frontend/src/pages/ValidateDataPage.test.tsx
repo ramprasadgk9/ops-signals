@@ -159,6 +159,37 @@ describe('ValidateDataPage source modes', () => {
     expect(screen.getByText(/leaves 67% of time slots empty/)).toBeInTheDocument();
     expect(vi.mocked(api.runCsvValidation).mock.calls[0][0].get('interval')).toBe('auto');
   });
+
+  it('says a finished run found nothing, instead of "no findings returned yet" (QA-19)', async () => {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
+    vi.mocked(api.prometheusLabelValues).mockResolvedValue({ connection_id: 'default', label: 'service', values: [] });
+    vi.mocked(api.runCsvValidation).mockResolvedValue({
+      provider: 'prometheus',
+      source_type: 'csv',
+      analyzer_id: 'router',
+      service: 'svc',
+      metric_name: 'cpu_usage',
+      sample_count: 288,
+      normalized_preview: [],
+      signals: [],
+      findings: [],
+      analyzer_selection_mode: 'all',
+      analyzer_routing: [],
+      executed_analyzers: [],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('No findings returned yet.')).toBeInTheDocument();
+    const file = new File(['timestamp,metric,value\n2026-01-01T00:00:00Z,cpu_usage,42.5'], 'cpu.csv', { type: 'text/csv' });
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate Data' }));
+
+    expect(await screen.findByText(/No findings: nothing in this data stood out/)).toBeInTheDocument();
+    expect(screen.getByText(/No signals: the analyzers that ran detected nothing/)).toBeInTheDocument();
+    expect(screen.queryByText('No findings returned yet.')).not.toBeInTheDocument();
+  });
 });
 
 describe('describeInterval', () => {

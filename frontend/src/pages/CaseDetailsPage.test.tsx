@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { CaseDetailsPage } from './CaseDetailsPage';
+import { ApiError } from '../api/client';
 import { api } from '../api/queries';
 import type { OperationalCase } from '../types';
 
@@ -214,5 +215,27 @@ describe('CaseDetailsPage scroll position', () => {
 
     await screen.findByRole('tab', { name: /Resolution/i });
     expect(scrollTo).toHaveBeenCalledWith(0, 0);
+  });
+});
+
+describe('CaseDetailsPage for a case that does not exist (QA-19)', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('says the case does not exist instead of a generic load failure', async () => {
+    vi.mocked(api.getCase).mockRejectedValue(new ApiError(404, 'case not found'));
+    renderPage();
+
+    expect(await screen.findByText(/Case #1 doesn't exist/)).toBeTruthy();
+    expect(screen.queryByText('Failed to load case details')).toBeNull();
+  });
+
+  it('offers a retry when loading failed for another reason', async () => {
+    vi.mocked(api.getCase).mockRejectedValue(new ApiError(503, 'database unavailable'));
+    renderPage();
+
+    expect(await screen.findByText('Failed to load case details')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
   });
 });

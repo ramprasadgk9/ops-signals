@@ -34,6 +34,7 @@ import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUnch
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '../api/client';
 import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
@@ -231,7 +232,10 @@ export function CaseDetailsPage() {
   ];
 
   if (caseQuery.isLoading) return <LoadingSkeleton />;
-  if (caseQuery.error) return <ErrorState message="Failed to load case details" />;
+  if (caseQuery.error instanceof ApiError && caseQuery.error.status === 404) {
+    return <ErrorState message={`Case #${caseId} doesn't exist. It may have been deleted, or the link is wrong.`} />;
+  }
+  if (caseQuery.error) return <ErrorState message="Failed to load case details" onRetry={() => caseQuery.refetch()} />;
   if (!caseData || !finding) return <ErrorState message="Case not found" />;
 
   const signalIds = finding.signal_ids ?? [];
