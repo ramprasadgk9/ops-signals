@@ -136,3 +136,37 @@ def test_zscore_analyzer_still_rebaselines_onto_a_short_but_genuine_new_level() 
     values = [50.0, 51.2, 49.1, 50.6, 48.8, 50.3, 51.7, 49.4, 50.9, 49.8] * 20 + [90.0, 90.5, 89.6, 90.2, 89.9, 90.4, 90.1, 89.7]
 
     assert ZScoreAnomalyAnalyzer().analyze(_frame(values)) == []
+
+
+def _quiet_day(outliers: dict[int, float]) -> list[float]:
+    """288 five-minute readings alternating 49/51 (standard deviation 1), with the given points set."""
+    values = [49.0 if index % 2 else 51.0 for index in range(288)]
+    for index, value in outliers.items():
+        values[index] = value
+    return values
+
+
+def test_zscore_analyzer_does_not_turn_one_chance_point_on_a_long_quiet_series_into_a_finding() -> None:
+    # QA-43: in 288 normal readings about 0.8 land beyond |z| 3 by chance, so one point at z 3.06
+    # is noise. It stays a signal (labs still show it) but is not a finding.
+    signals = ZScoreAnomalyAnalyzer().analyze(_frame(_quiet_day({100: 53.1})))
+
+    assert len(signals) == 1
+    assert 3.0 <= signals[0].evidence["max_abs_zscore"] < 3.13
+    assert signals[0].evidence["finding_rule_matched"] is False
+
+
+def test_zscore_analyzer_still_finds_a_clear_spike_on_a_long_series() -> None:
+    signals = ZScoreAnomalyAnalyzer().analyze(_frame(_quiet_day({100: 70.0})))
+
+    assert len(signals) == 1
+    assert signals[0].evidence["finding_rule_matched"] is True
+
+
+def test_zscore_analyzer_still_finds_two_neighbouring_points_just_past_the_threshold() -> None:
+    # Two readings beyond |z| 3 within the grouping gap are rare by chance, unlike one.
+    signals = ZScoreAnomalyAnalyzer().analyze(_frame(_quiet_day({100: 53.3, 101: 53.3})))
+
+    assert len(signals) == 1
+    assert signals[0].evidence["point_count"] == 2
+    assert signals[0].evidence["finding_rule_matched"] is True

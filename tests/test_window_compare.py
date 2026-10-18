@@ -62,3 +62,21 @@ def test_a_metric_starting_from_zero_counts_as_changed() -> None:
 
     assert comparison["new_behavior"] is True
     assert "higher" in comparison["summary"]
+
+
+def test_a_twenty_percent_rise_is_not_called_broadly_similar() -> None:
+    # QA-37: 505.7 to 607.4 (+20.1%) was "broadly similar". Below the 25% level-change bar it is still
+    # not new behavior, but the sentence names the size of the move instead of hiding it.
+    result = compare_windows(_points([500.0] * 144 + [600.0] * 144))
+
+    assert result["new_behavior"] is False
+    assert result["summary"] == (
+        "The second half's average is 20.0% higher (from 500 to 600), "
+        "below the 25% that counts as a change in level."
+    )
+
+
+def test_a_small_move_is_still_broadly_similar() -> None:
+    result = compare_windows(_points([500.0] * 144 + [520.0] * 144))
+
+    assert result["summary"].startswith("The first and second half of the selected time window are broadly similar")
