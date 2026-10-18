@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.5.0 - 2026-10-18
+
+Includes Grafana plugin 1.0.34. A release of fixes from two pre-release QA passes; some change what
+gets reported, so read **Detection** before comparing findings with 0.4.0.
+
+**Detection**
+- **A spike at the end of the window, or in a short series, now gets a spike detector.** The router
+  never profiled a jump in the newest 3 points as a spike, and series under 50 points got none.
+- **One Z-Score reading becomes a finding only if it beats chance for the series length** (|z| 3.13
+  for 288 readings); two or more together keep |z| 3. Normal data no longer produces a finding.
+- **Signals are only called related when they happen close together.** Behavior correlation now
+  enforces `max_time_gap` and `minimum_overlap`; anomalies 16 hours apart were reported as a
+  cascading failure.
+- **Findings use only signals that passed their own rule**, for the summary, the score and the
+  timing. A 9x spike had read "0.28x its normal range" from the weakest point. PyOD and Ruptures
+  signals are scored by their size.
+- **CSV interval is measured from the data** instead of assuming 5 minutes, so 15-minute and 1-minute
+  exports keep their real spacing.
+- **A forecast made by the straight-line fallback says so**, instead of being labelled Prophet.
+- **Wording matches the numbers**: a 20% move between the window halves is no longer "broadly
+  similar", and a problem in old data says when the data ended instead of "still happening".
+
+**Trust numbers**
+- **The tested numbers on each finding are refreshed** from a full run on this release (RCAEval
+  RE1, 375 faults): Strong evidence 98% real (was 91%), Moderate evidence 67% (was 70%), spikes 60%,
+  still no better than a random alert. Findings raised while nothing was wrong fell from 536 to 435.
+
+**Web UI**
+- **New Analysis can save a CSV run** ("Analyze and Save"), so its findings can become cases.
+- **New Analysis starts empty** instead of with the lab service and metric; for CSV they only fill
+  rows the file leaves without one.
+- **Memory chat shows the past case it finds** (default threshold 0.40, a weaker match marked
+  possible), and questions naming your own service or metric are answered from findings and cases.
+- **The header's Help and Theme work**; controls that did nothing are gone. Icon-only buttons have
+  names screen readers can read.
+- **Cases tick "Knowledge published" only after a resolution**, and every outcome status is offered.
+
+**Reliability**
+- **Errors name the dependency that is down** (503 for Qdrant or the database) instead of a generic
+  500, and the overall status includes memory. `/api/health` checks the database.
+- **Analyses save on a database the backend created itself.** A fresh Postgres had no defaults and
+  every save failed.
+- **One slow request can no longer freeze the API**: blocking work is off the event loop, and
+  in-process analyzers run one at a time.
+- **Slack**: finding messages retry until they arrive and show their status; the first try runs in
+  the background, so uploads don't wait for a slow webhook.
+- **Operational memory keeps retrying when Qdrant is down at startup**, and cases created during an
+  outage are indexed after it.
+- **Resolved cases stop counting as open**; concurrent case creates for one finding share one case.
+- **AI replies that aren't prose** (a broken JSON fragment, say) fall back to the deterministic answer.
+
+**API and security**
+- **Setting an API token turns off `/docs` and `/openapi.json`.** Error responses no longer include
+  internal details.
+- **Uploads reject infinite values** with their rows; a case import that isn't text warns instead of
+  importing nothing; missing labels are stored as NULL, not the text `NaN`.
+- **Case statuses and root-cause confidence are validated** (422 with the allowed values); a missing
+  case or finding answers 404 by name; OTLP with an unsupported Content-Type answers 415.
+- **CSV runs report the service and metric the data was stored under**, with a warning when it
+  differs from what you entered.
+- **Alerts and tickets leave out UI links when no UI address is set**; autonomous runs count excluded
+  metrics apart from skipped jobs.
+
 ## 0.4.0 - 2026-10-15
 
 Includes Grafana plugin 1.0.33.
