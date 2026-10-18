@@ -20,6 +20,8 @@ from backend.app.metric_analyzer_recommendations.schemas import (
 )
 from backend.app.metric_analyzer_recommendations.service import MetricAnalyzerRecommendationService
 from backend.app.memory.schemas import MemoryChatRequest
+from backend.app.memory.chat_answer import chat_answer_lines
+from backend.app.memory.similarity_service import match_strength
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity, NormalizedPoint
 from backend.app.questions.composer import AnswerComposer
@@ -616,6 +618,7 @@ def memory_chat(payload: MemoryChatRequest, db: Session = Depends(get_db)) -> An
                 case_id=matched_case.id,
                 title=matched_case.case_title,
                 similarity_score=float(result["score"]),
+                strength=match_strength(float(result["score"])),
                 service=result["payload"].get("service"),
                 metric_name=result["payload"].get("metric_name"),
                 category=result["payload"].get("category"),
@@ -625,24 +628,7 @@ def memory_chat(payload: MemoryChatRequest, db: Session = Depends(get_db)) -> An
             )
         )
 
-    if sources:
-        top = sources[0]
-        answer_lines = [
-            f"I found {len(sources)} related case{'s' if len(sources) != 1 else ''} in operational memory.",
-            f"The closest match is case #{top.case_id} ({top.title}) with a similarity score of {top.similarity_score:.2f}.",
-        ]
-        if top.root_cause_summary:
-            answer_lines.append(f"That case recorded this RCA summary: {top.root_cause_summary}")
-        elif top.outcome_summary:
-            answer_lines.append(f"That case recorded this outcome: {top.outcome_summary}")
-        else:
-            answer_lines.append("The match contains useful operational context, but no RCA or outcome summary yet.")
-        answer_lines.append("Use the source cases below to inspect the evidence before treating this as a final conclusion.")
-    else:
-        answer_lines = [
-            "I could not find a strong operational-memory match for that question.",
-            "Try asking about a specific service, metric, or case, or lower the similarity threshold.",
-        ]
+    answer_lines = chat_answer_lines(sources)
 
     suggested_questions = [
         "Have we seen this before?",

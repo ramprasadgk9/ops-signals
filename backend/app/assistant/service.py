@@ -69,7 +69,7 @@ class OperationalIntelligenceAssistant:
         text = _QUOTED.sub(" ", text)
         routes: list[str] = []
 
-        if any(keyword in text for keyword in ["case", "incident", "resolved", "resolution", "rca", "root cause", "similar", "seen this before"]):
+        if any(keyword in text for keyword in ["case", "incident", "resolved", "resolution", "rca", "root cause", "similar", "seen this before"]) or _SEEN_BEFORE.search(text):
             routes.extend(["CASE_SEARCH", "MEMORY_SEARCH"])
         if any(keyword in text for keyword in ["finding", "signal", "anomaly", "trend", "changed", "what changed", "detected"]):
             routes.append("FINDING_SEARCH")
@@ -110,6 +110,10 @@ class OperationalIntelligenceAssistant:
         if "ANALYZER_SEARCH" in deduped and any(term in text for term in _registered_analyzer_terms()):
             deduped.remove("ANALYZER_SEARCH")
             deduped.insert(0, "ANALYZER_SEARCH")
+        # Last, so it wins over the analyzer-name rule: "Which services had baseline shifts today?"
+        # is about your services, not about the Baseline Shift analyzer it mentions.
+        if _WHICH_OF_MINE.search(text):
+            deduped = ["FINDING_SEARCH", *[route for route in deduped if route != "FINDING_SEARCH"]]
         return deduped
 
     @staticmethod
@@ -154,7 +158,7 @@ class OperationalIntelligenceAssistant:
         return deduped
 
     def chat(self, payload: AssistantChatRequest, db: Session) -> AssistantChatResponse:
-        routes = self._route(payload.message)
+        routes = _lead_with_own_data(payload.message, self._route(payload.message), db)
         intent = self._intent_from_routes(routes)
         sources: list[AssistantSource] = []
         groups: list[AssistantEvidenceGroup] = []
@@ -710,6 +714,40 @@ _ROUTE_INTENTS = {
     "BEHAVIOR_SEARCH": "behavior_intelligence",
 }
 _QUOTED = re.compile(r'"[^"]*"|“[^”]*”')
+# "Have we seen this cpu drop before?" - the fixed phrase "seen this before" missed any wording
+# with words in between, and the question fell through to documentation-first.
+_SEEN_BEFORE = re.compile(r"\bseen\b.{0,40}\bbefore\b")
+# "Which services had baseline shifts today?" asks about your own data, not about the analyzer
+# its wording mentions.
+_WHICH_OF_MINE = re.compile(r"\bwhich (services?|metrics?|hosts?|pods?)\b")
+_OWN_DATA_ROUTES = ("FINDING_SEARCH", "CASE_SEARCH", "MEMORY_SEARCH")
+_OWN_DATA_NAME_LIMIT = 2000
+
+
+def _lead_with_own_data(message: str, routes: list[str], db: Session) -> list[str]:
+    """Findings, cases and memory first when the question names a service or metric in your data.
+
+    Keyword routing can't know your service names, so "What happened to requests_per_second on
+    qa-svc?" matched nothing, fell back to documentation-first, and opened with a comparison page
+    (QA-16). Nothing is dropped: documentation is still searched, after the operational evidence."""
+    lowered = message.lower()
+    try:
+        rows = db.execute(
+            select(FindingEntity.service, FindingEntity.metric_name).distinct().limit(_OWN_DATA_NAME_LIMIT)
+        ).all()
+        names = {
+            str(value).lower()
+            for row in rows
+            if isinstance(row, tuple) or hasattr(row, "_fields")
+            for value in row
+            if isinstance(value, str) and _real_service(value)
+        }
+    except Exception as exc:
+        logger.warning("Could not read service and metric names for routing: %s", exc)
+        return routes
+    if not any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", lowered) for name in names):
+        return routes
+    return [*_OWN_DATA_ROUTES, *[route for route in routes if route not in _OWN_DATA_ROUTES]]
 _PLACEHOLDER_SERVICES = frozenset({"unknown", "none", "null", "n/a", "-"})
 _SINGULAR = {"Findings": "finding", "Cases": "case", "Operational Memory": "past case", "Documentation": "documentation section", "Behavior Intelligence": "behavior"}
 

@@ -44,6 +44,13 @@ of requiring the same metric.
 
 The retrieval index helps surface similar cases, but it does not determine final root cause.
 
+Memory chat (`POST /api/memory/chat`, the MCP `memory/chat` tool and the assistant's case search)
+shows past cases scoring 0.40 or more by default. A match of 0.70 or more is a **strong** match;
+below that it is shown as a **possible** match, and the answer says to check that it fits. Ordinary
+questions about a past incident score about 0.43-0.73 for the right case, while off-topic questions
+stay under 0.25, so the old 0.55 floor hid the right case for about half of ordinary questions.
+Pass `minimum_score` to be stricter.
+
 ## How Recall Is Verified
 
 [`tests/api_backend/test_memory_recall.py`](../tests/api_backend/test_memory_recall.py) runs the real
@@ -58,6 +65,11 @@ another metric or service, and two unrelated. The tests check that:
   metric and service
 - an alert on a metric with no past cases returns nothing
 - a root cause added later is found once the case is re-indexed
+
+[`tests/api_backend/test_memory_chat_recall.py`](../tests/api_backend/test_memory_chat_recall.py)
+imports the sample incident history and checks that ordinary questions bring back the right incident
+through both the API and MCP chat at the default threshold, that possible matches are labelled, and
+that off-topic questions find nothing.
 - if Qdrant is unavailable, the alert still gets exact-match history
 - through the Alertmanager receiver, the recalled case's title and link appear in the Slack message
 

@@ -14,7 +14,8 @@ class AssistantChatRequest(BaseModel):
     message: str = Field(min_length=1)
     case_id: int | None = None
     top_k: int = Field(default=5, ge=1, le=10)
-    minimum_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    # The case-memory floor, same as MemoryChatRequest (similarity_service.POSSIBLE_MATCH_SCORE).
+    minimum_score: float = Field(default=0.40, ge=0.0, le=1.0)
     same_service_only: bool = False
 
 

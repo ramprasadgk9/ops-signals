@@ -69,6 +69,49 @@ def test_stop_reporting_questions_lead_with_findings() -> None:
     assert ROUTE("Did any metric stop reporting?")[0] == "FINDING_SEARCH"
 
 
+def test_seen_before_with_words_in_between_searches_past_cases() -> None:
+    # QA-16: only the exact phrase "seen this before" counted.
+    routes = ROUTE("Have we seen this cpu drop before?")
+
+    assert routes[:2] == ["CASE_SEARCH", "MEMORY_SEARCH"]
+
+
+def test_which_services_questions_lead_with_findings() -> None:
+    # QA-16: "baseline" sent this to analyzer documentation only.
+    assert ROUTE("Which services had baseline shifts today?")[0] == "FINDING_SEARCH"
+
+
+class _NamesDb:
+    """Answers the distinct service/metric lookup with these names, and every other query with nothing."""
+
+    def __init__(self, names):
+        self.names = list(names)
+
+    def execute(self, statement, *args):
+        return _Rows(self.names if "DISTINCT" in str(statement).upper() else [])
+
+
+def test_a_question_naming_one_of_your_services_leads_with_its_findings() -> None:
+    # QA-16: no keyword matched, so it fell back to documentation-first and opened with a
+    # comparison page. Documentation is still searched, just after the operational evidence.
+    db = _NamesDb([("qa-svc", "requests_per_second"), ("payments", "cpu_usage")])
+    assistant = _assistant()
+
+    response = assistant.chat(AssistantChatRequest(message="What happened to requests_per_second on qa-svc?"), db=db)
+
+    assert response.routes[:3] == ["FINDING_SEARCH", "CASE_SEARCH", "MEMORY_SEARCH"]
+    assert "DOCUMENT_SEARCH" in response.routes
+    assert response.intent == "finding_search"
+
+
+def test_a_name_that_only_appears_inside_another_word_does_not_count() -> None:
+    db = _NamesDb([("api", "cpu")])
+
+    response = _assistant().chat(AssistantChatRequest(message="How does the rapid ingestion pipeline work?"), db=db)
+
+    assert response.routes[0] == "DOCUMENT_SEARCH"
+
+
 def test_a_concept_question_about_findings_still_reaches_the_docs() -> None:
     assert "DOCUMENT_SEARCH" in ROUTE("What is a Finding?")
 
