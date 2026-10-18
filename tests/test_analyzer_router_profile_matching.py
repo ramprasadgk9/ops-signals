@@ -376,3 +376,22 @@ def test_an_analyzers_shape_sentence_is_only_given_when_that_shape_was_detected(
     assert not any("sustained baseline changes" in reason for reason in spike_only["ruptures"].reasons)
     assert not any("repeat similar shapes" in reason for reason in spike_only["stumpy"].reasons)
     assert any("sustained baseline changes" in reason for reason in shifted["ruptures"].reasons)
+
+
+def test_a_clear_jump_in_the_newest_points_counts_as_a_spike() -> None:
+    # QA-31: a candidate needed 3 points after it to confirm it came back down, so a spike in the
+    # last points of a window never made the profile spiky.
+    rng = np.random.default_rng(11)
+    for from_end in (1, 2):
+        values = list(50 + rng.normal(0, 1.5, 288))
+        values[-from_end] = 95.0
+        assert "spike" in _extract_profile(values).detected_profiles, from_end
+
+
+def test_noise_or_a_small_wobble_at_the_edge_is_not_a_spike() -> None:
+    rng = np.random.default_rng(8)
+    quiet = list(50 + rng.normal(0, 1.5, 288))
+    wobble = quiet[:-1] + [quiet[-1] + 6.0]
+
+    assert "spike" not in _extract_profile(quiet).detected_profiles
+    assert "spike" not in _extract_profile(wobble).detected_profiles

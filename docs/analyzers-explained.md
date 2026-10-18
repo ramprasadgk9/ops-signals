@@ -203,14 +203,21 @@ overlap isn't complete:
 | After a level change | Judges readings against the new level | Judges against the whole series |
 | False alarms | Many on public benchmark data | Far fewer |
 
-PyOD was chosen for the lower false-alarm rate. What that costs today:
+PyOD was chosen for the lower false-alarm rate. Two cases where it can't cover a spiky series get
+a stand-in, so a spike the router sees is never left without a detector:
 
-- **Series under 50 points get no spike detector.** A 40-point CSV with one big spike can produce
-  no spike finding. STUMPY still runs, but it looks for unusual stretches, not single readings.
-- **A mildly spiky series may get no spike detector.** PyOD runs only when the router rates the
-  series as clearly spiky.
+- **Series under 50 points:** too short for PyOD, so Z-Score runs instead (it needs 3 points). The
+  run explains it: "Ran as the spike detector: the series looks spiky and PyOD Outlier needs at least
+  50 points."
+- **A spiky series PyOD scored low:** PyOD runs anyway, as the spike detector.
 
-Both gaps are known and tracked to be fixed.
+Z-Score is not used as a stand-in when PyOD was turned down for gaps or bad values on a long
+series; there it would mostly add false alarms.
+
+A spike in the newest readings counts too. Before, the router waited for a jump to come back down
+before calling it a spike, so a spike at the very end of a live or alert window, the one that
+matters most, got no spike detector. Now a reading well clear of the recent level at the end of the
+window counts as a spike right away.
 
 **To run Baseline Shift or Z-Score anyway**, select them in `config/analyzers.yaml`. With
 `selection_mode: manual_override` and `selected_analyzers: [anomaly_zscore]`, Z-Score runs along

@@ -256,6 +256,58 @@ def test_a_detected_spike_profile_gets_an_outlier_detector_even_when_it_scores_l
     assert allowed == {"pyod_outlier", "prophet", "trend", "data_health", "stumpy"}
 
 
+def _spiky_short_routing(pyod_recommendation: str, pyod_reason: str, valid_sample_count: int) -> list[dict]:
+    detected = {
+        "detected_profiles": ["anomaly", "outlier", "spike", "trend"],
+        "eligibility_rules": {"min_samples": 50},
+        "valid_sample_count": valid_sample_count,
+    }
+    return [
+        {"analyzer_id": "trend_regression", "recommendation": "RECOMMENDED", "final_score": 0.98, "matched_profiles": ["trend"], "parameters_tested": detected},
+        {"analyzer_id": "pyod_outlier", "recommendation": pyod_recommendation, "final_score": 0.4, "matched_profiles": ["spike"], "reasons": [pyod_reason], "parameters_tested": detected},
+    ]
+
+
+def test_a_spiky_series_too_short_for_pyod_gets_zscore(monkeypatch) -> None:
+    monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: True)
+    routing = _spiky_short_routing("REJECTED", "Needs at least 50 valid samples.", 40)
+
+    allowed = _threshold_pipeline()._allowed_pipeline_analyzers(routing)
+
+    assert "anomaly_zscore" in allowed
+    assert "pyod_outlier" not in allowed
+
+
+def test_zscore_does_not_stand_in_when_pyod_was_rejected_for_bad_data(monkeypatch) -> None:
+    # A long gappy series: PyOD was rejected for missing values, not length, and Z-Score would only
+    # add false alarms there.
+    monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: True)
+    routing = _spiky_short_routing("REJECTED", "Missing or invalid values exceed the rejection threshold.", 9954)
+
+    allowed = _threshold_pipeline()._allowed_pipeline_analyzers(routing)
+
+    assert "anomaly_zscore" not in allowed
+
+
+def test_a_spiky_series_whose_outlier_detector_scored_low_still_gets_it(monkeypatch) -> None:
+    monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: True)
+    routing = _spiky_short_routing("NOT_RECOMMENDED", "", 288)
+
+    allowed = _threshold_pipeline()._allowed_pipeline_analyzers(routing)
+
+    assert "pyod_outlier" in allowed
+    assert "anomaly_zscore" not in allowed
+
+
+def test_the_spike_fallback_respects_turning_profile_coverage_off(monkeypatch) -> None:
+    monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: True)
+    routing = _spiky_short_routing("REJECTED", "Needs at least 50 valid samples.", 40)
+
+    allowed = _threshold_pipeline(cover_detected_profiles=False)._allowed_pipeline_analyzers(routing)
+
+    assert "anomaly_zscore" not in allowed
+
+
 def test_profile_coverage_can_be_turned_off_to_rank_by_score_alone(monkeypatch) -> None:
     monkeypatch.setattr("intelligence.analyzer_selection.library_installed", lambda name: True)
     pipeline = _threshold_pipeline(cover_detected_profiles=False)

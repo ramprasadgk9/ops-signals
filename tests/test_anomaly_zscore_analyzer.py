@@ -114,3 +114,25 @@ def test_zscore_analyzer_falls_back_to_full_window_when_post_shift_segment_is_sh
     assert signals
     assert signals[0].evidence["rebaselined_after_change_point"] is False
     assert "change_point_index" not in signals[0].evidence
+
+
+def test_zscore_analyzer_flags_a_spike_on_the_last_points_instead_of_rebaselining_onto_it() -> None:
+    # QA-31: the spike itself looked like a change point 8 points from the end, and in 8 points no
+    # reading can reach z 3, so a 30-sigma last reading went unreported.
+    noise = [50.0, 51.2, 49.1, 50.6, 48.8, 50.3, 51.7, 49.4, 50.9, 49.8]
+    for from_end in (1, 2, 3):
+        values = noise * 28
+        values[-from_end] = 95.0
+
+        signals = ZScoreAnomalyAnalyzer().analyze(_frame(values))
+
+        assert len(signals) == 1, from_end
+        assert signals[0].evidence["max_abs_zscore"] > 10
+        assert signals[0].evidence["rebaselined_after_change_point"] is False
+
+
+def test_zscore_analyzer_still_rebaselines_onto_a_short_but_genuine_new_level() -> None:
+    # The short tail is a real new level (every point moved), not an outlier at the old level.
+    values = [50.0, 51.2, 49.1, 50.6, 48.8, 50.3, 51.7, 49.4, 50.9, 49.8] * 20 + [90.0, 90.5, 89.6, 90.2, 89.9, 90.4, 90.1, 89.7]
+
+    assert ZScoreAnomalyAnalyzer().analyze(_frame(values)) == []

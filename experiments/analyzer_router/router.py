@@ -344,6 +344,7 @@ class UniversalTimeSeriesRouter:
                 "suitability_rules": capability.suitability_rules,
                 "scoring_rules": capability.scoring_rules,
                 "detected_profiles": list(getattr(profile, "detected_profiles", [])),
+                "valid_sample_count": profile.valid_sample_count,
                 "matched_profiles": sorted(matched_profiles),
                 "profile_match": profile_match,
                 "behavioral_supported_profiles": sorted(behavioral_supported),
