@@ -250,13 +250,15 @@ export function CaseDetailsPage() {
     { label: 'Category', value: categoryLabel },
     { label: 'Service', value: finding.service ?? 'n/a' },
   ];
+  const resolutionRecorded = Boolean(caseData.outcome_summary || caseData.corrective_action) || ['resolved', 'mitigated'].includes(caseData.outcome_status);
   const workflowItems = [
     workflowState('Finding reviewed', true, tabValue === 0),
     workflowState('Evidence checked', isImported || matchedSignals.length > 0 || signalIds.length > 0, tabValue === 1),
     workflowState('Investigation notes', caseData.investigation_notes.length > 0 || caseData.investigation_status === 'completed', tabValue === 2),
     workflowState('Root cause saved', Boolean(caseData.root_cause_summary) || ['identified', 'confirmed'].includes(caseData.root_cause_status), tabValue === 3),
-    workflowState('Resolution recorded', Boolean(caseData.outcome_summary || caseData.corrective_action) || caseData.outcome_status === 'resolved', tabValue === 4),
-    workflowState('Knowledge published', caseData.memory_status === 'indexed', tabValue === 5),
+    workflowState('Resolution recorded', resolutionRecorded, tabValue === 4),
+    // Memory indexes a case when it's created, so "indexed" alone ticked this on a brand-new case (QA-40).
+    workflowState('Knowledge published', resolutionRecorded && caseData.memory_status === 'indexed', tabValue === 5),
   ];
   const nextIncompleteIndex = workflowItems.findIndex((item) => !item.done);
   const nextWorkflowIndex = nextIncompleteIndex === -1 ? 5 : nextIncompleteIndex;
@@ -784,8 +786,10 @@ export function CaseDetailsPage() {
                   <Select value={outcomeStatus} onChange={(e) => setOutcomeStatus(e.target.value)} label="Outcome Status">
                     <MenuItem value="pending">Pending</MenuItem>
                     <MenuItem value="in_progress">In Progress</MenuItem>
+                    <MenuItem value="mitigated">Mitigated</MenuItem>
                     <MenuItem value="resolved">Resolved</MenuItem>
                     <MenuItem value="escalated">Escalated</MenuItem>
+                    <MenuItem value="won_t_fix">Won't fix</MenuItem>
                   </Select>
                 </FormControl>
 
