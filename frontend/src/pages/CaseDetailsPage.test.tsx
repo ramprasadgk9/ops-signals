@@ -260,3 +260,50 @@ describe('CaseDetailsPage similar cases', () => {
     expect(api.getSimilarCases).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('CaseDetailsPage workflow (QA-40)', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function stepIsTicked(name: string) {
+    const chip = (await screen.findByText(name)).closest('.MuiChip-root') as HTMLElement;
+    return within(chip).queryByTestId('CheckCircleRoundedIcon') !== null;
+  }
+
+  it('does not tick Knowledge published for an open case that memory indexed on creation', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ memory_status: 'indexed' }));
+    renderPage();
+
+    expect(await stepIsTicked('6. Knowledge published')).toBe(false);
+    expect(await stepIsTicked('1. Finding reviewed')).toBe(true);
+  });
+
+  it('ticks Knowledge published once the resolution is recorded and the case is indexed', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(
+      baseCase({ memory_status: 'indexed', outcome_status: 'resolved', outcome_summary: 'Rolled back the deploy.' }),
+    );
+    renderPage();
+
+    expect(await stepIsTicked('6. Knowledge published')).toBe(true);
+  });
+
+  it('offers every outcome the API accepts', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    renderPage();
+    const panel = await openResolutionPanel();
+
+    fireEvent.mouseDown(within(panel).getAllByRole('combobox')[0]);
+    const options = (await screen.findAllByRole('option')).map((option) => option.textContent);
+
+    expect(options).toEqual(['Pending', 'In Progress', 'Mitigated', 'Resolved', 'Escalated', "Won't fix"]);
+  });
+
+  it("shows the saved outcome of a won't-fix case instead of a blank field", async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ outcome_status: 'won_t_fix' }));
+    renderPage();
+    const panel = await openResolutionPanel();
+
+    expect(within(panel).getAllByRole('combobox')[0].textContent).toBe("Won't fix");
+  });
+});

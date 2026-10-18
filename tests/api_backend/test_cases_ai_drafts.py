@@ -352,3 +352,16 @@ def test_suggest_resolution_includes_external_ticket_comments(client_factory) ->
     assert "External team notes from Jira/ticketing:" in evidence_sent
     assert "[OnCall Engineer]: Applied hotfix PR #123" in evidence_sent
 
+
+
+def test_rca_suggest_does_not_offer_a_broken_model_reply_as_a_draft(client_factory) -> None:
+    # QA-36: a JSON fragment became the draft, with available=true.
+    assistant = _assistant_with(_ScriptedClient(response_text='{"analyzers": ["pyod_outlier", oops'))
+    app = client_factory(assistant=assistant, similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(512, 512)
+        body = client.post("/api/cases/512/rca/suggest").json()
+
+    assert body["available"] is False
+    assert not body.get("draft")

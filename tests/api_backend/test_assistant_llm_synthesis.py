@@ -125,3 +125,21 @@ def test_chat_uses_template_when_ai_is_disabled() -> None:
     body = response.json()
     assert body["ai_synthesis_used"] is False
     assert body["answer"].startswith("Summary")
+
+
+def test_chat_falls_back_to_template_when_the_model_reply_is_a_broken_fragment() -> None:
+    # QA-36: the fragment was the first paragraph of the answer, with ai_synthesis_used=true.
+    fake_client = _FakeLLMClient(response='{"analyzers": ["pyod_outlier", oops')
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[assistant_module.get_assistant] = lambda: _assistant_with(fake_client)
+
+    with TestClient(app) as client:
+        session_local = get_session_local()
+        with session_local() as db:
+            _seed_finding(db, finding_id=305)
+
+        body = client.post("/api/assistant/chat", json={"message": "What changed in checkout cpu?", "top_k": 3}).json()
+
+    assert body["ai_synthesis_used"] is False
+    assert body["answer"].startswith("Summary")
+    assert "oops" not in body["answer"]

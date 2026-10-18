@@ -376,7 +376,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         # and a webhook URL are both set. SlackNotifier no-ops internally when disabled, so
         # this registration is unconditional — one code path either way.
         slack_config = get_slack_config()
-        slack_notifier = SlackNotifier(slack_config, session_local)
+        slack_notifier = SlackNotifier(slack_config, session_local, background=True)
         register_findings_hook(slack_notifier.notify_findings, on_seen_again=slack_notifier.notify_seen_again)
         slack_task: asyncio.Task | None = None
         if slack_notifier.enabled:
@@ -415,6 +415,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
             slack_task.cancel()
             with suppress(asyncio.CancelledError):
                 await slack_task
+        # A first send still in flight finishes (bounded by the Slack timeout); its row stays in the outbox.
+        await asyncio.to_thread(slack_notifier.close)
         if ticketing_task is not None:
             ticketing_task.cancel()
             with suppress(asyncio.CancelledError):

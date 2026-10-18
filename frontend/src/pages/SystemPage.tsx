@@ -11,7 +11,7 @@ export function SystemPage() {
     { name: 'Backend', status: healthQuery.isError ? 'unavailable' : healthQuery.isLoading ? 'loading' : healthQuery.data ? 'ok' : 'unknown', detail: 'Source: GET /api/health', retry: () => healthQuery.refetch() },
     { name: 'Qdrant', status: memoryQuery.isError ? 'unavailable' : memoryQuery.isLoading ? 'loading' : memoryQuery.data?.status ?? 'unknown', detail: memoryQuery.data?.detail ?? 'Source: GET /api/memory/health', retry: () => memoryQuery.refetch() },
     { name: 'Database', status: healthQuery.isError ? 'unknown' : healthQuery.isLoading ? 'loading' : healthQuery.data?.database ?? 'unknown', detail: 'Source: GET /api/health (checks the database on every call)', retry: () => healthQuery.refetch() },
-    { name: 'MCP Server', status: 'not exposed', detail: 'MCP health is verified by smoke scripts, not a standalone UI endpoint.' },
+    { name: 'MCP Server', status: 'separate process', detail: 'Your AI client starts the MCP server itself (stdio), so it has no health check here. Its HTTP tools (/api/mcp) are part of this backend and answer whenever Backend is ok.' },
   ];
   return (
     <Stack spacing={3}>

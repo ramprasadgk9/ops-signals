@@ -38,6 +38,9 @@ autonomous analysis finds at 03:00 doesn't sit unseen until someone opens the da
    ```
 
 Posting is best-effort: a broken or unreachable webhook is logged and never fails the analysis.
+Each message is saved first and sent in the background, so an upload or analysis never waits for
+Slack; one Slack didn't take is retried for about 18 minutes (30 s, 1, 2, 5 and 10 minutes apart)
+before it is marked failed.
 
 ---
 

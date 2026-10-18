@@ -3,6 +3,8 @@ later run of the same problem counted it as reported, so the alert never arrived
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -176,3 +178,78 @@ def test_status_endpoint_reports_delivery(client, slack) -> None:
     assert status["last_failure"]["title"] == "checkout CPU"
     assert "HTTP 500" in status["last_failure"]["error"]
     assert status["last_failure"]["next_retry_at"] is not None
+
+
+# QA-35: a CSV upload waited for the Slack timeout (10 s with a hung webhook) before answering.
+
+
+class HungSlack:
+    """Stands in for a webhook that doesn't answer until released."""
+
+    def __init__(self) -> None:
+        self.release = threading.Event()
+        self.received: list[dict] = []
+
+    def __call__(self, payload: dict) -> None:
+        self.release.wait(5)
+        self.received.append(payload)
+
+
+@pytest.fixture()
+def background_slack(db_session) -> Iterator[tuple[SlackNotifier, HungSlack]]:
+    notifier = SlackNotifier(
+        SlackConfig(enabled=True, webhook_url="http://slack.invalid/hook", minimum_importance=0.5), get_session_local(), background=True
+    )
+    webhook = HungSlack()
+    notifier._post = webhook
+    yield notifier, webhook
+    webhook.release.set()
+    notifier.close()
+
+
+def test_a_hung_webhook_does_not_hold_up_the_caller(background_slack) -> None:
+    notifier, webhook = background_slack
+
+    started = time.monotonic()
+    notifier.notify_findings([_finding(id=1)])
+
+    assert time.monotonic() - started < 1
+    [row] = _rows()
+    assert row.status == "pending"  # kept in the outbox before the caller returns
+
+    webhook.release.set()
+    notifier.close()
+
+    [row] = _rows()
+    assert (row.status, row.attempts) == ("delivered", 1)
+    assert len(webhook.received) == 1
+
+
+def test_a_background_send_slack_refused_is_retried_like_any_other(background_slack) -> None:
+    notifier, webhook = background_slack
+    webhook.release.set()
+    notifier._post = FlakySlack()
+    notifier._post.down = True
+
+    notifier.notify_findings([_finding(id=1)])
+    notifier.close()
+
+    [row] = _rows()
+    assert (row.status, row.attempts) == ("pending", 1)
+    assert "HTTP 500" in row.last_error
+
+
+def test_without_the_outbox_a_background_send_still_happens_once(background_slack, monkeypatch) -> None:
+    notifier, webhook = background_slack
+
+    def outbox_down(_findings):
+        raise RuntimeError("database is down")
+
+    monkeypatch.setattr(notifier, "_enqueue_and_send", outbox_down)
+    started = time.monotonic()
+    notifier.notify_findings([_finding(id=1)])
+
+    assert time.monotonic() - started < 1
+    webhook.release.set()
+    notifier.close()
+    assert len(webhook.received) == 1
