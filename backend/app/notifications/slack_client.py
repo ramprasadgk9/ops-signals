@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -38,11 +40,18 @@ class SlackNotifier:
     failed. Only a delivered message counts as reported: a problem whose message failed is
     notified again when a later run sees it (notify_seen_again). Without a session factory it
     sends once, as before.
+
+    With background=True (the app) the first try runs on a worker thread, so the request that
+    produced the findings doesn't wait for Slack: a hung webhook held a CSV upload for the whole
+    Slack timeout (QA-35). The message is in the outbox before the caller returns either way.
     """
 
-    def __init__(self, config: SlackConfig, session_factory: Callable[[], Session] | None = None):
+    def __init__(self, config: SlackConfig, session_factory: Callable[[], Session] | None = None, *, background: bool = False):
         self.config = config
         self.session_factory = session_factory
+        self.background = background
+        self._executor: ThreadPoolExecutor | None = None
+        self._executor_lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -60,7 +69,7 @@ class SlackNotifier:
             return
         if self.session_factory is None:
             for finding in eligible:
-                self._send_once(finding)
+                self._run(self._send_once, finding)
             return
         try:
             self._enqueue_and_send(eligible)
@@ -68,7 +77,7 @@ class SlackNotifier:
             # The outbox itself failed (e.g. the database is down): still try Slack once.
             logger.warning("Slack outbox unavailable; sending without retry", exc_info=True)
             for finding in eligible:
-                self._send_once(finding)
+                self._run(self._send_once, finding)
 
     def notify_seen_again(self, findings: list[OperationalFinding]) -> None:
         """Findings of a problem already reported. Sent only when every earlier message for the
@@ -131,9 +140,46 @@ class SlackNotifier:
             ]
             db.add_all(rows)
             db.commit()
+            if self.background:
+                self._run(self._first_attempt, [row.id for row in rows], now)
+                return
             for row in rows:
                 self._attempt(row, now)
             db.commit()
+
+    def _first_attempt(self, row_ids: list[int], now: datetime) -> None:
+        """The immediate try of newly queued messages, on the worker thread with its own session.
+        The retry loop leaves them alone until RETRY_DELAYS[0] has passed."""
+        with self.session_factory() as db:
+            rows = db.scalars(
+                select(SlackNotificationEntity).where(SlackNotificationEntity.id.in_(row_ids), SlackNotificationEntity.status == PENDING)
+            ).all()
+            for row in rows:
+                self._attempt(row, now)
+            db.commit()
+
+    def _run(self, function: Callable[..., None], *args) -> None:
+        if not self.background:
+            function(*args)
+            return
+        with self._executor_lock:
+            if self._executor is None:
+                self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="slack-send")
+            self._executor.submit(self._logged, function, *args)
+
+    @staticmethod
+    def _logged(function: Callable[..., None], *args) -> None:
+        try:
+            function(*args)
+        except Exception:
+            logger.exception("Slack notification send failed")
+
+    def close(self) -> None:
+        """Waits for sends already started (each is bounded by the Slack timeout)."""
+        with self._executor_lock:
+            executor, self._executor = self._executor, None
+        if executor is not None:
+            executor.shutdown(wait=True)
 
     def _attempt(self, row: SlackNotificationEntity, now: datetime) -> None:
         row.attempts += 1
