@@ -105,7 +105,12 @@ against them (`memory` needs `trend` or `baseline_shift`, `errors` needs `anomal
 `conditions` reference *facts* those analyzers produce (`errors.anomaly.present`,
 `memory.trend.direction`, and `memory.baseline_shift.signed_change_percent`, positive when memory
 moved up - a level change counts in either direction unless a condition says which) - `all` must hold, plus at least one of `any`. `correlation` bounds how
-close in time the two signals need to be to count as related. `output` is what gets written as the
+close in time the two signals need to be to count as related: the inputs match when some pair of
+their signals is within `max_time_gap` of each other, or overlaps by at least `minimum_overlap`
+(with neither set, they must overlap). Only the signals the passing conditions name are compared
+(the anomaly windows for `errors.anomaly.present`), so a trend spanning the whole window doesn't
+make every anomaly look related. A level change counts from its change point to the end of the
+window, since the new level persists. Each input's signal times are in its facts as `windows`. `output` is what gets written as the
 Behavior Finding if everything matches.
 
 A metric often arrives under a different name than the rule uses: OpenTelemetry sends
