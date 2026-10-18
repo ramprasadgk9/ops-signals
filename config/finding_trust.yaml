@@ -6,47 +6,47 @@
 # real: share of findings that fell inside a real, marked problem. random: what an alert at a
 # random moment would score on the same data. checked: how many findings it's based on.
 source:
-  run: 20261008T182847Z-bd965b2-finding-trust
-  measured_at: '2026-10-08'
-  commit: bd965b2
+  run: 20261018T175106Z-cf77d9e-finding-trust
+  measured_at: '2026-10-18'
+  commit: cf77d9e
 min_checked: 30
 groups:
   level_change_agree:
     tested:
-      real: 0.91
-      checked: 266
-      random: 0.603
+      real: 0.98
+      checked: 248
+      random: 0.61
       dataset: RCAEval RE1
       data_kind: microservice
     also_tested:
-    - real: 0.625
-      checked: 8
+    - real: 0.667
+      checked: 9
       random: 0.118
       dataset: NAB cloud servers
       data_kind: cloud server
   level_change_single:
     tested:
-      real: 0.699
-      checked: 485
-      random: 0.566
+      real: 0.672
+      checked: 503
+      random: 0.564
       dataset: RCAEval RE1
       data_kind: microservice
     also_tested:
-    - real: 0.75
-      checked: 4
+    - real: 0.667
+      checked: 3
       random: 0.118
       dataset: NAB cloud servers
       data_kind: cloud server
   spike:
     tested:
-      real: 0.601
-      checked: 917
-      random: 0.6
+      real: 0.597
+      checked: 657
+      random: 0.594
       dataset: RCAEval RE1
       data_kind: microservice
     also_tested:
-    - real: 0.163
-      checked: 619
-      random: 0.111
+    - real: 0.229
+      checked: 354
+      random: 0.11
       dataset: NAB cloud servers
       data_kind: cloud server

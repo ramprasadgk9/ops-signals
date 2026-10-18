@@ -17,8 +17,8 @@ Each finding carries a badge:
 
 | Badge | Meaning | In tests |
 | --- | --- | --- |
-| **Strong evidence** | Two different checks agree: the values look unusual **and** the level moved and stayed there | 91% real, against 60% for a random alert (266 checked) |
-| **Moderate evidence** | One check saw the level move and stay there | 70% real, against 57% for a random alert (485 checked) |
+| **Strong evidence** | Two different checks agree: the values look unusual **and** the level moved and stayed there | 98% real, against 61% for a random alert (248 checked) |
+| **Moderate evidence** | One check saw the level move and stay there | 67% real, against 56% for a random alert (503 checked) |
 | **Data problem** | The metric stopped reporting or froze at one value | A fact, not a guess, so no rate |
 | **Context only** | A single unusual value, a pattern, a trend or a forecast | Spikes were real 60% of the time, the same as a random alert |
 
@@ -110,7 +110,7 @@ A finding whose signals weren't stored falls back to its category.
 
 ## What the numbers don't promise
 
-- **91% real still means about 1 in 10 isn't.** Take a quick look before you act, especially
+- **98% real still means about 1 in 50 isn't.** Take a quick look before you act, especially
   before you page someone.
 - **Test data isn't your system.** Your team's answers replace the tested number for your service.
 - **No early warnings yet.** A finding says something has changed, not that something will break.
