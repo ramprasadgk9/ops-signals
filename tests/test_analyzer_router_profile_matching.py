@@ -376,3 +376,38 @@ def test_an_analyzers_shape_sentence_is_only_given_when_that_shape_was_detected(
     assert not any("sustained baseline changes" in reason for reason in spike_only["ruptures"].reasons)
     assert not any("repeat similar shapes" in reason for reason in spike_only["stumpy"].reasons)
     assert any("sustained baseline changes" in reason for reason in shifted["ruptures"].reasons)
+
+
+def test_a_clear_jump_in_the_newest_points_counts_as_a_spike() -> None:
+    # QA-31: a candidate needed 3 points after it to confirm it came back down, so a spike in the
+    # last points of a window never made the profile spiky.
+    rng = np.random.default_rng(11)
+    for from_end in (1, 2):
+        values = list(50 + rng.normal(0, 1.5, 288))
+        values[-from_end] = 95.0
+        assert "spike" in _extract_profile(values).detected_profiles, from_end
+
+
+def test_noise_or_a_small_wobble_at_the_edge_is_not_a_spike() -> None:
+    rng = np.random.default_rng(8)
+    quiet = list(50 + rng.normal(0, 1.5, 288))
+    wobble = quiet[:-1] + [quiet[-1] + 6.0]
+
+    assert "spike" not in _extract_profile(quiet).detected_profiles
+    assert "spike" not in _extract_profile(wobble).detected_profiles
+
+
+def test_an_accelerating_series_is_not_a_spike_at_its_end() -> None:
+    # Found on TCPD's global_co2: every recent step is far above the early-data jump threshold,
+    # so the last step looked like an edge spike although it is just the trend continuing.
+    values = [300.0 + 0.27 * i for i in range(80)] + [321.6 + sum(0.5 * k for k in range(1, j + 1)) for j in range(1, 25)]
+
+    assert "spike" not in _extract_profile(values).detected_profiles
+
+
+def test_a_spike_at_the_end_of_a_rising_trend_still_counts() -> None:
+    rng = np.random.default_rng(4)
+    values = list(40 + 0.1 * np.arange(288) + rng.normal(0, 1, 288))
+    values[-1] += 30
+
+    assert "spike" in _extract_profile(values).detected_profiles

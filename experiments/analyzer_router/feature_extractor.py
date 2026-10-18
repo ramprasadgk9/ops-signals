@@ -408,13 +408,29 @@ def _spikiness(values: np.ndarray) -> tuple[float, int, int]:
     persistent_count = 0
     baseline_window = max(5, min(24, len(values) // 40))
     return_tolerance = max(mad * 6.0, median_diff * 3.0, float(np.std(values, ddof=0)) * 0.05, 1e-9)
+    edge_spike_counted = False
 
     for index in candidate_indexes:
         before_start = max(0, index - baseline_window + 1)
         before = values[before_start : index + 1]
         after_end = min(len(values), index + 1 + baseline_window)
         after = values[index + 1 : after_end]
-        if len(before) < 3 or len(after) < 3:
+        if len(before) < 3:
+            continue
+        if len(after) < 3:
+            # A jump in the newest points can't be confirmed as transient yet - there's nothing
+            # after it to come back down to. Skipping it meant a fresh spike, exactly what a live
+            # or alert window ending "now" is about, never got a spike detector (QA-31). Count it
+            # as a spike when the newest reading sits well clear of the recent level (twice the
+            # jump threshold, since no return can be checked) and its jump dwarfs the recent steps,
+            # at most once per series. The second test keeps an accelerating series out: on
+            # TCPD's global_co2 every recent step is far above the early-data threshold, and the
+            # last one is just the trend continuing.
+            recent_steps = abs_diffs[before_start:index]
+            stands_out = not len(recent_steps) or abs(float(diffs[index])) >= 3.0 * float(np.median(recent_steps))
+            if not edge_spike_counted and stands_out and abs(float(values[index + 1]) - float(np.median(before))) >= 2.0 * threshold:
+                transient_count += 1
+                edge_spike_counted = True
             continue
         before_level = float(np.median(before))
         after_level = float(np.median(after))

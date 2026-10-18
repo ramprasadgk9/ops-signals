@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from intelligence.analyzers.base import Analyzer
 from intelligence.analyzers.ruptures import detect_primary_change_point
 from intelligence.capability import Capability
 from intelligence.signals.schema import OperationalSignal
+
+
+def _is_new_level(before: np.ndarray, after: np.ndarray) -> bool:
+    """Whether a short tail sits at a new level, rather than at the old level with an outlier in it:
+    its typical point is at least 3 robust spreads from the earlier median. A lone spike leaves
+    most of the tail where it was."""
+    center = float(np.median(before))
+    spread = max(1.4826 * float(np.median(np.abs(before - center))), 1e-9)
+    return float(np.median(np.abs(after - center))) / spread >= 3.0
 
 
 class ZScoreAnomalyAnalyzer(Analyzer):
@@ -77,6 +87,20 @@ class ZScoreAnomalyAnalyzer(Analyzer):
             start += int(change_point["change_point_index"])
         return start
 
+    def _min_baseline_points(self) -> int:
+        """The fewest points a rebaselined segment needs before any reading in it can reach the
+        z-score threshold. In n points no value can sit more than (n - 1) / sqrt(n) standard
+        deviations from their own mean, so a shorter tail can never flag anything. A fresh spike
+        made the change point land 8 points from the end, where the ceiling is 2.47, and the
+        30-sigma reading went unreported (QA-31). Such a tail is still rebaselined onto when it is a
+        genuine new level (_is_new_level), so a settled shift stops being flagged as before. The
+        bound is exact, with no margin: a 1.25 margin (16 points at z 3) also stopped rebaselining
+        onto 11-15 point tails that can flag readings, and lost real detections on NAB replay."""
+        points = 3
+        while (points - 1) / points**0.5 < self.zscore_threshold:
+            points += 1
+        return points
+
     def analyze(self, dataframe: pd.DataFrame) -> list[OperationalSignal]:
         signals: list[OperationalSignal] = []
         for _, group in dataframe.groupby(["metric_name", "service", "env"], dropna=False):
@@ -91,7 +115,10 @@ class ZScoreAnomalyAnalyzer(Analyzer):
                 start = self._most_recent_stable_regime_start(ordered["value"].to_numpy(dtype=float))
                 if start > 0:
                     post_shift = ordered.iloc[start:].reset_index(drop=True)
-                    if len(post_shift) >= self.rebaseline_min_segment_size:
+                    values = ordered["value"].to_numpy(dtype=float)
+                    if len(post_shift) >= self.rebaseline_min_segment_size and (
+                        len(post_shift) >= self._min_baseline_points() or _is_new_level(values[:start], values[start:])
+                    ):
                         working = post_shift
                         rebaselined = True
                         change_point_index = start

@@ -202,7 +202,44 @@ class RegistryAnalyzerSelection:
                 break
             if analyzer_id not in selected:
                 selected.append(analyzer_id)
+        if execution_config.cover_detected_profiles:
+            fallback = self._spike_fallback(analyzer_routing, selected, available_pipeline_ids)
+            if fallback:
+                selected.append(fallback)
         return set(selected)
+
+    @staticmethod
+    def _spike_fallback(
+        analyzer_routing: list[dict[str, object]],
+        selected: list[str],
+        available_pipeline_ids: set[str],
+    ) -> str | None:
+        """A spike detector for a series the profiler flagged as spiky when nothing selected covers
+        spikes (QA-29). PyOD Outlier when the router only scored it low; Z-Score only when the series
+        has fewer points than PyOD needs (50), since Z-Score needs 3. Z-Score stays out otherwise,
+        including when PyOD was rejected for gaps or bad values: on long series it raises far more
+        false alarms than PyOD (docs/analyzers-explained.md)."""
+        spike_profiles = PROFILE_GROUPS["spike"]
+        detected = {
+            str(profile)
+            for decision in analyzer_routing
+            for profile in (decision.get("parameters_tested") or {}).get("detected_profiles") or []
+        }
+        if not detected & spike_profiles:
+            return None
+        by_id = {str(decision["analyzer_id"]): decision for decision in analyzer_routing}
+        for analyzer_id in selected:
+            if {str(profile) for profile in by_id.get(analyzer_id, {}).get("matched_profiles") or []} & spike_profiles:
+                return None
+        pyod = by_id.get("pyod_outlier")
+        if pyod is not None and str(pyod.get("recommendation")) != "REJECTED" and "pyod_outlier" in available_pipeline_ids:
+            return "pyod_outlier"
+        pyod_tested = (pyod or {}).get("parameters_tested") or {}
+        sample_count = pyod_tested.get("valid_sample_count")
+        pyod_minimum = int((pyod_tested.get("eligibility_rules") or {}).get("min_samples") or 50)
+        if isinstance(sample_count, int) and sample_count < pyod_minimum and "anomaly_zscore" in available_pipeline_ids:
+            return "anomaly_zscore"
+        return None
 
     @staticmethod
     def _profile_coverage(
@@ -304,6 +341,8 @@ class RegistryAnalyzerSelection:
             elif not matching_executed:
                 if not matching_failed:
                     reason = "No enabled pipeline analyzer is available for this recommended router analyzer."
+            elif str(decision.get("recommendation")) not in {"RECOMMENDED", "OPTIONAL"}:
+                reason = self._spike_fallback_reason(router_analyzer_id, analyzer_routing)
             snapshots.append(
                 {
                     "router_analyzer_id": router_analyzer_id,
@@ -331,7 +370,7 @@ class RegistryAnalyzerSelection:
                     "executed_pipeline_analyzer_ids": [analyzer_id],
                     "failed_pipeline_analyzer_ids": [],
                     "execution_status": "completed",
-                    "execution_reason": None,
+                    "execution_reason": self._spike_fallback_reason(analyzer_id, analyzer_routing),
                 }
             )
         for analyzer_id, error in failed_analyzers.items():
@@ -352,6 +391,25 @@ class RegistryAnalyzerSelection:
                 }
             )
         return snapshots
+
+    def _spike_fallback_reason(self, analyzer_id: str, analyzer_routing: list[dict[str, object]]) -> str | None:
+        """Why a spike detector ran that the router didn't pick itself (see _spike_fallback)."""
+        if analyzer_id not in {"pyod_outlier", "anomaly_zscore"}:
+            return None
+        if (self.config.analysis.selection_mode or "").lower().strip() != "recommended_threshold":
+            return None
+        if analyzer_id in set(self.config.analysis.selected_analyzers or []):
+            return None
+        detected = {
+            str(profile)
+            for decision in analyzer_routing
+            for profile in (decision.get("parameters_tested") or {}).get("detected_profiles") or []
+        }
+        if not detected & PROFILE_GROUPS["spike"]:
+            return None
+        if analyzer_id == "anomaly_zscore":
+            return "Ran as the spike detector: the series looks spiky and PyOD Outlier needs at least 50 points."
+        return "Ran as the spike detector: the series looks spiky and nothing else selected looks for spikes."
 
     @staticmethod
     def _router_to_pipeline_analyzers() -> dict[str, set[str]]:
