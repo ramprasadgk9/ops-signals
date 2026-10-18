@@ -336,9 +336,10 @@ export function ValidateDataPage() {
   const [customValueColumn, setCustomValueColumn] = useState('');
   const [customMetricColumn, setCustomMetricColumn] = useState('');
   const [analyzerId, setAnalyzerId] = useState('all');
-  const [service, setService] = useState('ruptures-lab');
-  const [metricName, setMetricName] = useState('ops_signal_lab_value');
-  const [metricNames, setMetricNames] = useState<string[]>(['ops_signal_lab_value']);
+  // Empty, not a lab example: a pre-filled demo service sent new users' runs to the lab data.
+  const [service, setService] = useState('');
+  const [metricName, setMetricName] = useState('');
+  const [metricNames, setMetricNames] = useState<string[]>([]);
   // 'auto' lets the backend measure each series' spacing from the file; a fixed 5m turned a
   // 15-minute export into mostly empty slots and every analyzer rejected it.
   const [interval, setInterval] = useState('auto');
@@ -427,6 +428,8 @@ export function ValidateDataPage() {
   const clusterSelector = chosenCluster && clusterLabel ? { label: clusterLabel, value: chosenCluster } : null;
   const clusterRequired = needsCluster && !chosenCluster;
   const effectiveQuery = queryMode === 'simple' ? buildPromql(selectedMetricNames[0] ?? metricName, service, clusterSelector) : promQuery;
+  // Nothing to query until a metric is chosen (or a PromQL query typed): the form starts empty.
+  const queryMissing = !effectiveQuery.trim();
   const rangeValid = selectedRange.start instanceof Date && selectedRange.end instanceof Date && !Number.isNaN(selectedRange.start.getTime()) && !Number.isNaN(selectedRange.end.getTime()) && selectedRange.start < selectedRange.end;
   const suggestedLabService = service.replace(/_/g, '-');
   const likelyLabServiceTypo = service.includes('_') && LAB_SERVICE_NAMES.has(suggestedLabService);
@@ -443,8 +446,10 @@ export function ValidateDataPage() {
     const form = new FormData();
     form.set('file', file);
     form.set('provider', provider);
-    form.set('service', service);
-    form.set('metric_name', metricName);
+    // Only fill rows the file leaves without a service or metric; left empty, the backend's
+    // neutral defaults apply.
+    if (service.trim()) form.set('service', service.trim());
+    if (metricName.trim()) form.set('metric_name', metricName.trim());
     form.set('interval', interval);
     if (provider === 'custom') {
       form.set('custom_timestamp_column', customTimestampColumn.trim());
@@ -691,8 +696,8 @@ export function ValidateDataPage() {
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
                 <FormControl fullWidth><InputLabel>Provider</InputLabel><Select value={provider} label="Provider" onChange={(e) => setProvider(e.target.value as Provider)}><MenuItem value="prometheus">Prometheus CSV</MenuItem><MenuItem value="datadog">Datadog CSV</MenuItem><MenuItem value="generic">Generic CSV</MenuItem><MenuItem value="custom">Custom / Other</MenuItem></Select></FormControl>
                 <FormControl fullWidth><InputLabel>Analyzer</InputLabel><Select value={analyzerId} label="Analyzer" onChange={(e) => setAnalyzerId(e.target.value)}>{analyzerOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}</Select></FormControl>
-                <TextField fullWidth label="Service" value={service} onChange={(e) => setService(e.target.value)} />
-                <TextField fullWidth label="Metric" value={metricName} onChange={(e) => setMetricName(e.target.value)} />
+                <TextField fullWidth label="Service" placeholder="e.g. checkout" value={service} onChange={(e) => setService(e.target.value)} helperText="Only for rows without a service column" />
+                <TextField fullWidth label="Metric" placeholder="e.g. cpu_usage" value={metricName} onChange={(e) => setMetricName(e.target.value)} helperText="Only for rows without a metric column" />
                 <TextField fullWidth label="Interval" value={interval} onChange={(e) => setInterval(e.target.value)} helperText="auto measures it from your file, or type one like 5m" />
               </Stack>
               {provider === 'custom' ? (
@@ -924,10 +929,10 @@ export function ValidateDataPage() {
                 ) : null}
 
                 <Stack direction="row" spacing={1.5}>
-                  <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: 'var(--os-tint-cyan-border)', color: 'var(--os-ink-brand)', textTransform: 'none', fontWeight: 850 }}>
+                  <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || queryMissing || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: 'var(--os-tint-cyan-border)', color: 'var(--os-ink-brand)', textTransform: 'none', fontWeight: 850 }}>
                     {previewMutation.isPending ? <CircularProgress size={20} /> : 'Preview Data'}
                   </Button>
-                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || belowRouterMinimum || clusterRequired || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
+                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || queryMissing || belowRouterMinimum || clusterRequired || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
                     {runPrometheusMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Run Analysis'}
                   </Button>
                 </Stack>
