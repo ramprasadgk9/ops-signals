@@ -38,7 +38,7 @@ from backend.app.memory.suggested_fixes import RunbookDraft, SuggestedFixesRespo
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
-from backend.app.api.errors import internal_error
+from backend.app.api.errors import internal_error, memory_error, memory_not_ready
 from backend.app.memory import availability as memory_availability
 from backend.app.memory.catch_up import count_waiting
 from backend.app.memory.embedder import Embedder
@@ -116,7 +116,7 @@ def index_case_memory(
         raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
 
     if not indexer:
-        raise HTTPException(status_code=503, detail="Memory indexer not initialized")
+        raise memory_not_ready("Memory indexer not initialized")
 
     # Load case
     case = db.execute(
@@ -130,7 +130,7 @@ def index_case_memory(
         return indexer.index_case(case, db)
     except Exception as e:
         logger.error(f"Failed to index case {case_id}: {e}")
-        raise internal_error("Indexing failed", e)
+        raise memory_error("Indexing failed", e)
 
 
 @router.delete("/cases/{case_id}/memory")
@@ -158,7 +158,7 @@ def delete_case_memory(
         raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
 
     if not indexer:
-        raise HTTPException(status_code=503, detail="Memory indexer not initialized")
+        raise memory_not_ready("Memory indexer not initialized")
 
     # Load case
     case = db.execute(
@@ -177,7 +177,7 @@ def delete_case_memory(
         }
     except Exception as e:
         logger.error(f"Failed to delete case {case_id} from memory: {e}")
-        raise internal_error("Deletion failed", e)
+        raise memory_error("Deletion failed", e)
 
 
 @router.get("/cases/{case_id}/memory/status", response_model=MemoryStatusResponse)
@@ -335,7 +335,7 @@ def find_similar_cases(
         raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
 
     if not service:
-        raise HTTPException(status_code=503, detail="Similarity service not initialized")
+        raise memory_not_ready("Similarity service not initialized")
 
     try:
         return service.find_similar_cases(
@@ -349,7 +349,7 @@ def find_similar_cases(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to search similar cases for {case_id}: {e}")
-        raise internal_error("Search failed", e)
+        raise memory_error("Search failed", e)
 
 
 @router.post("/memory/chat", response_model=MemoryChatResponse)
@@ -364,7 +364,7 @@ def chat_memory(
     if not config or not config.enabled:
         raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
     if not service or not embedder:
-        raise HTTPException(status_code=503, detail="Memory services are not initialized")
+        raise memory_not_ready("Memory services are not initialized")
 
     question = payload.message.strip()
     if not question:
@@ -467,7 +467,7 @@ def chat_memory(
         )
     except Exception as e:
         logger.error(f"Failed to answer memory chat request: {e}")
-        raise internal_error("Chat failed", e)
+        raise memory_error("Chat failed", e)
 
 
 def _not_started_status() -> str:
@@ -527,11 +527,17 @@ def get_memory_health(
     health = store.health()
     status_map = {"healthy": "healthy", "unhealthy": "unhealthy", "unknown": "unknown"}
     status = status_map.get(health.get("status", "unknown"), "unknown")
+    # Why it's unhealthy, without Qdrant's raw error text (which can carry its address). It used to
+    # report "unhealthy" with no reason at all (QA-34).
+    detail = None
+    if status == "unhealthy":
+        detail = health.get("reason") or ("Qdrant can't be reached." if health.get("error") else None)
 
     return MemoryHealthResponse(
         enabled=True,
         provider=config.vector_store.provider,
         status=status,
+        detail=detail,
         collection=config.vector_store.collection_name,
         embedding_model=config.embedding.model,
         dimension=config.embedding.dimension,

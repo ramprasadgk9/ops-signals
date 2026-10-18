@@ -209,8 +209,9 @@ function NeedsSourceGroup({ items }: { items: NavItem[] }) {
 }
 
 function SystemStatus() {
-  const healthQuery = useQuery({ queryKey: ['shell-health'], queryFn: api.health, retry: false });
-  const memoryQuery = useQuery({ queryKey: ['shell-memory-health'], queryFn: api.memoryHealth, retry: false });
+  // Re-checked every 30 s: an outage after the page loaded used to go unnoticed.
+  const healthQuery = useQuery({ queryKey: ['shell-health'], queryFn: api.health, retry: false, refetchInterval: 30_000 });
+  const memoryQuery = useQuery({ queryKey: ['shell-memory-health'], queryFn: api.memoryHealth, retry: false, refetchInterval: 30_000 });
   // A 503 from /api/health still has a body: the backend is up and only the database is down.
   const backendHealthy = Boolean(healthQuery.data);
   const database = healthQuery.data?.database;
@@ -221,7 +222,12 @@ function SystemStatus() {
     ['Qdrant', memoryQuery.isError ? 'unavailable' : memoryHealthy ? 'healthy' : memoryQuery.isLoading ? 'loading' : memoryQuery.data?.status ?? 'unknown'],
     ['MCP Server', 'not exposed'],
   ];
-  const overallHealthy = backendHealthy && !memoryQuery.isError;
+  // Memory reporting itself unhealthy or unavailable counts too, not only the request failing: with
+  // Qdrant down the sidebar said Healthy beside an amber Qdrant dot (QA-34). Memory turned off in
+  // config is not a fault.
+  const databaseOk = healthQuery.isLoading || database === 'ok';
+  const memoryOk = memoryQuery.isLoading || (!memoryQuery.isError && (memoryHealthy || memoryQuery.data?.status === 'disabled'));
+  const overallHealthy = backendHealthy && databaseOk && memoryOk;
 
   return (
     <Box sx={{ mx: 1.5, p: 1.6, borderRadius: '8px', border: `1px solid ${ui.border}`, bgcolor: 'var(--os-surface)' }}>

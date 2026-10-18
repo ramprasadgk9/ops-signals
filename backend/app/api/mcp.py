@@ -9,6 +9,7 @@ from sqlalchemy import inspect, select, distinct, text
 from sqlalchemy.orm import Session
 
 from backend.app.api.cases import _to_case_out
+from backend.app.api.errors import memory_error, memory_not_ready
 from backend.app.api.findings import _to_finding_out
 from backend.app.assistant.schemas import AssistantChatRequest
 from backend.app.metric_analyzer_recommendations.api import _analyzer_config
@@ -521,8 +522,13 @@ def find_similar_cases(
     if not config or not config.enabled:
         raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
     if not service:
-        raise HTTPException(status_code=503, detail="Similarity service not initialized")
-    return service.find_similar_cases(case_id=case_id, db=db, top_k=top_k, minimum_score=minimum_score, same_service_only=same_service_only)
+        raise memory_not_ready("Similarity service not initialized")
+    try:
+        return service.find_similar_cases(case_id=case_id, db=db, top_k=top_k, minimum_score=minimum_score, same_service_only=same_service_only)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise memory_error("Search failed", exc) from exc
 
 
 @router.get("/cases/{case_id}/memory/status")
@@ -551,6 +557,15 @@ def assistant_knowledge_status() -> dict[str, Any]:
 
 @router.post("/memory/chat")
 def memory_chat(payload: MemoryChatRequest, db: Session = Depends(get_db)) -> Any:
+    try:
+        return _memory_chat(payload, db)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise memory_error("Chat failed", exc) from exc
+
+
+def _memory_chat(payload: MemoryChatRequest, db: Session) -> Any:
     from backend.app.api import memory as memory_module
     from backend.app.memory.document_builder import CaseDocumentBuilder
     from backend.app.memory.schemas import MemoryChatResponse, MemoryChatSource
@@ -562,7 +577,7 @@ def memory_chat(payload: MemoryChatRequest, db: Session = Depends(get_db)) -> An
     if not config or not config.enabled:
         raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
     if not service or not embedder:
-        raise HTTPException(status_code=503, detail="Memory services are not initialized")
+        raise memory_not_ready("Memory services are not initialized")
 
     question = payload.message.strip()
     if not question:
@@ -679,7 +694,7 @@ def index_case_memory(case_id: int, db: Session = Depends(get_db)) -> Any:
     if not config or not config.enabled:
         raise HTTPException(status_code=400, detail="Operational Memory is not enabled")
     if not indexer:
-        raise HTTPException(status_code=503, detail="Memory indexer not initialized")
+        raise memory_not_ready("Memory indexer not initialized")
     case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
