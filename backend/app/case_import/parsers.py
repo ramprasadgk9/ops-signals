@@ -291,6 +291,11 @@ def parse_files(files: list[tuple[str, bytes]], settings: ImportSettings) -> Par
 
     for name, data in data_files:
         suffix = PurePosixPath(name).suffix.lower()
+        if suffix in MARKDOWN_SUFFIXES | {".csv"} and _looks_binary(data):
+            # Latin-1 decodes any bytes, so an image or a spreadsheet saved as .csv used to import as
+            # 0 records with no warning (QA-42).
+            upload.warnings.append(f"Skipped {name}: it isn't a text file. Export it as CSV (UTF-8) or Markdown.")
+            continue
         if suffix in MARKDOWN_SUFFIXES:
             upload.file_profiles[name] = "markdown"
             upload.records.append(_parse_markdown(name, _decode(data), upload.settings))
@@ -303,8 +308,12 @@ def parse_files(files: list[tuple[str, bytes]], settings: ImportSettings) -> Par
             profile = PROFILES[upload.settings.profile] if upload.settings.profile else detect_csv_profile(rows[0])
             if profile.kind != "csv":
                 raise ImportSettingsError(f"profile '{profile.id}' cannot read CSV file {name}")
+            records = _parse_csv(name, rows, profile, upload.settings)
+            if not records:
+                upload.warnings.append(f"Skipped {name}: it has a header row but no incidents.")
+                continue
             upload.file_profiles[name] = profile.id
-            upload.records.extend(_parse_csv(name, rows, profile, upload.settings))
+            upload.records.extend(records)
         else:
             upload.warnings.append(
                 f"Skipped {name}: only .md, .markdown, .csv, .zip and ops-signals-import.yaml files are read."
@@ -344,6 +353,16 @@ def _expand_archives(files: list[tuple[str, bytes]], warnings: list[str]) -> lis
                 continue
             expanded.append((info.filename, archive.read(info)))
     return expanded
+
+
+def _looks_binary(data: bytes) -> bool:
+    """NUL bytes or many control characters near the start: not text in any encoding a CSV or
+    Markdown export uses (UTF-8, or Latin-1 from older Windows tools)."""
+    sample = data[:8192]
+    if b"\x00" in sample:
+        return True
+    control = sum(1 for byte in sample if byte < 32 and byte not in (9, 10, 12, 13))
+    return control > len(sample) // 20
 
 
 def _decode(data: bytes) -> str:

@@ -275,3 +275,6 @@ re-import the files to bring the cases back.
 - Long text fields are cut at 20,000 characters.
 - Files other than `.md`, `.markdown`, `.csv`, `.zip` and `ops-signals-import.yaml` are skipped
   with a warning.
+- A `.csv` or `.md` file that isn't text (a spreadsheet or image renamed, for example), and a CSV
+  with a header row but no incidents, are skipped with a warning. UTF-8 is expected; a Latin-1
+  export from older Windows tools is still read.

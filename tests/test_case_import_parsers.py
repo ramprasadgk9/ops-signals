@@ -188,3 +188,44 @@ def test_redact_masks_common_secrets() -> None:
     assert "xoxb-1234" not in cleaned
     assert "ghp_" not in cleaned
     assert count == 5
+
+
+# QA-42: an unreadable file was accepted with 0 records and no warning.
+GARBAGE = bytes(range(256)) * 8
+
+
+def test_a_binary_file_named_csv_is_skipped_with_a_warning() -> None:
+    parsed = parse_files([("garbage.csv", GARBAGE)], ImportSettings())
+
+    assert parsed.records == []
+    assert parsed.file_profiles == {}
+    assert parsed.warnings == ["Skipped garbage.csv: it isn't a text file. Export it as CSV (UTF-8) or Markdown."]
+
+
+def test_a_binary_file_named_md_is_skipped_with_a_warning() -> None:
+    parsed = parse_files([("postmortem.md", b"\x89PNG\r\n\x1a\n" + GARBAGE)], ImportSettings())
+
+    assert parsed.records == []
+    assert parsed.warnings == ["Skipped postmortem.md: it isn't a text file. Export it as CSV (UTF-8) or Markdown."]
+
+
+def test_a_binary_file_does_not_stop_the_readable_ones() -> None:
+    parsed = parse_files([("garbage.csv", GARBAGE), _read(TEMPLATES / "incident-template.csv")], ImportSettings())
+
+    assert len(parsed.records) == 2
+    assert len(parsed.warnings) == 1
+
+
+def test_a_windows_latin1_csv_is_still_read() -> None:
+    text = "id,title,service,started_at,root_cause\nINC-1,Caf\xe9 checkout slow,checkout,2025-03-14T18:20:00Z,pool \xb5s timeouts\n"
+    parsed = parse_files([("export.csv", text.encode("latin-1"))], ImportSettings())
+
+    assert parsed.warnings == []
+    assert parsed.records[0].title == "Caf\xe9 checkout slow"
+
+
+def test_a_csv_with_only_a_header_says_so() -> None:
+    parsed = parse_files([("empty.csv", b"id,title,service,started_at\n")], ImportSettings())
+
+    assert parsed.records == []
+    assert parsed.warnings == ["Skipped empty.csv: it has a header row but no incidents."]
