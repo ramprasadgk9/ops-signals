@@ -128,6 +128,33 @@ describe('ValidateDataPage source modes', () => {
     expect(submittedForm.get('custom_metric_name_column')).toBe('metric');
   });
 
+  it('starts with no demo service or metric and sends neither unless the user types one', async () => {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
+    vi.mocked(api.prometheusLabelValues).mockResolvedValue({ connection_id: 'default', label: 'service', values: [] });
+    vi.mocked(api.runCsvValidation).mockResolvedValue({
+      provider: 'prometheus', source_type: 'csv', analyzer_id: 'router', service: 'uploaded-service', metric_name: 'cpu_usage',
+      sample_count: 1, normalized_preview: [], signals: [], findings: [], analyzer_selection_mode: 'all', analyzer_routing: [], executed_analyzers: [],
+    });
+
+    renderPage();
+
+    expect(await screen.findByLabelText('Service')).toHaveValue('');
+    expect(screen.getByLabelText('Metric')).toHaveValue('');
+    const file = new File(['timestamp,metric,value\n2026-01-01T00:00:00Z,cpu_usage,42.5'], 'cpu.csv', { type: 'text/csv' });
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate Data' }));
+    await waitFor(() => expect(api.runCsvValidation).toHaveBeenCalledTimes(1));
+    const untouched = vi.mocked(api.runCsvValidation).mock.calls[0][0];
+    expect(untouched.has('service')).toBe(false);
+    expect(untouched.has('metric_name')).toBe(false);
+
+    fireEvent.change(screen.getByLabelText('Service'), { target: { value: ' checkout ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Validate Data' }));
+    await waitFor(() => expect(api.runCsvValidation).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.runCsvValidation).mock.calls[1][0].get('service')).toBe('checkout');
+  });
+
   it('sends auto by default and shows the detected interval and any warning', async () => {
     vi.mocked(api.capabilities).mockResolvedValue([]);
     vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
@@ -276,6 +303,8 @@ describe('ValidateDataPage clusters', () => {
     });
     renderPage();
     fireEvent.click(screen.getByRole('tab', { name: 'Prometheus' }));
+    // The form starts empty; pick the lab series the way a user would.
+    if (services.includes('ruptures-lab')) fireEvent.click(screen.getByText('Baseline shift: ruptures-lab'));
   }
 
   const promql = () => (screen.getByLabelText('PromQL') as HTMLTextAreaElement).value;
@@ -316,6 +345,21 @@ describe('ValidateDataPage clusters', () => {
     fireEvent.click(runButton());
     await waitFor(() => expect(api.runPrometheusAnalysis).toHaveBeenCalled());
     expect(vi.mocked(api.runPrometheusAnalysis).mock.calls[0][0].query).toBe('ops_signal_lab_value{service="ruptures-lab",cluster="us"}');
+  });
+
+  it('starts with no service or metric, and can only preview or run once a metric is chosen', async () => {
+    setup({ services: ['checkout'], clusters: [] });
+
+    await waitFor(() => expect(api.prometheusLabelValues).toHaveBeenCalledWith('service', 'mimir-a'));
+    expect(screen.queryByDisplayValue('ruptures-lab')).not.toBeInTheDocument();
+    expect(promql()).toBe('');
+    expect(runButton()).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Preview Data' })).toBeDisabled();
+
+    fireEvent.mouseDown(screen.getByText('Simple'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Advanced PromQL' }));
+    fireEvent.change(screen.getByLabelText('PromQL'), { target: { value: 'cpu_usage' } });
+    await waitFor(() => expect(runButton()).toBeEnabled());
   });
 
   it('shows the lab scenarios only when the connection has the lab services', async () => {
