@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { PropsWithChildren, ReactNode } from 'react';
 import {
   Avatar,
-  Badge,
   Box,
   Button,
   Chip,
@@ -27,11 +26,10 @@ import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
 import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
-import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
-import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
+import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import { GlobalSearch } from './GlobalSearch';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -42,6 +40,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { useFeatureAvailability } from '../hooks/useFeatureAvailability';
 import { ui } from '../standalone/theme';
+import { useColorMode } from '../theme/ThemeProviderWithMode';
 import { showAllNavFeatures, useHiddenNavFeatures } from '../utils/hiddenNavFeatures';
 
 type NavItem = {
@@ -220,7 +219,6 @@ function SystemStatus() {
     ['Backend', healthQuery.isError ? 'unavailable' : backendHealthy ? 'healthy' : healthQuery.isLoading ? 'loading' : healthQuery.data?.status ?? 'unknown'],
     ['Database', healthQuery.isError ? 'unknown' : database === 'ok' ? 'healthy' : healthQuery.isLoading ? 'loading' : database ?? 'unknown'],
     ['Qdrant', memoryQuery.isError ? 'unavailable' : memoryHealthy ? 'healthy' : memoryQuery.isLoading ? 'loading' : memoryQuery.data?.status ?? 'unknown'],
-    ['MCP Server', 'not exposed'],
   ];
   // Memory reporting itself unhealthy or unavailable counts too, not only the request failing: with
   // Qdrant down the sidebar said Healthy beside an amber Qdrant dot (QA-34). Memory turned off in
@@ -246,6 +244,20 @@ function SystemStatus() {
         </Stack>
       ))}
     </Box>
+  );
+}
+
+const DOCS_URL = 'https://github.com/ramprasadgk9/ops-signals/tree/main/docs#readme';
+
+function ThemeToggle() {
+  const { mode, toggle } = useColorMode();
+  const label = mode === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+  return (
+    <Tooltip title={label}>
+      <IconButton onClick={toggle} aria-label={label}>
+        {mode === 'light' ? <DarkModeRoundedIcon /> : <LightModeRoundedIcon />}
+      </IconButton>
+    </Tooltip>
   );
 }
 
@@ -284,27 +296,19 @@ export function AppShell({ children }: PropsWithChildren) {
         <Stack direction="row" alignItems="center" spacing={1.5}>
           <Avatar sx={{ width: 42, height: 42, bgcolor: ui.red, fontSize: 15, fontWeight: 900 }}>OS</Avatar>
           <Typography sx={{ fontSize: 20, fontWeight: 900, letterSpacing: 0 }}>Ops Signals</Typography>
-          <Tooltip title="Collapse navigation">
-            <IconButton aria-label="Collapse navigation" sx={{ ml: { xs: 0, lg: 'auto' }, display: { xs: 'none', lg: 'inline-flex' } }}>
-              <MenuRoundedIcon />
-            </IconButton>
-          </Tooltip>
         </Stack>
 
         <GlobalSearch />
 
         <Stack direction="row" alignItems="center" spacing={1.2} justifyContent="flex-end">
-          {[<NotificationsNoneRoundedIcon />, <HelpOutlineRoundedIcon />, <LightModeRoundedIcon />].map((icon, index) => (
-            <IconButton key={index} aria-label={['Notifications', 'Help', 'Theme'][index]} sx={{ display: { xs: index > 0 ? 'none' : 'inline-flex', sm: 'inline-flex' } }}>
-              {index === 0 ? (
-                <Badge color="error" badgeContent={1}>
-                  {icon}
-                </Badge>
-              ) : (
-                icon
-              )}
+          {/* QA-41: the Notifications bell (with a fixed "1"), Help and Theme did nothing. There is no
+              notification feed, so the bell is gone; Help opens the docs and Theme switches mode. */}
+          <Tooltip title="Documentation (opens in a new tab)">
+            <IconButton component="a" href={DOCS_URL} target="_blank" rel="noopener noreferrer" aria-label="Help: documentation">
+              <HelpOutlineRoundedIcon />
             </IconButton>
-          ))}
+          </Tooltip>
+          <ThemeToggle />
           <Avatar sx={{ width: 40, height: 40, bgcolor: '#60a5fa' }}>
             <PersonRoundedIcon />
           </Avatar>

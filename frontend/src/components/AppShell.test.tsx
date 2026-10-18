@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
 import { AppShell } from './AppShell';
+import { ThemeProviderWithMode } from '../theme/ThemeProviderWithMode';
 import { HIDDEN_NAV_FEATURES_KEY } from '../utils/hiddenNavFeatures';
 import type { FeatureAvailability, IngestionStatus } from '../types';
 
@@ -141,9 +142,56 @@ describe('AppShell accessibility (QA-20)', () => {
 
     const unnamed = screen.getAllByRole('button').filter((button) => !button.getAttribute('aria-label') && !button.textContent?.trim());
     expect(unnamed).toEqual([]);
-    for (const name of ['Notifications', 'Help', 'Theme', 'Collapse navigation']) {
-      expect(screen.getByRole('button', { name })).toBeInTheDocument();
-    }
+    expect(screen.getByRole('button', { name: 'Switch to dark mode' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Help/ })).toBeInTheDocument();
+  });
+});
+
+describe('AppShell header controls (QA-41)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    vi.mocked(api.ingestionStatus).mockResolvedValue(status(OTLP_ONLY));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('switches between light and dark mode', async () => {
+    render(
+      <ThemeProviderWithMode>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter>
+            <AppShell>
+              <p>page</p>
+            </AppShell>
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ThemeProviderWithMode>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Switch to dark mode' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to light mode' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+  });
+
+  it('opens the documentation from Help in a new tab', async () => {
+    renderShell();
+
+    const help = await screen.findByRole('link', { name: /Help/ });
+    expect(help.getAttribute('href')).toMatch(/\/docs/);
+    expect(help.getAttribute('target')).toBe('_blank');
+  });
+
+  it('has no controls that do nothing and no made-up status', async () => {
+    renderShell();
+    await screen.findByRole('link', { name: /Findings/ });
+
+    expect(screen.queryByRole('button', { name: 'Notifications' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Collapse navigation' })).toBeNull();
+    expect(screen.queryByText('MCP Server')).toBeNull();
   });
 });
 
