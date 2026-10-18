@@ -34,7 +34,7 @@ import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUnch
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError } from '../api/client';
+import { ApiError, retryUnlessClientError } from '../api/client';
 import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
@@ -945,10 +945,20 @@ function SimilarCasesList({ caseId, service }: { caseId: number; service?: strin
   const { data: similarCases, isLoading, error } = useQuery({
     queryKey: ['similarCases', caseId],
     queryFn: () => api.getSimilarCases(caseId, 10, 0.4),
+    // A 503 means memory itself is down (Qdrant unreachable): retrying with backoff only kept a
+    // spinner up for ~20 s before a generic error (QA-34).
+    retry: (count, err) => !(err instanceof ApiError && err.status === 503) && retryUnlessClientError(count, err),
   });
 
   if (isLoading) return <CircularProgress />;
-  if (error) return <Alert severity="error">Failed to load similar cases</Alert>;
+  if (error) {
+    const memoryDown = error instanceof ApiError && error.status === 503;
+    return (
+      <Alert severity={memoryDown ? 'warning' : 'error'}>
+        {memoryDown ? `Similar cases can't be searched right now: ${error.message}` : 'Failed to load similar cases'}
+      </Alert>
+    );
+  }
 
   return (
     <Stack spacing={1.5}>

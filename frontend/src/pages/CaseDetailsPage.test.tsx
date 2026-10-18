@@ -239,3 +239,24 @@ describe('CaseDetailsPage for a case that does not exist (QA-19)', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
   });
 });
+
+describe('CaseDetailsPage similar cases', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getSimilarCases).mockResolvedValue({ source_case_id: 1, matches: [] } as unknown as Awaited<ReturnType<typeof api.getSimilarCases>>);
+  });
+
+  it('says memory is unavailable at once, instead of retrying into a generic error (QA-34)', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.getSimilarCases).mockRejectedValue(
+      new ApiError(503, "Operational memory is unavailable right now: Qdrant can't be reached. Details are in the server log (error 1a2b3c4d)."),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Similar Cases/i }));
+
+    expect(await screen.findByText(/Similar cases can't be searched right now: Operational memory is unavailable/)).toBeTruthy();
+    expect(screen.queryByText('Failed to load similar cases')).toBeNull();
+    expect(api.getSimilarCases).toHaveBeenCalledTimes(1);
+  });
+});

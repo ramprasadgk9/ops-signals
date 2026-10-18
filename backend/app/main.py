@@ -14,6 +14,7 @@ from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from backend.app.api.ai import router as ai_router
+from backend.app.api.errors import unhandled_error
 from backend.app.api.alerts import router as alerts_router
 from backend.app.api.analysis_runs import router as analysis_runs_router
 from backend.app.api.admin_analyzers import router as admin_analyzers_router
@@ -442,6 +443,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         redoc_url="/redoc" if docs_open else None,
         openapi_url="/openapi.json" if docs_open else None,
     )
+    app.add_exception_handler(Exception, unhandled_error)
 
     app.add_middleware(
         CORSMiddleware,

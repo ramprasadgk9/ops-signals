@@ -146,3 +146,51 @@ describe('AppShell accessibility (QA-20)', () => {
     }
   });
 });
+
+describe('AppShell system status', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    vi.mocked(api.ingestionStatus).mockResolvedValue(status(OTLP_ONLY));
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.mocked(api.health).mockResolvedValue({ status: 'ok' } as Awaited<ReturnType<typeof api.health>>);
+    vi.mocked(api.memoryHealth).mockResolvedValue({ status: 'ok' } as Awaited<ReturnType<typeof api.memoryHealth>>);
+  });
+
+  const healthy = { status: 'ok', database: 'ok' } as Awaited<ReturnType<typeof api.health>>;
+
+  it('says Healthy when the backend, database and memory are all fine', async () => {
+    vi.mocked(api.health).mockResolvedValue(healthy);
+    vi.mocked(api.memoryHealth).mockResolvedValue({ status: 'healthy' } as Awaited<ReturnType<typeof api.memoryHealth>>);
+    renderShell();
+
+    expect(await screen.findByText('Healthy')).toBeInTheDocument();
+  });
+
+  it('is not Healthy while memory reports itself unhealthy (QA-34)', async () => {
+    vi.mocked(api.health).mockResolvedValue(healthy);
+    vi.mocked(api.memoryHealth).mockResolvedValue({ status: 'unhealthy' } as Awaited<ReturnType<typeof api.memoryHealth>>);
+    renderShell();
+
+    expect(await screen.findByText('Partial')).toBeInTheDocument();
+    expect(screen.queryByText('Healthy')).not.toBeInTheDocument();
+  });
+
+  it('counts memory turned off in config as fine', async () => {
+    vi.mocked(api.health).mockResolvedValue(healthy);
+    vi.mocked(api.memoryHealth).mockResolvedValue({ status: 'disabled' } as Awaited<ReturnType<typeof api.memoryHealth>>);
+    renderShell();
+
+    expect(await screen.findByText('Healthy')).toBeInTheDocument();
+  });
+
+  it('is not Healthy while the database is unavailable', async () => {
+    vi.mocked(api.health).mockResolvedValue({ status: 'degraded', database: 'unavailable' } as Awaited<ReturnType<typeof api.health>>);
+    vi.mocked(api.memoryHealth).mockResolvedValue({ status: 'healthy' } as Awaited<ReturnType<typeof api.memoryHealth>>);
+    renderShell();
+
+    expect(await screen.findByText('Partial')).toBeInTheDocument();
+  });
+});
