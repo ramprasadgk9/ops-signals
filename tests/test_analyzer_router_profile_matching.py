@@ -395,3 +395,19 @@ def test_noise_or_a_small_wobble_at_the_edge_is_not_a_spike() -> None:
 
     assert "spike" not in _extract_profile(quiet).detected_profiles
     assert "spike" not in _extract_profile(wobble).detected_profiles
+
+
+def test_an_accelerating_series_is_not_a_spike_at_its_end() -> None:
+    # Found on TCPD's global_co2: every recent step is far above the early-data jump threshold,
+    # so the last step looked like an edge spike although it is just the trend continuing.
+    values = [300.0 + 0.27 * i for i in range(80)] + [321.6 + sum(0.5 * k for k in range(1, j + 1)) for j in range(1, 25)]
+
+    assert "spike" not in _extract_profile(values).detected_profiles
+
+
+def test_a_spike_at_the_end_of_a_rising_trend_still_counts() -> None:
+    rng = np.random.default_rng(4)
+    values = list(40 + 0.1 * np.arange(288) + rng.normal(0, 1, 288))
+    values[-1] += 30
+
+    assert "spike" in _extract_profile(values).detected_profiles

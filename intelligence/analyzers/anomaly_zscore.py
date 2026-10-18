@@ -94,10 +94,10 @@ class ZScoreAnomalyAnalyzer(Analyzer):
         made the change point land 8 points from the end, where the ceiling is 2.47, and the
         30-sigma reading went unreported (QA-31). Such a tail is still rebaselined onto when it is a
         genuine new level (_is_new_level), so a settled shift stops being flagged as before. The
-        1.25 margin keeps the threshold within reach."""
-        target = self.zscore_threshold * 1.25
+        bound is exact, with no margin: a 1.25 margin (16 points at z 3) also stopped rebaselining
+        onto 11-15 point tails that can flag readings, and lost real detections on NAB replay."""
         points = 3
-        while (points - 1) / points**0.5 < target:
+        while (points - 1) / points**0.5 < self.zscore_threshold:
             points += 1
         return points
 
