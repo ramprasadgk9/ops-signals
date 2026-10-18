@@ -102,7 +102,9 @@ class MemoryChatRequest(BaseModel):
     message: str = Field(min_length=1)
     case_id: int | None = None
     top_k: int = Field(default=5, ge=1, le=10)
-    minimum_score: float = Field(default=0.55, ge=0.0, le=1.0)
+    # similarity_service.POSSIBLE_MATCH_SCORE (not imported: that module imports this one). At 0.55
+    # ordinary questions hid the right past case half the time; off-topic questions score under 0.25.
+    minimum_score: float = Field(default=0.40, ge=0.0, le=1.0)
     same_service_only: bool = False
 
 
@@ -112,6 +114,8 @@ class MemoryChatSource(BaseModel):
     case_id: int
     title: str
     similarity_score: float
+    # "strong" (>= 0.70) or "possible"; see similarity_service.match_strength.
+    strength: str = "strong"
     service: str | None = None
     metric_name: str | None = None
     category: str | None = None
