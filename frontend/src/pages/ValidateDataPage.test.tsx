@@ -10,6 +10,9 @@ vi.mock('../api/queries', () => ({
     prometheusConnections: vi.fn(),
     prometheusLabelValues: vi.fn(),
     runCsvValidation: vi.fn(),
+    runCsvUpload: vi.fn(),
+    findings: vi.fn(),
+    createCase: vi.fn(),
     testPrometheusConnection: vi.fn(),
     previewPrometheus: vi.fn(),
     runPrometheusAnalysis: vi.fn(),
@@ -189,6 +192,56 @@ describe('ValidateDataPage source modes', () => {
     expect(await screen.findByText(/No findings: nothing in this data stood out/)).toBeInTheDocument();
     expect(screen.getByText(/No signals: the analyzers that ran detected nothing/)).toBeInTheDocument();
     expect(screen.queryByText('No findings returned yet.')).not.toBeInTheDocument();
+  });
+
+  it('saves a CSV run and creates a case from its finding (QA-33)', async () => {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [] });
+    vi.mocked(api.prometheusLabelValues).mockResolvedValue({ connection_id: 'default', label: 'service', values: [] });
+    vi.mocked(api.runCsvUpload).mockResolvedValue({
+      analysis_run_id: 'run-1',
+      provider: 'generic',
+      source_type: 'csv',
+      service: 'checkout',
+      metric_name: 'cpu_usage',
+      sample_count: 288,
+      findings_count: 1,
+      requested_interval: 'auto',
+      interval: '5m',
+      warnings: [],
+    });
+    vi.mocked(api.findings).mockResolvedValue([
+      {
+        id: 42,
+        service: 'checkout',
+        metric_name: 'cpu_usage',
+        title: 'cpu_usage experienced a persistent baseline shift',
+        summary: 'Average fell 43.6%.',
+        category: 'behavior_change',
+        health_status: 'significant',
+        importance_score: 0.55,
+      } as Awaited<ReturnType<typeof api.findings>>[number],
+    ]);
+    vi.mocked(api.createCase).mockResolvedValue({ case_id: 7, finding_id: 42 } as Awaited<ReturnType<typeof api.createCase>>);
+
+    renderPage();
+
+    const file = new File(['timestamp,metric_name,value\n2026-01-01T00:00:00Z,cpu_usage,42.5'], 'cpu.csv', { type: 'text/csv' });
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Analyze and Save' }));
+
+    expect(await screen.findByText(/Saved: 288 samples at a 5m interval \(detected from the data\), 1 finding\./)).toBeInTheDocument();
+    expect(screen.getByText('cpu_usage experienced a persistent baseline shift')).toBeInTheDocument();
+    expect(screen.getByText(/Create a case from it below/)).toBeInTheDocument();
+    expect(screen.queryByText('No findings returned yet.')).not.toBeInTheDocument();
+    expect(api.runCsvValidation).not.toHaveBeenCalled();
+    expect(vi.mocked(api.findings).mock.calls[0][2]).toBe('run-1');
+    expect(vi.mocked(api.runCsvUpload).mock.calls[0][0].get('interval')).toBe('auto');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Case' }));
+
+    expect(await screen.findByRole('link', { name: 'Open Case #7' })).toHaveAttribute('href', '/cases/7');
+    expect(vi.mocked(api.createCase).mock.calls[0][0]).toBe(42);
   });
 });
 

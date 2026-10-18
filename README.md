@@ -341,7 +341,8 @@ the first data arrives, the Overview shows a **Get data in** panel with every wa
 - **Deploy events** - the URL and a `curl` step for your CI pipeline, so alerts and findings can say
   which deploy came just before a change (see [Deploy and change events](#deploy-and-change-events)).
 - **Load demo data** - analyzes a bundled checkout series in seconds, or upload your own CSV from
-  **New Analysis** (see [CSV Input](#csv-input)).
+  **New Analysis**: **Validate Data** previews it, **Analyze and Save** stores the findings so you can
+  create cases from them (see [CSV Input](#csv-input)).
 
 The same sources, with whether each is receiving, live on the **Integrations** page
 (`/integrations`) afterwards; received alerts are on the **Alerts** page (`/alerts`). The APIs behind
