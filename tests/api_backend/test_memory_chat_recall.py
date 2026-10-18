@@ -6,9 +6,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import qdrant_client
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+
+_RealQdrantClient = qdrant_client.QdrantClient
+
+
+def _in_memory_qdrant(*_args, **_kwargs) -> qdrant_client.QdrantClient:
+    return _RealQdrantClient(":memory:")
 
 INCIDENTS = Path(__file__).resolve().parents[2] / "sample_data" / "incident-import"
 
@@ -30,13 +37,20 @@ OFF_TOPIC = ["what is the weather today", "how do I bake sourdough bread", "rese
 
 @pytest.fixture(scope="module")
 def client():
-    app = create_app("sqlite+pysqlite:///:memory:")
-    with TestClient(app) as test_client:
-        for name in ("pagerduty-incidents.csv", "postmortems.zip"):
-            response = test_client.post("/api/case-imports", files={"files": (name, (INCIDENTS / name).read_bytes())})
-            assert response.status_code == 200, response.text
-            assert response.json()["indexed"] > 0, "embedding model or Qdrant unavailable"
-        yield test_client
+    # Module-scoped, so conftest's per-test _never_the_configured_qdrant isn't active yet: without
+    # the same patch here the app reached for the Qdrant in config.yaml (localhost:6333, usually a
+    # dev or demo stack) and imported these incidents into it.
+    with pytest.MonkeyPatch.context() as patch:
+        for module in ("backend.app.main", "backend.app.mcp_runtime", "backend.app.api.testing"):
+            patch.setattr(f"{module}.QdrantClient", _in_memory_qdrant)
+        patch.setattr(qdrant_client, "QdrantClient", _in_memory_qdrant)
+        app = create_app("sqlite+pysqlite:///:memory:")
+        with TestClient(app) as test_client:
+            for name in ("pagerduty-incidents.csv", "postmortems.zip"):
+                response = test_client.post("/api/case-imports", files={"files": (name, (INCIDENTS / name).read_bytes())})
+                assert response.status_code == 200, response.text
+                assert response.json()["indexed"] > 0, "embedding model unavailable"
+            yield test_client
 
 
 @pytest.mark.parametrize("path", ["/api/memory/chat", "/api/mcp/memory/chat"])
