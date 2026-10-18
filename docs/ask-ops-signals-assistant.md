@@ -160,8 +160,10 @@ From Security model > Turning on authentication (docs/security-model.md#turning-
   When no quote survives, the top source's deterministic quote is added instead, so an AI answer
   about documentation always shows its passage.
 
-If the LLM is disabled, fails, or there's no evidence at all, the response uses the deterministic
-answer. Every response carries `ai_synthesis_used` so it's never ambiguous which path produced it -
+If the LLM is disabled, fails, replies with something that isn't prose (empty, a word or two, or
+JSON/code), or there's no evidence at all, the response uses the deterministic answer. The same
+check applies to every AI draft (finding summaries, behavior explanations, case RCA and resolution
+drafts): a reply that fails it is treated as "AI unavailable". Every response carries `ai_synthesis_used` so it's never ambiguous which path produced it -
 the UI shows this as an "AI-generated" vs. "Evidence summary (no AI)" label.
 
 `synthesize_from_evidence()` is shared with the separate autonomous-run Q&A endpoint

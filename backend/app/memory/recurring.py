@@ -246,7 +246,7 @@ def _name_with_ai(problems: list[RecurringProblem], ai_services: OptionalAIServi
         evidence.append(f"Group {number}:")
         evidence.extend(f"- {case.title}" for case in problem.cases[:6])
         evidence.extend(f"  cause: {cause.root_cause}" for cause in problem.causes[:3])
-    reply = synthesize_narrative(ai_services, instruction=_NAMING_INSTRUCTION, evidence_text="\n".join(evidence), max_tokens=40 * len(problems))
+    reply = synthesize_narrative(ai_services, instruction=_NAMING_INSTRUCTION, evidence_text="\n".join(evidence), max_tokens=40 * len(problems), min_words=1)
     for line in (reply or "").splitlines():
         match = _NAME_LINE.match(line)
         if not match:
