@@ -29,6 +29,9 @@ def _trend_percent(values: pd.Series) -> float:
 
 LEVEL_CHANGE_PERCENT = 25.0
 TREND_CHANGE_PERCENT = 10.0
+# Halves further apart than this, but short of a level change, are not called "broadly similar":
+# a 20% rise was (QA-37).
+SIMILAR_PERCENT = 10.0
 
 
 def _level_ratio_percent(previous_mean: float, current_mean: float) -> float:
@@ -50,6 +53,7 @@ def _summary(
     added_anomalies: int,
     trend_difference: float,
     level_changed: bool,
+    level_ratio: float,
 ) -> str:
     """Says what differs between the halves, so the sentence can't contradict the numbers: a single
     spike used to make a flat window "differ significantly" with no hint that the spike was why."""
@@ -63,6 +67,12 @@ def _summary(
     if trend_difference:
         direction = "upward" if trend_difference > 0 else "downward"
         reasons.append(f"its trend is {abs(trend_difference):.1f}% more {direction}")
+    if not reasons and level_ratio >= SIMILAR_PERCENT:
+        direction = "higher" if current_mean > previous_mean else "lower"
+        return (
+            f"The second half's average is {abs(change_percent):.1f}% {direction} ({averages}), "
+            f"below the {LEVEL_CHANGE_PERCENT:g}% that counts as a change in level."
+        )
     if not reasons:
         return (
             "The first and second half of the selected time window are broadly similar "
@@ -136,7 +146,8 @@ def compare_windows(points: pd.DataFrame, signals: Iterable[object] | None = Non
     anomaly_count_difference = current_anomaly_count - previous_anomaly_count
     signal_count_difference = current_signal_count - previous_signal_count
     trend_difference = current_trend - previous_trend
-    level_changed = _level_ratio_percent(previous_mean, current_mean) >= LEVEL_CHANGE_PERCENT
+    level_ratio = _level_ratio_percent(previous_mean, current_mean)
+    level_changed = level_ratio >= LEVEL_CHANGE_PERCENT
     anomalies_added = anomaly_count_difference > 0
     trend_changed = abs(trend_difference) >= TREND_CHANGE_PERCENT
     new_behavior = level_changed or anomalies_added or trend_changed
@@ -147,6 +158,7 @@ def compare_windows(points: pd.DataFrame, signals: Iterable[object] | None = Non
         anomaly_count_difference if anomalies_added else 0,
         trend_difference if trend_changed else 0.0,
         level_changed,
+        level_ratio,
     )
 
     return {
