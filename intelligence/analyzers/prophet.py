@@ -15,6 +15,9 @@ except Exception:  # pragma: no cover - optional dependency
     _Prophet = None
 
 
+FALLBACK_REASON = "the prophet library is not installed"
+
+
 @dataclass(slots=True)
 class ProphetConfig:
     horizon_points: int = 10
@@ -84,6 +87,10 @@ class ProphetAnalyzer(Analyzer):
             confidence = max(0.1, min(1.0, 1.0 - forecast["relative_error"]))
             finding_rule_matched = forecast["relative_error"] >= self.config.finding_min_relative_error
             direction = "above" if forecast["residual"] > 0 else "below"
+            # Without the prophet library a straight line stands in, and the signal says so (QA-39).
+            fallback = _Prophet is None
+            library = "fallback" if fallback else self.config.library
+            how = f" (straight-line forecast: {FALLBACK_REASON})" if fallback else ""
             signals.append(
                 OperationalSignal(
                     signal_type="forecast",
@@ -97,7 +104,7 @@ class ProphetAnalyzer(Analyzer):
                     end_time=ordered["timestamp"].max().to_pydatetime(),
                     summary=(
                         f"{metric_name} is projected to move {direction} the expected path by "
-                        f"{forecast['relative_error'] * 100:.1f}%."
+                        f"{forecast['relative_error'] * 100:.1f}%{how}."
                     ),
                     evidence={
                         "forecast_value": round(forecast["forecast_value"], 4),
@@ -106,12 +113,14 @@ class ProphetAnalyzer(Analyzer):
                         "relative_error": round(forecast["relative_error"], 4),
                         "horizon_points": self.config.horizon_points,
                         "implementation": {
-                            "library": self.config.library if _Prophet is not None else "fallback",
+                            "library": library,
                             "horizon_points": self.config.horizon_points,
                             "changepoint_prior_scale": self.config.changepoint_prior_scale,
                             "uncertainty_threshold": self.config.uncertainty_threshold,
                         },
-                        "library": self.config.library if _Prophet is not None else "fallback",
+                        "library": library,
+                        "method": "linear_fallback" if fallback else "prophet",
+                        **({"fallback_reason": FALLBACK_REASON} if fallback else {}),
                         "finding_rules": {
                             "min_relative_error": self.config.finding_min_relative_error,
                         },

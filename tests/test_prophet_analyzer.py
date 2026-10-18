@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
+from intelligence.analyzers import prophet as prophet_module
 from intelligence.analyzers.prophet import ProphetAnalyzer
 
 
@@ -52,3 +53,18 @@ def test_prophet_analyzer_marks_finding_rule_unmatched_for_small_error() -> None
 
     assert signals
     assert signals[0].evidence["finding_rule_matched"] is False
+
+
+def test_prophet_analyzer_says_when_a_straight_line_fallback_made_the_forecast(monkeypatch) -> None:
+    # QA-39: without the prophet library the signal still came out as "prophet", as if Prophet ran.
+    monkeypatch.setattr(prophet_module, "_Prophet", None)
+    values = [50.0 + index * 0.2 for index in range(30)]
+    values[-1] = 90.0
+
+    signal = ProphetAnalyzer(horizon_points=3, finding_rules={"min_relative_error": 0.1}).analyze(_frame(values))[0]
+
+    assert signal.evidence["library"] == "fallback"
+    assert signal.evidence["method"] == "linear_fallback"
+    assert signal.evidence["fallback_reason"] == "the prophet library is not installed"
+    assert "straight-line forecast" in signal.summary
+    assert "prophet library is not installed" in signal.summary
