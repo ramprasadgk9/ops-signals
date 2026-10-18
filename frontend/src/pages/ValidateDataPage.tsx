@@ -36,12 +36,12 @@ import ScheduleRoundedIcon from '@mui/icons-material/ScheduleRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import UploadRoundedIcon from '@mui/icons-material/UploadRounded';
 import WifiTetheringRoundedIcon from '@mui/icons-material/WifiTetheringRounded';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { findingLevel } from '../utils/findingLevel';
 import { api } from '../api/queries';
 import { panelSx, ui } from '../standalone/theme';
-import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, CsvValidationResult, DirectPrometheusAnalysisResponse, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
+import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, CsvRunResult, CsvValidationResult, DirectPrometheusAnalysisResponse, Finding, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -325,6 +325,8 @@ function buildDataQualityMessage(result: DirectPrometheusAnalysisResponse | null
   };
 }
 
+type SavedFinding = Finding & { id: number };
+
 export function ValidateDataPage() {
   const [mode, setMode] = useState<Mode>('csv');
   const [provider, setProvider] = useState<Provider>('prometheus');
@@ -366,6 +368,8 @@ export function ValidateDataPage() {
   const [promMessage, setPromMessage] = useState<string | null>(null);
   const [promError, setPromError] = useState<string | null>(null);
   const [createdCases, setCreatedCases] = useState<Record<number, number>>({});
+  const [savedCsvRun, setSavedCsvRun] = useState<{ run: CsvRunResult; findings: SavedFinding[] } | null>(null);
+  const queryClient = useQueryClient();
 
   const capabilitiesQuery = useQuery({ queryKey: ['capabilities'], queryFn: () => api.capabilities() });
   const connectionsQuery = useQuery({ queryKey: ['prometheus-connections'], queryFn: api.prometheusConnections });
@@ -434,21 +438,26 @@ export function ValidateDataPage() {
   const belowRouterMinimum = typeof estimatedSamples === 'number' && estimatedSamples < 30;
   const customMappingIncomplete = provider === 'custom' && (!customTimestampColumn.trim() || !customValueColumn.trim() || !customMetricColumn.trim());
 
+  const buildCsvForm = () => {
+    if (!file) throw new Error('Select a CSV file first');
+    const form = new FormData();
+    form.set('file', file);
+    form.set('provider', provider);
+    form.set('service', service);
+    form.set('metric_name', metricName);
+    form.set('interval', interval);
+    if (provider === 'custom') {
+      form.set('custom_timestamp_column', customTimestampColumn.trim());
+      form.set('custom_value_column', customValueColumn.trim());
+      form.set('custom_metric_name_column', customMetricColumn.trim());
+    }
+    return form;
+  };
+
   const csvMutation = useMutation({
     mutationFn: async () => {
-      if (!file) throw new Error('Select a CSV file first');
-      const form = new FormData();
-      form.set('file', file);
-      form.set('provider', provider);
+      const form = buildCsvForm();
       form.set('analyzer_id', analyzerId);
-      form.set('service', service);
-      form.set('metric_name', metricName);
-      form.set('interval', interval);
-      if (provider === 'custom') {
-        form.set('custom_timestamp_column', customTimestampColumn.trim());
-        form.set('custom_value_column', customValueColumn.trim());
-        form.set('custom_metric_name_column', customMetricColumn.trim());
-      }
       return api.runCsvValidation(form);
     },
     onSuccess: (result) => {
@@ -468,6 +477,30 @@ export function ValidateDataPage() {
       setMessage(null);
       setCsvWarnings([]);
       setError(err instanceof Error ? err.message : 'Validation failed');
+    },
+  });
+
+  // Validate Data only previews; this stores the run (csv-run, router-chosen analyzers) so its
+  // findings show up in Findings and can become cases.
+  const csvSaveMutation = useMutation({
+    mutationFn: async () => {
+      const run = await api.runCsvUpload(buildCsvForm());
+      const findings = run.findings_count ? await api.findings(undefined, undefined, run.analysis_run_id) : [];
+      return { run, findings: findings.filter((finding): finding is SavedFinding => typeof finding.id === 'number') };
+    },
+    onSuccess: (result) => {
+      setError(null);
+      setSavedCsvRun(result);
+      const count = result.run.findings_count;
+      setMessage(`Saved: ${result.run.sample_count} samples${describeInterval(result.run)}, ${count} finding${count === 1 ? '' : 's'}.${count ? ` Create a case from ${count === 1 ? 'it' : 'any of them'} below.` : ''}`);
+      setCsvWarnings(result.run.warnings ?? []);
+      // Refresh the other pages in the background, so the buttons free up as soon as the save is done.
+      ['findings', 'findings-overview', 'analysis-runs', 'overview-summary'].forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
+    },
+    onError: (err: unknown) => {
+      setMessage(null);
+      setCsvWarnings([]);
+      setError(err instanceof Error ? err.message : 'Analysis failed');
     },
   });
 
@@ -582,8 +615,10 @@ export function ValidateDataPage() {
       setPromMessage(`Case #${result.case_id} is ready for finding #${result.finding_id}.`);
     },
     onError: (err: unknown) => {
+      const text = err instanceof Error ? err.message : 'Could not create case';
       setPromMessage(null);
-      setPromError(err instanceof Error ? err.message : 'Could not create case');
+      setPromError(text);
+      if (mode === 'csv') setError(text);
     },
   });
 
@@ -708,7 +743,13 @@ export function ValidateDataPage() {
                 </Alert>
               )}
               <Box><Button variant="outlined" component="label">{file ? `Selected: ${file.name}` : 'Choose CSV File'}<input hidden type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button></Box>
-              <Box><Button variant="contained" disabled={csvMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button></Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Button variant="outlined" disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); setSavedCsvRun(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button>
+                <Button variant="contained" startIcon={csvSaveMutation.isPending ? undefined : <SaveRoundedIcon />} disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); csvSaveMutation.mutate(); }}>{csvSaveMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Analyze and Save'}</Button>
+              </Stack>
+              <Typography variant="caption" color="text.secondary">
+                Validate Data previews the analysis without saving it. Analyze and Save stores the run so its findings appear in Findings and can become cases{analyzerId !== 'all' ? '; it uses the router\'s analyzer choice, not the analyzer picked above' : ''}.
+              </Typography>
               {customMappingIncomplete ? <Alert severity="warning">Fill in all 3 column names above before validating.</Alert> : null}
               {message ? <Alert severity="success">{message}</Alert> : null}
               {csvWarnings.map((warning) => <Alert key={warning} severity="warning">{warning}</Alert>)}
@@ -1190,9 +1231,45 @@ export function ValidateDataPage() {
 
       {mode === 'csv' ? (
         <>
+          {savedCsvRun ? (
+            <Card variant="outlined">
+              <CardContent>
+                <Stack spacing={2}>
+                  <Typography variant="h6">Saved Findings</Typography>
+                  {savedCsvRun.findings.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">The run is saved, but nothing in this data stood out enough to report.</Typography>
+                  ) : savedCsvRun.findings.map((finding) => (
+                    <Card key={finding.id} variant="outlined" sx={{ p: 2 }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                        <Stack spacing={0.5}>
+                          <Typography variant="subtitle1">{finding.title}</Typography>
+                          <Typography variant="body2" color="text.secondary">{finding.service ?? 'n/a'} · {finding.metric_name} · importance {finding.importance_score.toFixed(2)}</Typography>
+                        </Stack>
+                        {createdCases[finding.id] ? (
+                          <Button size="small" variant="outlined" href={`/cases/${createdCases[finding.id]}`} sx={{ textTransform: 'none', fontWeight: 850 }}>
+                            Open Case #{createdCases[finding.id]}
+                          </Button>
+                        ) : (
+                          <Button size="small" variant="contained" disabled={createCaseMutation.isPending} onClick={() => createCaseMutation.mutate(finding.id)} sx={{ textTransform: 'none', fontWeight: 850 }}>
+                            Create Case
+                          </Button>
+                        )}
+                      </Stack>
+                    </Card>
+                  ))}
+                  <Box><Button size="small" href="/findings" sx={{ textTransform: 'none' }}>View in Findings</Button></Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          ) : null}
+          {/* After a save, the empty preview panels below would read "nothing returned yet" next to real findings. */}
+          {savedCsvRun && !csvMutation.isSuccess ? null : (
+          <>
           <RouterDecisionPanel decisions={routerDecisions} executions={routerExecutions} executedAnalyzers={executedAnalyzers} />
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Signals</Typography>{resultSignals.length === 0 ? <Typography variant="body2" color="text.secondary">{csvMutation.isSuccess ? 'No signals: the analyzers that ran detected nothing in this data.' : 'No signals returned yet.'}</Typography> : resultSignals.map((signal) => <Card key={signal.signal_id} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={signal.signal_type} size="small" /><Chip label={signal.severity} size="small" /><Chip label={signal.analyzer_id} size="small" /></Stack><Typography variant="subtitle1">{signal.summary}</Typography><Typography variant="body2" color="text.secondary">{signal.metric_name} · {signal.service ?? 'n/a'} · confidence {signal.confidence.toFixed(2)}</Typography></Stack></Card>)}</Stack></CardContent></Card>
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">{csvMutation.isSuccess ? 'No findings: nothing in this data stood out enough to report.' : 'No findings returned yet.'}</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={`${findingLevel(finding.health_status).label} importance`} size="small" /><Chip label={finding.category} size="small" /></Stack><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography><Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
+          </>
+          )}
         </>
       ) : null}
     </Box>

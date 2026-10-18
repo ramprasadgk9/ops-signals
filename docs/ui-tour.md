@@ -23,7 +23,7 @@ automatically exist in the other.
 | **Behavior Lab** | `/behavior-intelligence/lab` | A sandbox for testing behavior definitions against sample data before enabling them for real. |
 | **Operational Memory** | `/operational-memory` | Qdrant-backed semantic search over past cases, plus the alert-context preview an external alert manager would see. See [`docs/operational-memory.md`](operational-memory.md). |
 | **Ask Ops Signals** *(Beta)* | `/assistant` | Grounded conversational Q&A over cases, findings, and behaviors. See [`docs/ask-ops-signals-assistant.md`](ask-ops-signals-assistant.md). |
-| **New Analysis** | `/validate-data` | Upload a CSV or point at a Prometheus datasource to run a one-off analysis outside the autonomous scheduler. See [`docs/standalone-prometheus-analysis.md`](standalone-prometheus-analysis.md). |
+| **New Analysis** | `/validate-data` | Upload a CSV or point at a Prometheus datasource to run a one-off analysis outside the autonomous scheduler. For a CSV, **Validate Data** previews without saving and **Analyze and Save** stores the findings so they can become cases. See [`docs/standalone-prometheus-analysis.md`](standalone-prometheus-analysis.md). |
 
 ### Analyzer Workbench
 
