@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from statistics import NormalDist
+
 import numpy as np
 import pandas as pd
 
@@ -16,6 +18,13 @@ def _is_new_level(before: np.ndarray, after: np.ndarray) -> bool:
     center = float(np.median(before))
     spread = max(1.4826 * float(np.median(np.abs(before - center))), 1e-9)
     return float(np.median(np.abs(after - center))) / spread >= 3.0
+
+
+def chance_zscore(point_count: int) -> float:
+    """The |z| a single reading needs to stand out from chance in point_count normal readings: the
+    level fewer than half a reading would reach by luck. 288 readings expect about 0.8 beyond |z| 3,
+    so one at 3.06 is noise (QA-43); here it takes 3.13, and 3.48 in 1,000."""
+    return NormalDist().inv_cdf(1.0 - 0.25 / max(point_count, 1))
 
 
 class ZScoreAnomalyAnalyzer(Analyzer):
@@ -133,11 +142,13 @@ class ZScoreAnomalyAnalyzer(Analyzer):
             if anomalies.empty:
                 continue
             anomalies["group_id"] = (anomalies["timestamp"].diff().gt(self.grouping_gap)).cumsum()
+            # One reading alone must also beat chance for this many readings; two or more together
+            # beyond the threshold are rare by luck, so they keep the configured bar.
+            single_point_zscore = max(self.finding_min_abs_zscore, chance_zscore(len(working)))
             for _, anomaly_group in anomalies.groupby("group_id"):
                 max_abs_z = float(anomaly_group["zscore"].abs().max())
-                finding_rule_matched = bool(
-                    max_abs_z >= self.finding_min_abs_zscore and len(anomaly_group) >= self.finding_min_points
-                )
+                needed_zscore = single_point_zscore if len(anomaly_group) == 1 else self.finding_min_abs_zscore
+                finding_rule_matched = bool(max_abs_z >= needed_zscore and len(anomaly_group) >= self.finding_min_points)
                 severity = "high" if max_abs_z >= self.finding_min_abs_zscore * 1.5 else "medium"
                 confidence = min(1.0, max_abs_z / max(self.finding_min_abs_zscore * 2.0, 1e-9))
                 metric_name = anomaly_group.iloc[0]["metric_name"]
@@ -178,6 +189,7 @@ class ZScoreAnomalyAnalyzer(Analyzer):
                                 "min_abs_zscore": self.finding_min_abs_zscore,
                                 "min_points": self.finding_min_points,
                             },
+                            "single_point_min_abs_zscore": round(single_point_zscore, 4),
                             "finding_rule_matched": finding_rule_matched,
                         },
                     )
