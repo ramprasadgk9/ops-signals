@@ -23,6 +23,7 @@ def build_evaluation(definition: BehaviorDefinition, facts: dict, matched_inputs
             "correlation": definition.correlation,
         },
         matched_inputs,
+        condition_matches,
     )
     matched = all(all_results or [True]) and (not any_results or any(any_results)) and correlation["matched"]
     confidence = calculate_confidence(condition_matches, correlation["matched"])

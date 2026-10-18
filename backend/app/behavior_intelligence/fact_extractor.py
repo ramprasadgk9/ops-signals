@@ -24,6 +24,21 @@ def _largest_change(signals: list[dict[str, Any]]) -> float:
     return max(changes, key=abs, default=0.0)
 
 
+def _windows(signals: list[dict[str, Any]], level_change: bool = False) -> list[list[Any]]:
+    """When each signal was active, as [start, end] pairs - what behavior correlation compares
+    across inputs. A level change (baseline_shift, ruptures) runs from its change point to the end of
+    the window, since the new level persists; anything else uses its own start and end."""
+    windows = []
+    for sig in signals:
+        start = sig.get("start_time")
+        if level_change:
+            start = sig.get("evidence", {}).get("change_point_time") or start
+        end = sig.get("end_time") or start
+        if start:
+            windows.append([_to_iso(start), _to_iso(end)])
+    return windows
+
+
 def input_facts(metric_names: list[str], analyzers: list[str], signals: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Facts for one behavior input: the signals of the first of its metric names that has any
     (from the input's analyzers, when it lists some). None when none of the names has signals."""
@@ -66,6 +81,7 @@ def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 "present": bool(anomaly_signals),
                 "count": len(anomaly_signals),
                 "max_score": max([float(sig.get("importance_score", 0.0)) for sig in anomaly_signals], default=0.0),
+                "windows": _windows(anomaly_signals),
             },
             "trend": {
                 "present": bool(trend_signals),
@@ -73,12 +89,14 @@ def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 "direction": "upward" if trend_slope > 0 else "downward" if trend_slope < 0 else "flat",
                 "change_percent": abs(trend_change_percent),
                 "slope": trend_slope,
+                "windows": _windows(trend_signals),
             },
             "baseline_shift": {
                 "present": bool(baseline_signals),
                 "count": len(baseline_signals),
                 "change_percent": abs(_largest_change(baseline_signals)),
                 "signed_change_percent": _largest_change(baseline_signals),
+                "windows": _windows(baseline_signals, level_change=True),
             },
             "ruptures": {
                 "present": bool(ruptures_signals),
@@ -86,12 +104,14 @@ def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 "change_percent": abs(_largest_change(ruptures_signals)),
                 "signed_change_percent": _largest_change(ruptures_signals),
                 "change_point_index": min([int(sig.get("evidence", {}).get("change_point_index", 0)) for sig in ruptures_signals], default=0),
+                "windows": _windows(ruptures_signals, level_change=True),
             },
             "signal": {
                 "count": len(metric_signals),
                 "types": sorted({str(sig.get("signal_type")) for sig in metric_signals if sig.get("signal_type")}),
                 "window_start": _to_iso(min((sig.get("start_time") for sig in metric_signals if sig.get("start_time")), default=None)),
                 "window_end": _to_iso(max((sig.get("end_time") for sig in metric_signals if sig.get("end_time")), default=None)),
+                "windows": _windows(metric_signals),
             },
         }
     return grouped
