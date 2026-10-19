@@ -243,7 +243,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
       setOverviewEndpointErrors([]);
     }
     const overviewRequests = [
-      { component: 'Discovery & Selection / Execution History', apiFunction: 'listAnalysisRuns', endpoint: '/api/analysis-runs', run: () => listAnalysisRuns(backendUrl) },
+      { component: 'Discovery & Selection / Execution History', apiFunction: 'listAnalysisRuns', endpoint: '/api/analysis-runs?limit=25', run: () => listAnalysisRuns(backendUrl) },
       { component: 'Top Findings / Behavior Distribution', apiFunction: 'listFindings', endpoint: '/api/findings?window=24h', run: () => listFindings(backendUrl, { window: '24h' }) },
       { component: 'Behavior Findings', apiFunction: 'listBehaviorFindings', endpoint: '/api/behavior-evaluations', run: () => listBehaviorFindings(backendUrl) },
       { component: 'Recent Cases', apiFunction: 'listCases', endpoint: '/api/cases?limit=10', run: () => listCases(backendUrl, { limit: 10 }) },

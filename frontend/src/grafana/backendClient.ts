@@ -212,8 +212,15 @@ export async function listMetrics(baseUrl: string, service: string) {
   return fetchJson<string[]>(baseUrl, `/api/services/${encodeURIComponent(service)}/metrics`);
 }
 
-export async function listAnalysisRuns(baseUrl: string) {
-  return fetchJson<AnalysisRun[]>(baseUrl, '/api/analysis-runs');
+// The plugin shows only the newest runs (the overview's execution history lists 7), and the full list
+// carries every run's router/profile/findings JSON - gigabytes on a long-lived install.
+export const RECENT_RUNS_LIMIT = 25;
+
+export async function listAnalysisRuns(baseUrl: string, params: { limit?: number; service?: string; metric?: string } = {}) {
+  const query = new URLSearchParams({ limit: String(params.limit ?? RECENT_RUNS_LIMIT) });
+  if (params.service) query.append('service', params.service);
+  if (params.metric) query.append('metric_name', params.metric);
+  return fetchJson<AnalysisRun[]>(baseUrl, `/api/analysis-runs?${query}`);
 }
 
 export async function listAutonomousPolicyRuns(baseUrl: string, limit = 25) {
@@ -375,7 +382,8 @@ export async function runBackendAnalysis(baseUrl: string, target: {
   from: string;
   to: string;
 }): Promise<BackendPluginAnalysis> {
-  const runs = await fetchJson<AnalysisRun[]>(baseUrl, '/api/analysis-runs');
+  const matching = await listAnalysisRuns(baseUrl, { limit: 1, service: target.service, metric: target.metric });
+  const runs = matching.length ? matching : await listAnalysisRuns(baseUrl, { limit: 1 });
   const latestRun = pickLatestRun(runs, target.service, target.metric);
   const runId = latestRun?.id ?? `ops-signals-${Date.now()}`;
   const analysisRunId = latestRun?.id ?? undefined;
@@ -481,7 +489,7 @@ async function collectRunResult(baseUrl: string, run: RunSummary, target: {
 }): Promise<BackendPluginAnalysis> {
   const byRun = (extra: Record<string, string> = {}) => new URLSearchParams({ service: target.service, analysis_run_id: run.analysis_run_id, ...extra }).toString();
   const [runs, timeseries, findings, signals, behaviorFindings] = await Promise.all([
-    fetchJson<AnalysisRun[]>(baseUrl, '/api/analysis-runs'),
+    listAnalysisRuns(baseUrl),
     fetchJson<TimeseriesPoint[]>(baseUrl, `/api/timeseries?${byRun({ metric_name: target.metric, ...(target.cluster ? { cluster: target.cluster } : {}) })}`),
     fetchJson<Finding[]>(baseUrl, `/api/findings?${byRun({ metric_name: target.metric })}`),
     fetchJson<Signal[]>(baseUrl, `/api/signals?${byRun({ metric_name: target.metric })}`),
