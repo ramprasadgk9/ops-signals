@@ -1,0 +1,45 @@
+# Changelog
+
+Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x). Each Ops Signals
+release names the plugin version it ships. The full project changelog is
+[CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
+
+## Unreleased
+
+- **Configuration page with a Backend URL.** A Grafana admin sets the Ops Signals backend's address
+  once (Administration → Plugins → Ops Signals → Configuration, or `jsonData.backendUrl` in
+  provisioning). The app uses it by default and lists it first in the backend picker. Before this,
+  the picker offered only local development addresses.
+- Catalog details: screenshots, links, minimum Grafana version (13.1), and a README for people
+  installing the plugin.
+- The plugin zip ships the plugin only (no web UI walkthrough videos, 12 MB → 1.3 MB), with its
+  source map, LICENSE and CHANGELOG, in one folder named after the plugin id.
+
+## 1.0.34 - 2026-10-18 (Ops Signals 0.5.0)
+
+- Findings and their trust numbers follow 0.5.0's detection fixes: spikes at the end of the window,
+  stricter single Z-Score readings, and correlation only for signals that happen close together.
+- Errors name the dependency that is down (Qdrant or the database).
+
+## 1.0.33 - 2026-10-15 (Ops Signals 0.4.0)
+
+- **Mimir tenants and clusters**, as in the web UI: the cluster and connection on findings, symptom
+  rows per cluster, cluster chips on the overview, a connection picker and Clusters section in
+  Autonomous Configure, and **Query through: Ops Signals connection** in Interactive Analysis.
+- Fixed: previewing a saved schedule used the default connection instead of the schedule's own.
+- Findings say where their data came from (Prometheus, OTLP or CSV).
+- Finding trust (how often findings like this one were real), behavior cases, **Same fix
+  elsewhere**, the **Memory & Alerts** tab and symptom triage.
+
+## 1.0.32 - 2026-10-07 (Ops Signals 0.3.0)
+
+- **Seen before?** on the interactive result and in the case workflow.
+- Jira tickets from cases, when ticketing is turned on in the backend.
+- Fixed: cases in Recent Cases from History did nothing when clicked.
+- The schedule card's **Remove** is now **Pause**, which is what it always did.
+
+## Earlier
+
+Versions before 1.0.32 shipped with Ops Signals 0.1.0 and 0.2.0: interactive and autonomous
+analysis, the case workflow (finding → investigation → root cause → resolution), operational memory
+and Ask Ops Signals.

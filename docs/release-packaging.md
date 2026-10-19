@@ -10,16 +10,28 @@ Ops Signals has four release artifacts:
 ## Build Grafana Plugin
 
 ```bash
-./scripts/release/build_grafana_plugin_artifact.sh 0.1.0
+./scripts/release/build_grafana_plugin_artifact.sh 0.5.0
 ```
 
-Output:
+Output (the zip is named after the plugin's own version, `info.version` in `frontend/plugin.json`):
 
 ```text
-dist/release/0.1.0/<plugin-id>-0.1.0.zip
+dist/release/0.5.0/<plugin-id>-1.0.34.zip
+dist/release/0.5.0/<plugin-id>-1.0.34.zip.sha1
 ```
 
-The script also prints the SHA1 needed for Grafana plugin submission.
+The zip holds one folder named after the plugin id, as Grafana expects, so it can be unzipped
+straight into Grafana's plugins folder. The script prints the SHA1 needed for Grafana plugin
+submission and the command that checks the zip with Grafana's plugin validator.
+
+To sign the plugin, set `GRAFANA_ACCESS_POLICY_TOKEN` (a grafana.com access policy token with the
+`plugins:write` scope) before running the script. A private signature also needs
+`GRAFANA_SIGN_ROOT_URLS`, the Grafana address(es) the plugin may run on. Without the token the zip is
+unsigned and Grafana loads it only with `allow_loading_unsigned_plugins`.
+
+On every `v*` tag the Grafana plugin workflow (`.github/workflows/plugin.yml`) runs the same script.
+It signs when the `GRAFANA_ACCESS_POLICY_TOKEN` repository secret is set and attaches the zip to the
+tag's GitHub Release, if there is one.
 
 ## Build Deployment Images
 

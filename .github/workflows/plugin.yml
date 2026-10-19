@@ -1,0 +1,74 @@
+name: Grafana plugin
+
+# Packages the Grafana plugin zip on release tags (and on manual runs), checks it with Grafana's
+# plugin validator, and keeps it as a workflow artifact. On a tag that has a GitHub Release, the zip
+# and its .sha1 are also attached to that release, which gives the public URL the Grafana catalog
+# submission and `grafana cli --pluginUrl` need.
+#
+# Signing: add a GRAFANA_ACCESS_POLICY_TOKEN repository secret (grafana.com access policy token with
+# the plugins:write scope) and the zip is signed. Without it the zip is unsigned and users must allow
+# it with allow_loading_unsigned_plugins.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Package plugin zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build, sign (when the token is set) and zip
+        env:
+          GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+          RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || 'manual' }}
+        run: ./scripts/release/build_grafana_plugin_artifact.sh "${RELEASE#v}"
+
+      - name: Find the zip
+        id: zip
+        run: |
+          zip_path="$(ls dist/release/*/*.zip)"
+          echo "path=$zip_path" >> "$GITHUB_OUTPUT"
+          echo "dir=$(dirname "$zip_path")" >> "$GITHUB_OUTPUT"
+
+      # Report-only for now. Catalog-only errors it reports today (issue #58): the plugin id (3 words
+      # between org and type), the Vite build ("non-standard frontend build tooling"; the catalog
+      # wants create-plugin), known issues in dev dependencies (vite 5, vitest 2), and package.json's
+      # version (the project's 0.x) differing from the plugin's 1.0.x. None stops the zip installing.
+      # Make this step blocking once they're fixed.
+      - name: Validate against the Grafana catalog rules
+        continue-on-error: true
+        run: npx --yes @grafana/plugin-validator@0.50.0 -sourceCodeUri "file://$GITHUB_WORKSPACE/frontend" "${{ steps.zip.outputs.path }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grafana-plugin
+          path: ${{ steps.zip.outputs.dir }}
+
+      - name: Attach to the GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${{ steps.zip.outputs.dir }}"/* --clobber
+          else
+            echo "No GitHub Release for $GITHUB_REF_NAME; the zip is kept as the workflow artifact only."
+          fi

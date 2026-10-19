@@ -9,25 +9,7 @@ ARTIFACT_DIR="$ROOT_DIR/dist/release/$VERSION"
 mkdir -p "$ARTIFACT_DIR"
 
 echo "Building Grafana plugin..."
-(
-  cd "$ROOT_DIR/frontend"
-  npm ci
-  npm run build:grafana
-)
-
-PLUGIN_ID="$(python3 - <<'PY'
-import json
-from pathlib import Path
-plugin = json.loads(Path("frontend/plugin.json").read_text())
-print(plugin["id"])
-PY
-)"
-PLUGIN_ZIP="$ARTIFACT_DIR/${PLUGIN_ID}-${VERSION}.zip"
-(
-  cd "$ROOT_DIR/frontend/dist"
-  zip -qr "$PLUGIN_ZIP" .
-)
-echo "Plugin ZIP: $PLUGIN_ZIP"
+"$ROOT_DIR/scripts/release/build_grafana_plugin_artifact.sh" "$VERSION"
 
 echo "Building Docker images..."
 docker build -f "$ROOT_DIR/docker/backend.Dockerfile" -t "$IMAGE_REGISTRY/ops-signals-backend:$VERSION" "$ROOT_DIR"

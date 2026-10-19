@@ -10,8 +10,14 @@
 
 1. Validate tests.
 2. Review docs for accuracy.
-3. Update changelog.
+3. Update changelog. When the release changes the Grafana plugin, also bump `info.version` and
+   `info.updated` in `frontend/plugin.json` and move the plugin's "Unreleased" notes in
+   `frontend/CHANGELOG.md` under the new plugin version.
 4. Tag the release when ready.
+5. To publish the plugin zip, create a GitHub Release for the tag. The Grafana plugin workflow
+   (`.github/workflows/plugin.yml`) runs on every `v*` tag and attaches the zip and its `.sha1` to
+   the release when one exists; otherwise the zip is only a workflow artifact. If the release is
+   created after the workflow ran, re-run the workflow for the tag.
 
 ## Versioning
 

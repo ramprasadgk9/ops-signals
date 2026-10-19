@@ -2,17 +2,60 @@
   "id": "breezypoppy3596-ops-signals-app",
   "type": "app",
   "name": "Ops Signals",
-  "description": "Operational signal analysis and behavior intelligence for Grafana.",
   "info": {
     "author": {
-      "name": "Ops Signals"
+      "name": "Ops Signals",
+      "url": "https://github.com/ramprasadgk9/ops-signals"
     },
-    "keywords": ["grafana", "observability", "analysis", "signals"],
+    "description": "Explainable anomaly and behavior analysis of your Prometheus metrics, with cases and operational memory, inside Grafana.",
+    "keywords": [
+      "observability",
+      "anomaly detection",
+      "prometheus",
+      "incident",
+      "root cause",
+      "signals"
+    ],
     "logos": {
       "small": "img/logo-small.svg",
       "large": "img/logo-large.svg"
     },
-    "screenshots": [],
+    "links": [
+      {
+        "name": "Source code",
+        "url": "https://github.com/ramprasadgk9/ops-signals"
+      },
+      {
+        "name": "Documentation",
+        "url": "https://github.com/ramprasadgk9/ops-signals/blob/main/docs/grafana-plugin-feature-walkthrough.md"
+      },
+      {
+        "name": "Report an issue",
+        "url": "https://github.com/ramprasadgk9/ops-signals/issues"
+      },
+      {
+        "name": "License (MIT)",
+        "url": "https://github.com/ramprasadgk9/ops-signals/blob/main/LICENSE"
+      }
+    ],
+    "screenshots": [
+      {
+        "name": "Interactive analysis",
+        "path": "img/screenshots/metrics-analysis.png"
+      },
+      {
+        "name": "Case workflow",
+        "path": "img/screenshots/case-flow.png"
+      },
+      {
+        "name": "Autonomous analysis",
+        "path": "img/screenshots/autonomous-analysis.png"
+      },
+      {
+        "name": "Ask Ops Signals",
+        "path": "img/screenshots/ask-ops-signals.png"
+      }
+    ],
     "version": "1.0.34",
     "updated": "2026-10-18"
   },
@@ -24,5 +67,9 @@
       "addToNav": true,
       "defaultNav": true
     }
-  ]
+  ],
+  "dependencies": {
+    "grafanaDependency": ">=13.1.0",
+    "plugins": []
+  }
 }

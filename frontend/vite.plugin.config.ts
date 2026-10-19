@@ -24,9 +24,13 @@ export default defineConfig({
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
   },
+  // public/ holds the web UI's sample files and walkthrough videos (~11 MB); the plugin uses none.
+  publicDir: false,
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // The Grafana catalog requires module.js.map in the zip.
+    sourcemap: true,
     lib: {
       entry: resolve(__dirname, 'src/module.ts'),
       formats: ['system'],

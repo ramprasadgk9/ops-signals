@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "build:admin": "tsc -b && vite build --config vite.admin.config.ts",
     "build:plugin": "npm run build",
-    "build:grafana": "vite build --config vite.plugin.config.ts && cp plugin.json dist/plugin.json && cp README.md dist/README.md && mkdir -p dist/img && cp -R img/. dist/img/",
+    "build:grafana": "vite build --config vite.plugin.config.ts && cp plugin.json README.md CHANGELOG.md dist/ && cp ../LICENSE dist/LICENSE && mkdir -p dist/img && cp -R img/. dist/img/",
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
