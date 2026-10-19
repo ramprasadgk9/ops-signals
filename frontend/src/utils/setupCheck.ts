@@ -137,3 +137,33 @@ export function unreachableSetupResult(error: unknown, backendLabel: string): Se
 export function connectionTestText(result: { available: boolean; latency_ms?: number | null; message: string }): string {
   return result.available ? `Connected in ${result.latency_ms ?? '?'} ms` : `Still failing: ${result.message}`;
 }
+
+export type SetupChipTone = 'ok' | 'warn' | 'fail' | 'off' | 'pending';
+export type SetupChip = { id: 'backend' | 'metrics' | 'memory'; label: string; tone: SetupChipTone; title: string };
+
+const METRIC_CHECK = /^(connection:|otlp$|metrics$|connections$)/;
+
+/** The app header's status chips, from the Setup check: null while it runs, unreachable when it failed. */
+export function setupChips(result: SetupCheckResult | null, unreachable = false): SetupChip[] {
+  if (unreachable) {
+    return [{ id: 'backend', label: 'Backend unreachable', tone: 'fail', title: result?.checks[0]?.detail ?? "The backend can't be reached." }];
+  }
+  if (!result) return [{ id: 'backend', label: 'Checking backend…', tone: 'pending', title: 'Running the Setup check' }];
+
+  const chips: SetupChip[] = [{ id: 'backend', label: 'Backend connected', tone: 'ok', title: `Ops Signals ${result.version}` }];
+  const metrics = result.checks.filter((check) => check.group === 'required' && METRIC_CHECK.test(check.id));
+  const failing = metrics.filter((check) => check.status !== 'ok');
+  if (metrics.length) {
+    chips.push(
+      failing.length
+        ? { id: 'metrics', label: `Metrics: ${failing.length} failing`, tone: 'fail', title: failing.map((check) => `${check.title}: ${check.detail}`).join('\n') }
+        : { id: 'metrics', label: 'Metrics ready', tone: 'ok', title: metrics.map((check) => check.title).join('\n') }
+    );
+  }
+  const memory = result.checks.find((check) => check.id === 'memory');
+  if (memory) {
+    const memoryLabel = { ok: 'Case memory on', warn: 'Case memory starting', fail: 'Case memory down', off: 'Case memory off' }[memory.status];
+    chips.push({ id: 'memory', label: memoryLabel, tone: memory.status, title: memory.detail });
+  }
+  return chips;
+}

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getSetupCheck, testPrometheusConnection } from './backendClient';
-import { PluginSetupBanner, SetupCheckPanel } from './SetupCheckPanel';
+import { PluginSetupBanner, SetupCheckPanel, SetupChips } from './SetupCheckPanel';
 import type { SetupCheckResult } from '../utils/setupCheck';
 
 vi.mock('./backendClient', () => ({
@@ -70,32 +70,37 @@ describe('SetupCheckPanel', () => {
 });
 
 describe('PluginSetupBanner', () => {
-  afterEach(() => vi.clearAllMocks());
+  it('links to the Configuration page while something needed is broken', () => {
+    render(<PluginSetupBanner result={RESULT} unreachable={false} />);
 
-  it('links to the Configuration page while something needed is broken', async () => {
-    vi.mocked(getSetupCheck).mockResolvedValue(RESULT);
-    render(<PluginSetupBanner backendUrl="http://localhost:8002" />);
-
-    expect(await screen.findByText('Setup: 1 of 2 done. Needs fixing: Metrics: default.')).toBeInTheDocument();
+    expect(screen.getByText('Setup: 1 of 2 done. Needs fixing: Metrics: default.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Setup check' })).toHaveAttribute('href', '/plugins/breezypoppy3596-opssignals-app?page=configuration');
   });
 
-  it('tells a viewer to ask an admin instead of linking to a page they cannot open', async () => {
-    vi.mocked(getSetupCheck).mockResolvedValue(RESULT);
+  it('tells a viewer to ask an admin instead of linking to a page they cannot open', () => {
     Object.assign(window, { grafanaBootData: { user: { orgRole: 'Viewer', isGrafanaAdmin: false } } });
     try {
-      render(<PluginSetupBanner backendUrl="http://localhost:8002" />);
-      expect(await screen.findByText('Ask a Grafana admin to open Ops Signals → Configuration.')).toBeInTheDocument();
+      render(<PluginSetupBanner result={RESULT} unreachable={false} />);
+      expect(screen.getByText('Ask a Grafana admin to open Ops Signals → Configuration.')).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: 'Open Setup check' })).not.toBeInTheDocument();
     } finally {
       delete (window as { grafanaBootData?: unknown }).grafanaBootData;
     }
   });
 
-  it('stays hidden when the check cannot be fetched', async () => {
-    vi.mocked(getSetupCheck).mockRejectedValue(new Error('down'));
-    const { container } = render(<PluginSetupBanner backendUrl="http://localhost:8002" />);
-    await Promise.resolve();
+  it('stays hidden when the backend is unreachable (the Backend chip says so) or nothing is broken', () => {
+    const { container, rerender } = render(<PluginSetupBanner result={RESULT} unreachable />);
     expect(container).toBeEmptyDOMElement();
+    rerender(<PluginSetupBanner result={{ ...RESULT, checks: RESULT.checks.slice(0, 1) }} unreachable={false} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('SetupChips', () => {
+  it('shows what the check found, with the details on hover', () => {
+    render(<SetupChips result={RESULT} unreachable={false} />);
+
+    expect(screen.getByText('● Backend connected')).toBeInTheDocument();
+    expect(screen.getByText('● Metrics: 1 failing')).toHaveAttribute('title', "Metrics: default: Can't reach localhost.");
   });
 });

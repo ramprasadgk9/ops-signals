@@ -24,6 +24,8 @@ What the project is, and how to get it running.
   your own machine.
 - [`grafana-plugin-local-setup.md`](grafana-plugin-local-setup.md) - installing the Grafana app
   plugin specifically, if that's how you plan to use Ops Signals.
+- [`adoption-roadmap.md`](adoption-roadmap.md) - what's next so companies with many teams can adopt
+  it: sign-in through Grafana, roles, login modes, team ownership.
 - [`grafana-plugin-roadmap.md`](grafana-plugin-roadmap.md) - where the Grafana plugin stands and
   the steps to Grafana's plugin catalog (create-plugin build, signing, submission).
 

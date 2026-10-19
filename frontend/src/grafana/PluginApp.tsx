@@ -14,7 +14,7 @@ import { InvestigationDrawer, PanelPreview } from './PanelPreview';
 import { backendOptionsFor, defaultBackendUrl as backendUrlDefault, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
 import { ApiTokenField } from './ApiTokenField';
 import { Card, Field, styles } from './plainUi';
-import { PluginSetupBanner } from './SetupCheckPanel';
+import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
@@ -343,7 +343,8 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     () => prometheusDatasources.find((datasource) => datasource.uid === selectedPrometheusUid),
     [prometheusDatasources, selectedPrometheusUid]
   );
-  const backendReady = useMemo(() => Boolean(backendUrl), [backendUrl]);
+  // The header chips and the setup reminder both come from one Setup check of the chosen backend.
+  const setup = useSetupCheck(backendUrl);
   const timeRangeValid = timeRange.from.getTime() < timeRange.to.getTime();
 
   // --- Interactive Analysis through a backend connection ---
@@ -576,13 +577,11 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
           <p style={{ ...styles.muted, margin: '6px 0 0' }}>Operational changes detected from the selected Grafana metric and time range.</p>
         </div>
         <div style={styles.row}>
-          <span style={{ ...styles.chip, color: backendReady ? '#3fcf8e' : '#ffb357' }}>● {backendReady ? 'Backend connected' : isLoadingContext ? 'Backend loading' : 'Backend waiting'}</span>
-          <span style={{ ...styles.chip, color: '#3fcf8e' }}>● Prometheus ready</span>
-          <span style={{ ...styles.chip, color: '#3fcf8e' }}>● Case memory enabled</span>
+          <SetupChips result={setup.result} unreachable={setup.unreachable} />
         </div>
       </div>
 
-      <PluginSetupBanner backendUrl={backendUrl} />
+      <PluginSetupBanner result={setup.result} unreachable={setup.unreachable} />
       {error && <div style={styles.alert}>{error}</div>}
       {stage && <div style={styles.alert}>{stage}</div>}
 

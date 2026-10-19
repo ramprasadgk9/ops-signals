@@ -11,6 +11,8 @@ release names the plugin version it ships. The full project changelog is
   with a Test button per connection and Copy report. An unreachable backend shows as a failed check
   with the CORS and token hints. The API token can now be entered on this page too. While something
   needed is broken, the app shows a reminder that links here.
+- **Honest status chips in the app header.** Backend, Metrics and Case memory come from the Setup
+  check (hover for details) instead of always showing green.
 - **Autonomous Configure in four steps: Data, Scope, Watch, When.** It reads from the backend's
   connection (with its clusters); the Grafana data source picker is gone, since autonomous runs
   never used it, and Preview no longer waits for it. Services and namespaces are "All" or picked

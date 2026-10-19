@@ -8,6 +8,7 @@ import {
   connectionTestText,
   hasFixDetails,
   setupBanner,
+  setupChips,
   setupDocsUrl,
   setupReport,
   setupSummary,
@@ -15,6 +16,7 @@ import {
   type SetupCheck,
   type SetupCheckResult,
   type SetupCheckStatus,
+  type SetupChipTone,
 } from '../utils/setupCheck';
 
 // The Setup check inside Grafana: on the plugin's Configuration page (the full list), and as a
@@ -59,22 +61,27 @@ function backendHost(url: string): string {
 /** The check for one backend, refetched when the backend changes; failures become a failed Backend check. */
 export function useSetupCheck(backendUrl: string) {
   const [result, setResult] = useState<SetupCheckResult | null>(null);
+  // True when the check itself couldn't be fetched; result then holds a failed Backend check.
+  const [unreachable, setUnreachable] = useState(false);
   const [checking, setChecking] = useState(false);
   const run = useCallback(async () => {
     if (!backendUrl) return;
     setChecking(true);
     try {
       setResult(await getSetupCheck(backendUrl));
+      setUnreachable(false);
     } catch (error) {
       setResult(unreachableSetupResult(error, backendHost(backendUrl)));
+      setUnreachable(true);
     } finally {
       setChecking(false);
     }
   }, [backendUrl]);
   useEffect(() => {
+    setResult(null);
     void run();
   }, [run]);
-  return { result, checking, run };
+  return { result, unreachable, checking, run };
 }
 
 function CheckRow({ check, backendUrl }: { check: SetupCheck; backendUrl: string }) {
@@ -234,19 +241,9 @@ export function SetupCheckPanel({ backendUrl }: { backendUrl: string }) {
 }
 
 /** Above the app while something needed is broken; nothing otherwise, and nothing when the check itself
- * can't be fetched (the app already says the backend is unreachable). */
-export function PluginSetupBanner({ backendUrl }: { backendUrl: string }) {
-  const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => {
-    let current = true;
-    setMessage(null);
-    getSetupCheck(backendUrl)
-      .then((result) => current && setMessage(setupBanner(result)))
-      .catch(() => undefined);
-    return () => {
-      current = false;
-    };
-  }, [backendUrl]);
+ * can't be fetched (the Backend chip already says the backend is unreachable). */
+export function PluginSetupBanner({ result, unreachable }: { result: SetupCheckResult | null; unreachable: boolean }) {
+  const message = result && !unreachable ? setupBanner(result) : null;
   if (!message) return null;
   return (
     <div role="status" style={{ ...styles.rowBetween, border: '1px solid rgba(255, 179, 87, 0.4)', background: 'rgba(255, 179, 87, 0.07)', borderRadius: 6, padding: '10px 14px' }}>
@@ -257,5 +254,20 @@ export function PluginSetupBanner({ backendUrl }: { backendUrl: string }) {
         <span style={{ ...styles.muted, fontSize: 12 }}>Ask a Grafana admin to open Ops Signals → Configuration.</span>
       )}
     </div>
+  );
+}
+
+const CHIP_COLORS: Record<SetupChipTone, string> = { ok: '#3fcf8e', warn: '#ffb357', fail: '#f2495c', off: 'rgba(204, 204, 220, 0.55)', pending: 'rgba(204, 204, 220, 0.55)' };
+
+/** The app header's Backend / Metrics / Case memory chips, from the Setup check (hover for details). */
+export function SetupChips({ result, unreachable }: { result: SetupCheckResult | null; unreachable: boolean }) {
+  return (
+    <>
+      {setupChips(result, unreachable).map((chip) => (
+        <span key={chip.id} title={chip.title} style={{ ...styles.chip, color: CHIP_COLORS[chip.tone] }}>
+          ● {chip.label}
+        </span>
+      ))}
+    </>
   );
 }

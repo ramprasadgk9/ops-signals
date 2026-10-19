@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasFixDetails, setupBanner, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
+import { hasFixDetails, setupBanner, setupChips, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
 
 const RESULT: SetupCheckResult = {
   generated_at: '2026-10-19T14:02:31Z',
@@ -86,4 +86,41 @@ describe('unreachableSetupResult', () => {
 
 it('links docs to the repository', () => {
   expect(setupDocsUrl('docs/security-model.md')).toBe('https://github.com/ramprasadgk9/ops-signals/blob/main/docs/security-model.md');
+});
+
+describe('setupChips', () => {
+  it('says checking while the check runs, and unreachable when it failed', () => {
+    expect(setupChips(null).map((chip) => [chip.label, chip.tone])).toEqual([['Checking backend…', 'pending']]);
+    expect(setupChips(unreachableSetupResult(new TypeError('Failed to fetch'), 'localhost:8002'), true)).toEqual([
+      { id: 'backend', label: 'Backend unreachable', tone: 'fail', title: "Can't reach localhost:8002." },
+    ]);
+  });
+
+  it('turns the metrics and memory checks into chips', () => {
+    const chips = setupChips({
+      ...RESULT,
+      checks: [...RESULT.checks, { id: 'memory', group: 'required', status: 'ok', title: 'Memory search', detail: 'Connected' }],
+    });
+    expect(chips.map((chip) => [chip.label, chip.tone])).toEqual([
+      ['Backend connected', 'ok'],
+      ['Metrics: 1 failing', 'fail'],
+      ['Case memory on', 'ok'],
+    ]);
+    expect(chips[1].title).toBe('Metrics: mimir-eu: Login rejected (401).');
+  });
+
+  it('shows metrics ready and memory off when that is the case', () => {
+    const chips = setupChips({
+      ...RESULT,
+      checks: [
+        { id: 'connection:default', group: 'required', status: 'ok', title: 'Metrics: default', detail: 'Answered' },
+        { id: 'memory', group: 'optional', status: 'off', title: 'Memory search', detail: 'Off.' },
+      ],
+    });
+    expect(chips.map((chip) => [chip.label, chip.tone])).toEqual([
+      ['Backend connected', 'ok'],
+      ['Metrics ready', 'ok'],
+      ['Case memory off', 'off'],
+    ]);
+  });
 });
