@@ -3,14 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
-import { HistoryPage } from '../pages/HistoryPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { CsvUploadPanel } from './CsvUploadPanel';
 import { ThemeProviderWithMode } from '../theme/ThemeProviderWithMode';
 
 vi.mock('../api/queries', () => ({
   api: {
-    analysisRuns: vi.fn(),
     runCsvUpload: vi.fn(),
   },
 }));
@@ -32,42 +30,6 @@ function renderWithProviders(ui: ReactElement) {
     </QueryClientProvider>
   );
 }
-
-describe('HistoryPage', () => {
-  it('renders empty state when there are no analysis runs', async () => {
-    vi.mocked(api.analysisRuns).mockResolvedValue([]);
-    renderWithProviders(<HistoryPage />);
-    expect(await screen.findByText('No analysis history')).toBeInTheDocument();
-    expect(screen.getByText('Analysis runs will appear here as you generate them.')).toBeInTheDocument();
-  });
-
-  it('renders historical questions and analysis runs', async () => {
-    vi.mocked(api.analysisRuns).mockResolvedValue([
-      {
-        id: 'run-1',
-        provider: 'generic',
-        source_type: 'csv',
-        service: 'checkout-service',
-        metric_name: 'cpu_usage',
-        start_time: '2026-07-01T00:00:00Z',
-        end_time: '2026-07-01T02:00:00Z',
-        sample_count: 24,
-        status: 'completed',
-        created_at: '2026-07-01T02:00:00Z',
-      },
-    ]);
-
-    renderWithProviders(<HistoryPage />);
-
-    expect(await screen.findByText('Analysis History')).toBeInTheDocument();
-    expect(screen.getByText('Has this happened before?')).toBeInTheDocument();
-    expect(screen.getByText('checkout-service')).toBeInTheDocument();
-    expect(screen.getByText('cpu_usage')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze Patterns' }));
-    expect(await screen.findByText('Recurring Pattern Analysis')).toBeInTheDocument();
-  });
-});
 
 describe('SettingsPage', () => {
   it('renders settings sections', () => {

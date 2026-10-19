@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { CaseDetailsPage } from '../pages/CaseDetailsPage';
 import { CapabilitiesPage } from '../pages/CapabilitiesPage';
 import { FindingsPage } from '../pages/FindingsPage';
-import { HistoryPage } from '../pages/HistoryPage';
 import { OverviewPage } from '../pages/OverviewPage';
 import { AutonomousMonitoringPage } from '../pages/AutonomousMonitoringPage';
 import { QuestionAnswerPage } from '../pages/QuestionAnswerPage';
@@ -38,7 +37,6 @@ export function AppRoutes() {
       <Route path="/investigations" element={<InvestigationsPage />} />
       <Route path="/cases" element={<CasesPage />} />
       <Route path="/cases/:caseId" element={<CaseDetailsPage />} />
-      <Route path="/history" element={<HistoryPage />} />
       <Route path="/questions/:questionId" element={<QuestionAnswerPage />} />
       <Route path="/capabilities" element={<CapabilitiesPage />} />
       <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
