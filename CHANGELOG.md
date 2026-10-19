@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Grafana plugin: set the backend on a Configuration page.** A Grafana admin enters the Ops
+  Signals backend's URL once (Administration → Plugins → Ops Signals → Configuration, or
+  `jsonData.backendUrl` in provisioning). Before, the plugin offered only local development
+  addresses. Plugin changes are in `frontend/CHANGELOG.md`.
+- **Grafana plugin zip on every release tag** (`.github/workflows/plugin.yml`): one folder named
+  after the plugin id, with source map, LICENSE, CHANGELOG, screenshots and a README for installing
+  it. It's signed when a grafana.com access policy token is configured. The bundle no longer
+  carries the web UI's walkthrough videos (12 MB → 1.3 MB).
+
 ## 0.5.0 - 2026-10-18
 
 Includes Grafana plugin 1.0.34. A release of fixes from two pre-release QA passes; some change what

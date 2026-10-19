@@ -1,25 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-0.1.0}"
+# Builds the Grafana plugin zip: dist/release/<release>/<plugin-id>-<plugin version>.zip, laid out as
+# Grafana expects (one top-level folder named after the plugin id). <release> is the optional first
+# argument, the project release it ships with (e.g. 0.5.0); it defaults to the plugin version. The zip
+# is always named after the plugin's own version (info.version in frontend/plugin.json, 1.0.x).
+#
+# Signing: with GRAFANA_ACCESS_POLICY_TOKEN set (a grafana.com access policy token with the
+# plugins:write scope), the plugin is signed before zipping. A community or commercial signature
+# needs nothing else; for a private signature also set GRAFANA_SIGN_ROOT_URLS to the Grafana
+# address(es) it may run on, comma-separated. Without the token the zip is unsigned.
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ARTIFACT_DIR="$ROOT_DIR/dist/release/$VERSION"
 
-mkdir -p "$ARTIFACT_DIR"
-
-PLUGIN_ID="$(python3 - <<'PY'
+read -r PLUGIN_ID PLUGIN_VERSION < <(python3 - "$ROOT_DIR/frontend/plugin.json" <<'PY'
 import json
+import sys
 from pathlib import Path
 
-plugin = json.loads(Path("frontend/plugin.json").read_text())
-print(plugin["id"])
+plugin = json.loads(Path(sys.argv[1]).read_text())
+print(plugin["id"], plugin["info"]["version"])
 PY
-)"
+)
 
-PLUGIN_ZIP="$ARTIFACT_DIR/${PLUGIN_ID}-${VERSION}.zip"
+RELEASE="${1:-$PLUGIN_VERSION}"
+ARTIFACT_DIR="$ROOT_DIR/dist/release/$RELEASE"
+PLUGIN_ZIP="$ARTIFACT_DIR/${PLUGIN_ID}-${PLUGIN_VERSION}.zip"
+mkdir -p "$ARTIFACT_DIR"
 
 echo "Building Grafana plugin artifact"
-echo "Version:   $VERSION"
+echo "Release:   $RELEASE"
+echo "Version:   $PLUGIN_VERSION"
 echo "Plugin ID: $PLUGIN_ID"
 echo
 
@@ -29,29 +40,43 @@ echo
   npm run build:grafana
 )
 
+if [[ -n "${GRAFANA_ACCESS_POLICY_TOKEN:-}" ]]; then
+  echo "Signing the plugin"
+  SIGN_ARGS=(--distDir dist)
+  if [[ -n "${GRAFANA_SIGN_ROOT_URLS:-}" ]]; then
+    SIGN_ARGS+=(--rootUrls "$GRAFANA_SIGN_ROOT_URLS")
+  fi
+  (
+    cd "$ROOT_DIR/frontend"
+    npx --yes @grafana/sign-plugin@3.3.3 "${SIGN_ARGS[@]}"
+  )
+  SIGNED="signed"
+else
+  SIGNED="unsigned: GRAFANA_ACCESS_POLICY_TOKEN not set"
+fi
+
+STAGING_DIR="$(mktemp -d)"
+trap 'rm -rf "$STAGING_DIR"' EXIT
+cp -R "$ROOT_DIR/frontend/dist" "$STAGING_DIR/$PLUGIN_ID"
+
 rm -f "$PLUGIN_ZIP"
 (
-  cd "$ROOT_DIR/frontend/dist"
-  zip -qr "$PLUGIN_ZIP" .
+  cd "$STAGING_DIR"
+  zip -qr "$PLUGIN_ZIP" "$PLUGIN_ID"
 )
 
 SHA1="$(shasum -a 1 "$PLUGIN_ZIP" | awk '{print $1}')"
+echo "$SHA1  $(basename "$PLUGIN_ZIP")" > "$PLUGIN_ZIP.sha1"
 
 echo
-echo "Grafana plugin artifact:"
+echo "Grafana plugin artifact ($SIGNED):"
 echo "  $PLUGIN_ZIP"
 echo
 echo "SHA1 for Grafana plugin submission:"
 echo "  $SHA1"
 echo
-echo "Local Grafana plugin install path:"
-echo "  /var/lib/grafana/plugins/$PLUGIN_ID"
+echo "Install it into a Grafana:"
+echo "  unzip $(basename "$PLUGIN_ZIP") -d /var/lib/grafana/plugins"
 echo
-echo "Local Docker Compose development stack:"
-echo "  npm --prefix frontend run build:grafana"
-echo "  docker compose up -d grafana"
-echo
-echo "Grafana catalog/marketplace submission uses:"
-echo "  URL:  <public URL to $PLUGIN_ZIP>"
-echo "  SHA1: $SHA1"
-echo "  Source code URL: <public source repository URL>"
+echo "Check it against the catalog rules before submitting:"
+echo "  npx --yes @grafana/plugin-validator@0.50.0 -sourceCodeUri file://$ROOT_DIR/frontend $PLUGIN_ZIP"

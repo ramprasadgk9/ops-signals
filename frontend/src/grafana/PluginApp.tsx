@@ -11,6 +11,7 @@ import {
   type PrometheusDatasourceRef,
 } from './grafanaPrometheus';
 import { InvestigationDrawer, PanelPreview } from './PanelPreview';
+import { backendOptionsFor, defaultBackendUrl as backendUrlDefault, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
 import { Card, Field, styles } from './plainUi';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
@@ -38,12 +39,6 @@ const defaultTarget: GrafanaQueryTarget = {
     to: '',
   },
 };
-
-const backendOptions = [
-  { label: 'Grafana stack backend (:8002)', value: 'http://localhost:8002' },
-  { label: 'Standalone app backend (:8001)', value: 'http://localhost:8001' },
-  { label: 'Host backend from Docker (:8002)', value: 'http://host.docker.internal:8002' },
-];
 
 const timePresets = [
   { label: 'Last 30m', hours: 0.5 },
@@ -99,8 +94,10 @@ const monitorCategories = [
   { id: 'custom', title: 'Custom', detail: 'Define custom constraints' },
 ] satisfies Array<{ id: MonitoringCategory; title: string; detail: string }>;
 
-export function PluginApp(_props: unknown) {
-  const defaultBackendUrl = import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL ?? 'http://localhost:8002';
+export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
+  const buildDefaultBackendUrl = import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL;
+  const defaultBackendUrl = backendUrlDefault(props.meta?.jsonData, buildDefaultBackendUrl);
+  const backendOptions = useMemo(() => backendOptionsFor(props.meta?.jsonData, buildDefaultBackendUrl), [props.meta?.jsonData, buildDefaultBackendUrl]);
   const [activeMode, setActiveMode] = useState<PluginMode>('interactive');
   const [target, setTarget] = useState<GrafanaQueryTarget>(defaultTarget);
   const [result, setResult] = useState<GrafanaAnalysisResult | null>(null);
@@ -615,6 +612,7 @@ export function PluginApp(_props: unknown) {
             setSelectedPrometheusUid={setSelectedPrometheusUid}
             backendUrl={backendUrl}
             setBackendUrl={setBackendUrl}
+            backendOptions={backendOptions}
             target={target}
             setTarget={setTarget}
             services={services}
@@ -642,6 +640,7 @@ export function PluginApp(_props: unknown) {
         <AutonomousAnalysisView
           backendUrl={backendUrl}
           setBackendUrl={setBackendUrl}
+          backendOptions={backendOptions}
           selectedPrometheusUid={selectedPrometheusUid}
           setSelectedPrometheusUid={setSelectedPrometheusUid}
           prometheusDatasources={prometheusDatasources}
@@ -1074,6 +1073,7 @@ export type InteractiveCardProps = {
   setSelectedPrometheusUid: (value: string) => void;
   backendUrl: string;
   setBackendUrl: (value: string) => void;
+  backendOptions?: BackendOption[];
   target: GrafanaQueryTarget;
   setTarget: React.Dispatch<React.SetStateAction<GrafanaQueryTarget>>;
   services: string[];
@@ -1180,7 +1180,7 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
               props.setTarget((current) => ({ ...current, service: '', metric: '' }));
             }}
           >
-            {backendOptions.map((option) => (
+            {(props.backendOptions ?? localBackendOptions).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -1272,6 +1272,7 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
 function AutonomousAnalysisView({
   backendUrl,
   setBackendUrl,
+  backendOptions,
   selectedPrometheusUid,
   setSelectedPrometheusUid,
   prometheusDatasources,
@@ -1353,6 +1354,7 @@ function AutonomousAnalysisView({
 }: {
   backendUrl: string;
   setBackendUrl: (value: string) => void;
+  backendOptions: BackendOption[];
   selectedPrometheusUid: string;
   setSelectedPrometheusUid: (value: string) => void;
   prometheusDatasources: PrometheusDatasourceRef[];
