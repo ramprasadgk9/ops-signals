@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { FindingTrust, FindingVerdict } from '../types';
 import { answerLine, movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, trustBadge, VERDICTS } from '../utils/findingTrust';
 import { sendFindingFeedback } from './backendClient';
+import { LockReason, LOCK_REASONS, usePermissions } from './permissions';
 import { styles } from './plainUi';
 
 // How much to trust a finding, and the "Was this real?" answer that feeds it, in the Grafana plugin's
@@ -29,6 +30,7 @@ function Column({ label, headline, caption, value, tone, info }: { label: string
  * findings that the team's answers didn't move show only the buttons, as in the web UI. Renders
  * nothing for a finding without trust (an older backend). */
 export function PluginFindingTrust({ backendUrl, findingId, trust, service }: { backendUrl: string; findingId?: number | null; trust?: FindingTrust | null; service?: string | null }) {
+  const { canEdit } = usePermissions();
   const [current, setCurrent] = useState(trust ?? null);
   const [pending, setPending] = useState<FindingVerdict | null>(null);
   const [failed, setFailed] = useState(false);
@@ -96,9 +98,9 @@ export function PluginFindingTrust({ backendUrl, findingId, trust, service }: { 
               key={verdict.id}
               type="button"
               aria-pressed={chosen === verdict.id}
-              disabled={pending !== null}
+              disabled={pending !== null || !canEdit}
               onClick={() => answer(verdict.id)}
-              style={{ ...styles.chip, background: 'transparent', color: 'inherit', cursor: pending ? 'wait' : 'pointer', ...(chosen === verdict.id ? SELECTED : {}) }}
+              style={{ ...styles.chip, background: 'transparent', color: canEdit ? 'inherit' : 'rgba(204, 204, 220, 0.35)', cursor: !canEdit ? 'not-allowed' : pending ? 'wait' : 'pointer', ...(chosen === verdict.id ? SELECTED : {}) }}
             >
               {verdict.label}
             </button>
@@ -107,6 +109,7 @@ export function PluginFindingTrust({ backendUrl, findingId, trust, service }: { 
         </div>
       ) : null}
       {answerLine(current) ? <div style={{ ...styles.helperText, marginTop: 0 }}>{answerLine(current)}</div> : null}
+      {findingId && !canEdit ? <LockReason style={{ marginTop: 0 }}>{LOCK_REASONS.answer}</LockReason> : null}
     </section>
   );
 }

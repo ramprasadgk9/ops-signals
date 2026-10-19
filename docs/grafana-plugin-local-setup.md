@@ -263,9 +263,15 @@ Windows/Linux: Ctrl + Shift + R
 The local stack connects the plugin **through Grafana**: `grafana/provisioning/plugins` sets the
 Backend URL to `http://host.docker.internal:8002` (the backend `scripts/run_grafana_stack.sh` starts,
 as Grafana's container reaches it) on every Grafana start. The app's footer says "Backend: through
-Grafana", and the header chip shows who you are: `anonymous · Viewer` until you sign in, `admin ·
-Admin` after. On Linux, start the backend with `--host 0.0.0.0` so the container can reach it; Docker
-Desktop on Mac and Windows reaches a backend on `127.0.0.1` too.
+Grafana", and the header chip shows who you are: `anonymous · Editor` until you sign in (the local
+Grafana's anonymous visitor is an Editor, so everything works without signing in), `admin · Admin`
+after. To see what a Viewer can't do, create a user in Grafana (Administration → Users and access →
+Users → New user; new users are Viewers) and sign in as them in a private window: Run Analysis,
+"Was this real?", Create case and the schedule buttons are locked, each with the reason.
+Step-by-step checks are in [`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md).
+
+On Linux, start the backend with `--host 0.0.0.0` so the container can reach it; Docker Desktop on
+Mac and Windows reaches a backend on `127.0.0.1` too.
 
 To pick a backend in the app instead (:8002 or :8001), choose **Connect through: Browser, directly**
 on the Configuration page. That lasts until Grafana restarts and provisioning applies again.
@@ -592,17 +598,19 @@ Also confirm `frontend/plugin.json` has a new version number and rebuild.
 
 ### Backend Is Not Connected
 
-Confirm the backend is running:
+Start with the **Setup check** on the plugin's Configuration page: it says whether Grafana can reach
+the backend and how to fix it.
+
+The Grafana plugin backend that `scripts/run_grafana_stack.sh` starts uses port `8002`. Confirm it is
+running:
 
 ```bash
-curl http://localhost:8000/api/services
+curl http://localhost:8002/api/health
 ```
 
-If Grafana is running in Docker and cannot reach your host backend, try the dropdown option:
-
-```text
-Host backend from Docker
-```
+Grafana runs in Docker, so it reaches that backend at `http://host.docker.internal:8002`, which the
+local provisioning sets as the plugin's Backend URL. If you started a backend yourself on another
+port (for example `8000`), set that port in the Backend URL on the Configuration page.
 
 ### Invalid Plugin Signature
 

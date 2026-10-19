@@ -13,6 +13,8 @@ import {
   updateCaseResolution,
 } from './backendClient';
 import { Card, Chip, Field, styles } from './plainUi';
+import { LOCK_REASONS, usePermissions } from './permissions';
+import { byLine } from '../utils/actorLine';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginSameFix } from './PluginSameFix';
@@ -507,6 +509,7 @@ function PrimaryFindingCard({
   onViewEvidence: () => void;
   isBusy: boolean;
 }) {
+  const { canEdit } = usePermissions();
   if (!finding) {
     const routing = result.analyzerRouting ?? [];
     const rows = buildAnalyzerRows(result);
@@ -554,8 +557,8 @@ function PrimaryFindingCard({
         </div>
         <div style={styles.row}>
           <button type="button" style={buttonStyle('primary')} onClick={onInvestigate}>Investigate</button>
-          <button type="button" style={buttonStyle('secondary', isBusy)} disabled={isBusy} onClick={onCreateCase}>
-            {isBusy ? 'Creating...' : 'Create Case'}
+          <button type="button" style={buttonStyle('secondary', isBusy || !canEdit)} disabled={isBusy || !canEdit} title={canEdit ? undefined : LOCK_REASONS.createCase} onClick={onCreateCase}>
+            {isBusy ? 'Creating...' : `${canEdit ? '' : '🔒 '}Create Case`}
           </button>
           <button type="button" style={buttonStyle()} onClick={onViewEvidence}>View Evidence</button>
         </div>
@@ -909,6 +912,7 @@ export function InvestigationDrawer({
   onCaseChange: (caseDetails: GrafanaCase) => void;
   onError: (message: string) => void;
 }) {
+  const { canEdit } = usePermissions();
   const [activeStep, setActiveStep] = useState<DrawerStep>('Finding');
   const [investigationStatus, setInvestigationStatus] = useState('in_progress');
   const [investigationNote, setInvestigationNote] = useState('');
@@ -1012,6 +1016,15 @@ export function InvestigationDrawer({
           <StatusPill tone={statusTone(caseDetails?.case_status)}>{humanize(caseDetails?.case_status ?? caseResult?.case_status ?? 'draft')}</StatusPill>
           <StatusPill tone={statusTone(caseDetails?.memory_status ?? caseResult?.memory_status)}>{memoryLabel(caseDetails?.memory_status ?? caseResult?.memory_status)}</StatusPill>
         </div>
+        {caseDetails?.created_by || caseDetails?.resolved_by ? (
+          <div style={{ ...styles.helperText, marginTop: 0 }}>
+            {[
+              caseDetails.created_by ? `Created ${byLine(caseDetails.created_by, caseDetails.created_at)}` : '',
+              caseDetails.resolved_by ? `Resolved by ${caseDetails.resolved_by}` : '',
+            ].filter(Boolean).join(' · ')}
+          </div>
+        ) : null}
+        {canEdit ? null : <div role="note" style={{ ...styles.alert, borderColor: 'rgba(255, 179, 87, 0.4)', background: 'rgba(255, 179, 87, 0.07)' }}>{LOCK_REASONS.workCase}</div>}
 
         <div style={styles.stepList}>
           {steps.map((step, index) => {
@@ -1176,8 +1189,8 @@ export function InvestigationDrawer({
             <strong>{isSaving ? 'Saving changes...' : saveError ? 'Not saved' : 'All changes saved'}</strong>
             <div style={saveError ? { color: '#ff7381' } : styles.muted}>{saveError || (lastSavedAt ? `Last saved ${lastSavedAt}` : 'Just now')}</div>
           </div>
-          <button type="button" style={buttonStyle('primary', !canSave || isSaving)} disabled={!canSave || isSaving} onClick={saveActiveStep}>
-            {activeStep === 'Publish Knowledge' ? 'Republish knowledge' : 'Save Case'}
+          <button type="button" style={buttonStyle('primary', !canSave || isSaving || !canEdit)} disabled={!canSave || isSaving || !canEdit} onClick={saveActiveStep}>
+            {canEdit ? '' : '🔒 '}{activeStep === 'Publish Knowledge' ? 'Republish knowledge' : 'Save Case'}
           </button>
         </div>
       </aside>
@@ -1186,6 +1199,7 @@ export function InvestigationDrawer({
 }
 
 export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisResult | null; backendUrl: string }) {
+  const { canAdmin } = usePermissions();
   const [selectedFindingId, setSelectedFindingId] = useState<number | null>(null);
   const [questions, setQuestions] = useState<GrafanaQuestion[]>([]);
   const [questionAnswer, setQuestionAnswer] = useState<GrafanaQuestionAnswer | null>(null);
@@ -1403,7 +1417,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
             </div>
             <AnalyzerRoutingSummary result={result} />
             <div style={{ ...styles.infoNote, marginTop: 12 }}>
-              <button type="button" style={buttonStyle('danger', isResettingTestData)} disabled={isResettingTestData} onClick={clearTestingData}>
+              <button type="button" style={buttonStyle('danger', isResettingTestData || !canAdmin)} disabled={isResettingTestData || !canAdmin} title={canAdmin ? undefined : LOCK_REASONS.admin} onClick={clearTestingData}>
                 {isResettingTestData ? 'Clearing test data...' : 'Clear DB for testing'}
               </button>
               <div style={{ marginTop: 6 }}>Testing only: clears analysis outputs and case vector memory, not configuration or app documentation.</div>

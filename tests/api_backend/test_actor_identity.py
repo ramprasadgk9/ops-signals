@@ -22,6 +22,8 @@ def _context(login: str = "priya", role: str = "Editor", **extra) -> dict[str, s
 
 
 ANONYMOUS = {"X-Grafana-Context": json.dumps({"UserID": 0, "Login": "", "Email": "", "OrgRole": "Viewer", "IsAnonymous": True})}
+# The local stack's anonymous visitor is an Editor (docker-compose.yml), so it can act but has no name.
+ANONYMOUS_EDITOR = {"X-Grafana-Context": json.dumps({"UserID": 0, "Login": "", "Email": "", "OrgRole": "Editor", "IsAnonymous": True})}
 
 POLICY_BODY = {
     "name": "Production coverage",
@@ -90,7 +92,7 @@ def test_a_case_opened_without_grafana_or_anonymously_has_no_name(client: TestCl
     _seed_finding(1)
     _seed_finding(2)
     first = client.post("/api/cases/findings/1/create").json()
-    second = client.post("/api/cases/findings/2/create", headers=ANONYMOUS).json()
+    second = client.post("/api/cases/findings/2/create", headers=ANONYMOUS_EDITOR).json()
     assert client.get(f"/api/cases/{first['case_id']}").json()["created_by"] is None
     assert client.get(f"/api/cases/{second['case_id']}").json()["created_by"] is None
 

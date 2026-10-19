@@ -92,6 +92,13 @@ def _tools_list(read_only_only: bool) -> dict[str, Any]:
     }
 
 
+def _case_memory_args() -> dict[str, Any]:
+    """What FastAPI would inject into the case endpoints: called directly, they would otherwise get
+    their Depends(...) defaults, and reading config.enabled on one failed."""
+    _ensure_memory_services()
+    return {"indexer": _memory_services.get("indexer"), "config": _memory_config}
+
+
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
     _ensure_runtime()
     db_gen = get_db()
@@ -221,7 +228,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
                 raise ValueError("Assistant is not initialized")
             return assistant.chat(AssistantChatRequest(**arguments), db).model_dump()
         if name == "create_case_from_finding":
-            return create_case_from_finding(arguments["finding_id"], db).model_dump()
+            return create_case_from_finding(arguments["finding_id"], db, **_case_memory_args()).model_dump()
         if name == "index_case_memory":
             _ensure_memory_services()
             indexer = _memory_services["indexer"]
@@ -236,9 +243,9 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         if name == "update_investigation":
             return update_investigation(arguments["case_id"], InvestigationUpdateRequest(**arguments["payload"]), db).model_dump()
         if name == "update_rca":
-            return update_root_cause_analysis(arguments["case_id"], RCAUpdateRequest(**arguments["payload"]), db).model_dump()
+            return update_root_cause_analysis(arguments["case_id"], RCAUpdateRequest(**arguments["payload"]), db, **_case_memory_args()).model_dump()
         if name == "update_resolution":
-            return update_resolution(arguments["case_id"], ResolutionUpdateRequest(**arguments["payload"]), db).model_dump()
+            return update_resolution(arguments["case_id"], ResolutionUpdateRequest(**arguments["payload"]), db, **_case_memory_args()).model_dump()
         if name == "analyzer_recommendation":
             service = MetricAnalyzerRecommendationService()
             payload = dict(arguments)

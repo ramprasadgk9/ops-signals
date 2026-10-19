@@ -4,6 +4,15 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Roles in the Grafana plugin.** Through Grafana, each person's Grafana role decides what they can
+  change: Viewers read and ask, Editors also run analyses, answer "Was this real?", work on cases and
+  change schedules, Admins also manage settings, labs, imports and test data. The backend refuses
+  anything else with a 403 that says why (`backend/app/roles.py`), and the plugin locks the buttons
+  with the same reason. Closing a case records who did ("Resolved by sam"; new column, see
+  `backend/migrations/011_case_resolved_by.sql`). The local Grafana's anonymous visitor is now an
+  Editor so the dev stack works without signing in. See `docs/security-model.md#roles`.
+- **Fixed: the MCP server's case tools** (create a case, update the root cause or resolution) failed
+  when they called the case endpoints without the memory settings FastAPI normally injects.
 - **The Grafana plugin can sign in through Grafana.** On its Configuration page, **Connect through:
   Grafana** (recommended, and the default for new installs) sends plugin requests through Grafana's
   plugin proxy: the API token stays encrypted on the Grafana server instead of in each browser, no

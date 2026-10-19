@@ -91,12 +91,30 @@ directly") and Grafana runs on another host, add your Grafana URL, for example
 Grafana nor the web UI needs an entry: Grafana's server calls the backend, and nginx serves the web
 UI from the same origin as `/api/`.
 
+## Roles
+
+When the plugin connects through Grafana, each request is limited by the person's Grafana role in
+the organization (`backend/app/roles.py`):
+
+| Role | May |
+| --- | --- |
+| **Viewer** | Read everything, ask Ops Signals and rate its answers, preview an autonomous plan, test a connection |
+| **Editor** | Also answer "Was this real?", create and work on cases (investigation, root cause, resolution, memory, tickets), run analyses, save, change, pause or delete schedules |
+| **Admin** | Also the plugin's Configuration page, test alerts, the analyzer and behavior labs, case imports, and the test-data reset |
+
+Setup, the plugin-or-web-UI question and step-by-step checks are in
+[`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md). A refused request gets a 403 saying why ("Editors can change schedules. Ask your Grafana admin for
+the Editor role."), and the plugin shows the same reason under the locked button. Grafana sets the
+role on every request and a browser can't change it, so with `OPS_SIGNALS_API_TOKEN` set (only
+Grafana can reach the backend) roles can't be bypassed. Without a token, someone who calls the
+backend directly isn't limited by roles at all.
+
 ## Who did what
 
 When the plugin connects through Grafana, Grafana's plugin proxy adds `X-Grafana-Context` to each
 request: the signed-in Grafana user and their role. The backend records that name on what the
 person does (a "Was this real?" answer, a case they open, a schedule they create or change) and the
-UI shows it, for example "Created by priya · 3h ago". Grafana replaces any copy of that header a
+UI shows it, for example "Created by priya · 3h ago", "Resolved by sam". Grafana replaces any copy of that header a
 browser sends.
 
 A request made straight to the backend can carry a made-up header, so the names are only as
@@ -107,10 +125,10 @@ the plugin in "Browser, directly" mode) record no name.
 
 ## Known limitations
 
-- **One shared token, and no roles yet.** Anyone with the token can do everything the API allows,
-  including the file writes and the reset when those are on. Through Grafana the backend knows each
-  person's name and Grafana role, but doesn't limit what a role may do yet
-  ([`adoption-roadmap.md`](adoption-roadmap.md)).
+- **Roles only through Grafana.** Requests through the plugin's Grafana proxy are limited by the
+  person's Grafana role (below). Anything else with the token - the web UI, scripts, the plugin in
+  "Browser, directly" mode - can do everything the API allows, including the file writes and the
+  reset when those are on ([`adoption-roadmap.md`](adoption-roadmap.md)).
 - **In the Grafana plugin's "Browser, directly" mode, the token sits in the browser.** Connect the
   plugin through Grafana to keep it on the Grafana server.
 - **The web UI doesn't know who is using it.** Its actions record no name.

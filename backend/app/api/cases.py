@@ -108,6 +108,7 @@ def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
         source_url=case.source_url,
         import_batch_id=case.import_batch_id,
         created_by=case.created_by,
+        resolved_by=case.resolved_by,
     )
 
 
@@ -550,6 +551,7 @@ def update_resolution(
     db: Session = Depends(get_db),
     indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
     config: MemoryConfig | None = Depends(get_memory_config),
+    actor: Actor | None = Depends(current_actor),
 ) -> CaseOut:
     case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
     if case is None:
@@ -564,6 +566,13 @@ def update_resolution(
             detail="learning_outcome_status is required when resolving or closing a case",
         )
 
+    # Who closed it: set when it moves into a closing outcome, kept while it stays closed, cleared
+    # when it is reopened.
+    was_closed = case.outcome_status in final_states
+    if payload.outcome_status in final_states and not was_closed:
+        case.resolved_by = actor_name(actor)
+    elif payload.outcome_status not in final_states:
+        case.resolved_by = None
     case.outcome_status = payload.outcome_status
     case.outcome_summary = payload.outcome_summary
     case.corrective_action = payload.corrective_action

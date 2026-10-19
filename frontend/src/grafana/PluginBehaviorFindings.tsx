@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { findingLevel } from '../utils/findingLevel';
 import { createCaseFromBehavior } from './backendClient';
+import { LOCK_REASONS, usePermissions } from './permissions';
 import { styles } from './plainUi';
 
 // Behavior findings (correlated, cross-metric patterns) with Create Case / Open Case, in the Grafana
@@ -26,6 +27,7 @@ export function PluginBehaviorFindings({ backendUrl, findings, onOpenCase, frame
   /** Replaces the default bordered box, e.g. with styles.card where it sits among the page's cards. */
   frame?: React.CSSProperties;
 }) {
+  const { canEdit } = usePermissions();
   // Cases created here, so the row says Open Case without reloading the findings.
   const [createdCases, setCreatedCases] = useState<Record<number, number>>({});
   const [creatingId, setCreatingId] = useState<number | null>(null);
@@ -76,11 +78,12 @@ export function PluginBehaviorFindings({ backendUrl, findings, onOpenCase, frame
             ) : (
               <button
                 type="button"
-                style={{ ...styles.button, ...(creatingId !== null ? styles.buttonDisabled : {}) }}
-                disabled={creatingId !== null}
+                style={{ ...styles.button, ...(creatingId !== null || !canEdit ? styles.buttonDisabled : {}) }}
+                disabled={creatingId !== null || !canEdit}
+                title={canEdit ? undefined : LOCK_REASONS.createCase}
                 onClick={() => createCase(finding)}
               >
-                {creatingId === finding.id ? 'Creating...' : 'Create Case'}
+                {creatingId === finding.id ? 'Creating...' : `${canEdit ? '' : '🔒 '}Create Case`}
               </button>
             )}
           </div>

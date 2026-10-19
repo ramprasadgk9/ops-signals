@@ -10,8 +10,10 @@ protocols) through configuration, and never build per-vendor integrations.
   test each part of an install and say how to fix anything that isn't working
   ([`ui-tour.md`](ui-tour.md#setup-check-and-settings), `GET /api/setup/check`).
 - **The plugin signs in through Grafana (done, step 1 below).**
-- **Login:** one shared API token, `OPS_SIGNALS_API_TOKEN`, or none, and no roles yet: anyone with
-  the token can do everything ([`security-model.md`](security-model.md)).
+- **Roles in the plugin (done, step 2 below).** Viewer, Editor and Admin, from Grafana.
+- **Login:** one shared API token, `OPS_SIGNALS_API_TOKEN`, or none. Outside the plugin through
+  Grafana there are no roles: anyone with the token can do everything
+  ([`security-model.md`](security-model.md)).
 - **"Who did it":** recorded for what people do in the plugin through Grafana. The web UI records no
   names yet (step 3).
 
@@ -41,7 +43,15 @@ Plugin requests go through Grafana's server-side plugin proxy instead of straigh
 **Size:** medium. It touches how the plugin calls the backend (a plugin backend or Grafana's route
 proxy) and adds a "who" field to a few records. Mockup first.
 
-### 2. Roles: Viewer, Editor, Admin
+### 2. Roles: Viewer, Editor, Admin (done)
+
+Built 2026-10-19 for the plugin through Grafana: the table, setup and local checks are in
+[`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md). The backend enforces it on every request
+(`backend/app/roles.py`), and the plugin locks the buttons with the reason. Closing a case now also
+records who did ("Resolved by sam"). The rules are fixed for now; letting admins change them (for
+example "Viewers may answer Was this real?") waits until someone asks.
+
+What was planned:
 
 - **Viewer:** sees findings, cases and Overview.
 - **Editor:** runs analyses, resolves and confirms cases, gives feedback, edits schedules.

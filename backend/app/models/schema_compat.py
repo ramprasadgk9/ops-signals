@@ -348,7 +348,7 @@ def ensure_case_memory_schema(engine: Engine) -> None:
 # through Grafana simply have no name.
 _ACTOR_COLUMNS = {
     "ops_finding_feedback": {"answered_by": "TEXT"},
-    "ops_operational_cases": {"created_by": "TEXT"},
+    "ops_operational_cases": {"created_by": "TEXT", "resolved_by": "TEXT"},
     "autonomous_policies": {"created_by": "TEXT", "edited_by": "TEXT", "edited_at": "TIMESTAMPTZ"},
 }
 

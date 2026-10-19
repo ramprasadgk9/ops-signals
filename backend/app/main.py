@@ -86,6 +86,7 @@ from backend.app.models.schema_compat import (
     ensure_learning_schema,
     ensure_ticketing_schema,
 )
+from backend.app.roles import require_grafana_role
 from backend.app.security import require_api_token
 from backend.app.storage.bootstrap import seed_reference_data
 from intelligence.storage.postgres_store import register_findings_hook
@@ -443,7 +444,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
         title=settings.app_name,
         version=settings.app_version,
         lifespan=lifespan,
-        dependencies=[Depends(require_api_token)],
+        # The token first (who may call at all), then the Grafana user's role (what they may change).
+        dependencies=[Depends(require_api_token), Depends(require_grafana_role)],
         docs_url="/docs" if docs_open else None,
         redoc_url="/redoc" if docs_open else None,
         openapi_url="/openapi.json" if docs_open else None,

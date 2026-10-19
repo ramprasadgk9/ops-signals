@@ -244,6 +244,8 @@ class CaseOut(BaseModel):
     import_batch_id: str | None = None
     # The Grafana user who opened it; None when it wasn't opened through Grafana.
     created_by: str | None = None
+    # The Grafana user who closed it (resolved, mitigated...); None otherwise.
+    resolved_by: str | None = None
 
 
 # Every value a client sends today: the web UI, the Grafana plugin, MCP, imports and Jira sync.
