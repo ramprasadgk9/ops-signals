@@ -48,11 +48,10 @@ jobs:
           echo "path=$zip_path" >> "$GITHUB_OUTPUT"
           echo "dir=$(dirname "$zip_path")" >> "$GITHUB_OUTPUT"
 
-      # Report-only for now. Catalog-only errors it reports today (issue #58): the plugin id (3 words
-      # between org and type), the Vite build ("non-standard frontend build tooling"; the catalog
-      # wants create-plugin), known issues in dev dependencies (vite 5, vitest 2), and package.json's
-      # version (the project's 0.x) differing from the plugin's 1.0.x. None stops the zip installing.
-      # Make this step blocking once they're fixed.
+      # Report-only for now. Catalog-only errors it reports today (issue #58): the Vite build
+      # ("non-standard frontend build tooling"; the catalog wants create-plugin), known issues in dev
+      # dependencies (vite 5, vitest 2), and package.json's version (the project's 0.x) differing from
+      # the plugin's 1.0.x. None stops the zip installing. Make this step blocking once they're fixed.
       - name: Validate against the Grafana catalog rules
         continue-on-error: true
         run: npx --yes @grafana/plugin-validator@0.50.0 -sourceCodeUri "file://$GITHUB_WORKSPACE/frontend" "${{ steps.zip.outputs.path }}"

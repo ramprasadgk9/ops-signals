@@ -132,7 +132,7 @@ http://localhost:9090
 The Docker Compose setup mounts:
 
 ```text
-frontend/dist -> /var/lib/grafana/plugins/breezypoppy3596-ops-signals-app
+frontend/dist -> /var/lib/grafana/plugins/breezypoppy3596-opssignals-app
 ```
 
 That means every time you change plugin code, you should rebuild the plugin and restart Grafana.
@@ -142,19 +142,19 @@ That means every time you change plugin code, you should rebuild the plugin and 
 Check plugin settings from your terminal:
 
 ```bash
-curl -u admin:admin http://localhost:3000/api/plugins/breezypoppy3596-ops-signals-app/settings
+curl -u admin:admin http://localhost:3000/api/plugins/breezypoppy3596-opssignals-app/settings
 ```
 
 Expected result:
 
 ```text
-The response should include "id":"breezypoppy3596-ops-signals-app" and "enabled":true.
+The response should include "id":"breezypoppy3596-opssignals-app" and "enabled":true.
 ```
 
 You can also verify the mounted plugin files inside the Grafana container:
 
 ```bash
-docker exec ops-signals-grafana sh -lc 'ls -la /var/lib/grafana/plugins/breezypoppy3596-ops-signals-app'
+docker exec ops-signals-grafana sh -lc 'ls -la /var/lib/grafana/plugins/breezypoppy3596-opssignals-app'
 ```
 
 Expected files:
@@ -248,7 +248,7 @@ Password: admin
 Then open the Ops Signals app route:
 
 ```text
-http://localhost:3000/a/breezypoppy3596-ops-signals-app/ops-signals
+http://localhost:3000/a/breezypoppy3596-opssignals-app/ops-signals
 ```
 
 If the browser shows old UI, hard refresh:
@@ -327,7 +327,7 @@ Prerequisites:
 
 How to use it:
 
-1. Open `http://localhost:3000/a/breezypoppy3596-ops-signals-app/ops-signals`
+1. Open `http://localhost:3000/a/breezypoppy3596-opssignals-app/ops-signals`
 2. Set `Data source` to your Grafana Prometheus datasource
 3. Set `Ops Signals backend` to `Local backend (:8000)`
 4. Choose a `Service`
@@ -567,7 +567,7 @@ docker compose up -d --force-recreate grafana prometheus mock-metrics
 Then check:
 
 ```bash
-curl -u admin:admin http://localhost:3000/api/plugins/breezypoppy3596-ops-signals-app/settings
+curl -u admin:admin http://localhost:3000/api/plugins/breezypoppy3596-opssignals-app/settings
 ```
 
 ### Browser Shows Old UI
@@ -603,7 +603,7 @@ This is expected for local development.
 The plugin is unsigned because it is not published to grafana.com. The local Docker Compose setup allows this plugin ID:
 
 ```text
-breezypoppy3596-ops-signals-app
+breezypoppy3596-opssignals-app
 ```
 
 ### App Route Shows Not Found
@@ -611,7 +611,7 @@ breezypoppy3596-ops-signals-app
 Check that Grafana sees the app include:
 
 ```bash
-curl -u admin:admin http://localhost:3000/api/plugins/breezypoppy3596-ops-signals-app/settings
+curl -u admin:admin http://localhost:3000/api/plugins/breezypoppy3596-opssignals-app/settings
 ```
 
 Look for:
@@ -623,7 +623,7 @@ Look for:
 The app route should be:
 
 ```text
-http://localhost:3000/a/breezypoppy3596-ops-signals-app/ops-signals
+http://localhost:3000/a/breezypoppy3596-opssignals-app/ops-signals
 ```
 
 ### View All Cases Does Nothing

@@ -965,8 +965,8 @@ OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh</pr
           <div class="item-text">
             <label class="item-title" for="p7a-settings">Confirm Grafana sees the plugin</label>
             <div class="item-action">In a second terminal:</div>
-            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>curl -u admin:admin http://localhost:3000/api/plugins/ops-signals-app/settings</pre></div>
-            <div class="expect"><span class="label">Expect</span><div class="body">JSON response includes <code class="inline">"id":"ops-signals-app"</code> and <code class="inline">"enabled":true</code>.</div></div>
+            <div class="codeblock"><button class="copy-btn" type="button">Copy</button><pre>curl -u admin:admin http://localhost:3000/api/plugins/breezypoppy3596-opssignals-app/settings</pre></div>
+            <div class="expect"><span class="label">Expect</span><div class="body">JSON response includes <code class="inline">"id":"breezypoppy3596-opssignals-app"</code> and <code class="inline">"enabled":true</code>.</div></div>
           </div>
         </div>
       </div>
@@ -976,7 +976,7 @@ OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh</pr
           <input type="checkbox" id="p7a-open">
           <div class="item-text">
             <label class="item-title" for="p7a-open">Open the plugin inside Grafana</label>
-            <div class="item-action">Go to <code class="inline">http://localhost:3000</code>, log in with <code class="inline">admin</code> / <code class="inline">admin</code>, then open <code class="inline">http://localhost:3000/a/ops-signals-app/ops-signals</code>.</div>
+            <div class="item-action">Go to <code class="inline">http://localhost:3000</code>, log in with <code class="inline">admin</code> / <code class="inline">admin</code>, then open <code class="inline">http://localhost:3000/a/breezypoppy3596-opssignals-app/ops-signals</code>.</div>
             <div class="expect"><span class="label">Expect</span><div class="body">The Ops Signals toolbar renders inside Grafana. An "unsigned plugin" notice is expected for local development, not an error.</div></div>
           </div>
         </div>

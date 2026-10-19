@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The Grafana plugin's id is now `breezypoppy3596-opssignals-app`** (was
+  `breezypoppy3596-ops-signals-app`), as the Grafana catalog requires. An existing install has to be
+  removed and installed again under the new id; see `frontend/CHANGELOG.md`. The `docker-compose.yml`
+  stack needs `docker compose up -d grafana` to pick up the new plugin folder.
 - **Grafana plugin: set the backend on a Configuration page.** A Grafana admin enters the Ops
   Signals backend's URL once (Administration → Plugins → Ops Signals → Configuration, or
   `jsonData.backendUrl` in provisioning). Before, the plugin offered only local development
