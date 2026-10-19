@@ -24,7 +24,7 @@ test('running the plugin autonomous plan once and creating a case from its top f
   await page.goto(env.pluginAppPath);
   await page.getByRole('button', { name: 'Autonomous Analysis' }).click();
 
-  await page.getByLabel('Data source').selectOption({ label: 'Prometheus' });
+  await page.getByLabel('Data source', { exact: true }).selectOption({ label: 'Prometheus' });
   // The category button's accessible name is its full text ("Custom Define custom constraints"),
   // not just the visible <strong> label — confirmed against a live run.
   await page.getByRole('button', { name: /^Custom /, exact: false }).click();

@@ -6,6 +6,11 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Interactive Analysis form in three steps: Data, What, When.** "Read metrics from" is one
+  choice (Grafana data source, or an Ops Signals connection with its cluster). Service and Metric are
+  the only boxes in step 2; the service label is a "change" link under Service, and Metric / PromQL
+  is a switch. Time presets plus "Custom…", which applies as you change it. The backend and API
+  token moved behind "change" at the bottom. A disabled Run Analysis says what is missing.
 - **Fixed: Autonomous Overview failed with "could not be loaded"** once the backend held many
   analysis runs. The plugin now asks for the newest runs only.
 - **New plugin id: `breezypoppy3596-opssignals-app`** (was `breezypoppy3596-ops-signals-app`).

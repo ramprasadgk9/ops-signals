@@ -13,7 +13,7 @@ import { env } from '../../shared/env';
 test('running an interactive analysis against live Prometheus completes and renders a result', async ({ page }) => {
   await page.goto(env.pluginAppPath);
 
-  await page.getByLabel('Data source').selectOption({ label: 'Prometheus' });
+  await page.getByLabel('Data source', { exact: true }).selectOption({ label: 'Prometheus' });
   await page.getByLabel('Service', { exact: true }).fill('test-trend-smooth-linear-increase');
   await page.getByLabel('Metric', { exact: true }).fill('ops_signals_test_cpu_usage');
   await page.getByRole('button', { name: 'Last 1h', exact: true }).click();

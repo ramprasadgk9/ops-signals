@@ -160,8 +160,8 @@ async function pluginSelect(page) {
   await page.goto(PLUGIN);
   await page.getByRole('button', { name: 'Run Analysis' }).waitFor();
   await page.waitForTimeout(1500);
-  await page.getByPlaceholder(/Value for label/).fill(PLUGIN_SERVICE);
-  await page.getByPlaceholder('Metric name').fill(PLUGIN_METRIC);
+  await page.getByLabel('Service', { exact: true }).fill(PLUGIN_SERVICE);
+  await page.getByLabel('Metric', { exact: true }).fill(PLUGIN_METRIC);
   // Matched by visible text: this button's accessible name comes out as the whole preset group.
   await page.locator('button', { hasText: /^Last 30m$/ }).click();
   await page.waitForTimeout(500);

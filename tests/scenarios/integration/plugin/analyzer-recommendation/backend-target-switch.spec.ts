@@ -3,14 +3,16 @@ import { env } from '../../shared/env';
 
 /**
  * Plugin-only: the plugin can point at either the standalone backend (:8001) or the
- * Grafana-stack backend (:8002) — see backendOptions in frontend/src/grafana/PluginApp.tsx.
+ * Grafana-stack backend (:8002) — see localBackendOptions in frontend/src/grafana/backendUrlSetting.ts.
  * Only the web-ui suite doesn't have this axis, since the web-ui always talks to its own backend.
  */
 test('switching the plugin backend target resets the service/metric selection', async ({ page }) => {
   await page.goto(env.pluginAppPath);
 
+  // The backend picker sits behind "change" next to the form's "Backend:" line.
+  await page.getByRole('button', { name: 'Change backend' }).click({ timeout: 20_000 });
   const backendSelect = page.getByLabel('Ops Signals backend');
-  await expect(backendSelect).toBeVisible({ timeout: 20_000 });
+  await expect(backendSelect).toBeVisible();
 
   const serviceInput = page.getByLabel('Service', { exact: true });
   await serviceInput.fill('some-service-to-be-cleared');

@@ -551,9 +551,9 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     setTimeRange(preset);
   }
 
-  function applyCustomRange() {
-    const nextFrom = parseDateTimeLocal(timeFromInput);
-    const nextTo = parseDateTimeLocal(timeToInput);
+  function applyCustomRange(fromInput = timeFromInput, toInput = timeToInput) {
+    const nextFrom = parseDateTimeLocal(fromInput);
+    const nextTo = parseDateTimeLocal(toInput);
     if (!nextFrom || !nextTo) {
       setError('Enter a valid custom time range.');
       return;
@@ -963,11 +963,14 @@ export function ClustersField({ clusterOptions, clusterLabel, allClusters, setAl
 }
 
 /** Picks the backend Prometheus connection (one per Mimir tenant), with a connection test. */
-export function ConnectionPicker({ backendUrl, connections, connectionId, onChange }: {
+export function ConnectionPicker({ backendUrl, connections, connectionId, onChange, compact = false, disabled = false }: {
   backendUrl: string;
   connections: PrometheusConnection[];
   connectionId: string | null;
   onChange: (value: string) => void;
+  /** Just the select, Test and its result: for a form that labels and explains the choice itself. */
+  compact?: boolean;
+  disabled?: boolean;
 }) {
   const [test, setTest] = useState<{ status: 'idle' | 'testing' } | { status: 'done'; ok: boolean; message: string }>({ status: 'idle' });
   const runTest = async () => {
@@ -980,12 +983,12 @@ export function ConnectionPicker({ backendUrl, connections, connectionId, onChan
       setTest({ status: 'done', ok: false, message: error instanceof Error ? error.message : 'Connection test failed' });
     }
   };
-  return (
-    <Field label="Prometheus connection">
+  const picker = (
       <div style={{ ...styles.row, gap: 8, flexWrap: 'nowrap' }}>
         <select
           aria-label="Prometheus connection"
-          style={styles.input}
+          style={{ ...styles.input, ...(disabled ? { opacity: 0.4 } : {}) }}
+          disabled={disabled}
           value={connectionId ?? ''}
           onChange={(event) => {
             setTest({ status: 'idle' });
@@ -996,11 +999,24 @@ export function ConnectionPicker({ backendUrl, connections, connectionId, onChan
             <option key={connection.id} value={connection.id}>{connection.name}{connection.configured ? '' : ' (not configured)'}</option>
           ))}
         </select>
-        <button type="button" style={{ ...styles.chip, background: 'transparent', color: 'inherit', cursor: 'pointer' }} disabled={test.status === 'testing' || !connectionId} onClick={runTest}>
+        <button type="button" style={{ ...styles.chip, background: 'transparent', color: 'inherit', cursor: 'pointer', ...(disabled ? { opacity: 0.4 } : {}) }} disabled={disabled || test.status === 'testing' || !connectionId} onClick={runTest}>
           {test.status === 'testing' ? 'Testing...' : 'Test'}
         </button>
       </div>
-      {test.status === 'done' ? <div style={{ ...styles.helperText, color: test.ok ? '#3fcf8e' : '#ff7381' }}>{test.message}</div> : null}
+  );
+  const result = test.status === 'done' ? <div style={{ ...styles.helperText, color: test.ok ? '#3fcf8e' : '#ff7381' }}>{test.message}</div> : null;
+  if (compact) {
+    return (
+      <div style={{ minWidth: 0 }}>
+        {picker}
+        {result}
+      </div>
+    );
+  }
+  return (
+    <Field label="Prometheus connection">
+      {picker}
+      {result}
       <div style={styles.helperText}>One per Mimir tenant or Prometheus server, set on the backend. Services and clusters below come from it.</div>
     </Field>
   );
@@ -1088,7 +1104,7 @@ export type InteractiveCardProps = {
   timeToInput: string;
   setTimeToInput: (value: string) => void;
   applyPreset: (hours: number) => void;
-  applyCustomRange: () => void;
+  applyCustomRange: (fromInput?: string, toInput?: string) => void;
   ready: boolean;
   timeRangeValid: boolean;
   isRunning: boolean;
@@ -1116,45 +1132,38 @@ function ApiTokenField() {
 }
 
 export function InteractiveAnalysisCard(props: InteractiveCardProps) {
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [showBackend, setShowBackend] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const activePreset = customOpen ? null : presetFor(props.timeRange);
+  const viaConnection = props.source === 'connection';
+  const needsCluster = viaConnection && props.clusterOptions.length > 0;
+  const missing = runBlockers(props);
+  const canRun = props.ready && props.timeRangeValid && !props.isRunning;
+
   return (
     <Card>
-      <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14 }}>
+      <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 6 }}>
         <div>
           <h2 style={{ margin: 0, color: '#73bf69' }}>Interactive Analysis</h2>
           <p style={{ ...styles.muted, margin: '5px 0 0' }}>Select a service, metric, and time range to investigate.</p>
         </div>
         <span style={styles.chip}>One metric per run</span>
       </div>
-      <div style={styles.toolbar}>
-        {props.connections.length ? (
-          <Field label="Query through">
-            <select
-              aria-label="Query through"
-              style={styles.input}
-              value={props.source}
-              onChange={(event) => props.setSource(event.target.value as 'grafana' | 'connection')}
-            >
-              <option value="grafana">Grafana data source</option>
-              <option value="connection">Ops Signals connection</option>
-            </select>
-            <div style={styles.helperText}>
-              {props.source === 'connection'
-                ? 'The backend queries it: picks one cluster, tags findings with it, and keeps one copy of HA-duplicated series.'
-                : 'Grafana queries the data source and sends the samples for analysis.'}
-            </div>
-          </Field>
-        ) : null}
-        {props.source === 'connection' ? (
-          <ConnectionPicker
-            backendUrl={props.backendUrl}
-            connections={props.connections}
-            connectionId={props.connectionId}
-            onChange={props.setConnectionId}
+
+      <FormStep number={1} title="Data">
+        <div style={formStyles.question}>Read metrics from</div>
+        <div style={formStyles.sourceGrid}>
+          <SourceOption
+            show={props.connections.length > 0}
+            checked={!viaConnection}
+            label="Grafana data source"
+            onSelect={() => props.setSource('grafana')}
           />
-        ) : (
-        <Field label="Data source">
           <select
-            style={styles.input}
+            aria-label="Data source"
+            style={{ ...styles.input, ...(viaConnection ? formStyles.inactive : {}) }}
+            disabled={viaConnection}
             value={props.selectedPrometheusUid}
             onChange={(event) => {
               props.setSelectedPrometheusUid(event.target.value);
@@ -1163,111 +1172,300 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
           >
             <option value="">{props.prometheusDatasources.length ? 'Select Prometheus' : 'No Prometheus datasource'}</option>
             {props.prometheusDatasources.map((datasource) => (
-              <option key={datasource.uid} value={datasource.uid}>
-                {datasource.name}
-              </option>
+              <option key={datasource.uid} value={datasource.uid}>{datasource.name}</option>
             ))}
           </select>
-        </Field>
-        )}
-        <Field label="Ops Signals backend">
-          <select
-            style={styles.input}
-            value={props.backendUrl}
-            onChange={(event) => {
-              props.setBackendUrl(event.target.value);
-              props.onClearResult();
-              props.setTarget((current) => ({ ...current, service: '', metric: '' }));
-            }}
+          {props.connections.length ? (
+            <>
+              <SourceOption show checked={viaConnection} label="Ops Signals connection" onSelect={() => props.setSource('connection')} />
+              <div style={{ display: 'grid', gridTemplateColumns: needsCluster ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 8 }}>
+                <ConnectionPicker
+                  compact
+                  disabled={!viaConnection}
+                  backendUrl={props.backendUrl}
+                  connections={props.connections}
+                  connectionId={props.connectionId}
+                  onChange={props.setConnectionId}
+                />
+                {needsCluster ? (
+                  <select aria-label="Cluster" style={styles.input} value={props.cluster} onChange={(event) => props.setCluster(event.target.value)}>
+                    <option value="">Choose a cluster</option>
+                    {props.clusterOptions.map((cluster) => (
+                      <option key={cluster} value={cluster}>{cluster}</option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </div>
+        <div style={styles.helperText}>
+          {viaConnection
+            ? 'The Ops Signals backend reads it directly: one cluster per run, findings tagged with it, and one copy of HA-duplicated series. Use this for Mimir tenants and clusters.'
+            : 'Grafana reads the data source and sends the numbers to Ops Signals.'}
+        </div>
+        {needsCluster ? (
+          <div style={{ ...styles.helperText, ...(props.cluster ? {} : { color: '#ffb357' }) }}>
+            This series is in {props.clusterOptions.length} clusters; one is analysed per run.{props.cluster ? '' : ' Choose one to run.'}
+          </div>
+        ) : null}
+      </FormStep>
+
+      <FormStep number={2} title="What">
+        <div style={formStyles.whatGrid}>
+          <div style={{ minWidth: 0 }}>
+            <Field label="Service">
+              <input
+                style={styles.input}
+                list="ops-signals-services"
+                value={props.target.service}
+                placeholder="Pick or type a service"
+                onChange={(event) => props.setTarget((current) => ({ ...current, service: event.target.value }))}
+              />
+            </Field>
+            <datalist id="ops-signals-services">
+              {(viaConnection ? props.connectionServices : props.services).map((service) => (
+                <option key={service} value={service} />
+              ))}
+            </datalist>
+            {editingLabel || !props.serviceLabel ? (
+              <>
+                <div style={{ ...styles.row, gap: 8, marginTop: 8, flexWrap: 'nowrap' }}>
+                  <span style={styles.helperText}>matched on label</span>
+                  <input
+                    aria-label="Service label"
+                    style={{ ...styles.input, width: 140, minHeight: 28, padding: '3px 8px' }}
+                    value={props.serviceLabel}
+                    placeholder="service"
+                    onChange={(event) => props.setServiceLabel(event.target.value)}
+                  />
+                  <button type="button" style={formStyles.link} disabled={!props.serviceLabel} onClick={() => setEditingLabel(false)}>done</button>
+                </div>
+                <div style={styles.helperText}>The label that names the service in your metrics. Usually "service"; some setups use "job" or "app".</div>
+              </>
+            ) : (
+              <div style={styles.helperText}>
+                matched on label <strong>{props.serviceLabel}</strong> &middot;{' '}
+                <button type="button" aria-label="Change service label" style={formStyles.link} onClick={() => setEditingLabel(true)}>change</button>
+              </div>
+            )}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'end' }}>
+              <Field label="Metric">
+                <input
+                  style={styles.input}
+                  list="ops-signals-metrics"
+                  value={props.target.metric}
+                  placeholder={props.metricMode === 'metric' ? 'Metric name' : 'PromQL expression'}
+                  onChange={(event) => props.setTarget((current) => ({ ...current, metric: event.target.value }))}
+                />
+              </Field>
+              <div role="group" aria-label="Metric or PromQL" style={formStyles.segment}>
+                {([['metric', 'Metric'], ['promql', 'PromQL']] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={props.metricMode === mode}
+                    style={{ ...formStyles.segmentButton, ...(props.metricMode === mode ? formStyles.segmentOn : {}) }}
+                    onClick={() => props.setMetricMode(mode)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <datalist id="ops-signals-metrics">
+              {(viaConnection ? props.connectionMetrics : props.metrics).map((metric) => (
+                <option key={metric} value={metric} />
+              ))}
+            </datalist>
+          </div>
+        </div>
+      </FormStep>
+
+      <FormStep number={3} title="When">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {timePresets.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              aria-pressed={activePreset === preset.hours}
+              style={{ ...formStyles.preset, ...(activePreset === preset.hours ? formStyles.presetOn : {}) }}
+              onClick={() => {
+                setCustomOpen(false);
+                props.applyPreset(preset.hours);
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-pressed={customOpen}
+            style={{ ...formStyles.preset, ...(customOpen ? formStyles.presetOn : {}) }}
+            onClick={() => setCustomOpen((open) => !open)}
           >
-            {(props.backendOptions ?? localBackendOptions).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <ApiTokenField />
-        <Field label="Service">
-          <input
-            style={styles.input}
-            list="ops-signals-services"
-            value={props.target.service}
-            placeholder={`Value for label "${props.serviceLabel}"`}
-            onChange={(event) => props.setTarget((current) => ({ ...current, service: event.target.value }))}
-          />
-          <datalist id="ops-signals-services">
-            {(props.source === 'connection' ? props.connectionServices : props.services).map((service) => (
-              <option key={service} value={service} />
-            ))}
-          </datalist>
-        </Field>
-        <Field label="Metric">
-          <input
-            style={styles.input}
-            list="ops-signals-metrics"
-            value={props.target.metric}
-            placeholder={props.metricMode === 'metric' ? 'Metric name' : 'PromQL expression'}
-            onChange={(event) => props.setTarget((current) => ({ ...current, metric: event.target.value }))}
-          />
-          <datalist id="ops-signals-metrics">
-            {(props.source === 'connection' ? props.connectionMetrics : props.metrics).map((metric) => (
-              <option key={metric} value={metric} />
-            ))}
-          </datalist>
-        </Field>
-        <Field label="Mode">
-          <select style={styles.input} value={props.metricMode} onChange={(event) => props.setMetricMode(event.target.value as MetricMode)}>
-            <option value="metric">Metric</option>
-            <option value="promql">PromQL expression</option>
-          </select>
-        </Field>
-        <Field label="Service label">
-          <input style={styles.input} value={props.serviceLabel} onChange={(event) => props.setServiceLabel(event.target.value)} />
-        </Field>
-        {props.source === 'connection' && props.clusterOptions.length ? (
-          <Field label="Cluster">
-            <select aria-label="Cluster" style={styles.input} value={props.cluster} onChange={(event) => props.setCluster(event.target.value)}>
-              <option value="">Choose a cluster</option>
-              {props.clusterOptions.map((cluster) => (
-                <option key={cluster} value={cluster}>{cluster}</option>
+            Custom…
+          </button>
+        </div>
+        {customOpen ? (
+          <div style={formStyles.customGrid}>
+            <Field label="From">
+              <input
+                style={styles.input}
+                type="datetime-local"
+                value={props.timeFromInput}
+                onChange={(event) => {
+                  props.setTimeFromInput(event.target.value);
+                  props.applyCustomRange(event.target.value, props.timeToInput);
+                }}
+              />
+            </Field>
+            <Field label="To">
+              <input
+                style={styles.input}
+                type="datetime-local"
+                value={props.timeToInput}
+                onChange={(event) => {
+                  props.setTimeToInput(event.target.value);
+                  props.applyCustomRange(props.timeFromInput, event.target.value);
+                }}
+              />
+            </Field>
+          </div>
+        ) : null}
+        <div style={{ marginTop: 10, fontSize: 13 }}>
+          {formatRange(props.timeRange)} <span style={styles.muted}>&middot; {formatRangeLength(props.timeRange)}{customOpen ? ' · applied as you change it' : ''}</span>
+        </div>
+      </FormStep>
+
+      <div style={formStyles.footer}>
+        <div style={styles.helperText}>
+          Backend: {backendHost(props.backendUrl)} &middot;{' '}
+          <button type="button" aria-label={showBackend ? 'Hide backend settings' : 'Change backend'} style={formStyles.link} onClick={() => setShowBackend((open) => !open)}>{showBackend ? 'hide' : 'change'}</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <button
+            type="button"
+            style={canRun ? { ...styles.button, padding: '9px 22px' } : { ...styles.button, ...styles.buttonDisabled, padding: '9px 22px' }}
+            onClick={props.onRun}
+            disabled={!canRun}
+          >
+            {props.isRunning ? 'Running...' : 'Run Analysis'}
+          </button>
+          {!props.isRunning && missing.length ? <span style={{ fontSize: 12, color: '#ffb357' }}>{missing}</span> : null}
+        </div>
+      </div>
+      {showBackend ? (
+        <div style={formStyles.backendPanel}>
+          <Field label="Ops Signals backend">
+            <select
+              style={styles.input}
+              value={props.backendUrl}
+              onChange={(event) => {
+                props.setBackendUrl(event.target.value);
+                props.onClearResult();
+                props.setTarget((current) => ({ ...current, service: '', metric: '' }));
+              }}
+            >
+              {(props.backendOptions ?? localBackendOptions).map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
-            <div style={{ ...styles.helperText, ...(props.cluster ? {} : { color: '#ffb357' }) }}>
-              This series is in {props.clusterOptions.length} clusters; one is analysed per run.{props.cluster ? '' : ' Choose one to run.'}
-            </div>
           </Field>
-        ) : null}
-        <Field label="Time range">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {timePresets.map((preset) => (
-                <button key={preset.label} type="button" style={{ ...styles.chip, background: 'transparent', color: 'inherit', cursor: 'pointer' }} onClick={() => props.applyPreset(preset.hours)}>
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-            <input style={{ ...styles.input, ...styles.inputReadOnly }} value={props.timeRange.display} readOnly />
-            <input style={styles.input} type="datetime-local" value={props.timeFromInput} onChange={(event) => props.setTimeFromInput(event.target.value)} />
-            <input style={styles.input} type="datetime-local" value={props.timeToInput} onChange={(event) => props.setTimeToInput(event.target.value)} />
-            <button type="button" style={styles.button} onClick={props.applyCustomRange}>
-              Apply custom range
-            </button>
-            <div style={styles.helperText}>Use quick presets for testing, or enter a custom local start and end time directly here.</div>
+          <ApiTokenField />
+          <div style={{ ...styles.helperText, gridColumn: '1 / -1', marginTop: 0 }}>
+            Admins set the default backend on the plugin's Configuration page. The token stays in this browser.
           </div>
-        </Field>
-        <button
-          type="button"
-          style={props.ready && props.timeRangeValid && !props.isRunning ? styles.button : { ...styles.button, ...styles.buttonDisabled }}
-          onClick={props.onRun}
-          disabled={!props.ready || !props.timeRangeValid || props.isRunning}
-        >
-          {props.isRunning ? 'Running...' : 'Run Analysis'}
-        </button>
-      </div>
+        </div>
+      ) : null}
     </Card>
   );
 }
+
+function FormStep({ number, title, children }: { number: number; title: string; children: React.ReactNode }) {
+  return (
+    <section aria-label={title} style={formStyles.step}>
+      <div style={formStyles.stepTitle}>
+        <span style={formStyles.stepNumber}>{number}</span>
+        <span>{title.toUpperCase()}</span>
+      </div>
+      <div style={{ minWidth: 0 }}>{children}</div>
+    </section>
+  );
+}
+
+function SourceOption({ show, checked, label, onSelect }: { show: boolean; checked: boolean; label: string; onSelect: () => void }) {
+  if (!show) return <div style={{ alignSelf: 'center' }}>{label}</div>;
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
+      <input type="radio" name="ops-signals-read-from" checked={checked} onChange={onSelect} style={{ accentColor: '#5794f2', margin: 0 }} />
+      {label}
+    </label>
+  );
+}
+
+/** What still stops a run, in form order, as one sentence (empty when the form is ready). */
+function runBlockers(props: InteractiveCardProps): string {
+  const items: string[] = [];
+  if (props.source === 'connection') {
+    if (!props.connectionId) items.push('choose a connection');
+    if (props.clusterOptions.length && !props.cluster) items.push('choose a cluster');
+  } else if (!props.selectedPrometheusUid) {
+    items.push('choose a data source');
+  }
+  if (!props.target.service) items.push('enter a service');
+  if (!props.target.metric) items.push(props.metricMode === 'promql' ? 'enter a PromQL expression' : 'enter a metric');
+  if (!props.timeRangeValid) items.push('fix the time range');
+  if (!items.length) return '';
+  const sentence = items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} to run.`;
+}
+
+/** The preset the range matches (by length, to the minute), or null for a custom range. */
+function presetFor(range: InteractiveCardProps['timeRange']): number | null {
+  const minutes = Math.round((range.to.getTime() - range.from.getTime()) / 60000);
+  return timePresets.find((preset) => Math.round(preset.hours * 60) === minutes)?.hours ?? null;
+}
+
+function formatRange(range: InteractiveCardProps['timeRange']) {
+  const sameDay = range.from.toDateString() === range.to.toDateString();
+  const day = (value: Date) => value.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = (value: Date) => value.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `${day(range.from)}, ${time(range.from)} → ${sameDay ? '' : `${day(range.to)}, `}${time(range.to)}`;
+}
+
+function formatRangeLength(range: InteractiveCardProps['timeRange']) {
+  const minutes = Math.max(0, Math.round((range.to.getTime() - range.from.getTime()) / 60000));
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const hours = minutes / 60;
+  if (hours < 48) return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hour${hours === 1 ? '' : 's'}`;
+  return `${Math.round(hours / 24)} days`;
+}
+
+function backendHost(url: string) {
+  return url.replace(/^https?:\/\//, '').replace(/\/+$/, '') || 'not set';
+}
+
+const formStyles: Record<string, React.CSSProperties> = {
+  step: { display: 'grid', gridTemplateColumns: '88px minmax(0, 1fr)', gap: 16, padding: '16px 0', borderTop: '1px solid rgba(204, 204, 220, 0.1)' },
+  stepTitle: { display: 'flex', gap: 8, alignItems: 'center', alignSelf: 'start', paddingTop: 2, fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', color: 'rgba(204, 204, 220, 0.66)' },
+  stepNumber: { width: 20, height: 20, borderRadius: '50%', display: 'inline-grid', placeItems: 'center', background: 'rgba(87, 148, 242, 0.18)', color: '#8ab8ff', fontSize: 12 },
+  question: { fontSize: 13, fontWeight: 500, marginBottom: 10 },
+  sourceGrid: { display: 'grid', gridTemplateColumns: 'minmax(170px, 220px) minmax(0, 1fr)', gap: '10px 14px', alignItems: 'center', maxWidth: 920 },
+  inactive: { opacity: 0.4 },
+  whatGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, alignItems: 'start', maxWidth: 1100 },
+  segment: { display: 'inline-flex', minHeight: 36, border: '1px solid rgba(204, 204, 220, 0.28)', borderRadius: 4, overflow: 'hidden' },
+  segmentButton: { border: 0, background: 'transparent', color: 'rgba(204, 204, 220, 0.66)', padding: '0 12px', cursor: 'pointer', fontSize: 13 },
+  segmentOn: { background: 'rgba(87, 148, 242, 0.2)', color: '#cfe0ff' },
+  preset: { ...styles.chip, background: 'transparent', color: 'inherit', cursor: 'pointer' },
+  presetOn: { border: '1px solid #5794f2', background: 'rgba(87, 148, 242, 0.16)', color: '#8ab8ff' },
+  customGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(180px, 240px))', gap: 14, marginTop: 12 },
+  footer: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', borderTop: '1px solid rgba(204, 204, 220, 0.1)', paddingTop: 16 },
+  link: { border: 0, background: 'transparent', color: '#6e9fff', padding: 0, cursor: 'pointer', font: 'inherit' },
+  backendPanel: { display: 'grid', gridTemplateColumns: 'minmax(260px, 1.4fr) minmax(200px, 1fr)', gap: 14, marginTop: 12, padding: 14, border: '1px solid rgba(204, 204, 220, 0.2)', borderRadius: 6, maxWidth: 860 },
+};
 
 function AutonomousAnalysisView({
   backendUrl,
