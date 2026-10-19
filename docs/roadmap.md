@@ -17,6 +17,9 @@
   - ~~ignore HA replica labels (`__replica__`, `prometheus_replica`) so duplicated series aren't counted twice~~ (done)
   - ~~several connections, one per Mimir tenant, with a connection picker in the Configure panel~~ (done)
 
+- Grafana plugin in Grafana's plugin catalog: create-plugin build, signing, submission (see
+  [`grafana-plugin-roadmap.md`](grafana-plugin-roadmap.md))
+
 ## Long-Term
 
 - deeper evaluation tooling
