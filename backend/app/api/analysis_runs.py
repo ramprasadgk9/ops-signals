@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,12 @@ router = APIRouter(prefix="/api/analysis-runs", tags=["analysis-runs"])
 
 
 @router.get("", response_model=list[AnalysisRunOut])
-def list_analysis_runs(db: Session = Depends(get_db)) -> list[AnalysisRunOut]:
+def list_analysis_runs(
+    db: Session = Depends(get_db),
+    limit: int | None = Query(None, ge=1, le=1000, description="Newest runs only; all runs when omitted."),
+    service: str | None = None,
+    metric_name: str | None = None,
+) -> list[AnalysisRunOut]:
     engine = db.get_bind()
     columns = {column["name"] for column in inspect(engine).get_columns("analysis_runs")}
     optional_columns = [
@@ -40,8 +45,22 @@ def list_analysis_runs(db: Session = Depends(get_db)) -> list[AnalysisRunOut]:
     for column in optional_columns:
         if column in columns:
             select_columns.insert(2 if column == "file_name" else len(select_columns), column)
-    sql = text(f"SELECT {', '.join(select_columns)} FROM analysis_runs ORDER BY created_at DESC")
-    rows = db.execute(sql).mappings().all()
+    # Each run carries its router/profile/findings JSON, so a long-lived install's full list runs to
+    # gigabytes; callers that need only the latest runs pass limit (and service/metric_name).
+    filters = []
+    params: dict[str, object] = {}
+    if service is not None:
+        filters.append("service = :service")
+        params["service"] = service
+    if metric_name is not None:
+        filters.append("metric_name = :metric_name")
+        params["metric_name"] = metric_name
+    where = f" WHERE {' AND '.join(filters)}" if filters else ""
+    sql = f"SELECT {', '.join(select_columns)} FROM analysis_runs{where} ORDER BY created_at DESC"
+    if limit is not None:
+        sql += " LIMIT :limit"
+        params["limit"] = limit
+    rows = db.execute(text(sql), params).mappings().all()
     return [
         AnalysisRunOut(
             id=row["id"],

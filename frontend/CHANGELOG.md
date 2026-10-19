@@ -6,6 +6,8 @@ release names the plugin version it ships. The full project changelog is
 
 ## Unreleased
 
+- **Fixed: Autonomous Overview failed with "could not be loaded"** once the backend held many
+  analysis runs. The plugin now asks for the newest runs only.
 - **New plugin id: `breezypoppy3596-opssignals-app`** (was `breezypoppy3596-ops-signals-app`).
   Grafana's catalog allows one word between the org and the type. The app's address is now
   `/a/breezypoppy3596-opssignals-app/ops-signals`. If you installed the old id: remove its folder from
