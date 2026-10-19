@@ -29,6 +29,11 @@ To sign the plugin, set `GRAFANA_ACCESS_POLICY_TOKEN` (a grafana.com access poli
 `GRAFANA_SIGN_ROOT_URLS`, the Grafana address(es) the plugin may run on. Without the token the zip is
 unsigned and Grafana loads it only with `allow_loading_unsigned_plugins`.
 
+The catalog screenshots are `frontend/img/screenshots/*.png` (listed in `frontend/plugin.json`). To
+refresh them, run `./scripts/record_screenshots.sh` against the demo and copy the plugin captures
+`02-metrics-analysis`, `03-case-flow`, `07-autonomous-overview` and `06-autonomous-analysis` over
+`metrics-analysis`, `finding-evidence`, `autonomous-overview` and `autonomous-configure`.
+
 On every `v*` tag the Grafana plugin workflow (`.github/workflows/plugin.yml`) runs the same script.
 It signs when the `GRAFANA_ACCESS_POLICY_TOKEN` repository secret is set and attaches the zip to the
 tag's GitHub Release, if there is one.
