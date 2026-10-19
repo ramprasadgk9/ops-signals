@@ -6,6 +6,10 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Roles.** Through Grafana, a Viewer's Run Analysis, "Was this real?", Create case, case drawer
+  Save, ticket, Run once and schedule buttons are locked, each with the reason ("Editors can run
+  analyses. Ask your Grafana admin for the Editor role."). The case drawer is read-only for Viewers
+  and shows who created and resolved the case. Clear DB for testing is for Admins.
 - **Connect through Grafana.** The Configuration page chooses how the plugin reaches the backend:
   **Grafana** (recommended; new installs start here), where Grafana's plugin proxy calls the backend
   with the API token from the plugin's encrypted settings and says who the user is, or **Browser,

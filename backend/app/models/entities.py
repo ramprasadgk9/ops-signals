@@ -391,8 +391,9 @@ class OperationalCaseEntity(Base):
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     import_batch_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    # The Grafana user who opened the case (backend/app/identity.py); None otherwise.
+    # The Grafana user who opened the case, and who closed it (backend/app/identity.py); None otherwise.
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @property
     def is_imported(self) -> bool:

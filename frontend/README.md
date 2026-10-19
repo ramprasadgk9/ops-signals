@@ -90,6 +90,15 @@ sees you as (for example `priya · Editor`) and whether the backend, metrics and
 In "Browser, directly" mode a backend picker behind **change** lists the configured backend first,
 followed by the local development addresses.
 
+### Who can do what
+
+Through Grafana, each person's Grafana role decides what they can change. **Viewers** read
+everything and can ask Ops Signals; **Editors** also run analyses, answer "Was this real?", work on
+cases and change schedules; **Admins** also manage the plugin's settings. Locked buttons stay
+visible with the reason. Give people roles in Grafana as usual (or through the login system that
+feeds Grafana). In "Browser, directly" mode there are no roles. The full table and how to check it
+are in [Sign-in, roles and who did what](https://github.com/ramprasadgk9/ops-signals/blob/main/docs/grafana-plugin-access-and-roles.md).
+
 ### How the data flows
 
 The plugin reads metrics through Grafana's own Prometheus datasource, using the signed-in user's

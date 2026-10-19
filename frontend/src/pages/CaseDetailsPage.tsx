@@ -538,7 +538,10 @@ export function CaseDetailsPage() {
                         <Typography variant="caption" color="text.secondary">
                           Resolved
                         </Typography>
-                        <Typography variant="body2">{new Date(caseData.resolved_at).toLocaleString()}</Typography>
+                        <Typography variant="body2">
+                          {new Date(caseData.resolved_at).toLocaleString()}
+                          {caseData.resolved_by ? ` by ${caseData.resolved_by} (in Grafana)` : ''}
+                        </Typography>
                       </Box>
                     ) : null}
                   </Stack>

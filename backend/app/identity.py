@@ -56,4 +56,6 @@ def current_actor(request: Request) -> Actor | None:
 
 
 def actor_name(actor: Actor | None) -> str | None:
-    return actor.name if actor else None
+    # Only a real Actor: the MCP server calls endpoint functions directly, leaving the parameter at
+    # FastAPI's Depends(...) default.
+    return actor.name if isinstance(actor, Actor) else None

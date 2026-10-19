@@ -1,0 +1,32 @@
+import { expect, test } from '@playwright/test';
+import { env } from '../../shared/env';
+
+const PROXY = '/api/plugin-proxy/breezypoppy3596-opssignals-app/backend';
+const VIEWER = { login: 'ops-signals-test-viewer', password: 'viewer-test-password' };
+const admin = { Authorization: `Basic ${Buffer.from(`${env.grafanaUser}:${env.grafanaPassword}`).toString('base64')}` };
+
+// A Grafana Viewer can look and ask, but Ops Signals locks what changes things (backend/app/roles.py).
+test.beforeAll(async ({ request }) => {
+  const created = await request.post(`${env.grafanaBaseUrl}/api/admin/users`, {
+    headers: admin,
+    data: { name: 'Test Viewer', login: VIEWER.login, email: `${VIEWER.login}@example.com`, password: VIEWER.password, OrgId: 1 },
+  });
+  // 412: the user is already there from an earlier run; new users join the org as Viewers.
+  expect([200, 412]).toContain(created.status());
+});
+
+test('a Viewer sees what they cannot do, and the backend refuses it too', async ({ page }) => {
+  const login = await page.request.post('/login', { data: { user: VIEWER.login, password: VIEWER.password } });
+  expect(login.ok()).toBe(true);
+
+  await page.goto(env.pluginAppPath);
+  await expect(page.getByText(`${VIEWER.login} · Viewer`)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: '🔒 Run Analysis' })).toBeDisabled();
+  await expect(page.getByText('Editors can run analyses. Ask your Grafana admin for the Editor role.')).toBeVisible();
+
+  // Reading still works through Grafana; a change is refused before it touches anything.
+  expect((await page.request.get(`${PROXY}/api/autonomous/policies?limit=1`)).ok()).toBe(true);
+  const refused = await page.request.post(`${PROXY}/api/findings/0/feedback`, { data: { verdict: 'real_problem' } });
+  expect(refused.status()).toBe(403);
+  expect((await refused.json()).detail).toContain('Ask your Grafana admin for the Editor role');
+});

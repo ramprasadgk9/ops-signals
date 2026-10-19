@@ -239,8 +239,9 @@ export type OperationalCase = {
   outcome_status: string;
   outcome_summary?: string;
   memory_status: string;
-  /** The Grafana user who opened it; absent when it wasn't opened through Grafana. */
+  /** The Grafana user who opened it, and who closed it; absent when not done through Grafana. */
   created_by?: string | null;
+  resolved_by?: string | null;
   created_at: string;
   updated_at: string;
   resolved_at?: string;

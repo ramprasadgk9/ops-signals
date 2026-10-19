@@ -5,12 +5,13 @@ const PROXY = '/api/plugin-proxy/breezypoppy3596-opssignals-app/backend';
 
 // The local stack connects the plugin through Grafana (grafana/provisioning/plugins): Grafana calls the
 // backend and says who the user is (backend/app/identity.py).
-test('the plugin reaches the backend through Grafana, as the anonymous viewer', async ({ page }) => {
+test('the plugin reaches the backend through Grafana, as the anonymous visitor', async ({ page }) => {
   await page.goto(env.pluginAppPath);
 
   await expect(page.getByText('Backend: through Grafana (set by your Grafana admin)')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: 'Change backend' })).toHaveCount(0);
-  await expect(page.getByText('anonymous · Viewer')).toBeVisible();
+  // The local stack's anonymous visitor is an Editor (docker-compose.yml).
+  await expect(page.getByText('anonymous · Editor')).toBeVisible();
 });
 
 test('a signed-in user is named on requests that go through Grafana', async ({ page }) => {

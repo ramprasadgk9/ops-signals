@@ -15,6 +15,7 @@ import { activeBackendUrl, backendOptionsFor, configuredBackendUrl, isGrafanaPro
 import { ApiTokenField } from './ApiTokenField';
 import { Card, Field, styles } from './plainUi';
 import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel';
+import { asGrafanaRole, grafanaUserRole, LockReason, LOCK_REASONS, PermissionsProvider, usePermissions } from './permissions';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
@@ -347,6 +348,8 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
   );
   // The header chips and the setup reminder both come from one Setup check of the chosen backend.
   const setup = useSetupCheck(backendUrl, configuredBackendUrl(props.meta?.jsonData));
+  // Roles apply only through Grafana, where the backend enforces them too (backend/app/roles.py).
+  const role = isGrafanaProxyUrl(backendUrl) ? asGrafanaRole(setup.result?.you?.role) ?? grafanaUserRole() : null;
   const timeRangeValid = timeRange.from.getTime() < timeRange.to.getTime();
 
   // --- Interactive Analysis through a backend connection ---
@@ -572,6 +575,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
   }
 
   return (
+    <PermissionsProvider role={role}>
     <main style={styles.shell}>
       <div>
         <h1 style={{ margin: 0 }}>Ops Signals</h1>
@@ -902,6 +906,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
         />
       )}
     </main>
+    </PermissionsProvider>
   );
 }
 
@@ -1124,7 +1129,8 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
   const viaConnection = props.source === 'connection';
   const needsCluster = viaConnection && props.clusterOptions.length > 0;
   const missing = runBlockers(props);
-  const canRun = props.ready && props.timeRangeValid && !props.isRunning;
+  const { canEdit } = usePermissions();
+  const canRun = props.ready && props.timeRangeValid && !props.isRunning && canEdit;
 
   return (
     <Card>
@@ -1336,9 +1342,11 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
             onClick={props.onRun}
             disabled={!canRun}
           >
-            {props.isRunning ? 'Running...' : 'Run Analysis'}
+            {props.isRunning ? 'Running...' : `${canEdit ? '' : '🔒 '}Run Analysis`}
           </button>
-          {!props.isRunning && missing.length ? <span style={{ fontSize: 12, color: '#ffb357' }}>{missing}</span> : null}
+          {!canEdit ? (
+            <span style={{ fontSize: 12, color: '#ffb357' }}>{LOCK_REASONS.runAnalysis}</span>
+          ) : !props.isRunning && missing.length ? <span style={{ fontSize: 12, color: '#ffb357' }}>{missing}</span> : null}
         </div>
       </div>
       {showBackend && !isGrafanaProxyUrl(props.backendUrl) ? (
@@ -1759,6 +1767,7 @@ function AutonomousAnalysisView({
   // straight from the backend rather than prop-drilled through PluginApp, since it doesn't need
   // to be shared with any sibling view.
   const [activePolicy, setActivePolicy] = useState<AutonomousPolicy | null>(null);
+  const { canEdit } = usePermissions();
   const [isLoadingPolicy, setIsLoadingPolicy] = useState(false);
   // Whether the first look for a saved schedule has finished: until then neither the schedule card nor
   // the form is shown, so the form doesn't flash and then turn into the card.
@@ -1926,10 +1935,10 @@ function AutonomousAnalysisView({
   const canPreview = Boolean(backendUrl && !configureBlocker);
   const saveAction = autonomousSaveAction({ scheduleMode, scheduleMinutes, editingPolicyName: activePolicy?.name ?? null });
   const showSave = saveAction !== null;
-  const canSave = !configureBlocker && !isSavingSchedule;
+  const canSave = !configureBlocker && !isSavingSchedule && canEdit;
   const saveLabel = saveAction?.label ?? '';
   const saveHint = saveAction?.hint ?? 'Preview first, then run the planned metrics once from the preview.';
-  const canRunOnce = Boolean(previewResult?.planned_jobs && !isRunningOnce);
+  const canRunOnce = Boolean(previewResult?.planned_jobs && !isRunningOnce && canEdit);
   const hasCompletedAutonomousRun = Boolean(
     runResult?.status === 'completed' ||
     runResult?.status === 'partial' ||
@@ -2029,24 +2038,25 @@ function AutonomousAnalysisView({
                 ) : null}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" style={styles.button} onClick={handleEditSchedule}>Edit</button>
+                <button type="button" style={canEdit ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={!canEdit} title={canEdit ? undefined : LOCK_REASONS.schedule} onClick={handleEditSchedule}>{canEdit ? '' : '🔒 '}Edit</button>
                 {activePolicy.enabled ? (
                   <button
                     type="button"
-                    style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.08)', border: '1px solid rgba(204, 204, 220, 0.28)' }}
-                    disabled={isTogglingSchedule}
+                    style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.08)', border: '1px solid rgba(204, 204, 220, 0.28)', ...(canEdit ? {} : styles.buttonDisabled) }}
+                    disabled={isTogglingSchedule || !canEdit}
                     onClick={handlePauseSchedule}
-                    title="Stop scheduled runs. The schedule is kept and can be resumed."
+                    title={canEdit ? 'Stop scheduled runs. The schedule is kept and can be resumed.' : LOCK_REASONS.schedule}
                   >
-                    {isTogglingSchedule ? 'Pausing...' : 'Pause'}
+                    {isTogglingSchedule ? 'Pausing...' : `${canEdit ? '' : '🔒 '}Pause`}
                   </button>
                 ) : (
-                  <button type="button" style={styles.button} disabled={isTogglingSchedule} onClick={handleResumeSchedule}>
-                    {isTogglingSchedule ? 'Resuming...' : 'Resume'}
+                  <button type="button" style={canEdit ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={isTogglingSchedule || !canEdit} title={canEdit ? undefined : LOCK_REASONS.schedule} onClick={handleResumeSchedule}>
+                    {isTogglingSchedule ? 'Resuming...' : `${canEdit ? '' : '🔒 '}Resume`}
                   </button>
                 )}
               </div>
             </div>
+            {canEdit ? null : <LockReason style={{ marginTop: -6, marginBottom: 10 }}>{LOCK_REASONS.schedule}</LockReason>}
             {scheduleError ? <div style={{ ...styles.alert, marginBottom: 12 }}>{scheduleError}</div> : null}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, paddingTop: 14, borderTop: '1px solid rgba(204, 204, 220, 0.14)' }}>
               <div>
@@ -2287,6 +2297,8 @@ function AutonomousAnalysisView({
             </div>
             {configureBlocker ? (
               <span style={{ fontSize: 12, color: '#ffb357' }}>{configureBlocker}</span>
+            ) : !canEdit ? (
+              <span style={{ fontSize: 12, color: '#ffb357' }}>{LOCK_REASONS.saveOrRun}</span>
             ) : (
               <span style={styles.helperText}>{saveHint}</span>
             )}
@@ -2458,6 +2470,7 @@ export function GrafanaAutonomousOverview({
   isPreviewingNow?: boolean;
   previewNowError?: string;
 }) {
+  const { canEdit } = usePermissions();
   const servicePriorities = buildServicePriorities(data.topFindings);
   const primaryService = servicePriorities[0] ?? null;
   const primaryServiceName = primaryService?.service ?? null;
@@ -2641,16 +2654,23 @@ export function GrafanaAutonomousOverview({
         </span>
       );
     }
-    return (
+    const createButton = (
       <button
         type="button"
         style={{ ...styles.button, ...size, background: 'rgba(204, 204, 220, 0.12)', border: '1px solid rgba(204, 204, 220, 0.22)', ...(finding.id ? {} : disabledActionStyle) }}
-        disabled={!finding.id}
-        title={finding.id ? 'Open a case for this symptom and start the investigation.' : 'This finding has not been persisted yet.'}
+        disabled={!finding.id || !canEdit}
+        title={!canEdit ? LOCK_REASONS.createCase : finding.id ? 'Open a case for this symptom and start the investigation.' : 'This finding has not been persisted yet.'}
         onClick={() => openOrCreateCase(finding, null)}
       >
-        Create case
+        {canEdit ? '' : '🔒 '}Create case
       </button>
+    );
+    if (canEdit || compact) return createButton;
+    return (
+      <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+        {createButton}
+        <LockReason>{LOCK_REASONS.createCase}</LockReason>
+      </span>
     );
   };
 
@@ -3476,6 +3496,7 @@ function AutonomousInvestigationPanel({
   onOpenInteractive: () => void;
   onClose: () => void;
 }) {
+  const { canEdit } = usePermissions();
   const breakdown = findingBreakdown(finding);
   // The breakdown has its own section; the raw comparison view shows the rest.
   const { breakdown: _breakdown, ...comparison } = finding.comparison_json ?? {};
@@ -3639,9 +3660,9 @@ function AutonomousInvestigationPanel({
                   <button
                     type="button"
                     style={{ ...styles.button, background: '#0052cc', color: '#fff', fontSize: 12, padding: '4px 12px' }}
-                    disabled={isTicketLoading}
+                    disabled={isTicketLoading || !canEdit}
                     onClick={handleCreateTicket}
-                    title="Create Jira issue for this case"
+                    title={canEdit ? 'Create Jira issue for this case' : LOCK_REASONS.createCase}
                   >
                     {isTicketLoading ? 'Queueing...' : 'Create Jira Ticket'}
                   </button>
@@ -3999,6 +4020,7 @@ function PreviewPlanPanel({
   expandedMetric: string | null;
   setExpandedMetric: (value: string | null) => void;
 }) {
+  const { canEdit } = usePermissions();
   if (!result) {
     return (
       <Card>
@@ -4087,8 +4109,9 @@ function PreviewPlanPanel({
           Back to configuration
         </button>
         <button type="button" style={canRunOnce ? { ...styles.button, background: 'linear-gradient(135deg, #3fcf8e, #197a4d)' } : { ...styles.button, ...styles.buttonDisabled, background: 'rgba(63, 207, 142, 0.2)' }} disabled={!canRunOnce} onClick={onRunOnce}>
-          {isRunningOnce ? 'Running autonomous analysis...' : 'Run autonomous analysis once'}
+          {isRunningOnce ? 'Running autonomous analysis...' : `${canEdit ? '' : '🔒 '}Run autonomous analysis once`}
         </button>
+        {canEdit ? null : <LockReason style={{ marginTop: 0 }}>{LOCK_REASONS.saveOrRun}</LockReason>}
       </div>
       <div style={{ ...styles.row, marginTop: 16 }}>
         <Field label="Status filter">

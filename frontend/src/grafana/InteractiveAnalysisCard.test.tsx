@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { InteractiveAnalysisCard, type InteractiveCardProps } from './PluginApp';
+import { LOCK_REASONS, PermissionsProvider, type GrafanaRole } from './permissions';
 
 // PluginApp's Prometheus query path imports @grafana/* (only loadable inside Grafana).
 vi.mock('./grafanaPrometheus', () => ({}));
@@ -11,7 +12,7 @@ const CONNECTIONS = [
   { id: 'team-a', name: 'Mimir team-a (eu, us)', configured: true, cluster_label: 'cluster' },
 ];
 
-function renderCard(overrides: Partial<InteractiveCardProps> = {}) {
+function renderCard(overrides: Partial<InteractiveCardProps> = {}, role: GrafanaRole | null = null) {
   const props: InteractiveCardProps = {
     source: 'grafana', setSource: vi.fn(), connections: CONNECTIONS, connectionId: 'local', setConnectionId: vi.fn(),
     connectionServices: ['checkout'], connectionMetrics: ['request_latency_p95'], clusterOptions: [], cluster: '', setCluster: vi.fn(),
@@ -23,7 +24,11 @@ function renderCard(overrides: Partial<InteractiveCardProps> = {}) {
     ready: true, timeRangeValid: true, isRunning: false, onClearResult: vi.fn(), onRun: vi.fn(async () => undefined),
     ...overrides,
   };
-  render(<InteractiveAnalysisCard {...props} />);
+  render(
+    <PermissionsProvider role={role}>
+      <InteractiveAnalysisCard {...props} />
+    </PermissionsProvider>
+  );
   return props;
 }
 
@@ -132,5 +137,18 @@ describe('InteractiveAnalysisCard form', () => {
     expect(screen.getByText('API token (optional)')).toBeInTheDocument();
     fireEvent.change(screen.getByDisplayValue('Grafana stack backend (:8002)'), { target: { value: 'http://localhost:8001' } });
     expect(props.setBackendUrl).toHaveBeenCalledWith('http://localhost:8001');
+  });
+});
+
+describe('InteractiveAnalysisCard roles', () => {
+  it('locks Run Analysis for a Viewer and says why', () => {
+    renderCard({}, 'Viewer');
+    expect(screen.getByRole('button', { name: '🔒 Run Analysis' })).toBeDisabled();
+    expect(screen.getByText(LOCK_REASONS.runAnalysis)).toBeInTheDocument();
+  });
+
+  it('lets an Editor run', () => {
+    renderCard({}, 'Editor');
+    expect(screen.getByRole('button', { name: 'Run Analysis' })).toBeEnabled();
   });
 });

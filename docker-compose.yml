@@ -102,7 +102,9 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Editor, so the local stack works without signing in. Sign in as a Viewer user to see what
+      # Viewers can't do (docs/grafana-plugin-local-setup.md).
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: breezypoppy3596-opssignals-app
     # The plugin's proxy calls the backend on this computer at host.docker.internal; Docker Desktop
     # provides that name, and this adds it on Linux.
