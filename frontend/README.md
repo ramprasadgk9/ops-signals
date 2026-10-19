@@ -25,11 +25,11 @@ needs no cloud service.
 
 ## Install
 
-Download `breezypoppy3596-ops-signals-app-<version>.zip` from the project's
+Download `breezypoppy3596-opssignals-app-<version>.zip` from the project's
 [releases](https://github.com/ramprasadgk9/ops-signals/releases) and install it with the Grafana CLI:
 
 ```bash
-grafana cli --pluginUrl https://github.com/ramprasadgk9/ops-signals/releases/download/v<release>/breezypoppy3596-ops-signals-app-<version>.zip plugins install breezypoppy3596-ops-signals-app
+grafana cli --pluginUrl https://github.com/ramprasadgk9/ops-signals/releases/download/v<release>/breezypoppy3596-opssignals-app-<version>.zip plugins install breezypoppy3596-opssignals-app
 ```
 
 Or unzip it into Grafana's plugins folder (`/var/lib/grafana/plugins` by default) and restart Grafana.
@@ -38,10 +38,10 @@ Until the plugin is signed, Grafana loads it only when it's allowed by name:
 
 ```ini
 [plugins]
-allow_loading_unsigned_plugins = breezypoppy3596-ops-signals-app
+allow_loading_unsigned_plugins = breezypoppy3596-opssignals-app
 ```
 
-or `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-ops-signals-app` in Grafana's
+or `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-opssignals-app` in Grafana's
 environment.
 
 ## Configure
@@ -60,7 +60,7 @@ To set it up with provisioning instead, put this in Grafana's `provisioning/plug
 apiVersion: 1
 
 apps:
-  - type: breezypoppy3596-ops-signals-app
+  - type: breezypoppy3596-opssignals-app
     org_id: 1
     disabled: false
     jsonData:

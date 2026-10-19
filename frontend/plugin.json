@@ -1,5 +1,5 @@
 {
-  "id": "breezypoppy3596-ops-signals-app",
+  "id": "breezypoppy3596-opssignals-app",
   "type": "app",
   "name": "Ops Signals",
   "info": {
@@ -63,7 +63,7 @@
     {
       "type": "page",
       "name": "Ops Signals",
-      "path": "/a/breezypoppy3596-ops-signals-app/ops-signals",
+      "path": "/a/breezypoppy3596-opssignals-app/ops-signals",
       "addToNav": true,
       "defaultNav": true
     }

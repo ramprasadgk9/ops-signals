@@ -6,6 +6,11 @@ release names the plugin version it ships. The full project changelog is
 
 ## Unreleased
 
+- **New plugin id: `breezypoppy3596-opssignals-app`** (was `breezypoppy3596-ops-signals-app`).
+  Grafana's catalog allows one word between the org and the type. The app's address is now
+  `/a/breezypoppy3596-opssignals-app/ops-signals`. If you installed the old id: remove its folder from
+  Grafana's plugins folder, install the new zip, update `allow_loading_unsigned_plugins` and any
+  provisioning file, and set the Backend URL again. Settings don't carry over.
 - **Configuration page with a Backend URL.** A Grafana admin sets the Ops Signals backend's address
   once (Administration → Plugins → Ops Signals → Configuration, or `jsonData.backendUrl` in
   provisioning). The app uses it by default and lists it first in the backend picker. Before this,

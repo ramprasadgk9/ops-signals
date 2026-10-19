@@ -151,7 +151,7 @@ const SHOTS = {
 // Grafana plugin screens. Needs a Grafana at GRAFANA_URL with the plugin built against this
 // backend (see scripts/record_screenshots.sh) and a Prometheus datasource with the mock lab series.
 const GRAFANA = process.env.GRAFANA_URL || 'http://localhost:3000';
-const PLUGIN = `${GRAFANA}/a/breezypoppy3596-ops-signals-app`;
+const PLUGIN = `${GRAFANA}/a/breezypoppy3596-opssignals-app`;
 const GRAFANA_VIEWPORT = { width: 1920, height: 1040 };
 const PLUGIN_SERVICE = 'test-ruptures-abrupt-regime-shift';
 const PLUGIN_METRIC = 'ops_signals_test_cpu_usage';
