@@ -15,11 +15,13 @@ test('switching to Autonomous Analysis mode renders the config panel and policy 
   const hadSchedule = await editSchedule.isVisible();
   if (hadSchedule) await editSchedule.click();
 
-  await expect(page.getByText('1. Analysis Scope')).toBeVisible();
-  await expect(page.getByText('2. Monitoring Categories')).toBeVisible();
+  for (const step of ['Data', 'Scope', 'Watch', 'When']) {
+    await expect(page.getByRole('region', { name: step })).toBeVisible();
+  }
   await expect(previewPlan).toBeVisible();
 
   if (hadSchedule) {
+    await expect(page.getByText(/^Editing /)).toBeVisible();
     await page.getByRole('button', { name: 'Cancel edit' }).click();
     await expect(editSchedule).toBeVisible();
   }

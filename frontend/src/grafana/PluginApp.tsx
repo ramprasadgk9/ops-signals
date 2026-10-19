@@ -91,7 +91,7 @@ const monitorCategories = [
   { id: 'infrastructure', title: 'Infrastructure', detail: 'Nodes, containers, volumes' },
   { id: 'messaging', title: 'Messaging', detail: 'Kafka lag, queues, publish rate' },
   { id: 'kubernetes', title: 'Kubernetes', detail: 'Pods, deployments, restarts' },
-  { id: 'custom', title: 'Custom', detail: 'Define custom constraints' },
+  { id: 'custom', title: 'Custom', detail: 'Your own metric names or patterns' },
 ] satisfies Array<{ id: MonitoringCategory; title: string; detail: string }>;
 
 export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
@@ -642,8 +642,6 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
           setBackendUrl={setBackendUrl}
           backendOptions={backendOptions}
           selectedPrometheusUid={selectedPrometheusUid}
-          setSelectedPrometheusUid={setSelectedPrometheusUid}
-          prometheusDatasources={prometheusDatasources}
           services={services}
           namespaces={namespaces}
           runs={overviewRuns}
@@ -1444,6 +1442,109 @@ function formatRangeLength(range: InteractiveCardProps['timeRange']) {
   return `${Math.round(hours / 24)} days`;
 }
 
+/** Why Autonomous Configure can't preview or save yet, as one sentence; empty when it can. */
+export function autonomousConfigureBlocker(form: {
+  selectedCategories: string[];
+  allServices: boolean;
+  selectedServices: string[];
+  allNamespaces: boolean;
+  selectedNamespaces: string[];
+}): string {
+  if (!form.selectedCategories.length) return 'Pick at least one category to watch.';
+  if (!form.allServices && !form.selectedServices.length) return 'Pick at least one service, or choose All discovered.';
+  if (!form.allNamespaces && !form.selectedNamespaces.length) return 'Pick at least one namespace, or choose All namespaces.';
+  return '';
+}
+
+/**
+ * The save button for Autonomous Configure, or null when there is none: a new setup saves only as a
+ * schedule (running once happens from the preview); an existing schedule can also drop its schedule.
+ */
+export function autonomousSaveAction(input: { scheduleMode: 'run_once' | 'scheduled'; scheduleMinutes: number; editingPolicyName: string | null }): { label: string; hint: string } | null {
+  const every = formatMinutes(input.scheduleMinutes);
+  if (input.scheduleMode === 'scheduled') {
+    return input.editingPolicyName
+      ? { label: 'Save schedule', hint: `Saving updates ${input.editingPolicyName}; it runs every ${every}.` }
+      : { label: 'Save & schedule', hint: `Preview first, or save now and it runs every ${every} without you.` };
+  }
+  return input.editingPolicyName
+    ? { label: 'Save without schedule', hint: `Saving keeps ${input.editingPolicyName} but stops its scheduled runs.` }
+    : null;
+}
+
+function formatMinutes(minutes: number) {
+  return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
+}
+
+/** "All discovered" or a picked list, shown as removable chips with a type-ahead to add more. */
+export function ScopeChoice({ title, allLabel, pickLabel, all, setAll, options, selected, setSelected, emptyHint }: {
+  title: string;
+  allLabel: string;
+  pickLabel: string;
+  all: boolean;
+  setAll: (value: boolean) => void;
+  options: string[];
+  selected: string[];
+  setSelected: (value: string[]) => void;
+  emptyHint: string;
+}) {
+  const [draft, setDraft] = useState('');
+  const listId = `ops-signals-scope-${title.toLowerCase()}`;
+  const remaining = options.filter((option) => !selected.includes(option));
+  const add = (value: string) => {
+    const next = value.trim();
+    if (!next || selected.includes(next)) return;
+    setSelected([...selected, next]);
+    setDraft('');
+  };
+  return (
+    <div role="radiogroup" aria-label={title} style={{ minWidth: 0 }}>
+      <span style={styles.label}>{title}</span>
+      <label style={{ ...formStyles.radio, marginBottom: 6 }}>
+        <input type="radio" name={`${listId}-mode`} checked={all} onChange={() => setAll(true)} style={formStyles.radioInput} />
+        {allLabel}
+      </label>
+      <label style={formStyles.radio}>
+        <input type="radio" name={`${listId}-mode`} checked={!all} onChange={() => setAll(false)} style={formStyles.radioInput} />
+        {pickLabel}
+      </label>
+      {!all ? (
+        <div style={formStyles.chipBox}>
+          {selected.map((value) => (
+            <span key={value} style={{ ...styles.chip, ...formStyles.chipOn }}>
+              {value}
+              <button type="button" aria-label={`Remove ${value}`} style={formStyles.chipRemove} onClick={() => setSelected(selected.filter((item) => item !== value))}>✕</button>
+            </span>
+          ))}
+          <input
+            aria-label={`Add ${title.toLowerCase()}`}
+            list={listId}
+            value={draft}
+            placeholder="+ add"
+            style={formStyles.chipInput}
+            onChange={(event) => {
+              const value = event.target.value;
+              // Picking from the suggestions adds it straight away; typing waits for Enter.
+              if (remaining.includes(value)) add(value);
+              else setDraft(value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                add(draft);
+              }
+            }}
+          />
+          <datalist id={listId}>
+            {remaining.slice(0, 200).map((option) => <option key={option} value={option} />)}
+          </datalist>
+        </div>
+      ) : null}
+      {!options.length ? <div style={styles.helperText}>{emptyHint}</div> : null}
+    </div>
+  );
+}
+
 function backendHost(url: string) {
   return url.replace(/^https?:\/\//, '').replace(/\/+$/, '') || 'not set';
 }
@@ -1464,6 +1565,21 @@ const formStyles: Record<string, React.CSSProperties> = {
   customGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(180px, 240px))', gap: 14, marginTop: 12 },
   footer: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', borderTop: '1px solid rgba(204, 204, 220, 0.1)', paddingTop: 16 },
   link: { border: 0, background: 'transparent', color: '#6e9fff', padding: 0, cursor: 'pointer', font: 'inherit' },
+  editing: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, border: '1px solid rgba(87, 148, 242, 0.4)', background: 'rgba(87, 148, 242, 0.08)', borderRadius: 6, padding: '9px 12px', margin: '10px 0 4px', fontSize: 13 },
+  scopeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, alignItems: 'start' },
+  smallInput: { ...styles.input, width: 120, minHeight: 28, padding: '3px 8px' },
+  radio: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' },
+  radioInput: { accentColor: '#5794f2', margin: 0 },
+  chipBox: { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 8, padding: 6, minHeight: 36, border: '1px solid rgba(204, 204, 220, 0.28)', borderRadius: 4, background: '#111217' },
+  chipOn: { display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: '#5794f2', background: 'rgba(87, 148, 242, 0.16)', color: '#8ab8ff' },
+  chipRemove: { border: 0, background: 'transparent', color: 'inherit', padding: 0, cursor: 'pointer', opacity: 0.7, font: 'inherit' },
+  chipInput: { flex: '1 0 80px', minWidth: 80, border: 0, background: 'transparent', color: 'inherit', outline: 'none', padding: '2px 4px' },
+  // At most four per row, fewer when narrow.
+  categoryGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(max(170px, calc((100% - 24px) / 4)), 1fr))', gap: 8 },
+  category: { border: '1px solid rgba(204, 204, 220, 0.18)', borderRadius: 6, padding: '9px 11px', background: 'rgba(204, 204, 220, 0.04)', color: 'inherit', textAlign: 'left', cursor: 'pointer' },
+  categoryOn: { border: '1px solid rgba(63, 207, 142, 0.65)', background: 'rgba(63, 207, 142, 0.1)' },
+  customGrid3: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginTop: 12 },
+  whenGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, alignItems: 'end', maxWidth: 1000 },
   backendPanel: { display: 'grid', gridTemplateColumns: 'minmax(260px, 1.4fr) minmax(200px, 1fr)', gap: 14, marginTop: 12, padding: 14, border: '1px solid rgba(204, 204, 220, 0.2)', borderRadius: 6, maxWidth: 860 },
 };
 
@@ -1472,8 +1588,6 @@ function AutonomousAnalysisView({
   setBackendUrl,
   backendOptions,
   selectedPrometheusUid,
-  setSelectedPrometheusUid,
-  prometheusDatasources,
   services,
   namespaces,
   runs,
@@ -1554,8 +1668,6 @@ function AutonomousAnalysisView({
   setBackendUrl: (value: string) => void;
   backendOptions: BackendOption[];
   selectedPrometheusUid: string;
-  setSelectedPrometheusUid: (value: string) => void;
-  prometheusDatasources: PrometheusDatasourceRef[];
   services: string[];
   namespaces: string[];
   runs: AnalysisRun[];
@@ -1659,6 +1771,9 @@ function AutonomousAnalysisView({
   const [scheduleMode, setScheduleMode] = useState<'run_once' | 'scheduled'>('run_once');
   const [scheduleMinutes, setScheduleMinutes] = useState(30);
   const [forceOverview, setForceOverview] = useState(false);
+  const [showScopeLabels, setShowScopeLabels] = useState(false);
+  const [showLimit, setShowLimit] = useState(false);
+  const [showBackend, setShowBackend] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1803,7 +1918,14 @@ function AutonomousAnalysisView({
     caseHref: (caseItem) => `#case-${caseItem.id}`,
   });
   const previewRows = filterPreviewRows(previewResult?.items ?? [], previewStatusFilter, previewCategoryFilter, previewConceptFilter);
-  const canPreview = Boolean(selectedPrometheusUid && backendUrl && selectedCategories.length);
+  // The backend reads its own connection for autonomous runs; the Grafana data source plays no part.
+  const configureBlocker = autonomousConfigureBlocker({ selectedCategories, allServices, selectedServices, allNamespaces, selectedNamespaces });
+  const canPreview = Boolean(backendUrl && !configureBlocker);
+  const saveAction = autonomousSaveAction({ scheduleMode, scheduleMinutes, editingPolicyName: activePolicy?.name ?? null });
+  const showSave = saveAction !== null;
+  const canSave = !configureBlocker && !isSavingSchedule;
+  const saveLabel = saveAction?.label ?? '';
+  const saveHint = saveAction?.hint ?? 'Preview first, then run the planned metrics once from the preview.';
   const canRunOnce = Boolean(previewResult?.planned_jobs && !isRunningOnce);
   const hasCompletedAutonomousRun = Boolean(
     runResult?.status === 'completed' ||
@@ -1850,7 +1972,6 @@ function AutonomousAnalysisView({
       setSelectedCategories([...selectedCategories, category]);
     }
   };
-  const readMultiSelect = (event: React.ChangeEvent<HTMLSelectElement>) => Array.from(event.target.selectedOptions).map((option) => option.value);
 
   const autonomousTab: 'configure' | 'overview' = uiStage.startsWith('overview') ? 'overview' : 'configure';
 
@@ -1946,89 +2067,37 @@ function AutonomousAnalysisView({
           </div>
         ) : (
         <>
-        <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14 }}>
+        <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 6 }}>
           <div>
             <h2 style={{ margin: 0, color: '#3fcf8e' }}>Configure</h2>
             <p style={{ ...styles.muted, margin: '5px 0 0' }}>
-              Configure the monitoring scope, preview the planned metrics, then run once or schedule it to run automatically.
+              Choose what to watch, preview the planned metrics, then run once or save a schedule.
             </p>
           </div>
-          <span style={{ ...styles.chip, color: '#3fcf8e' }}>{scheduleMode === 'scheduled' ? 'Scheduled' : 'Run once'}</span>
         </div>
         {activePolicy && isEditingSchedule ? (
-          <button type="button" style={{ ...styles.button, marginBottom: 12 }} onClick={() => setIsEditingSchedule(false)}>Cancel edit</button>
+          <div style={formStyles.editing}>
+            <span>
+              Editing <strong>{activePolicy.name}</strong>
+              {activePolicy.schedule_minutes ? ` · every ${formatMinutes(activePolicy.schedule_minutes)}` : ''} · changes apply from the next run
+            </span>
+            <button type="button" style={formStyles.link} onClick={() => setIsEditingSchedule(false)}>Cancel edit</button>
+          </div>
         ) : null}
-        <div style={{ ...styles.toolbar, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-          <Field label="Data source">
-            <select style={styles.input} value={selectedPrometheusUid} onChange={(event) => setSelectedPrometheusUid(event.target.value)}>
-              <option value="">{prometheusDatasources.length ? 'Select Prometheus' : 'No Prometheus datasource'}</option>
-              {prometheusDatasources.map((datasource) => (
-                <option key={datasource.uid} value={datasource.uid}>
-                  {datasource.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Backend">
-            <select style={styles.input} value={backendUrl} onChange={(event) => setBackendUrl(event.target.value)}>
-              {backendOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <ApiTokenField />
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.35fr) minmax(320px, 1fr) minmax(220px, 0.35fr)', gap: 14, marginTop: 16 }}>
-          <div style={panelStyle('#73bf69')}>
-            <h3 style={sectionTitleStyle}>1. Analysis Scope</h3>
-            {connections.length > 1 ? <ConnectionPicker backendUrl={backendUrl} connections={connections} connectionId={connectionId} onChange={setConnectionId} /> : null}
-            <Field label="Environment">
-              <select style={styles.input} value={environment} onChange={(event) => setEnvironment(event.target.value)}>
-                <option value="production">Production</option>
-                <option value="staging">Staging</option>
-                <option value="all">All environments</option>
-              </select>
-            </Field>
-            <Field label="Environment label">
-              <input style={styles.input} value={environmentLabel} onChange={(event) => setEnvironmentLabel(event.target.value)} />
-            </Field>
-            <Field label="Service label">
-              <input style={styles.input} value={serviceLabel} onChange={(event) => setServiceLabel(event.target.value)} />
-            </Field>
-            <Field label="Services">
-              <label style={{ ...styles.row, marginBottom: 8 }}>
-                <input type="checkbox" checked={allServices} onChange={(event) => setAllServices(event.target.checked)} />
-                <span>All discovered services</span>
-              </label>
-              <select style={{ ...styles.input, minHeight: 92 }} multiple disabled={allServices} value={selectedServices} onChange={(event) => setSelectedServices(readMultiSelect(event))}>
-                {services.slice(0, 100).map((service) => (
-                  <option key={service} value={service}>
-                    {service}
-                  </option>
-                ))}
-              </select>
-              {!services.length && <div style={styles.helperText}>No service values discovered yet. Check the service label or datasource.</div>}
-            </Field>
-            <Field label="Namespace label">
-              <input style={styles.input} value={namespaceLabel} onChange={(event) => setNamespaceLabel(event.target.value)} />
-            </Field>
-            <Field label="Namespaces">
-              <label style={{ ...styles.row, marginBottom: 8 }}>
-                <input type="checkbox" checked={allNamespaces} onChange={(event) => setAllNamespaces(event.target.checked)} />
-                <span>All namespaces</span>
-              </label>
-              <select style={{ ...styles.input, minHeight: 92 }} multiple disabled={allNamespaces} value={selectedNamespaces} onChange={(event) => setSelectedNamespaces(readMultiSelect(event))}>
-                {namespaces.slice(0, 100).map((namespace) => (
-                  <option key={namespace} value={namespace}>
-                    {namespace}
-                  </option>
-                ))}
-              </select>
-              {!namespaces.length && <div style={styles.helperText}>No namespace values discovered. Leave all namespaces enabled or adjust the namespace label.</div>}
-            </Field>
+        <FormStep number={1} title="Data">
+          <div style={formStyles.question}>Read metrics from</div>
+          {connections.length ? (
+            <div style={{ maxWidth: 520 }}>
+              <ConnectionPicker compact backendUrl={backendUrl} connections={connections} connectionId={connectionId} onChange={setConnectionId} />
+            </div>
+          ) : (
+            <div>The backend's default Prometheus</div>
+          )}
+          <div style={styles.helperText}>
+            The Ops Signals backend reads this connection on every run, so the analysis keeps working when Grafana isn't open.
+          </div>
+          <div style={{ marginTop: 12, maxWidth: 520 }}>
             <ClustersField
               clusterOptions={clusterOptions}
               clusterLabel={clusterLabel}
@@ -2038,56 +2107,125 @@ function AutonomousAnalysisView({
               setSelectedClusters={setSelectedClusters}
             />
           </div>
+        </FormStep>
 
-          <div style={panelStyle('#3fcf8e')}>
-            <h3 style={sectionTitleStyle}>2. Monitoring Categories</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-              {monitorCategories.map((item, index) => (
-                <button key={item.id} type="button" onClick={() => toggleCategory(item.id)} style={{ border: `1px solid ${selectedCategories.includes(item.id) ? 'rgba(63, 207, 142, 0.65)' : 'rgba(204, 204, 220, 0.18)'}`, borderRadius: 8, padding: 12, background: selectedCategories.includes(item.id) ? 'rgba(63, 207, 142, 0.1)' : 'rgba(204, 204, 220, 0.04)', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
-                  <div style={{ ...styles.rowBetween, gap: 8 }}>
-                    <strong>{item.title}</strong>
-                    {selectedCategories.includes(item.id) && <span style={{ color: '#3fcf8e' }}>✓</span>}
-                  </div>
-                  <div style={styles.helperText}>{item.detail}</div>
-                </button>
-              ))}
-            </div>
-            {!selectedCategories.length && <div style={{ ...styles.alert, marginTop: 12 }}>Select at least one monitoring category to preview a plan.</div>}
-            {selectedCategories.includes('custom') && (
-              <div style={{ ...styles.stack, marginTop: 14 }}>
-                <Field label="Explicit metric names comma-separated">
-                  <input style={styles.input} value={customExplicitMetrics} onChange={(event) => setCustomExplicitMetrics(event.target.value)} placeholder="http_requests_total,node_cpu_seconds_total" />
-                </Field>
-                <Field label="Include patterns comma-separated">
-                  <input style={styles.input} value={customIncludePatterns} onChange={(event) => setCustomIncludePatterns(event.target.value)} placeholder=".*latency.*,custom_metric_.*" />
-                </Field>
-                <Field label="Exclude patterns comma-separated">
-                  <input style={styles.input} value={customExcludePatterns} onChange={(event) => setCustomExcludePatterns(event.target.value)} />
-                </Field>
-              </div>
-            )}
-          </div>
-
-          <div style={panelStyle('#5794f2')}>
-            <h3 style={sectionTitleStyle}>3. Execution Limits</h3>
-            <Field label="Mode">
-              <select style={styles.input} value={scheduleMode} onChange={(event) => setScheduleMode(event.target.value as 'run_once' | 'scheduled')}>
-                <option value="run_once">One-time</option>
-                <option value="scheduled">Scheduled</option>
+        <FormStep number={2} title="Scope">
+          <div style={formStyles.scopeGrid}>
+            <Field label="Environment">
+              <select style={styles.input} value={environment} onChange={(event) => setEnvironment(event.target.value)}>
+                <option value="production">Production</option>
+                <option value="staging">Staging</option>
+                <option value="all">All environments</option>
               </select>
             </Field>
-            {scheduleMode === 'scheduled' ? (
-              <Field label="Run every">
-                <select style={styles.input} value={scheduleMinutes} onChange={(event) => setScheduleMinutes(Number(event.target.value))}>
+            <ScopeChoice
+              title="Services"
+              allLabel={`All discovered${services.length ? ` (${services.length})` : ''}`}
+              pickLabel="Pick services"
+              all={allServices}
+              setAll={setAllServices}
+              options={services}
+              selected={selectedServices}
+              setSelected={setSelectedServices}
+              emptyHint="No services found yet. Check the service label below."
+            />
+            <ScopeChoice
+              title="Namespaces"
+              allLabel="All namespaces"
+              pickLabel="Pick namespaces"
+              all={allNamespaces}
+              setAll={setAllNamespaces}
+              options={namespaces}
+              selected={selectedNamespaces}
+              setSelected={setSelectedNamespaces}
+              emptyHint="No namespaces found. Keep All, or check the namespace label below."
+            />
+          </div>
+          {showScopeLabels ? (
+            <div style={{ ...styles.row, gap: 10, marginTop: 10, fontSize: 12 }}>
+              <span style={styles.muted}>matched on labels</span>
+              {([
+                ['environment', environmentLabel, setEnvironmentLabel],
+                ['service', serviceLabel, setServiceLabel],
+                ['namespace', namespaceLabel, setNamespaceLabel],
+              ] as const).map(([name, value, setValue]) => (
+                <label key={name} style={{ ...styles.row, gap: 6 }}>
+                  <span style={styles.muted}>{name}</span>
+                  <input aria-label={`${name[0].toUpperCase()}${name.slice(1)} label`} style={formStyles.smallInput} value={value} onChange={(event) => setValue(event.target.value)} />
+                </label>
+              ))}
+              <button type="button" style={formStyles.link} onClick={() => setShowScopeLabels(false)}>done</button>
+            </div>
+          ) : (
+            <div style={styles.helperText}>
+              matched on labels <strong>{environmentLabel}</strong> &middot; <strong>{serviceLabel}</strong> &middot; <strong>{namespaceLabel}</strong> &middot;{' '}
+              <button type="button" aria-label="Change scope labels" style={formStyles.link} onClick={() => setShowScopeLabels(true)}>change</button>
+            </div>
+          )}
+        </FormStep>
+
+        <FormStep number={3} title="Watch">
+          <div style={formStyles.categoryGrid}>
+            {monitorCategories.map((item) => {
+              const on = selectedCategories.includes(item.id);
+              return (
+                <button key={item.id} type="button" aria-pressed={on} onClick={() => toggleCategory(item.id)} style={{ ...formStyles.category, ...(on ? formStyles.categoryOn : {}) }}>
+                  <span style={{ ...styles.rowBetween, gap: 8, flexWrap: 'nowrap' }}>
+                    <strong style={{ fontWeight: 500 }}>{item.title}</strong>
+                    {on ? <span style={{ color: '#3fcf8e' }}>✓</span> : null}
+                  </span>
+                  <span style={{ ...styles.helperText, display: 'block', marginTop: 2 }}>{item.detail}</span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedCategories.includes('custom') ? (
+            <>
+              <div style={formStyles.customGrid3}>
+                <Field label="Metric names">
+                  <input style={styles.input} value={customExplicitMetrics} onChange={(event) => setCustomExplicitMetrics(event.target.value)} placeholder="http_requests_total, node_cpu_seconds_total" />
+                </Field>
+                <Field label="Include patterns">
+                  <input style={styles.input} value={customIncludePatterns} onChange={(event) => setCustomIncludePatterns(event.target.value)} placeholder=".*latency.*, custom_metric_.*" />
+                </Field>
+                <Field label="Exclude patterns">
+                  <input style={styles.input} value={customExcludePatterns} onChange={(event) => setCustomExcludePatterns(event.target.value)} placeholder=".*_bucket" />
+                </Field>
+              </div>
+              <div style={styles.helperText}>Comma-separated. Patterns are regular expressions on the metric name.</div>
+            </>
+          ) : null}
+        </FormStep>
+
+        <FormStep number={4} title="When">
+          <div style={formStyles.whenGrid}>
+            <div>
+              <span style={styles.label}>Run</span>
+              <div role="radiogroup" aria-label="Run" style={{ ...styles.row, gap: 16, minHeight: 36, flexWrap: 'nowrap' }}>
+                <label style={formStyles.radio}>
+                  <input type="radio" name="ops-signals-run-mode" checked={scheduleMode === 'run_once'} onChange={() => setScheduleMode('run_once')} style={formStyles.radioInput} />
+                  Once, now
+                </label>
+                <label style={formStyles.radio}>
+                  <input type="radio" name="ops-signals-run-mode" checked={scheduleMode === 'scheduled'} onChange={() => setScheduleMode('scheduled')} style={formStyles.radioInput} />
+                  Every
+                </label>
+                <select
+                  aria-label="Run every"
+                  style={{ ...styles.input, width: 96, ...(scheduleMode === 'scheduled' ? {} : formStyles.inactive) }}
+                  disabled={scheduleMode !== 'scheduled'}
+                  value={scheduleMinutes}
+                  onChange={(event) => setScheduleMinutes(Number(event.target.value))}
+                >
                   <option value={5}>5m</option>
                   <option value={15}>15m</option>
                   <option value={30}>30m</option>
                   <option value={60}>1h</option>
                   <option value={360}>6h</option>
                 </select>
-              </Field>
-            ) : null}
-            <Field label="Analysis window">
+              </div>
+            </div>
+            <Field label="Look back">
               <select style={styles.input} value={analysisWindow} onChange={(event) => setAnalysisWindow(event.target.value)}>
                 <option value="30m">30m</option>
                 <option value="1h">1h</option>
@@ -2096,7 +2234,7 @@ function AutonomousAnalysisView({
                 <option value="7d">7d</option>
               </select>
             </Field>
-            <Field label="Query resolution">
+            <Field label="Resolution">
               <select style={styles.input} value={executionInterval} onChange={(event) => setExecutionInterval(event.target.value)}>
                 <option value="30s">30s</option>
                 <option value="1m">1m</option>
@@ -2104,33 +2242,66 @@ function AutonomousAnalysisView({
                 <option value="10m">10m</option>
               </select>
             </Field>
-            <Field label="Max metrics per run">
-              <input style={styles.input} type="number" value={maxMetricsPerRun} min={1} max={5000} onChange={(event) => setMaxMetricsPerRun(event.target.value)} />
-            </Field>
-            <Field label="Max parallel jobs">
-              <input style={styles.input} type="number" value={maxParallelJobs} min={1} max={200} onChange={(event) => setMaxParallelJobs(event.target.value)} />
-              <div style={{ ...styles.helperText, marginTop: 4 }}>
-                Execution runs sequentially; this setting is reserved for future worker concurrency.
-              </div>
-            </Field>
+          </div>
+          {showLimit ? (
+            <div style={{ ...styles.row, gap: 8, marginTop: 10, fontSize: 12 }}>
+              <span style={styles.muted}>Up to</span>
+              <input aria-label="Max metrics per run" style={{ ...formStyles.smallInput, width: 90 }} type="number" min={1} max={5000} value={maxMetricsPerRun} onChange={(event) => setMaxMetricsPerRun(event.target.value)} />
+              <span style={styles.muted}>metrics per run</span>
+              <button type="button" style={formStyles.link} onClick={() => setShowLimit(false)}>done</button>
+            </div>
+          ) : (
+            <div style={styles.helperText}>
+              Up to <strong>{maxMetricsPerRun || '0'}</strong> metrics per run &middot;{' '}
+              <button type="button" aria-label="Change metrics per run" style={formStyles.link} onClick={() => setShowLimit(true)}>change</button>
+            </div>
+          )}
+        </FormStep>
+
+        {scheduleError ? <div style={{ ...styles.alert, marginBottom: 12 }}>{scheduleError}</div> : null}
+        <div style={formStyles.footer}>
+          <div style={styles.helperText}>
+            Backend: {backendHost(backendUrl)} &middot;{' '}
+            <button type="button" aria-label={showBackend ? 'Hide backend settings' : 'Change backend'} style={formStyles.link} onClick={() => setShowBackend((open) => !open)}>{showBackend ? 'hide' : 'change'}</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" style={canPreview && !isPreviewing ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={!canPreview || isPreviewing} onClick={onPreview}>
+                {isPreviewing ? 'Building preview...' : 'Preview metric plan'}
+              </button>
+              {showSave ? (
+                <button
+                  type="button"
+                  style={canSave ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : { ...styles.button, ...styles.buttonDisabled }}
+                  disabled={!canSave}
+                  onClick={handleSaveSchedule}
+                >
+                  {isSavingSchedule ? 'Saving...' : saveLabel}
+                </button>
+              ) : null}
+            </div>
+            {configureBlocker ? (
+              <span style={{ fontSize: 12, color: '#ffb357' }}>{configureBlocker}</span>
+            ) : (
+              <span style={styles.helperText}>{saveHint}</span>
+            )}
           </div>
         </div>
-
-        {scheduleError ? <div style={{ ...styles.alert, marginTop: 12 }}>{scheduleError}</div> : null}
-        <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button type="button" style={canPreview && !isPreviewing ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={!canPreview || isPreviewing} onClick={onPreview}>
-            {isPreviewing ? 'Building preview...' : 'Preview metric plan'}
-          </button>
-          <button
-            type="button"
-            style={selectedCategories.length && !isSavingSchedule ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : { ...styles.button, ...styles.buttonDisabled }}
-            disabled={!selectedCategories.length || isSavingSchedule}
-            onClick={handleSaveSchedule}
-          >
-            {isSavingSchedule ? 'Saving...' : scheduleMode === 'scheduled' ? 'Save & Schedule' : 'Save'}
-          </button>
-        </div>
-        <div style={styles.helperText}>Preview first, then run the planned jobs once, or save a schedule so it runs automatically without you.</div>
+        {showBackend ? (
+          <div style={formStyles.backendPanel}>
+            <Field label="Ops Signals backend">
+              <select style={styles.input} value={backendUrl} onChange={(event) => setBackendUrl(event.target.value)}>
+                {backendOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </Field>
+            <ApiTokenField />
+            <div style={{ ...styles.helperText, gridColumn: '1 / -1', marginTop: 0 }}>
+              Admins set the default backend on the plugin's Configuration page. The token stays in this browser.
+            </div>
+          </div>
+        ) : null}
         </>
         )}
       </Card>
@@ -2191,7 +2362,7 @@ function AutonomousAnalysisView({
           isPreviewingNow={isPreviewingPolicy}
           previewNowError={previewPolicyError}
           context={{
-            sourceLabel: selectedPrometheusUid ? `Prometheus / ${selectedPrometheusUid}` : 'Prometheus / Grafana datasource',
+            sourceLabel: `Prometheus / ${connectionName(connections, connectionId) ?? "the backend's default connection"}`,
             datasource: selectedPrometheusUid || 'Prometheus',
             policy: selectedCategories.length ? selectedCategories.map(humanize).join(', ') : 'Current monitoring policy',
             timeWindow: analysisWindow,
