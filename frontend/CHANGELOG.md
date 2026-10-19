@@ -6,6 +6,14 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Autonomous Configure in four steps: Data, Scope, Watch, When.** It reads from the backend's
+  connection (with its clusters); the Grafana data source picker is gone, since autonomous runs
+  never used it, and Preview no longer waits for it. Services and namespaces are "All" or picked
+  chips; the label names, metrics-per-run limit, backend and token sit behind "change". Categories
+  sit four to a row. "Once, now" or "Every 30m" replaces the Mode dropdown, and "Max parallel jobs"
+  (which did nothing yet) is gone. Editing a schedule shows a banner with Cancel edit, the save
+  button says what it does (Save & schedule, Save schedule, Save without schedule), and a disabled
+  Preview says what is missing.
 - **Interactive Analysis form in three steps: Data, What, When.** "Read metrics from" is one
   choice (Grafana data source, or an Ops Signals connection with its cluster). Service and Metric are
   the only boxes in step 2; the service label is a "change" link under Service, and Metric / PromQL
