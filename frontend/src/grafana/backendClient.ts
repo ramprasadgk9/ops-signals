@@ -1,3 +1,4 @@
+import type { SetupCheckResult } from '../utils/setupCheck';
 import type {
   AlertItem,
   AnalysisRun,
@@ -649,6 +650,16 @@ export async function askAssistantWithMemory(baseUrl: string, target: {
     minimum_score: 0.4,
     same_service_only: false,
   });
+}
+
+/** Each part of the install, whether it works and how to fix it (the Setup check). */
+export async function getSetupCheck(baseUrl: string) {
+  return fetchJson<SetupCheckResult>(baseUrl, '/api/setup/check');
+}
+
+/** One synthetic alert through the alerts receiver, to prove it end to end. */
+export async function sendTestAlert(baseUrl: string) {
+  return postJson<{ accepted?: number }>(baseUrl, '/api/integrations/alertmanager/test', {});
 }
 
 /** The backend's Prometheus connections (one per Mimir tenant or Prometheus server). */

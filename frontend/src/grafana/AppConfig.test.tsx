@@ -2,6 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@grafana/runtime', () => ({ getBackendSrv: vi.fn() }));
+vi.mock('./backendClient', () => ({
+  getApiToken: () => '',
+  setApiToken: vi.fn(),
+  getSetupCheck: vi.fn().mockResolvedValue({ generated_at: '2026-10-19T00:00:00Z', version: 'test', checks: [] }),
+  sendTestAlert: vi.fn(),
+  testPrometheusConnection: vi.fn(),
+}));
 import { AppConfig } from './AppConfig';
 
 const meta = (overrides = {}) => ({ id: 'ops-signals-app', enabled: true, pinned: true, jsonData: {}, ...overrides });

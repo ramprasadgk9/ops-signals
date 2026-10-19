@@ -109,30 +109,51 @@ def validate_range(start: datetime, end: datetime, step_seconds: int, config: Pr
         raise HTTPException(status_code=400, detail="requested range and step exceed max samples per series")
 
 
+@dataclass(frozen=True)
+class ConnectionProbe:
+    """One connection test: what was asked (path) and how it ended. status_code is the HTTP status of
+    a failed request (503 when the host can't be reached, 504 on a timeout), None otherwise."""
+
+    available: bool
+    version: str | None
+    latency_ms: int | None
+    message: str
+    path: str | None = None
+    status_code: int | None = None
+
+
 class PrometheusQueryService:
     def __init__(self, config: PrometheusConnectionConfig):
         self.config = config
 
     def test_connection(self) -> tuple[bool, str | None, int | None, str]:
+        probe = self.probe()
+        return probe.available, probe.version, probe.latency_ms, probe.message
+
+    def probe(self) -> ConnectionProbe:
         if not self.config.base_url:
-            return False, None, None, "Prometheus is not configured"
+            return ConnectionProbe(False, None, None, "Prometheus is not configured")
         started = time.perf_counter()
+
+        def elapsed() -> int:
+            return int((time.perf_counter() - started) * 1000)
+
+        path = "/api/v1/status/buildinfo"
         try:
-            payload = self._get_json("/api/v1/status/buildinfo", {})
+            payload = self._get_json(path, {})
             version = str(payload.get("data", {}).get("version")) if isinstance(payload.get("data"), dict) else None
-            latency_ms = int((time.perf_counter() - started) * 1000)
-            return True, version, latency_ms, "Connection successful"
+            return ConnectionProbe(True, version, elapsed(), "Connection successful", path)
         except HTTPException as exc:
             if exc.status_code not in _BUILDINFO_UNSUPPORTED_STATUSES:
-                return False, None, int((time.perf_counter() - started) * 1000), str(exc.detail)
+                return ConnectionProbe(False, None, elapsed(), str(exc.detail), path, exc.status_code)
+        path = "/api/v1/query?query=vector(1)"
         try:
             payload = self._get_json("/api/v1/query", {"query": "vector(1)"})
         except HTTPException as exc:
-            return False, None, int((time.perf_counter() - started) * 1000), str(exc.detail)
-        latency_ms = int((time.perf_counter() - started) * 1000)
+            return ConnectionProbe(False, None, elapsed(), str(exc.detail), path, exc.status_code)
         if payload.get("status") != "success":
-            return False, None, latency_ms, str(payload.get("error") or "Prometheus query API check failed")
-        return True, None, latency_ms, "Connection successful (server version unavailable)"
+            return ConnectionProbe(False, None, elapsed(), str(payload.get("error") or "Prometheus query API check failed"), path)
+        return ConnectionProbe(True, None, elapsed(), "Connection successful (server version unavailable)", path)
 
     def label_values(
         self,

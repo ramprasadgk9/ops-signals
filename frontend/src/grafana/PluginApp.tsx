@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getApiToken, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, listPrometheusLabelValues, previewAutonomousPlan, runAutonomousPlanOnce, runConnectionAnalysis, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setApiToken, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, listPrometheusLabelValues, previewAutonomousPlan, runAutonomousPlanOnce, runConnectionAnalysis, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -12,7 +12,9 @@ import {
 } from './grafanaPrometheus';
 import { InvestigationDrawer, PanelPreview } from './PanelPreview';
 import { backendOptionsFor, defaultBackendUrl as backendUrlDefault, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
+import { ApiTokenField } from './ApiTokenField';
 import { Card, Field, styles } from './plainUi';
+import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
@@ -341,7 +343,8 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     () => prometheusDatasources.find((datasource) => datasource.uid === selectedPrometheusUid),
     [prometheusDatasources, selectedPrometheusUid]
   );
-  const backendReady = useMemo(() => Boolean(backendUrl), [backendUrl]);
+  // The header chips and the setup reminder both come from one Setup check of the chosen backend.
+  const setup = useSetupCheck(backendUrl);
   const timeRangeValid = timeRange.from.getTime() < timeRange.to.getTime();
 
   // --- Interactive Analysis through a backend connection ---
@@ -574,12 +577,11 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
           <p style={{ ...styles.muted, margin: '6px 0 0' }}>Operational changes detected from the selected Grafana metric and time range.</p>
         </div>
         <div style={styles.row}>
-          <span style={{ ...styles.chip, color: backendReady ? '#3fcf8e' : '#ffb357' }}>● {backendReady ? 'Backend connected' : isLoadingContext ? 'Backend loading' : 'Backend waiting'}</span>
-          <span style={{ ...styles.chip, color: '#3fcf8e' }}>● Prometheus ready</span>
-          <span style={{ ...styles.chip, color: '#3fcf8e' }}>● Case memory enabled</span>
+          <SetupChips result={setup.result} unreachable={setup.unreachable} />
         </div>
       </div>
 
+      <PluginSetupBanner result={setup.result} unreachable={setup.unreachable} />
       {error && <div style={styles.alert}>{error}</div>}
       {stage && <div style={styles.alert}>{stage}</div>}
 
@@ -1112,23 +1114,6 @@ export type InteractiveCardProps = {
 
 /** Only needed when the backend sets OPS_SIGNALS_API_TOKEN. Saved in this browser on blur; requests
  * made after that carry it. */
-function ApiTokenField() {
-  const [token, setToken] = useState(getApiToken);
-  return (
-    <Field label="API token (optional)">
-      <input
-        style={styles.input}
-        type="password"
-        autoComplete="off"
-        value={token}
-        placeholder="Only if the backend requires one"
-        onChange={(event) => setToken(event.target.value)}
-        onBlur={() => setApiToken(token)}
-      />
-    </Field>
-  );
-}
-
 export function InteractiveAnalysisCard(props: InteractiveCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [showBackend, setShowBackend] = useState(false);

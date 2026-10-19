@@ -4,6 +4,13 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Setup check: what works, what to fix, and how.** A new page in the web UI (Setup check, where
+  System was; `/system` still opens it) and on the Grafana plugin's Configuration page. It tests the
+  backend, database, each metrics connection (with a fix that fits the failure: 401, 404, timeout,
+  `localhost` inside a container), OpenTelemetry, memory search, login and risky switches, the first
+  analysis, and the optional extras. Each row that isn't green has **How to fix**; connections have
+  **Test**; **Copy report** gives a text summary without secrets. Overview (and the plugin) show a
+  reminder only while something needed is broken. API: `GET /api/setup/check`.
 - **Grafana plugin: Interactive Analysis form redone** as three steps (Data, What, When), with the
   set-once backend and token tucked away and Run Analysis saying what's missing. Same fields and
   analysis; see `frontend/CHANGELOG.md`.
