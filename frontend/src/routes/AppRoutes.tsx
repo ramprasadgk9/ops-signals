@@ -26,7 +26,7 @@ import { CasesPage } from '../pages/CasesPage';
 import { InvestigationsPage } from '../pages/InvestigationsPage';
 import { IntegrationsPage } from '../pages/IntegrationsPage';
 import { AlertsPage } from '../pages/AlertsPage';
-import { SystemPage } from '../pages/SystemPage';
+import { SetupCheckPage } from '../pages/SetupCheckPage';
 import { MetricUsagePage } from '../pages/MetricUsagePage';
 
 export function AppRoutes() {
@@ -62,7 +62,8 @@ export function AppRoutes() {
       <Route path="/integrations" element={<IntegrationsPage />} />
       <Route path="/alerts" element={<AlertsPage />} />
       <Route path="/settings" element={<SettingsPage />} />
-      <Route path="/system" element={<SystemPage />} />
+      <Route path="/setup-check" element={<SetupCheckPage />} />
+      <Route path="/system" element={<Navigate to="/setup-check" replace />} />
       <Route path="/signals/:signalId" element={<SignalDetailPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

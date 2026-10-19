@@ -44,6 +44,7 @@ from backend.app.api.overview import router as overview_router
 from backend.app.api.questions import router as questions_router
 from backend.app.api.notifications import router as notifications_router
 from backend.app.api.services import router as services_router
+from backend.app.api.setup_check import router as setup_check_router
 from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
@@ -489,6 +490,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(events_router)
     app.include_router(metric_usage_router)
     app.include_router(notifications_router)
+    app.include_router(setup_check_router)
     
     # Register memory router
     app.include_router(memory_router)

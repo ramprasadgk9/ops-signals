@@ -86,7 +86,7 @@ const analyzerWorkbenchItems: NavItem[] = [
 
 const systemItems: NavItem[] = [
   { label: 'Settings', to: '/settings', icon: <SettingsRoundedIcon /> },
-  { label: 'System', to: '/system', icon: <DnsRoundedIcon /> },
+  { label: 'Setup check', to: '/setup-check', icon: <DnsRoundedIcon /> },
 ];
 
 function NavButton({ item, nested = false, needsSource = false }: { item: NavItem; nested?: boolean; needsSource?: boolean }) {

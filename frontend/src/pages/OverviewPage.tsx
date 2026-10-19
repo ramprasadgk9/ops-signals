@@ -16,6 +16,7 @@ import { GetDataInPanel, SourceStatusStrip } from '../components/GetDataInPanel'
 import { AlertBadge, alertsByFinding } from '../components/AlertComponents';
 import { AlertsOverviewPanel } from '../components/AlertTimeline';
 import { MetricUsageStrip } from '../components/MetricUsageStrip';
+import { SetupBanner } from '../components/SetupBanner';
 import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
 import { relativeTime, titleCase, ui } from '../standalone/theme';
 import { findingLevel } from '../utils/findingLevel';
@@ -94,6 +95,8 @@ export function OverviewPage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="Overview" subtitle="Operational intelligence at a glance" action={ingestionStatus ? <SourceStatusStrip status={ingestionStatus} /> : undefined} />
+
+      <SetupBanner />
 
       {(awaitingFirstData || onboardingOpen) && ingestionStatus ? (
         <GetDataInPanel status={ingestionStatus} onDismiss={awaitingFirstData ? undefined : () => setOnboardingOpen(false)} />

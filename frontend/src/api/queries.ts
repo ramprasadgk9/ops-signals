@@ -1,4 +1,5 @@
 import { deleteJson, getHealth, getJson, postForm, postJson, patchJson } from './client';
+import type { SetupCheckResult } from '../utils/setupCheck';
 import type {
   AnalyzerConfigSuggestion,
   AnalyzerConfigSuggestionInput,
@@ -107,6 +108,7 @@ export const api = {
   slackStatus: () => getJson<SlackStatus>('/api/notifications/slack'),
   otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
   ingestionStatus: () => getJson<IngestionStatus>('/api/ingestion/status'),
+  setupCheck: () => getJson<SetupCheckResult>('/api/setup/check'),
   sendTestAlert: () => postJson<Record<string, never>, AlertReceipt>('/api/integrations/alertmanager/test', {}),
   alerts: (params: AlertListParams = {}) => {
     const search = new URLSearchParams();

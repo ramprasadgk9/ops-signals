@@ -51,8 +51,12 @@ environment.
    for example `https://ops-signals.example.internal`. Then click **Enable and save**.
 3. On the backend, allow this Grafana to call it from the browser: add Grafana's address to
    `OPS_SIGNALS_CORS_ORIGINS`, for example `OPS_SIGNALS_CORS_ORIGINS=https://grafana.example.com`.
-4. If the backend requires an API token (`OPS_SIGNALS_API_TOKEN`), enter it in the app's
-   **API token** field. It's kept in that browser only.
+4. If the backend requires an API token (`OPS_SIGNALS_API_TOKEN`), enter it in the **API token**
+   field on the same page (or next to the backend selector in the app). It's kept in that browser
+   only.
+5. Check the **Setup check** below the settings. It tests the backend, its database, each metrics
+   connection and memory search, and says how to fix anything that isn't green. While something
+   needed is broken, the app shows a reminder that links back here.
 
 To set it up with provisioning instead, put this in Grafana's `provisioning/plugins` folder:
 
@@ -79,9 +83,11 @@ The plugin reads metrics through Grafana's own Prometheus datasource, using the 
 permissions. It sends the samples and the query details (service, metric, time range, no credentials)
 from the browser to the Ops Signals backend, which runs the analysis and stores findings and cases in
 its own database. If the backend has a Prometheus connection of its own, you can also choose
-**Query through: Ops Signals connection** and the backend queries Prometheus directly.
+**Read metrics from: Ops Signals connection** and the backend queries Prometheus directly.
 
 ## Troubleshooting
+
+Start with the **Setup check** on the Configuration page: it names what's broken and how to fix it.
 
 - **"App not found"**: the plugin isn't loaded. Check Grafana's log for an unsigned-plugin message
   and the `allow_loading_unsigned_plugins` setting above.

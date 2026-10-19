@@ -6,6 +6,11 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Setup check on the Configuration page.** Below the Backend URL, it tests the backend, its
+  database, each metrics connection and memory search, and says how to fix anything that isn't green,
+  with a Test button per connection and Copy report. An unreachable backend shows as a failed check
+  with the CORS and token hints. The API token can now be entered on this page too. While something
+  needed is broken, the app shows a reminder that links here.
 - **Autonomous Configure in four steps: Data, Scope, Watch, When.** It reads from the backend's
   connection (with its clusters); the Grafana data source picker is gone, since autonomous runs
   never used it, and Preview no longer waits for it. Services and namespaces are "All" or picked

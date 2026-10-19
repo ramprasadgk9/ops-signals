@@ -376,6 +376,7 @@ Prefer a model you already run or pay for? Set `OPS_SIGNALS_AI_PROVIDER=openai_c
 | `postgres did not become ready in time` or `qdrant did not become ready in time` | Docker is still starting, or the port is already taken | `docker compose ps` and `docker compose logs postgres` (or `qdrant`); confirm ports `5432`/`6333` are free |
 | A port (`8001`, `5174`, `9090`) is already in use | Another process is bound to it | Stop that process, or see `scripts/run_all.sh` for the ports it uses |
 | `permission denied` running a script | The script isn't marked executable | `chmod +x scripts/*.sh` |
+| It starts, but something doesn't work | A connection, token or setting is wrong | Open **Setup check** in the web UI: each red or yellow row has **How to fix**. **Copy report** gives a text summary (without secrets) to paste into an issue |
 
 ### Security model
 
@@ -437,7 +438,9 @@ docker compose -f docker-compose.packaged.yml up -d
   `http://prometheus.example.internal:9090`. Without it, everything starts but there are no metrics
   to watch.
 - **The first start builds the three images** from this checkout, which takes a few minutes.
-- **Check it:** open http://localhost:8080, or run `curl http://localhost:8000/api/health`.
+- **Check it:** open http://localhost:8080 → **Setup check** (bottom of the sidebar). It tests the
+  database, each metrics connection and memory search, and says what to fix for anything that isn't
+  green. From a terminal: `curl http://localhost:8000/api/setup/check`.
 - **Before others can reach it,** add `OPS_SIGNALS_API_TOKEN=<a long random string>` to `.env` and
   run the `up` command again. Without it, anyone who can reach port 8000 can use the API (see
   [Security model](#security-model)).

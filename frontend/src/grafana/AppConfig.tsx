@@ -2,7 +2,9 @@ import React from 'react';
 import { useState } from 'react';
 import { getBackendSrv } from '@grafana/runtime';
 import { Field, styles } from './plainUi';
-import { configuredBackendUrl, isValidBackendUrl, normalizeBackendUrl, type PluginJsonData } from './backendUrlSetting';
+import { ApiTokenField } from './ApiTokenField';
+import { configuredBackendUrl, defaultBackendUrl, isValidBackendUrl, normalizeBackendUrl, type PluginJsonData } from './backendUrlSetting';
+import { SetupCheckPanel } from './SetupCheckPanel';
 
 type AppConfigMeta = {
   id: string;
@@ -31,6 +33,10 @@ export function AppConfig({
   const [backendUrl, setBackendUrl] = useState(configuredBackendUrl(meta.jsonData) ?? '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // Bumped when the API token changes, so the Setup check runs again with it.
+  const [tokenVersion, setTokenVersion] = useState(0);
+  // The backend the app uses now: the saved URL, else the build default or the local stack.
+  const activeBackendUrl = defaultBackendUrl(meta.jsonData, import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL);
   const invalid = backendUrl.trim() !== '' && !isValidBackendUrl(backendUrl);
 
   const submit = async (enabled: boolean) => {
@@ -79,6 +85,12 @@ export function AppConfig({
           </button>
         )}
       </div>
+      <div style={{ maxWidth: 420 }}>
+        <ApiTokenField onSaved={() => setTokenVersion((version) => version + 1)} />
+        <p style={{ ...styles.helperText, marginTop: 4 }}>Kept in this browser only. Each person enters it once in their own browser.</p>
+      </div>
+      <hr style={{ border: 0, borderTop: '1px solid rgba(204, 204, 220, 0.12)', width: '100%', margin: '8px 0' }} />
+      <SetupCheckPanel key={`${activeBackendUrl}#${tokenVersion}`} backendUrl={activeBackendUrl} />
     </div>
   );
 }

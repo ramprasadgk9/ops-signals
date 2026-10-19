@@ -16,6 +16,7 @@ vi.mock('../api/queries', () => ({
     memoryStats: vi.fn(),
     autonomousPolicyRuns: vi.fn(),
     ingestionStatus: vi.fn(),
+    setupCheck: vi.fn().mockResolvedValue({ generated_at: '2026-10-19T00:00:00Z', version: 'test', checks: [] }),
     alerts: vi.fn(),
     runCsvUpload: vi.fn(),
     sendTestAlert: vi.fn(),

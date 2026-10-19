@@ -47,10 +47,18 @@ enriched alert's analysis still produces an ordinary finding, so it appears unde
 `GET /api/events`. See
 [`docs/alert-enrichment.md`](alert-enrichment.md), or run [`docs/demo.md`](demo.md) to see one.
 
-### System
+### Setup check and Settings
 
-**Settings** and **System** (bottom of the sidebar) cover configuration and backend/service health —
-not part of the core analysis workflow, so not covered further here, with one exception: Settings'
+**Setup check** (bottom of the sidebar; the old `/system` address opens it) tests each part of the
+install: the backend, the database, every metrics connection, memory search, login, and the optional
+extras (alerts, deploy events, notifications, ticketing, Grafana, AI). Anything that isn't green has
+**How to fix**: what was tried, the likely cause, the steps and config to copy. Metrics connections
+have a **Test** button, and **Copy report** gives a plain-text summary without secrets for an issue
+or an admin. While something needed is broken, Overview shows a reminder linking here. The same
+check is on the Grafana plugin's Configuration page, and at `GET /api/setup/check`.
+
+**Settings** covers configuration — not part of the core analysis workflow, so not covered further
+here, with one exception: Settings'
 OTLP Ingestion card shows the push endpoint URL and live received/backlog counts — the closest
 equivalent to Prometheus's "Test Connection" for a push-based integration. See
 [`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md).
