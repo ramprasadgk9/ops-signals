@@ -235,6 +235,15 @@ const GRAFANA_SHOTS = {
     await page.getByRole('button', { name: /Autonomous Analysis/ }).click();
     await page.waitForTimeout(3500);
   },
+
+  // Also the Grafana catalog's "Autonomous overview" screenshot (frontend/img/screenshots).
+  async '07-autonomous-overview'(page) {
+    await page.goto(PLUGIN);
+    await page.getByRole('button', { name: /Autonomous Analysis/ }).click();
+    await page.getByRole('button', { name: 'Overview', exact: true }).click();
+    await page.getByText('Autonomous Monitoring Overview').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(3000);
+  },
 };
 
 async function grafanaLogin(browser) {

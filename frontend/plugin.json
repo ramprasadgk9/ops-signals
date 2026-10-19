@@ -44,19 +44,19 @@
         "path": "img/screenshots/metrics-analysis.png"
       },
       {
-        "name": "Case workflow",
-        "path": "img/screenshots/case-flow.png"
+        "name": "Finding evidence",
+        "path": "img/screenshots/finding-evidence.png"
       },
       {
-        "name": "Autonomous analysis",
-        "path": "img/screenshots/autonomous-analysis.png"
+        "name": "Autonomous overview",
+        "path": "img/screenshots/autonomous-overview.png"
       },
       {
-        "name": "Ask Ops Signals",
-        "path": "img/screenshots/ask-ops-signals.png"
+        "name": "Autonomous configuration",
+        "path": "img/screenshots/autonomous-configure.png"
       }
     ],
-    "version": "1.0.34",
+    "version": "1.0.35",
     "updated": "2026-10-18"
   },
   "includes": [

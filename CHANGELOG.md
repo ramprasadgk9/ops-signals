@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Includes Grafana plugin 1.0.35.
+
 - **Fixed: the Grafana plugin's Autonomous Overview failed with "could not be loaded" on a
   long-running install.** The plugin downloaded every analysis run with its full JSON (1.6 GB and
   76 s on a dev database) to show the newest 7. `GET /api/analysis-runs` now takes `limit` (1-1000)
