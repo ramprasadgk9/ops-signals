@@ -69,4 +69,13 @@ describe('PluginFindingTrust', () => {
     const { container } = render(<PluginFindingTrust backendUrl="http://backend" findingId={42} trust={null} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('says who gave the answer, once the backend knows it', async () => {
+    feedback.mockResolvedValue({ trust: trust({ your_answer: 'expected_change', answered_by: 'priya', answered_at: new Date().toISOString() }) } as Finding);
+    render(<PluginFindingTrust backendUrl="http://backend" findingId={42} trust={trust()} service="checkout" />);
+    expect(screen.queryByText(/^Answered/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expected change' }));
+    expect(await screen.findByText('Answered Expected change by priya · just now')).toBeInTheDocument();
+  });
 });

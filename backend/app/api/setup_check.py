@@ -23,6 +23,7 @@ from backend.app.api.ai import ai_status
 from backend.app.api.ingestion_status import _as_utc, _grafana_reachable, _scalar
 from backend.app.api.memory import get_memory_config, get_memory_health, get_vector_store
 from backend.app.api.services import database_reachable
+from backend.app.identity import Actor, current_actor
 from backend.app.config import (
     MemoryConfig,
     PrometheusConnectionConfig,
@@ -81,10 +82,20 @@ class SetupCheck(BaseModel):
     connection_id: str | None = None
 
 
+class SetupActorOut(BaseModel):
+    """Who the backend sees on this request: a Grafana user when the plugin connects through
+    Grafana (name None for Grafana's anonymous visitor)."""
+
+    name: str | None
+    role: str | None
+    via: str
+
+
 class SetupCheckOut(BaseModel):
     generated_at: datetime
     version: str
     checks: list[SetupCheck]
+    you: SetupActorOut | None = None
 
 
 def _ago(value: datetime | None, now: datetime) -> str:
@@ -393,10 +404,16 @@ def setup_check(
     db: Session = Depends(get_db),
     store: VectorStore | None = Depends(get_vector_store),
     memory_config: MemoryConfig | None = Depends(get_memory_config),
+    actor: Actor | None = Depends(current_actor),
 ) -> SetupCheckOut:
     now = datetime.now(timezone.utc)
     version = get_settings().app_version
-    checks = [SetupCheck(id="backend", group="required", status="ok", title="Backend", detail=f"Answering · version {version}")]
+    if actor is None:
+        backend_detail = f"Answering · version {version}"
+    else:
+        who = f"{actor.name} ({actor.role or 'no role'})" if actor.name else f"an anonymous {actor.role or 'visitor'}"
+        backend_detail = f"Reached through Grafana · version {version} · you are {who}"
+    checks = [SetupCheck(id="backend", group="required", status="ok", title="Backend", detail=backend_detail)]
 
     if database_reachable():
         checks.append(SetupCheck(id="database", group="required", status="ok", title="Database", detail="Connected"))
@@ -413,4 +430,5 @@ def setup_check(
     checks.extend(security_checks())
     checks.extend(activity_checks(db, now))
     checks.extend(integration_checks(db, now))
-    return SetupCheckOut(generated_at=now, version=version, checks=checks)
+    you = SetupActorOut(name=actor.name, role=actor.role, via=actor.via) if actor else None
+    return SetupCheckOut(generated_at=now, version=version, checks=checks, you=you)

@@ -528,7 +528,10 @@ export function CaseDetailsPage() {
                       <Typography variant="caption" color="text.secondary">
                         Created
                       </Typography>
-                      <Typography variant="body2">{new Date(caseData.created_at).toLocaleString()}</Typography>
+                      <Typography variant="body2">
+                        {new Date(caseData.created_at).toLocaleString()}
+                        {caseData.created_by ? ` by ${caseData.created_by} (in Grafana)` : ''}
+                      </Typography>
                     </Box>
                     {caseData.resolved_at ? (
                       <Box>

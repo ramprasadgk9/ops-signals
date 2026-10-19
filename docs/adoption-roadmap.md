@@ -9,16 +9,25 @@ protocols) through configuration, and never build per-vendor integrations.
 - **Setup check (done).** The web UI's Setup check page and the Grafana plugin's Configuration page
   test each part of an install and say how to fix anything that isn't working
   ([`ui-tour.md`](ui-tour.md#setup-check-and-settings), `GET /api/setup/check`).
-- **Login:** one shared API token, `OPS_SIGNALS_API_TOKEN`, or none. There are no users or roles:
-  anyone with the token can do everything ([`security-model.md`](security-model.md)).
-- **Grafana plugin:** calls the backend from the browser, so the token is kept in browser storage.
-- **"Who did it":** cases have a `resolved_by` field, but nothing fills it with the real user.
+- **The plugin signs in through Grafana (done, step 1 below).**
+- **Login:** one shared API token, `OPS_SIGNALS_API_TOKEN`, or none, and no roles yet: anyone with
+  the token can do everything ([`security-model.md`](security-model.md)).
+- **"Who did it":** recorded for what people do in the plugin through Grafana. The web UI records no
+  names yet (step 3).
 
 ## Next steps
 
 Do these in order. Each one is useful without the ones after it.
 
-### 1. The plugin signs in through Grafana
+### 1. The plugin signs in through Grafana (done)
+
+Built 2026-10-19. The Configuration page's **Connect through: Grafana** sends plugin requests through
+Grafana's plugin proxy (`plugin.json` route `backend/*`), which adds the API token from the plugin's
+encrypted settings and `X-Grafana-Context`, the signed-in user (`backend/app/identity.py`). "Who did
+it" is recorded on "Was this real?" answers, cases opened from findings, and schedules (owner, last
+editor). "Browser, directly" stays for development and for installs set up before.
+
+What was planned:
 
 Plugin requests go through Grafana's server-side plugin proxy instead of straight from the browser.
 

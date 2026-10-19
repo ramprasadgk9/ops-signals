@@ -78,6 +78,7 @@ from backend.app.models.schema_compat import (
     ensure_case_import_schema,
     ensure_case_link_unique_schema,
     ensure_case_memory_schema,
+    ensure_actor_schema,
     ensure_cluster_schema,
     ensure_finding_problem_schema,
     ensure_metric_usage_schema,
@@ -306,6 +307,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_finding_problem_schema(get_engine())
         ensure_metric_usage_schema(get_engine())
         ensure_case_memory_schema(get_engine())
+        ensure_actor_schema(get_engine())
         session_local = get_session_local()
         with session_local() as db:
             seed_reference_data(db)

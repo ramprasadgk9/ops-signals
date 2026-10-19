@@ -4,6 +4,17 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **The Grafana plugin can sign in through Grafana.** On its Configuration page, **Connect through:
+  Grafana** (recommended, and the default for new installs) sends plugin requests through Grafana's
+  plugin proxy: the API token stays encrypted on the Grafana server instead of in each browser, no
+  CORS setup is needed, and the backend learns who each person is from Grafana. "Was this real?"
+  answers, cases opened from findings and schedules now record who did it, shown as "Answered
+  Expected change by priya · 10m ago", "Created by admin · 3h ago" and "Owner sam · last edited by
+  priya". Existing installs keep "Browser, directly" until an admin switches. New columns are added
+  at startup (`backend/migrations/010_actor_names.sql`). See `docs/security-model.md#who-did-what`.
+- **Fixed: two backends starting at once against one database could deadlock**, and one exited
+  ("Application startup failed"). Startup ran two `ALTER TABLE ops_operational_cases` statements on
+  every start, even with nothing to change; they now run only when needed.
 - **Setup check: what works, what to fix, and how.** A new page in the web UI (Setup check, where
   System was; `/system` still opens it) and on the Grafana plugin's Configuration page. It tests the
   backend, database, each metrics connection (with a fix that fits the failure: 401, 404, timeout,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasFixDetails, setupBanner, setupChips, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
+import { hasFixDetails, proxyUnreachableSetupResult, setupBanner, setupChips, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
 
 const RESULT: SetupCheckResult = {
   generated_at: '2026-10-19T14:02:31Z',
@@ -122,5 +122,28 @@ describe('setupChips', () => {
       ['Metrics ready', 'ok'],
       ['Case memory off', 'off'],
     ]);
+  });
+});
+
+describe('setupChips through Grafana', () => {
+  it('leads with who the backend sees', () => {
+    const chips = setupChips({ ...RESULT, you: { name: 'admin', role: 'Admin', via: 'grafana' } });
+    expect(chips[0]).toMatchObject({ id: 'user', label: 'admin · Admin', tone: 'user' });
+    expect(setupChips({ ...RESULT, you: { name: null, role: 'Viewer', via: 'grafana' } })[0].label).toBe('anonymous · Viewer');
+    expect(setupChips(RESULT)[0].id).toBe('backend');
+  });
+});
+
+describe('proxyUnreachableSetupResult', () => {
+  it('explains that localhost is the Grafana container when Grafana calls it', () => {
+    const [check] = proxyUnreachableSetupResult(new Error('Request failed: 502 - Bad Gateway'), 'http://localhost:8002').checks;
+    expect(check.detail).toBe("Grafana can't reach http://localhost:8002.");
+    expect(check.cause).toContain('localhost is the Grafana server itself');
+    expect(check.fix?.[0]).toContain('host.docker.internal:8002');
+  });
+
+  it('asks for a Grafana restart when the proxy route is missing, and for the token on a 401', () => {
+    expect(proxyUnreachableSetupResult(new Error('Request failed: 404 - plugin route match not found'), 'http://b:8000').checks[0].fix).toEqual(['Restart Grafana, then check again.']);
+    expect(proxyUnreachableSetupResult(new Error('Request failed: 401 - Unauthorized'), 'http://b:8000').checks[0].detail).toContain('Grafana sent none or the wrong one');
   });
 });

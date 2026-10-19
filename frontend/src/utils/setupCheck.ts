@@ -24,6 +24,8 @@ export interface SetupCheckResult {
   generated_at: string;
   version: string;
   checks: SetupCheck[];
+  /** Who the backend sees: the Grafana user when the plugin connects through Grafana. */
+  you?: { name: string | null; role: string | null; via: string } | null;
 }
 
 export const SETUP_GROUPS: { id: SetupCheckGroup; title: string; hint: string }[] = [
@@ -138,8 +140,8 @@ export function connectionTestText(result: { available: boolean; latency_ms?: nu
   return result.available ? `Connected in ${result.latency_ms ?? '?'} ms` : `Still failing: ${result.message}`;
 }
 
-export type SetupChipTone = 'ok' | 'warn' | 'fail' | 'off' | 'pending';
-export type SetupChip = { id: 'backend' | 'metrics' | 'memory'; label: string; tone: SetupChipTone; title: string };
+export type SetupChipTone = 'ok' | 'warn' | 'fail' | 'off' | 'pending' | 'user';
+export type SetupChip = { id: 'user' | 'backend' | 'metrics' | 'memory'; label: string; tone: SetupChipTone; title: string };
 
 const METRIC_CHECK = /^(connection:|otlp$|metrics$|connections$)/;
 
@@ -150,7 +152,12 @@ export function setupChips(result: SetupCheckResult | null, unreachable = false)
   }
   if (!result) return [{ id: 'backend', label: 'Checking backend…', tone: 'pending', title: 'Running the Setup check' }];
 
-  const chips: SetupChip[] = [{ id: 'backend', label: 'Backend connected', tone: 'ok', title: `Ops Signals ${result.version}` }];
+  const chips: SetupChip[] = [];
+  if (result.you) {
+    const who = result.you.name ?? 'anonymous';
+    chips.push({ id: 'user', label: `${who} · ${result.you.role ?? 'no role'}`, tone: 'user', title: `Ops Signals sees you as ${who} (${result.you.role ?? 'no role'}), through Grafana` });
+  }
+  chips.push({ id: 'backend', label: 'Backend connected', tone: 'ok', title: `Ops Signals ${result.version}` });
   const metrics = result.checks.filter((check) => check.group === 'required' && METRIC_CHECK.test(check.id));
   const failing = metrics.filter((check) => check.status !== 'ok');
   if (metrics.length) {
@@ -166,4 +173,52 @@ export function setupChips(result: SetupCheckResult | null, unreachable = false)
     chips.push({ id: 'memory', label: memoryLabel, tone: memory.status, title: memory.detail });
   }
   return chips;
+}
+
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)$/;
+
+/** What to show when the check can't be fetched through Grafana's plugin proxy: Grafana, not the
+ * browser, calls `target`, so the fixes are about where Grafana runs. */
+export function proxyUnreachableSetupResult(error: unknown, target: string): SetupCheckResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = Number(/Request failed: (\d{3})/.exec(message)?.[1] ?? (error as { status?: unknown } | null)?.status ?? 0);
+  let host = target;
+  try {
+    host = new URL(target).hostname;
+  } catch {
+    // Not a URL: show it as it is.
+  }
+  const base = { id: 'backend', group: 'required' as const, status: 'fail' as const, title: 'Backend', tried: `${message}\n(Grafana called ${target})` };
+  let check: SetupCheck;
+  if (status === 404 && /route/i.test(message)) {
+    check = {
+      ...base,
+      detail: 'Grafana has no proxy route for Ops Signals yet.',
+      cause: 'Grafana reads the plugin\'s settings file only when it starts, so a plugin updated while it ran has no route.',
+      fix: ['Restart Grafana, then check again.'],
+    };
+  } else if (status === 401) {
+    check = {
+      ...base,
+      detail: 'The backend needs an API token, and Grafana sent none or the wrong one.',
+      cause: 'OPS_SIGNALS_API_TOKEN is set on the backend.',
+      fix: ['Enter the token in API token on this page (Grafana stores it encrypted), save, then check again.'],
+      docs: 'docs/security-model.md',
+    };
+  } else if (status === 502 || status === 503 || status === 504 || !status) {
+    check = {
+      ...base,
+      detail: `Grafana can't reach ${target}.`,
+      cause: LOCAL_HOST.test(host)
+        ? `Grafana makes this call, so ${host} is the Grafana server itself. If Grafana runs in Docker, that is the Grafana container, not your computer.`
+        : 'The address is wrong from where Grafana runs, a firewall blocks it, or the backend is down.',
+      fix: [
+        'Use an address the Grafana server can reach: http://host.docker.internal:8002 for a backend on the same computer as a Grafana container, or the backend\'s service name.',
+        'Save it on this page, then check again.',
+      ],
+    };
+  } else {
+    return unreachableSetupResult(error, 'the backend (through Grafana)');
+  }
+  return { generated_at: new Date().toISOString(), version: 'unknown', checks: [check] };
 }

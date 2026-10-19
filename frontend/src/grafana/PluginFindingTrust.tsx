@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { FindingTrust, FindingVerdict } from '../types';
-import { movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, trustBadge, VERDICTS } from '../utils/findingTrust';
+import { answerLine, movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, trustBadge, VERDICTS } from '../utils/findingTrust';
 import { sendFindingFeedback } from './backendClient';
 import { styles } from './plainUi';
 
@@ -106,6 +106,7 @@ export function PluginFindingTrust({ backendUrl, findingId, trust, service }: { 
           {failed ? <span style={{ ...styles.helperText, margin: 0, color: '#ff7381' }}>Couldn't save your answer.</span> : null}
         </div>
       ) : null}
+      {answerLine(current) ? <div style={{ ...styles.helperText, marginTop: 0 }}>{answerLine(current)}</div> : null}
     </section>
   );
 }

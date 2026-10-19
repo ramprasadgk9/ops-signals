@@ -140,12 +140,14 @@ def ensure_case_behavior_link_schema(engine: Engine) -> None:
     inspector = inspect(engine)
     if "ops_operational_cases" not in inspector.get_table_names():
         return
-    existing_columns = {column["name"] for column in inspector.get_columns("ops_operational_cases")}
+    columns = {column["name"]: column for column in inspector.get_columns("ops_operational_cases")}
     dialect = engine.dialect.name
     with engine.begin() as connection:
-        if "behavior_finding_id" not in existing_columns:
+        if "behavior_finding_id" not in columns:
             connection.execute(text("ALTER TABLE ops_operational_cases ADD COLUMN behavior_finding_id INTEGER"))
-        if dialect == "postgresql":
+        # Only while it is still NOT NULL: the ALTER takes an exclusive lock even when there is
+        # nothing to change (see ensure_case_import_schema).
+        if dialect == "postgresql" and not columns.get("finding_id", {}).get("nullable", True):
             connection.execute(text("ALTER TABLE ops_operational_cases ALTER COLUMN finding_id DROP NOT NULL"))
 
 
@@ -281,9 +283,16 @@ def ensure_case_import_schema(engine: Engine) -> None:
             )
         )
         if dialect == "postgresql":
-            connection.execute(
-                text("ALTER TABLE ops_operational_cases DROP CONSTRAINT IF EXISTS ck_case_exactly_one_source")
-            )
+            # Only when the old check is still there: DROP ... IF EXISTS takes an exclusive lock on
+            # the table even when there is nothing to drop, and two backends starting together (the
+            # web UI and plugin dev stacks share one database) deadlocked on it.
+            has_old_check = connection.execute(
+                text("SELECT 1 FROM pg_constraint WHERE conname = 'ck_case_exactly_one_source'")
+            ).first()
+            if has_old_check:
+                connection.execute(
+                    text("ALTER TABLE ops_operational_cases DROP CONSTRAINT IF EXISTS ck_case_exactly_one_source")
+                )
             has_new_check = connection.execute(
                 text("SELECT 1 FROM pg_constraint WHERE conname = 'ck_case_source_link'")
             ).first()
@@ -333,3 +342,29 @@ def ensure_case_memory_schema(engine: Engine) -> None:
         # someone took out; "Add to memory" still brings any of them back. Failed cases stay
         # eligible: a failure is never a user's choice.
         connection.execute(text(f"UPDATE ops_operational_cases SET memory_opted_out = {true} WHERE memory_status = 'not_indexed'"))
+
+
+# Who did what (backend/app/identity.py): nullable, so older rows and requests that didn't come
+# through Grafana simply have no name.
+_ACTOR_COLUMNS = {
+    "ops_finding_feedback": {"answered_by": "TEXT"},
+    "ops_operational_cases": {"created_by": "TEXT"},
+    "autonomous_policies": {"created_by": "TEXT", "edited_by": "TEXT", "edited_at": "TIMESTAMPTZ"},
+}
+
+
+def ensure_actor_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    sqlite = engine.dialect.name == "sqlite"
+    for table_name, column_sql in _ACTOR_COLUMNS.items():
+        if table_name not in existing_tables:
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        missing = {name: ddl for name, ddl in column_sql.items() if name not in existing_columns}
+        if not missing:
+            continue
+        with engine.begin() as connection:
+            for name, ddl in missing.items():
+                ddl = "DATETIME" if sqlite and ddl == "TIMESTAMPTZ" else ddl
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))

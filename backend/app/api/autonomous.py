@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from sqlalchemy.orm import Session
 
+from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.autonomous.repository import (
@@ -165,11 +166,16 @@ def _policy_to_response(policy: AutonomousPolicyEntity) -> AutonomousAnalysisPol
         consecutive_failures=policy.consecutive_failures,
         created_at=policy.created_at,
         updated_at=policy.updated_at,
+        created_by=policy.created_by,
+        edited_by=policy.edited_by,
+        edited_at=policy.edited_at,
     )
 
 
 @router.post("/policies", response_model=AutonomousAnalysisPolicy)
-def create_autonomous_policy(payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+def create_autonomous_policy(
+    payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db), actor: Actor | None = Depends(current_actor)
+) -> AutonomousAnalysisPolicy:
     resolve_prometheus_connection(payload.connection_id)
     policy = AutonomousPolicyRepository(db).create(
         name=payload.name,
@@ -180,6 +186,7 @@ def create_autonomous_policy(payload: AutonomousPolicySaveRequest, db: Session =
         monitoring_categories=payload.monitoring_selection.model_dump(),
         execution_policy=payload.execution.model_dump(),
         schedule_minutes=payload.schedule_minutes,
+        created_by=actor_name(actor),
     )
     return _policy_to_response(policy)
 
@@ -191,7 +198,9 @@ def list_autonomous_policies(limit: int = Query(default=50, ge=1, le=200), db: S
 
 
 @router.patch("/policies/{policy_id}", response_model=AutonomousAnalysisPolicy)
-def update_autonomous_policy(policy_id: str, payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+def update_autonomous_policy(
+    policy_id: str, payload: AutonomousPolicySaveRequest, db: Session = Depends(get_db), actor: Actor | None = Depends(current_actor)
+) -> AutonomousAnalysisPolicy:
     resolve_prometheus_connection(payload.connection_id)
     try:
         policy = AutonomousPolicyRepository(db).update_config(
@@ -201,6 +210,7 @@ def update_autonomous_policy(policy_id: str, payload: AutonomousPolicySaveReques
             monitoring_categories=payload.monitoring_selection.model_dump(),
             execution_policy=payload.execution.model_dump(),
             schedule_minutes=payload.schedule_minutes,
+            edited_by=actor_name(actor),
         )
     except AutonomousPolicyNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Policy not found.") from exc
@@ -208,11 +218,13 @@ def update_autonomous_policy(policy_id: str, payload: AutonomousPolicySaveReques
 
 
 @router.patch("/policies/{policy_id}/status", response_model=AutonomousAnalysisPolicy)
-def set_autonomous_policy_status(policy_id: str, payload: AutonomousPolicyStatusRequest, db: Session = Depends(get_db)) -> AutonomousAnalysisPolicy:
+def set_autonomous_policy_status(
+    policy_id: str, payload: AutonomousPolicyStatusRequest, db: Session = Depends(get_db), actor: Actor | None = Depends(current_actor)
+) -> AutonomousAnalysisPolicy:
     """Backs the Configure screen's "Remove" (disable) and re-enable actions - the policy and its
     past runs/findings are kept, only the schedule pauses. See AutonomousPolicyRepository.set_enabled."""
     try:
-        policy = AutonomousPolicyRepository(db).set_enabled(policy_id, enabled=payload.enabled)
+        policy = AutonomousPolicyRepository(db).set_enabled(policy_id, enabled=payload.enabled, edited_by=actor_name(actor))
     except AutonomousPolicyNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Policy not found.") from exc
     return _policy_to_response(policy)

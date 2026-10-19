@@ -260,10 +260,19 @@ Windows/Linux: Ctrl + Shift + R
 
 ## 7. Select The Backend And Run Analysis
 
-In the Ops Signals app toolbar:
+The local stack connects the plugin **through Grafana**: `grafana/provisioning/plugins` sets the
+Backend URL to `http://host.docker.internal:8002` (the backend `scripts/run_grafana_stack.sh` starts,
+as Grafana's container reaches it) on every Grafana start. The app's footer says "Backend: through
+Grafana", and the header chip shows who you are: `anonymous · Viewer` until you sign in, `admin ·
+Admin` after. On Linux, start the backend with `--host 0.0.0.0` so the container can reach it; Docker
+Desktop on Mac and Windows reaches a backend on `127.0.0.1` too.
+
+To pick a backend in the app instead (:8002 or :8001), choose **Connect through: Browser, directly**
+on the Configuration page. That lasts until Grafana restarts and provisioning applies again.
+
+In the Ops Signals app:
 
 - `Data source`: choose a configured Prometheus datasource from Grafana.
-- `Ops Signals backend`: choose `Local backend (:8000)`.
 - `Service`: choose or type a service label value discovered from Prometheus.
 - `Metric`: choose or type a Prometheus metric name.
 - `Mode`: use `Metric` for raw metric names, or `PromQL expression` for a full query.
@@ -275,7 +284,6 @@ For the sample data path, a useful test is:
 
 ```text
 Data source: Prometheus
-Ops Signals backend: Local backend (:8000)
 Service: test-ruptures-abrupt-regime-shift
 Metric: ops_signals_test_cpu_usage
 Service label: service

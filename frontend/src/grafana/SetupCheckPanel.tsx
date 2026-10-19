@@ -1,6 +1,7 @@
 import React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { getSetupCheck, sendTestAlert, testPrometheusConnection } from './backendClient';
+import { isGrafanaProxyUrl } from './backendUrlSetting';
 import { styles } from './plainUi';
 import {
   SETUP_GROUPS,
@@ -12,6 +13,7 @@ import {
   setupDocsUrl,
   setupReport,
   setupSummary,
+  proxyUnreachableSetupResult,
   unreachableSetupResult,
   type SetupCheck,
   type SetupCheckResult,
@@ -59,7 +61,8 @@ function backendHost(url: string): string {
 }
 
 /** The check for one backend, refetched when the backend changes; failures become a failed Backend check. */
-export function useSetupCheck(backendUrl: string) {
+/** grafanaTarget: the backend URL Grafana calls, when backendUrl is the Grafana proxy. */
+export function useSetupCheck(backendUrl: string, grafanaTarget?: string) {
   const [result, setResult] = useState<SetupCheckResult | null>(null);
   // True when the check itself couldn't be fetched; result then holds a failed Backend check.
   const [unreachable, setUnreachable] = useState(false);
@@ -71,12 +74,16 @@ export function useSetupCheck(backendUrl: string) {
       setResult(await getSetupCheck(backendUrl));
       setUnreachable(false);
     } catch (error) {
-      setResult(unreachableSetupResult(error, backendHost(backendUrl)));
+      setResult(
+        isGrafanaProxyUrl(backendUrl)
+          ? proxyUnreachableSetupResult(error, grafanaTarget ?? 'the backend')
+          : unreachableSetupResult(error, backendHost(backendUrl))
+      );
       setUnreachable(true);
     } finally {
       setChecking(false);
     }
-  }, [backendUrl]);
+  }, [backendUrl, grafanaTarget]);
   useEffect(() => {
     setResult(null);
     void run();
@@ -178,8 +185,9 @@ function CheckRow({ check, backendUrl }: { check: SetupCheck; backendUrl: string
   );
 }
 
-export function SetupCheckPanel({ backendUrl }: { backendUrl: string }) {
-  const { result, checking, run } = useSetupCheck(backendUrl);
+export function SetupCheckPanel({ backendUrl, grafanaTarget }: { backendUrl: string; grafanaTarget?: string }) {
+  const { result, checking, run } = useSetupCheck(backendUrl, grafanaTarget);
+  const viaGrafana = isGrafanaProxyUrl(backendUrl);
   const [copied, setCopied] = useState('');
   const summary = result ? setupSummary(result) : null;
 
@@ -199,7 +207,8 @@ export function SetupCheckPanel({ backendUrl }: { backendUrl: string }) {
         <div>
           <h3 style={{ margin: 0 }}>Setup check</h3>
           <p style={{ ...styles.muted, margin: '4px 0 0' }}>
-            Checks each part of Ops Signals at <code>{backendHost(backendUrl)}</code> and tells you what to fix. Nothing here changes your settings.
+            Checks each part of Ops Signals at <code>{backendHost(viaGrafana ? grafanaTarget ?? backendUrl : backendUrl)}</code>
+            {viaGrafana ? ', reached through Grafana,' : ''} and tells you what to fix. Nothing here changes your settings.
           </p>
         </div>
         <div style={styles.row}>
@@ -257,15 +266,16 @@ export function PluginSetupBanner({ result, unreachable }: { result: SetupCheckR
   );
 }
 
-const CHIP_COLORS: Record<SetupChipTone, string> = { ok: '#3fcf8e', warn: '#ffb357', fail: '#f2495c', off: 'rgba(204, 204, 220, 0.55)', pending: 'rgba(204, 204, 220, 0.55)' };
+const CHIP_COLORS: Record<SetupChipTone, string> = { ok: '#3fcf8e', warn: '#ffb357', fail: '#f2495c', off: 'rgba(204, 204, 220, 0.55)', pending: 'rgba(204, 204, 220, 0.55)', user: 'inherit' };
+const USER_CHIP: React.CSSProperties = { borderColor: 'rgba(87, 148, 242, 0.45)', background: 'rgba(87, 148, 242, 0.1)' };
 
 /** The app header's Backend / Metrics / Case memory chips, from the Setup check (hover for details). */
 export function SetupChips({ result, unreachable }: { result: SetupCheckResult | null; unreachable: boolean }) {
   return (
     <>
       {setupChips(result, unreachable).map((chip) => (
-        <span key={chip.id} title={chip.title} style={{ ...styles.chip, color: CHIP_COLORS[chip.tone] }}>
-          ● {chip.label}
+        <span key={chip.id} title={chip.title} style={{ ...styles.chip, color: CHIP_COLORS[chip.tone], ...(chip.tone === 'user' ? USER_CHIP : {}) }}>
+          {chip.tone === 'user' ? chip.label : `● ${chip.label}`}
         </span>
       ))}
     </>

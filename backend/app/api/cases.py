@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.api.assistant import get_assistant
 from backend.app.api.memory import get_memory_config, get_memory_indexer, get_similarity_service
@@ -106,6 +107,7 @@ def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
         source_id=case.source_id,
         source_url=case.source_url,
         import_batch_id=case.import_batch_id,
+        created_by=case.created_by,
     )
 
 
@@ -147,6 +149,7 @@ def create_case_from_finding(
     db: Session = Depends(get_db),
     indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
     config: MemoryConfig | None = Depends(get_memory_config),
+    actor: Actor | None = Depends(current_actor),
 ) -> CaseCreateResponse:
     # Load finding
     finding = db.execute(select(FindingEntity).where(FindingEntity.id == finding_id)).scalar_one_or_none()
@@ -191,6 +194,7 @@ def create_case_from_finding(
     
     # Create new case
     case = OperationalCaseEntity(
+        created_by=actor_name(actor),
         finding_id=finding_id,
         analysis_run_id=finding.analysis_run_id or "unknown",
         case_title=finding.title,
@@ -270,6 +274,7 @@ def create_case_from_behavior(
     db: Session = Depends(get_db),
     indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
     config: MemoryConfig | None = Depends(get_memory_config),
+    actor: Actor | None = Depends(current_actor),
 ) -> CaseCreateResponse:
     """Same lifecycle as create_case_from_finding, but for a correlated, cross-metric
     BehaviorFinding (e.g. "memory leak driving resource exhaustion") instead of a
@@ -295,6 +300,7 @@ def create_case_from_behavior(
         )
 
     case = OperationalCaseEntity(
+        created_by=actor_name(actor),
         finding_id=None,
         behavior_finding_id=behavior_finding_id,
         analysis_run_id=behavior.analysis_run_id or "unknown",

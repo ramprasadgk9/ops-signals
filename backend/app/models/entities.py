@@ -185,6 +185,11 @@ class AutonomousPolicyEntity(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    # Who made it and who last changed it (backend/app/identity.py). edited_at is separate from
+    # updated_at, which every scheduled run moves.
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    edited_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AutonomousPolicyRunEntity(Base):
@@ -297,6 +302,9 @@ class FindingFeedbackEntity(Base):
     metric_name: Mapped[str] = mapped_column(Text, nullable=False)
     trust_group: Mapped[str] = mapped_column(String(32), nullable=False)
     verdict: Mapped[str] = mapped_column(String(24), nullable=False)
+    # The Grafana user who gave the current answer (backend/app/identity.py); None when it didn't
+    # come through Grafana.
+    answered_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -383,6 +391,8 @@ class OperationalCaseEntity(Base):
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     import_batch_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The Grafana user who opened the case (backend/app/identity.py); None otherwise.
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @property
     def is_imported(self) -> bool:

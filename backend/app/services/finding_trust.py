@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
@@ -151,9 +152,17 @@ def finding_trust(db: Session, rows: list[FindingEntity]) -> dict[int, dict[str,
             "checks": checks,
             "tested": tested_evidence(group, row.metric_name, config),
             "service": {"real": real, "answered": answered, "min_answers": SERVICE_MIN_ANSWERS},
-            "your_answer": answers.get(row.id),
+            "your_answer": answer[0] if (answer := answers.get(row.id)) else None,
+            "answered_by": answer[1] if answer else None,
+            "answered_at": _iso(answer[2]) if answer else None,
         }
     return result
+
+
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
 
 
 def placement(group: str, real: int, answered: int) -> tuple[str, str | None, str | None]:
@@ -170,29 +179,38 @@ def placement(group: str, real: int, answered: int) -> tuple[str, str | None, st
     return tier, badge, None
 
 
-def record_feedback(db: Session, finding: FindingEntity, verdict: str) -> FindingFeedbackEntity:
-    """Store (or change) the team's answer to "Was this real?" for one finding."""
+def record_feedback(db: Session, finding: FindingEntity, verdict: str, answered_by: str | None = None) -> FindingFeedbackEntity:
+    """Store (or change) the team's answer to "Was this real?" for one finding. answered_by is the
+    Grafana user who gave it; an answer from elsewhere clears it rather than keep someone else's name."""
     if verdict not in VERDICTS:
         raise ValueError(f"verdict must be one of {', '.join(VERDICTS)}")
     group = finding_trust(db, [finding])[finding.id]["group"]
     row = db.execute(select(FindingFeedbackEntity).where(FindingFeedbackEntity.finding_id == finding.id)).scalar_one_or_none()
     if row is None:
-        row = FindingFeedbackEntity(finding_id=finding.id, service=finding.service, metric_name=finding.metric_name, trust_group=group, verdict=verdict)
+        row = FindingFeedbackEntity(
+            finding_id=finding.id, service=finding.service, metric_name=finding.metric_name, trust_group=group, verdict=verdict, answered_by=answered_by
+        )
         db.add(row)
     else:
         row.verdict = verdict
         row.trust_group = group
+        row.answered_by = answered_by
+        # Set here too: onupdate doesn't fire when the same answer is given again by someone else.
+        row.updated_at = datetime.utcnow()
     db.commit()
     return row
 
 
-def _answers(db: Session, finding_ids: list[int]) -> dict[int, str]:
-    answers: dict[int, str] = {}
+def _answers(db: Session, finding_ids: list[int]) -> dict[int, tuple[str, str | None, datetime | None]]:
+    """finding id -> (verdict, who answered, when)."""
+    answers: dict[int, tuple[str, str | None, datetime | None]] = {}
     for start in range(0, len(finding_ids), _CHUNK):
         chunk = finding_ids[start : start + _CHUNK]
-        answers.update(
-            db.execute(select(FindingFeedbackEntity.finding_id, FindingFeedbackEntity.verdict).where(FindingFeedbackEntity.finding_id.in_(chunk))).all()
-        )
+        rows = db.execute(
+            select(FindingFeedbackEntity.finding_id, FindingFeedbackEntity.verdict, FindingFeedbackEntity.answered_by, FindingFeedbackEntity.updated_at)
+            .where(FindingFeedbackEntity.finding_id.in_(chunk))
+        ).all()
+        answers.update({finding_id: (verdict, by, at) for finding_id, verdict, by, at in rows})
     return answers
 
 
