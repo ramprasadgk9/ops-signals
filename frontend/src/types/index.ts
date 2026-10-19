@@ -216,6 +216,9 @@ export type FindingTrust = {
   /** This service's own "Was this real?" answers on findings in the same group. */
   service: { real: number; answered: number; min_answers: number };
   your_answer: FindingVerdict | null;
+  /** Who gave that answer, when it came through Grafana, and when. */
+  answered_by?: string | null;
+  answered_at?: string | null;
 };
 
 export type OperationalCase = {
@@ -236,6 +239,8 @@ export type OperationalCase = {
   outcome_status: string;
   outcome_summary?: string;
   memory_status: string;
+  /** The Grafana user who opened it; absent when it wasn't opened through Grafana. */
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
   resolved_at?: string;

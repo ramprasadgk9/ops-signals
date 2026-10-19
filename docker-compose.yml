@@ -104,6 +104,10 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: breezypoppy3596-opssignals-app
+    # The plugin's proxy calls the backend on this computer at host.docker.internal; Docker Desktop
+    # provides that name, and this adds it on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./frontend/dist:/var/lib/grafana/plugins/breezypoppy3596-opssignals-app:ro
       - ./grafana/provisioning/plugins:/etc/grafana/provisioning/plugins:ro

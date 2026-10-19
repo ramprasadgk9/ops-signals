@@ -6,6 +6,18 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Connect through Grafana.** The Configuration page chooses how the plugin reaches the backend:
+  **Grafana** (recommended; new installs start here), where Grafana's plugin proxy calls the backend
+  with the API token from the plugin's encrypted settings and says who the user is, or **Browser,
+  directly** (as before; existing installs stay on it until switched). Through Grafana there is no
+  backend picker or token field in the app, the footer says "Backend: through Grafana", and a chip
+  shows who you are (`priya · Editor`). Restart Grafana after updating: it reads the new proxy route
+  only at start.
+- **Who did it.** Under "Was this real?": "Answered Expected change by priya · 10m ago". Under a
+  case button: "Created by admin · 3h ago". On the schedule card: "Owner sam · last edited by priya ·
+  1d ago". Only for what was done through Grafana; older records show no name.
+- **Fixed: Autonomous Configure flashed the empty form before the saved schedule's card.** It now
+  says "Loading your schedule…" until it knows.
 - **Setup check on the Configuration page.** Below the Backend URL, it tests the backend, its
   database, each metrics connection and memory search, and says how to fix anything that isn't green,
   with a Test button per connection and Copy report. An unreachable backend shows as a failed check

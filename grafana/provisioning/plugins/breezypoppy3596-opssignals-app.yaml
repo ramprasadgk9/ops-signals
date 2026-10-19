@@ -4,3 +4,9 @@ apps:
   - type: breezypoppy3596-opssignals-app
     org_id: 1
     disabled: false
+    # The plugin connects through Grafana: Grafana, inside its container, calls the backend that
+    # scripts/run_grafana_stack.sh runs on this computer, and tells it who the user is. Applied at
+    # every Grafana start, over what was saved on the Configuration page.
+    jsonData:
+      backendUrl: http://host.docker.internal:8002
+      connectMode: grafana

@@ -3,7 +3,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { Finding, FindingVerdict } from '../types';
-import { movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, VERDICTS } from '../utils/findingTrust';
+import { answerLine, movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, VERDICTS } from '../utils/findingTrust';
 
 type Props = {
   finding: Finding;
@@ -93,6 +93,7 @@ export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
           {answer.isError ? <Typography variant="caption" color="error">Couldn't save your answer.</Typography> : null}
         </Stack>
       ) : null}
+      {answerLine(trust) ? <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.75 }}>{answerLine(trust)}</Typography> : null}
     </Box>
   );
 }

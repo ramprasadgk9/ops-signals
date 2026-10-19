@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Finding, FindingTrust } from '../types';
-import { movedNote, needsAttention, serviceCaption, serviceHeadline, serviceRateLeads, testedCaption, testedHeadline, testedTooltip, trustBadge } from './findingTrust';
+import { answerLine, movedNote, needsAttention, serviceCaption, serviceHeadline, serviceRateLeads, testedCaption, testedHeadline, testedTooltip, trustBadge } from './findingTrust';
 
 const base: FindingTrust = {
   group: 'level_change_agree', tier: 'needs_attention', badge: 'strong', checks: ['change', 'pyod_outlier'],
@@ -52,5 +52,21 @@ describe('findingTrust wording', () => {
     expect(trustBadge(down)?.label).toBe('Usually not a problem here');
     expect(movedNote(down, 'cart')).toContain('only 0 of 5');
     expect(movedNote(base)).toBeNull();
+  });
+});
+
+describe('answerLine', () => {
+  const now = Date.parse('2026-10-19T12:00:00Z');
+  const base = { your_answer: 'expected_change', answered_by: 'priya', answered_at: '2026-10-19T11:50:00Z' } as never;
+
+  it('says who answered and when', () => {
+    expect(answerLine(base, now)).toBe('Answered Expected change by priya · 10m ago');
+    expect(answerLine({ ...(base as object), answered_by: null } as never, now)).toBe('Answered Expected change · 10m ago');
+  });
+
+  it('adds nothing without an answer, or when an older backend sends no who or when', () => {
+    expect(answerLine({ ...(base as object), your_answer: null } as never, now)).toBeNull();
+    expect(answerLine({ your_answer: 'real_problem' } as never, now)).toBeNull();
+    expect(answerLine(null, now)).toBeNull();
   });
 });

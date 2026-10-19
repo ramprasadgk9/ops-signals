@@ -158,6 +158,8 @@ export type GrafanaCase = {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  /** The Grafana user who opened it; absent when it wasn't opened through Grafana. */
+  created_by?: string | null;
 };
 
 export type MonitoringCategory =
@@ -231,6 +233,10 @@ export type AutonomousPolicy = {
   consecutive_failures: number;
   created_at: string | null;
   updated_at: string | null;
+  /** Who made it and who last changed it, when that came through Grafana. */
+  created_by?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
 };
 
 export type AutonomousPolicySaveRequest = {

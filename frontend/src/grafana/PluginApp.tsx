@@ -11,7 +11,7 @@ import {
   type PrometheusDatasourceRef,
 } from './grafanaPrometheus';
 import { InvestigationDrawer, PanelPreview } from './PanelPreview';
-import { backendOptionsFor, defaultBackendUrl as backendUrlDefault, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
+import { activeBackendUrl, backendOptionsFor, configuredBackendUrl, isGrafanaProxyUrl, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
 import { ApiTokenField } from './ApiTokenField';
 import { Card, Field, styles } from './plainUi';
 import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel';
@@ -25,6 +25,7 @@ import { PluginSeenBefore } from './PluginSeenBefore';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
 import { findingBreakdown } from '../utils/findingBreakdown';
 import { findingLevel } from '../utils/findingLevel';
+import { byLine, scheduleAuthorLine } from '../utils/actorLine';
 import { buildMetricQuery, buildServiceMatcher, type MetricMode } from './prometheusQueryBuilder';
 import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
 import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, CaseTicketLink, CaseTicketOperation, GrafanaAnalysisResult, GrafanaCase, GrafanaQueryTarget, MonitoringCategory } from './contracts';
@@ -98,7 +99,8 @@ const monitorCategories = [
 
 export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
   const buildDefaultBackendUrl = import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL;
-  const defaultBackendUrl = backendUrlDefault(props.meta?.jsonData, buildDefaultBackendUrl);
+  // Through Grafana when the admin chose it on the Configuration page; otherwise straight to the backend.
+  const defaultBackendUrl = activeBackendUrl(props.meta?.jsonData, buildDefaultBackendUrl);
   const backendOptions = useMemo(() => backendOptionsFor(props.meta?.jsonData, buildDefaultBackendUrl), [props.meta?.jsonData, buildDefaultBackendUrl]);
   const [activeMode, setActiveMode] = useState<PluginMode>('interactive');
   const [target, setTarget] = useState<GrafanaQueryTarget>(defaultTarget);
@@ -344,7 +346,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     [prometheusDatasources, selectedPrometheusUid]
   );
   // The header chips and the setup reminder both come from one Setup check of the chosen backend.
-  const setup = useSetupCheck(backendUrl);
+  const setup = useSetupCheck(backendUrl, configuredBackendUrl(props.meta?.jsonData));
   const timeRangeValid = timeRange.from.getTime() < timeRange.to.getTime();
 
   // --- Interactive Analysis through a backend connection ---
@@ -571,12 +573,12 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
 
   return (
     <main style={styles.shell}>
-      <div style={styles.rowBetween}>
-        <div>
-          <h1 style={{ margin: 0 }}>Ops Signals</h1>
-          <p style={{ ...styles.muted, margin: '6px 0 0' }}>Operational changes detected from the selected Grafana metric and time range.</p>
-        </div>
-        <div style={styles.row}>
+      <div>
+        <h1 style={{ margin: 0 }}>Ops Signals</h1>
+        <p style={{ ...styles.muted, margin: '6px 0 0' }}>Operational changes detected from the selected Grafana metric and time range.</p>
+        {/* Their own row from the start: one chip while checking, up to four after, and the page
+            below doesn't move when they arrive. */}
+        <div style={{ ...styles.row, gap: 8, marginTop: 10, minHeight: 26 }}>
           <SetupChips result={setup.result} unreachable={setup.unreachable} />
         </div>
       </div>
@@ -1325,8 +1327,7 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
 
       <div style={formStyles.footer}>
         <div style={styles.helperText}>
-          Backend: {backendHost(props.backendUrl)} &middot;{' '}
-          <button type="button" aria-label={showBackend ? 'Hide backend settings' : 'Change backend'} style={formStyles.link} onClick={() => setShowBackend((open) => !open)}>{showBackend ? 'hide' : 'change'}</button>
+          <BackendLabel backendUrl={props.backendUrl} open={showBackend} onToggle={() => setShowBackend((open) => !open)} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
           <button
@@ -1340,7 +1341,7 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
           {!props.isRunning && missing.length ? <span style={{ fontSize: 12, color: '#ffb357' }}>{missing}</span> : null}
         </div>
       </div>
-      {showBackend ? (
+      {showBackend && !isGrafanaProxyUrl(props.backendUrl) ? (
         <div style={formStyles.backendPanel}>
           <Field label="Ops Signals backend">
             <select
@@ -1532,6 +1533,17 @@ export function ScopeChoice({ title, allLabel, pickLabel, all, setAll, options, 
 
 function backendHost(url: string) {
   return url.replace(/^https?:\/\//, '').replace(/\/+$/, '') || 'not set';
+}
+
+/** "Backend: host · change", or, through Grafana, who set it: there is nothing for a person to change. */
+function BackendLabel({ backendUrl, open, onToggle }: { backendUrl: string; open: boolean; onToggle: () => void }) {
+  if (isGrafanaProxyUrl(backendUrl)) return <>Backend: through Grafana (set by your Grafana admin)</>;
+  return (
+    <>
+      Backend: {backendHost(backendUrl)} &middot;{' '}
+      <button type="button" aria-label={open ? 'Hide backend settings' : 'Change backend'} style={formStyles.link} onClick={onToggle}>{open ? 'hide' : 'change'}</button>
+    </>
+  );
 }
 
 const formStyles: Record<string, React.CSSProperties> = {
@@ -1748,6 +1760,9 @@ function AutonomousAnalysisView({
   // to be shared with any sibling view.
   const [activePolicy, setActivePolicy] = useState<AutonomousPolicy | null>(null);
   const [isLoadingPolicy, setIsLoadingPolicy] = useState(false);
+  // Whether the first look for a saved schedule has finished: until then neither the schedule card nor
+  // the form is shown, so the form doesn't flash and then turn into the card.
+  const [policyChecked, setPolicyChecked] = useState(false);
   const [policyLoadError, setPolicyLoadError] = useState('');
   const [isEditingSchedule, setIsEditingSchedule] = useState(false);
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
@@ -1764,6 +1779,7 @@ function AutonomousAnalysisView({
     let active = true;
     if (!backendUrl) return;
     setIsLoadingPolicy(true);
+    setPolicyChecked(false);
     setPolicyLoadError('');
     listAutonomousPolicies(backendUrl)
       .then((policies) => {
@@ -1773,7 +1789,9 @@ function AutonomousAnalysisView({
         if (active) setPolicyLoadError('Could not load your scheduled policy. Your schedule may still be running - this is a fetch problem, not a sign it was removed.');
       })
       .finally(() => {
-        if (active) setIsLoadingPolicy(false);
+        if (!active) return;
+        setIsLoadingPolicy(false);
+        setPolicyChecked(true);
       });
     return () => {
       active = false;
@@ -1997,6 +2015,7 @@ function AutonomousAnalysisView({
                   {activePolicy.enabled ? '● Scheduled · Active' : 'Scheduled · Paused'}
                 </span>
                 <h2 style={{ margin: 0 }}>{activePolicy.name}</h2>
+                {scheduleAuthorLine(activePolicy) ? <p style={{ ...styles.muted, margin: '4px 0 0', fontSize: 12 }}>{scheduleAuthorLine(activePolicy)}</p> : null}
                 <p style={{ ...styles.muted, margin: '5px 0 0' }}>
                   {activePolicy.monitoring_selection.categories.join(', ')} &middot; every {activePolicy.schedule_minutes ? `${activePolicy.schedule_minutes}m` : 'n/a'}
                 </p>
@@ -2050,6 +2069,8 @@ function AutonomousAnalysisView({
               </div>
             </div>
           </div>
+        ) : !policyChecked && !isEditingSchedule ? (
+          <p role="status" style={{ ...styles.muted, margin: 0 }}>Loading your schedule…</p>
         ) : (
         <>
         <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 6 }}>
@@ -2246,8 +2267,7 @@ function AutonomousAnalysisView({
         {scheduleError ? <div style={{ ...styles.alert, marginBottom: 12 }}>{scheduleError}</div> : null}
         <div style={formStyles.footer}>
           <div style={styles.helperText}>
-            Backend: {backendHost(backendUrl)} &middot;{' '}
-            <button type="button" aria-label={showBackend ? 'Hide backend settings' : 'Change backend'} style={formStyles.link} onClick={() => setShowBackend((open) => !open)}>{showBackend ? 'hide' : 'change'}</button>
+            <BackendLabel backendUrl={backendUrl} open={showBackend} onToggle={() => setShowBackend((open) => !open)} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -2272,7 +2292,7 @@ function AutonomousAnalysisView({
             )}
           </div>
         </div>
-        {showBackend ? (
+        {showBackend && !isGrafanaProxyUrl(backendUrl) ? (
           <div style={formStyles.backendPanel}>
             <Field label="Ops Signals backend">
               <select style={styles.input} value={backendUrl} onChange={(event) => setBackendUrl(event.target.value)}>
@@ -2446,6 +2466,14 @@ export function GrafanaAutonomousOverview({
   const [showAllSymptoms, setShowAllSymptoms] = useState(false);
   // Finding id -> case id: the service's cases, plus cases opened on this page since.
   const [serviceCases, setServiceCases] = useState<Map<number, number>>(new Map());
+  // Who opened each case and when, for "Created by admin · 3h ago" under its button.
+  const [caseAuthors, setCaseAuthors] = useState<Map<number, { by?: string | null; at?: string | null }>>(new Map());
+  const noteCaseAuthors = (cases: Array<Pick<GrafanaCase, 'id' | 'created_by' | 'created_at'>>) =>
+    setCaseAuthors((current) => {
+      const next = new Map(current);
+      for (const item of cases) next.set(item.id, { by: item.created_by, at: item.created_at });
+      return next;
+    });
   const [createdCases, setCreatedCases] = useState<Map<number, number>>(new Map());
   const [drawerCase, setDrawerCase] = useState<GrafanaCase | null>(null);
   const [drawerSource, setDrawerSource] = useState<string | null>(null);
@@ -2466,7 +2494,11 @@ export function GrafanaAutonomousOverview({
     if (!backendUrl || !primaryServiceName) return;
     let active = true;
     listCases(backendUrl, { service: primaryServiceName, limit: 200 })
-      .then((cases) => { if (active) setServiceCases(caseIdsByFinding(cases)); })
+      .then((cases) => {
+        if (!active) return;
+        setServiceCases(caseIdsByFinding(cases));
+        noteCaseAuthors(cases);
+      })
       .catch(() => undefined);
     return () => { active = false; };
   }, [backendUrl, primaryServiceName]);
@@ -2569,7 +2601,9 @@ export function GrafanaAutonomousOverview({
       }
     }
     try {
-      setDrawerCase(await getCase(backendUrl, caseId));
+      const opened = await getCase(backendUrl, caseId);
+      setDrawerCase(opened);
+      noteCaseAuthors([opened]);
       setDrawerSource(findingSource(finding, connections));
       setDrawerChanged(false);
     } catch {
@@ -2586,16 +2620,28 @@ export function GrafanaAutonomousOverview({
     if (!finding) return null;
     const size = compact ? { padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' as const } : {};
     if (isCreatingCase) return <button type="button" style={{ ...styles.button, ...size, ...disabledActionStyle }} disabled>Creating case...</button>;
-    return caseId !== null ? (
-      <button
-        type="button"
-        style={{ ...styles.button, ...size, background: 'rgba(63, 207, 142, 0.14)', border: '1px solid rgba(63, 207, 142, 0.5)', color: '#b9f5d8' }}
-        title="Open this symptom's case: investigation, root cause, resolution and publishing."
-        onClick={() => openOrCreateCase(finding, caseId)}
-      >
-        Open case #{caseId} ▸
-      </button>
-    ) : (
+    if (caseId !== null) {
+      const author = caseAuthors.get(caseId);
+      const created = author?.by ? `Created ${byLine(author.by, author.at)}` : '';
+      const button = (
+        <button
+          type="button"
+          style={{ ...styles.button, ...size, background: 'rgba(63, 207, 142, 0.14)', border: '1px solid rgba(63, 207, 142, 0.5)', color: '#b9f5d8' }}
+          title={`Open this symptom's case: investigation, root cause, resolution and publishing.${created ? ` ${created}.` : ''}`}
+          onClick={() => openOrCreateCase(finding, caseId)}
+        >
+          Open case #{caseId} ▸
+        </button>
+      );
+      if (compact || !created) return button;
+      return (
+        <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+          {button}
+          <span style={{ ...styles.helperText, marginTop: 0 }}>{created}</span>
+        </span>
+      );
+    }
+    return (
       <button
         type="button"
         style={{ ...styles.button, ...size, background: 'rgba(204, 204, 220, 0.12)', border: '1px solid rgba(204, 204, 220, 0.22)', ...(finding.id ? {} : disabledActionStyle) }}

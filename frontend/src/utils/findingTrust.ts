@@ -1,4 +1,5 @@
 // Plain-language wording for a finding's trust (backend services/finding_trust.py, docs/finding-trust.md).
+import { byLine } from './actorLine';
 import type { Finding, FindingTrust, FindingVerdict } from '../types';
 
 type ChipColor = 'success' | 'warning' | 'error' | 'default';
@@ -109,4 +110,14 @@ export function movedNote(trust: FindingTrust, service?: string | null): string 
 /** Your team's own rate once it has enough answers, else the tested one: the number to lead with. */
 export function serviceRateLeads(trust: FindingTrust): boolean {
   return trust.service.answered >= trust.service.min_answers;
+}
+
+/** "Answered Expected change by priya · 10m ago" under the "Was this real?" buttons; null when there
+ * is no answer, or nothing to add to the highlighted button (an older backend sends neither). */
+export function answerLine(trust: FindingTrust | null | undefined, now: number = Date.now()): string | null {
+  if (!trust?.your_answer) return null;
+  const rest = byLine(trust.answered_by, trust.answered_at, now);
+  if (!rest) return null;
+  const label = VERDICTS.find((verdict) => verdict.id === trust.your_answer)?.label ?? trust.your_answer;
+  return `Answered ${label} ${rest}`;
 }

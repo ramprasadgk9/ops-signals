@@ -118,6 +118,10 @@ class AutonomousAnalysisPolicy(BaseModel):
     consecutive_failures: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # Who made it and who last changed it, when that came through Grafana (backend/app/identity.py).
+    created_by: str | None = None
+    edited_by: str | None = None
+    edited_at: datetime | None = None
 
 
 class AutonomousPreviewRequest(BaseModel):

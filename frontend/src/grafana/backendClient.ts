@@ -1,4 +1,5 @@
 import type { SetupCheckResult } from '../utils/setupCheck';
+import { isGrafanaProxyUrl } from './backendUrlSetting';
 import type {
   AlertItem,
   AnalysisRun,
@@ -112,7 +113,9 @@ export function setApiToken(token: string) {
   }
 }
 
-function authHeaders(): Record<string, string> {
+function authHeaders(baseUrl: string): Record<string, string> {
+  // Through Grafana, Grafana adds the token from the plugin's encrypted settings.
+  if (isGrafanaProxyUrl(baseUrl)) return {};
   const token = getApiToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -142,7 +145,7 @@ async function buildRequestError(response: Response) {
 }
 
 async function fetchJson<T>(baseUrl: string, path: string): Promise<T> {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { headers: authHeaders() });
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { headers: authHeaders(baseUrl) });
   if (!response.ok) {
     throw await buildRequestError(response);
   }
@@ -152,7 +155,7 @@ async function fetchJson<T>(baseUrl: string, path: string): Promise<T> {
 async function postJson<T>(baseUrl: string, path: string, payload?: unknown): Promise<T> {
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(baseUrl) },
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -167,7 +170,7 @@ async function postJsonWithTimeout<T>(baseUrl: string, path: string, payload: un
   try {
     const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(baseUrl) },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -188,7 +191,7 @@ async function postJsonWithTimeout<T>(baseUrl: string, path: string, payload: un
 async function patchJson<T>(baseUrl: string, path: string, payload: unknown): Promise<T> {
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(baseUrl) },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -198,7 +201,7 @@ async function patchJson<T>(baseUrl: string, path: string, payload: unknown): Pr
 }
 
 async function deleteJson<T>(baseUrl: string, path: string): Promise<T> {
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { method: 'DELETE', headers: authHeaders() });
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}${path}`, { method: 'DELETE', headers: authHeaders(baseUrl) });
   if (!response.ok) {
     throw await buildRequestError(response);
   }

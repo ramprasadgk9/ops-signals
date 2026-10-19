@@ -15,6 +15,7 @@ from backend.app.models.api_schema import FindingFeedbackIn, FindingOut
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity
 from backend.app.services.finding_changes import finding_changes
+from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.services.finding_trust import finding_trust, record_feedback
 
 router = APIRouter(prefix="/api/findings", tags=["findings"])
@@ -230,11 +231,12 @@ def finding_feedback(
     payload: FindingFeedbackIn,
     db: Session = Depends(get_db),
     config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+    actor: Actor | None = Depends(current_actor),
 ) -> FindingOut:
     """The team's answer to "Was this real?". Answering again changes the answer. Returns the
     finding with its trust recomputed, so the card shows the new service count at once."""
     row = db.execute(select(FindingEntity).where(FindingEntity.id == finding_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="finding not found")
-    record_feedback(db, row, payload.verdict)
+    record_feedback(db, row, payload.verdict, answered_by=actor_name(actor))
     return _with_changes(db, [row], config)[0]

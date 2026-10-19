@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backendOptionsFor, configuredBackendUrl, defaultBackendUrl, isValidBackendUrl, localBackendOptions } from './backendUrlSetting';
+import { activeBackendUrl, backendOptionsFor, configuredBackendUrl, connectMode, defaultBackendUrl, grafanaProxyBase, isGrafanaProxyUrl, isValidBackendUrl, localBackendOptions } from './backendUrlSetting';
 
 describe('backend URL setting', () => {
   it('falls back to the local Grafana stack backend when nothing is configured', () => {
@@ -32,5 +32,26 @@ describe('backend URL setting', () => {
     expect(isValidBackendUrl('javascript:alert(1)')).toBe(false);
     expect(configuredBackendUrl({ backendUrl: 'not a url' })).toBeUndefined();
     expect(defaultBackendUrl({ backendUrl: 'not a url' })).toBe('http://localhost:8002');
+  });
+});
+
+describe('connect through Grafana', () => {
+  it('uses the Grafana proxy only when chosen and a backend URL is saved', () => {
+    expect(connectMode({ backendUrl: 'http://b:8000', connectMode: 'grafana' })).toBe('grafana');
+    expect(connectMode({ backendUrl: '', connectMode: 'grafana' })).toBe('direct');
+    expect(connectMode({ backendUrl: 'http://b:8000' })).toBe('direct');
+    expect(activeBackendUrl({ backendUrl: 'http://b:8000', connectMode: 'grafana' })).toBe('/api/plugin-proxy/breezypoppy3596-opssignals-app/backend');
+    expect(activeBackendUrl({ backendUrl: 'http://b:8000', connectMode: 'direct' })).toBe('http://b:8000');
+  });
+
+  it("follows Grafana's sub path", () => {
+    Object.assign(window, { grafanaBootData: { settings: { appSubUrl: '/grafana/' } } });
+    try {
+      expect(grafanaProxyBase()).toBe('/grafana/api/plugin-proxy/breezypoppy3596-opssignals-app/backend');
+      expect(isGrafanaProxyUrl(grafanaProxyBase())).toBe(true);
+      expect(isGrafanaProxyUrl('http://localhost:8002')).toBe(false);
+    } finally {
+      delete (window as { grafanaBootData?: unknown }).grafanaBootData;
+    }
   });
 });

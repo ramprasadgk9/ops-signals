@@ -68,6 +68,18 @@
       "defaultNav": true
     }
   ],
+  "routes": [
+    {
+      "path": "backend/*",
+      "url": "{{ .JsonData.backendUrl }}",
+      "headers": [
+        {
+          "name": "Authorization",
+          "content": "Bearer {{ .SecureJsonData.apiToken }}"
+        }
+      ]
+    }
+  ],
   "dependencies": {
     "grafanaDependency": ">=13.1.0",
     "plugins": []

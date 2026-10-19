@@ -45,7 +45,10 @@ noisy service doesn't change the numbers for another.
 
 Answers are stored in Ops Signals' own database (the PostgreSQL that holds findings and cases),
 in `ops_finding_feedback`: one row per finding with its service, metric, kind of finding and
-answer.
+answer. There is one answer per finding, the team's: the latest replaces the one before. When it was
+given in the Grafana plugin connected through Grafana, the row also keeps who gave it, and the card
+says so ("Answered Expected change by priya · 10m ago"). An answer from elsewhere clears the name
+rather than keep someone else's.
 
 ## Your answers move findings between the lists
 

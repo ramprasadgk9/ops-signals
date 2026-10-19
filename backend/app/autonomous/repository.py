@@ -32,6 +32,7 @@ class AutonomousPolicyRepository:
         execution_policy: dict,
         schedule_minutes: int | None,
         connection_id: str = "default",
+        created_by: str | None = None,
     ) -> AutonomousPolicyEntity:
         now = utc_now()
         enabled = schedule_minutes is not None
@@ -50,6 +51,9 @@ class AutonomousPolicyRepository:
             consecutive_failures=0,
             created_at=now,
             updated_at=now,
+            created_by=created_by,
+            edited_by=created_by,
+            edited_at=now,
         )
         self.db.add(policy)
         self.db.commit()
@@ -83,6 +87,7 @@ class AutonomousPolicyRepository:
         execution_policy: dict,
         schedule_minutes: int | None,
         connection_id: str = "default",
+        edited_by: str | None = None,
     ) -> AutonomousPolicyEntity:
         """Full edit - always sent together, mirrors what the "Save & Schedule" form submits."""
         policy = self.get(policy_id)
@@ -94,11 +99,13 @@ class AutonomousPolicyRepository:
         policy.enabled = schedule_minutes is not None
         policy.next_run_at = utc_now() + _minutes(schedule_minutes) if schedule_minutes else None
         policy.updated_at = utc_now()
+        policy.edited_by = edited_by
+        policy.edited_at = policy.updated_at
         self.db.commit()
         self.db.refresh(policy)
         return policy
 
-    def set_enabled(self, policy_id: str, *, enabled: bool) -> AutonomousPolicyEntity:
+    def set_enabled(self, policy_id: str, *, enabled: bool, edited_by: str | None = None) -> AutonomousPolicyEntity:
         """Pause ("Remove") or resume a schedule without discarding its configuration."""
         policy = self.get(policy_id)
         policy.enabled = enabled
@@ -107,6 +114,8 @@ class AutonomousPolicyRepository:
         else:
             policy.next_run_at = None
         policy.updated_at = utc_now()
+        policy.edited_by = edited_by
+        policy.edited_at = policy.updated_at
         self.db.commit()
         self.db.refresh(policy)
         return policy

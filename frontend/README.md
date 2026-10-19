@@ -46,14 +46,17 @@ environment.
 
 ## Configure
 
+A Grafana admin does this once; nobody else sets anything.
+
 1. In Grafana, go to **Administration → Plugins and data → Plugins → Ops Signals → Configuration**.
-2. Enter the **Backend URL**: the Ops Signals backend's address as your users' browsers reach it,
-   for example `https://ops-signals.example.internal`. Then click **Enable and save**.
-3. On the backend, allow this Grafana to call it from the browser: add Grafana's address to
-   `OPS_SIGNALS_CORS_ORIGINS`, for example `OPS_SIGNALS_CORS_ORIGINS=https://grafana.example.com`.
-4. If the backend requires an API token (`OPS_SIGNALS_API_TOKEN`), enter it in the **API token**
-   field on the same page (or next to the backend selector in the app). It's kept in that browser
-   only.
+2. Leave **Connect through** on **Grafana** (recommended). Grafana's server calls the backend and
+   tells it who each person is, so everyone uses Ops Signals as their own Grafana user, and cases,
+   answers and schedules record who did what.
+3. Enter the **Backend URL** as the Grafana server reaches it, for example
+   `http://ops-signals-backend:8000`. If Grafana runs in a container and the backend on the same
+   computer, use `http://host.docker.internal:8000`, not `localhost`.
+4. If the backend requires an API token (`OPS_SIGNALS_API_TOKEN`), enter it in **API token**. Grafana
+   stores it encrypted and never sends it to a browser. Then click **Enable and save**.
 5. Check the **Setup check** below the settings. It tests the backend, its database, each metrics
    connection and memory search, and says how to fix anything that isn't green. While something
    needed is broken, the app shows a reminder that links back here.
@@ -68,20 +71,30 @@ apps:
     org_id: 1
     disabled: false
     jsonData:
-      backendUrl: https://ops-signals.example.internal
+      backendUrl: http://ops-signals-backend:8000
+      connectMode: grafana
+    secureJsonData:
+      apiToken: $OPS_SIGNALS_API_TOKEN
 ```
+
+**Browser, directly** (development) is the other choice: each browser calls the backend at the
+Backend URL, Grafana's address must be in the backend's `OPS_SIGNALS_CORS_ORIGINS`, each person
+enters the API token in their own browser, and no names are recorded. Installs configured before
+this choice existed keep working this way until an admin switches them.
 
 ## Use
 
 Open **Apps → Ops Signals**. Choose **Interactive Analysis** to analyze one metric now, or
-**Autonomous Analysis** to set up scheduled analysis. The backend picker lists the configured backend first, followed by the
-local development addresses.
+**Autonomous Analysis** to set up scheduled analysis. The chips at the top show who Ops Signals
+sees you as (for example `priya · Editor`) and whether the backend, metrics and case memory work.
+In "Browser, directly" mode a backend picker behind **change** lists the configured backend first,
+followed by the local development addresses.
 
 ### How the data flows
 
 The plugin reads metrics through Grafana's own Prometheus datasource, using the signed-in user's
 permissions. It sends the samples and the query details (service, metric, time range, no credentials)
-from the browser to the Ops Signals backend, which runs the analysis and stores findings and cases in
+through Grafana (or, in "Browser, directly" mode, from the browser) to the Ops Signals backend, which runs the analysis and stores findings and cases in
 its own database. If the backend has a Prometheus connection of its own, you can also choose
 **Read metrics from: Ops Signals connection** and the backend queries Prometheus directly.
 
@@ -91,10 +104,16 @@ Start with the **Setup check** on the Configuration page: it names what's broken
 
 - **"App not found"**: the plugin isn't loaded. Check Grafana's log for an unsigned-plugin message
   and the `allow_loading_unsigned_plugins` setting above.
-- **Nothing loads and the browser console shows a CORS error**: Grafana's address is missing from
-  the backend's `OPS_SIGNALS_CORS_ORIGINS`.
-- **401 errors**: the backend requires an API token; enter it in the **API token** field.
-- **The backend picker doesn't show your backend**: save a Backend URL on the Configuration page.
+- **"Grafana can't reach …"** in the Setup check: the Backend URL is wrong from where Grafana runs.
+  Inside a Grafana container, `localhost` is the container itself.
+- **"Grafana has no proxy route for Ops Signals yet"**: restart Grafana after installing or updating
+  the plugin; Grafana reads the plugin's settings file only when it starts.
+- **Nothing loads and the browser console shows a CORS error** ("Browser, directly" mode only):
+  Grafana's address is missing from the backend's `OPS_SIGNALS_CORS_ORIGINS`.
+- **401 errors**: the backend requires an API token. Enter it on the Configuration page (through
+  Grafana), or in the app's **API token** field (browser directly).
+- **The backend picker doesn't show your backend** (browser directly): save a Backend URL on the
+  Configuration page.
 
 ## Links
 

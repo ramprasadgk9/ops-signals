@@ -59,7 +59,8 @@ token (`authorization: { credentials: <token> }`).
 | Client | How it sends the token |
 | --- | --- |
 | **Web UI** (`ops-signals-web` image) | Set `OPS_SIGNALS_API_TOKEN` on the web container too. Its nginx adds the header to every `/api/` request on the server side, so the token never reaches the browser. |
-| **Grafana plugin** | Enter it in the **API token** field next to the backend selector. It's saved in that browser's local storage, so anyone who uses Grafana in that browser can read it. |
+| **Grafana plugin, through Grafana** (recommended) | A Grafana admin enters it once on the plugin's Configuration page. Grafana stores it encrypted and adds it to the requests its plugin proxy sends to the backend, so it never reaches a browser. |
+| **Grafana plugin, browser directly** | Each person enters it in the **API token** field next to the backend selector. It's saved in that browser's local storage, so anyone who uses Grafana in that browser can read it. |
 | **Alertmanager / CI** | `authorization: { credentials: <token> }` in the Alertmanager receiver, or `-H "Authorization: Bearer <token>"` in the deploy step. |
 | **Scripts and curl** | `-H "Authorization: Bearer <token>"`. |
 
@@ -84,16 +85,35 @@ backend without one.
 
 Browsers may call the API directly only from the origins in `OPS_SIGNALS_CORS_ORIGINS` (a
 comma-separated list). The default covers the local dev ports (`localhost` and `127.0.0.1` on
-`3000`, `5173` and `5174`). If the Grafana plugin runs on another host, add your Grafana URL, for
-example `OPS_SIGNALS_CORS_ORIGINS=https://grafana.example.com`. The web UI doesn't need an entry,
-because nginx serves it from the same origin as `/api/`.
+`3000`, `5173` and `5174`). If the Grafana plugin calls the backend from the browser ("Browser,
+directly") and Grafana runs on another host, add your Grafana URL, for example
+`OPS_SIGNALS_CORS_ORIGINS=https://grafana.example.com`. Neither the plugin connected through
+Grafana nor the web UI needs an entry: Grafana's server calls the backend, and nginx serves the web
+UI from the same origin as `/api/`.
+
+## Who did what
+
+When the plugin connects through Grafana, Grafana's plugin proxy adds `X-Grafana-Context` to each
+request: the signed-in Grafana user and their role. The backend records that name on what the
+person does (a "Was this real?" answer, a case they open, a schedule they create or change) and the
+UI shows it, for example "Created by priya · 3h ago". Grafana replaces any copy of that header a
+browser sends.
+
+A request made straight to the backend can carry a made-up header, so the names are only as
+trustworthy as the backend's own access control. With `OPS_SIGNALS_API_TOKEN` set, only Grafana
+(which holds the token) and other token holders can call it at all. Without a token, treat the names
+as a convenience, not an audit trail. Requests that don't come through Grafana (the web UI, scripts,
+the plugin in "Browser, directly" mode) record no name.
 
 ## Known limitations
 
-- **One shared token, with no users or roles.** Anyone with the token can do everything the API
-  allows, including the file writes and the reset when those are on.
-- **In the Grafana plugin, the token sits in the browser.** A proper fix would route plugin
-  requests through Grafana's server-side plugin proxy. That isn't built yet.
+- **One shared token, and no roles yet.** Anyone with the token can do everything the API allows,
+  including the file writes and the reset when those are on. Through Grafana the backend knows each
+  person's name and Grafana role, but doesn't limit what a role may do yet
+  ([`adoption-roadmap.md`](adoption-roadmap.md)).
+- **In the Grafana plugin's "Browser, directly" mode, the token sits in the browser.** Connect the
+  plugin through Grafana to keep it on the Grafana server.
+- **The web UI doesn't know who is using it.** Its actions record no name.
 - **No TLS in the backend.** Put it behind a TLS-terminating proxy or ingress if traffic leaves
   the host.
 - **The dev `docker-compose.yml` uses default passwords** for Postgres and Grafana and publishes
