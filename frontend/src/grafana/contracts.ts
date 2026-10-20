@@ -33,6 +33,8 @@ export type GrafanaAnalyzerRoutingDecision = {
   final_score: number;
   reasons: string[];
   warnings: string[];
+  routing_reason?: string;
+  parameters_tested?: { detected_profiles?: string[] } | null;
 };
 
 export type GrafanaAnalysisFinding = {
@@ -57,6 +59,13 @@ export type GrafanaAnalyzerExecution = {
   executed_pipeline_analyzer_ids?: string[];
   execution_status: string;
   execution_reason?: string | null;
+  failed_pipeline_analyzer_ids?: string[];
+  /** Why it ran or didn't; see intelligence/analyzer_selection.py RUN_REASON_TEXT. Absent on older runs. */
+  run_reason?: string | null;
+  shapes?: string[];
+  missing_library?: string | null;
+  /** Whether its signals are part of a finding; null when it didn't run or the run predates this. */
+  in_finding?: boolean | null;
 };
 
 export type GrafanaBehaviorFinding = {

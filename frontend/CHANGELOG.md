@@ -6,6 +6,13 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Why each analyzer ran.** The run's analyzer list shows each analyzer that ran with its reason
+  ("Router pick", "Covers spikes", "Runs on every series") and whether it fed the finding, not the
+  router's reason for a different decision. "How the router scored this series" folds the rest, with
+  analyzers that aren't built in listed apart. Admins see how to install a missing library
+  (Prophet). The assistant's "Why did STUMPY run?" now answers from the run's own record: it no
+  longer says PyOD or ADTK ran when Z-Score did, or that only "recommended" analyzers run. The
+  "Selection mode" rows are gone.
 - **Roles.** Through Grafana, a Viewer's Run Analysis, "Was this real?", Create case, case drawer
   Save, ticket, Run once and schedule buttons are locked, each with the reason ("Editors can run
   analyses. Ask your Grafana admin for the Editor role."). The case drawer is read-only for Viewers

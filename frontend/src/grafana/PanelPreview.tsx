@@ -30,6 +30,7 @@ import type {
 } from './contracts';
 import type { AssistantChatResponse } from '../types';
 import { findingLevel } from '../utils/findingLevel';
+import { buildAnalyzerRunView, explainAnalyzerRun, summarizeAnalyzerRuns, type RanTone } from '../utils/analyzerRuns';
 
 const steps = ['Finding', 'Investigation', 'Root Cause', 'Resolution', 'Publish Knowledge'] as const;
 type DrawerStep = typeof steps[number];
@@ -114,93 +115,76 @@ function signalsForFinding(result: GrafanaAnalysisResult, selectedFinding: Grafa
   return result.signals.filter((signal) => ids.has(signal.id));
 }
 
-type AnalyzerRow = {
-  id: string;
-  displayName: string;
-  finalScore: number;
-  executed: boolean;
-  statusLabel: string;
-  reason: string | null;
-  tone: 'success' | 'warning' | 'danger' | 'neutral';
+const RAN_TONES: Record<RanTone, 'success' | 'warning' | 'danger' | 'neutral'> = {
+  pick: 'success',
+  cover: 'success',
+  always: 'neutral',
+  failed: 'danger',
 };
 
-// One row per router candidate, merging the router's own recommendation/score with what
-// actually happened at execution time. This is the single source of truth for analyzer-routing
-// display - it used to be duplicated as three separate, largely-overlapping renderings in
-// AnalyzerRoutingSummary alone (a plain-text execution-status dump, four recommendation-bucket
-// chip rows, and a third "why rejected" pass), plus a fourth near-copy in PrimaryFindingCard's
-// no-finding branch. All of those now build off this one function and share <AnalyzerRowsList>.
-function buildAnalyzerRows(result: GrafanaAnalysisResult): AnalyzerRow[] {
+// What ran and why, an install hint for admins when a library is missing, and the rest folded.
+// Built from the same analyzerRuns view as the web UI's Router Decisions panel.
+export function AnalyzerRunsList({ result }: { result: GrafanaAnalysisResult }) {
+  const { canAdmin } = usePermissions();
+  const [showDetails, setShowDetails] = useState(false);
   const routing = result.analyzerRouting ?? [];
-  const executions = result.analyzerExecutions ?? [];
-  const executionById = new Map(executions.map((item) => [item.router_analyzer_id, item]));
-  return routing.map((item) => {
-    const execution = executionById.get(item.analyzer_id);
-    const executed = execution?.execution_status === 'completed';
-    const tone: AnalyzerRow['tone'] =
-      executed || item.recommendation === 'RECOMMENDED'
-        ? 'success'
-        : item.recommendation === 'OPTIONAL'
-        ? 'warning'
-        : item.recommendation === 'REJECTED'
-        ? 'danger'
-        : 'neutral';
-    const reason =
-      execution?.execution_reason ||
-      [...(item.reasons ?? []), ...(item.warnings ?? [])].slice(0, 2).join(' ') ||
-      null;
-    return {
-      id: item.analyzer_id,
-      displayName: item.display_name,
-      finalScore: item.final_score,
-      executed,
-      statusLabel: executed ? 'Executed' : humanize(item.recommendation),
-      reason,
-      tone,
-    };
-  });
-}
-
-function AnalyzerRowLine({ row }: { row: AnalyzerRow }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '4px 0' }}>
-      <StatusPill tone={row.tone}>{row.statusLabel}</StatusPill>
-      <strong>{row.displayName}</strong>
-      <span style={styles.muted}>{formatNumber(row.finalScore)}</span>
-      {row.reason ? <span style={styles.muted}>· {row.reason}</span> : null}
-    </div>
-  );
-}
-
-function AnalyzerRowsList({ rows, emptyExecutedLabel }: { rows: AnalyzerRow[]; emptyExecutedLabel: string }) {
-  const [showOtherAnalyzers, setShowOtherAnalyzers] = useState(false);
-  if (!rows.length) return null;
-  const executedRows = rows.filter((row) => row.executed);
-  const otherRows = rows.filter((row) => !row.executed);
+  if (!routing.length) return null;
+  const view = buildAnalyzerRunView(routing, result.analyzerExecutions ?? [], result.findings.length);
+  const others = view.scored.filter((row) => !row.ran);
+  // Runs saved without per-analyzer records still list which analyzers ran.
+  const ranNames = view.ran.length ? [] : (result.executedAnalyzers ?? []).map(humanize);
+  const ranCount = view.ran.length || ranNames.length;
   return (
     <div style={styles.stack}>
       <span style={styles.label}>
-        Analyzers considered ({executedRows.length} executed of {rows.length})
+        {ranCount} analyzer{ranCount === 1 ? '' : 's'} ran
+        {view.detectedShapes.length ? ` · shapes detected: ${view.detectedShapes.join(', ')}` : ''}
       </span>
-      {executedRows.length ? (
-        executedRows.map((row) => <AnalyzerRowLine key={row.id} row={row} />)
+      {view.ran.length ? (
+        view.ran.map((row) => (
+          <div key={row.id} data-testid={`ran-analyzer-${row.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '4px 0' }}>
+            <StatusPill tone={RAN_TONES[row.tone]}>{row.label}</StatusPill>
+            <strong>{row.name}</strong>
+            {row.reason ? <span style={styles.muted}>· {row.reason}</span> : null}
+            {row.outcome ? <span style={{ ...styles.muted, marginLeft: 'auto' }}>{row.outcome}</span> : null}
+          </div>
+        ))
+      ) : ranNames.length ? (
+        <span>{ranNames.join(', ')}</span>
       ) : (
-        <span style={styles.muted}>{emptyExecutedLabel}</span>
+        <span style={styles.muted}>No analyzer ran on this series.</span>
       )}
-      {otherRows.length ? (
+      {canAdmin
+        ? view.missingLibraries.map((item) => (
+            <div key={item.id} data-testid={`missing-library-${item.library}`} style={{ ...styles.infoNote, color: '#ffb357' }}>
+              {item.name} didn't run: its library isn't installed. Install it where the Ops Signals backend runs (<code>pip install {item.library}</code>), then restart the backend. Only admins see this.
+            </div>
+          ))
+        : null}
+      {others.length || view.notBuiltIn.length ? (
         <>
           <button
             type="button"
             style={{ ...buttonStyle(), alignSelf: 'flex-start', marginTop: 6 }}
-            onClick={() => setShowOtherAnalyzers((current) => !current)}
+            aria-expanded={showDetails}
+            onClick={() => setShowDetails((current) => !current)}
           >
-            {showOtherAnalyzers ? 'Hide other analyzers' : `Show ${otherRows.length} other analyzer${otherRows.length === 1 ? '' : 's'} considered`}
+            {showDetails ? 'Hide how the router scored this series' : 'How the router scored this series'}
           </button>
-          {showOtherAnalyzers ? (
-            <div style={{ marginTop: 4 }}>
-              {otherRows.map((row) => (
-                <AnalyzerRowLine key={row.id} row={row} />
+          {showDetails ? (
+            <div style={{ ...styles.stack, gap: 4 }}>
+              {others.map((row) => (
+                <div key={row.id} data-testid={`router-score-${row.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '4px 0' }}>
+                  <StatusPill tone="neutral">{row.rating}</StatusPill>
+                  <strong>{row.name}</strong>
+                  <span style={styles.muted}>{row.score === null ? '' : formatNumber(row.score)} · {row.outcome}</span>
+                </div>
               ))}
+              {view.notBuiltIn.length ? (
+                <span data-testid="router-not-built-in" style={{ ...styles.muted, fontSize: 12, marginTop: 6 }}>
+                  Scored for reference but not built into Ops Signals yet: {view.notBuiltIn.map((item) => item.name).join(', ')}.
+                </span>
+              ) : null}
             </div>
           ) : null}
         </>
@@ -211,7 +195,6 @@ function AnalyzerRowsList({ rows, emptyExecutedLabel }: { rows: AnalyzerRow[]; e
 
 function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
   const routing = result.analyzerRouting ?? [];
-  const rows = buildAnalyzerRows(result);
   // Fallback for older backends that only ever returned the flat executed-name list, with no
   // router metadata to build a merged row from.
   const executedFallback = routing.length === 0 ? result.executedAnalyzers ?? [] : [];
@@ -219,17 +202,14 @@ function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
   return (
     <div style={{ ...styles.stack, marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(204, 204, 220, 0.14)' }}>
       {routing.length === 0 ? (
-        <div style={styles.infoNote}>
-          Analyzer router metadata was not returned for this run. Restart the backend and refresh the Grafana plugin bundle to show recommended, optional, not recommended, and rejected analyzers.
-        </div>
+        <div style={styles.infoNote}>Analyzer details weren't returned for this run.</div>
       ) : null}
       <div style={styles.detailGrid}>
         <span>Prometheus source</span><strong>{result.datasourceUid ? `${result.datasource} (${result.datasourceUid})` : result.datasource}</strong>
-        <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
       </div>
       {executedFallback.length ? (
         <div style={styles.stack}>
-          <span style={styles.label}>Executed analyzers</span>
+          <span style={styles.label}>Analyzers that ran</span>
           <div style={styles.row}>
             {executedFallback.map((item) => (
               <StatusPill key={item} tone="success">{humanize(item)}</StatusPill>
@@ -237,7 +217,7 @@ function AnalyzerRoutingSummary({ result }: { result: GrafanaAnalysisResult }) {
           </div>
         </div>
       ) : null}
-      <AnalyzerRowsList rows={rows} emptyExecutedLabel="None of the router's candidates executed for this run." />
+      <AnalyzerRunsList result={result} />
     </div>
   );
 }
@@ -263,7 +243,7 @@ function isAnalyzerRoutingPrompt(prompt: string) {
     normalized.includes('why did') ||
     normalized.includes('why didn') ||
     normalized.includes('which') && normalized.includes('ran') ||
-    ['ruptures', 'stumpy', 'prophet', 'river', 'kats', 'darts', 'alibi', 'trend regression', 'adtk', 'pyod'].some((name) => normalized.includes(name))
+    ['ruptures', 'stumpy', 'prophet', 'river', 'kats', 'darts', 'alibi', 'trend regression', 'adtk', 'pyod', 'data health', 'z-score', 'zscore'].some((name) => normalized.includes(name))
   );
 }
 
@@ -280,7 +260,11 @@ function analyzerNameFromPrompt(prompt: string) {
     ['trend regression', 'trend_regression'],
     ['trend', 'trend_regression'],
     ['adtk', 'adtk'],
-    ['pyod', 'pyod'],
+    ['pyod outlier', 'pyod_outlier'],
+    ['pyod', 'pyod_outlier'],
+    ['data health', 'data_health'],
+    ['z-score', 'anomaly_zscore'],
+    ['zscore', 'anomaly_zscore'],
   ];
   return aliases.find(([label]) => normalized.includes(label))?.[1] ?? null;
 }
@@ -292,17 +276,22 @@ function localAssistantAnswer(
   signals: GrafanaAnalysisSignal[]
 ): GrafanaQuestionAnswer {
   const routing = result.analyzerRouting ?? [];
-  const recommended = routing.filter((item) => item.recommendation === 'RECOMMENDED');
-  const optional = routing.filter((item) => item.recommendation === 'OPTIONAL');
-  const rejected = routing.filter((item) => item.recommendation === 'REJECTED');
-  const executed = result.executedAnalyzers ?? [];
+  const executions = result.analyzerExecutions ?? [];
+  const runView = buildAnalyzerRunView(routing, executions, result.findings.length);
   const stats = metricStats(result, finding);
   const sampleCount = result.sampleCount ?? result.timeseries.length;
-  const rejectedReason = rejected[0] ? [...(rejected[0].reasons ?? []), ...(rejected[0].warnings ?? [])][0] : '';
   const normalized = prompt.toLowerCase();
   const requestedAnalyzer = analyzerNameFromPrompt(prompt);
-  const requestedDecision = requestedAnalyzer
-    ? routing.find((item) => item.analyzer_id === requestedAnalyzer || item.display_name.toLowerCase().includes(requestedAnalyzer.replace('_', ' ')))
+  const knownIds = [...routing.map((item) => item.analyzer_id), ...executions.map((item) => item.router_analyzer_id)];
+  const requestedId = requestedAnalyzer
+    ? knownIds.find((id) => id === requestedAnalyzer) ??
+      routing.find((item) => item.display_name.toLowerCase().includes(requestedAnalyzer.replace('_', ' ')))?.analyzer_id ??
+      null
+    : null;
+  const requestedName = requestedId
+    ? routing.find((item) => item.analyzer_id === requestedId)?.display_name ??
+      executions.find((item) => item.router_analyzer_id === requestedId)?.display_name ??
+      humanize(requestedId)
     : null;
 
   let headline = 'Current investigation summary';
@@ -314,30 +303,8 @@ function localAssistantAnswer(
   }
 
   if (isAnalyzerRoutingPrompt(prompt)) {
-    headline = requestedDecision ? `${requestedDecision.display_name} routing explanation` : 'Analyzer routing summary';
-    answer += `Selection mode is ${humanize(result.analyzerSelectionMode ?? 'all')}. `;
-    if (requestedDecision) {
-      const concreteRan = executed.includes(requestedDecision.analyzer_id);
-      const mappedRan =
-        requestedDecision.analyzer_id === 'ruptures'
-          ? executed.some((item) => item === 'ruptures' || item === 'baseline_shift')
-          : requestedDecision.analyzer_id === 'trend_regression'
-            ? executed.includes('trend')
-            : requestedDecision.analyzer_id === 'adtk' || requestedDecision.analyzer_id === 'pyod'
-              ? executed.includes('anomaly_zscore')
-              : concreteRan;
-      const reasons = [...(requestedDecision.reasons ?? []), ...(requestedDecision.warnings ?? [])].slice(0, 3);
-      answer += `${requestedDecision.display_name} was ${requestedDecision.recommendation.toLowerCase().replace(/_/g, ' ')} with score ${requestedDecision.final_score.toFixed(2)}. `;
-      answer += mappedRan
-        ? `It ran because recommended-only mode allowed it or one of its mapped pipeline analyzers. `
-        : `It did not run because recommended-only mode only executes router decisions marked RECOMMENDED. `;
-      if (reasons.length) answer += `Reason: ${reasons.join(' ')}`;
-    } else {
-      answer += `Executed analyzers: ${executed.length ? executed.map(humanize).join(', ') : 'none'}. `;
-      answer += `Recommended: ${recommended.length ? recommended.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') : 'none'}. `;
-      answer += `Optional: ${optional.length ? optional.map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') : 'none'}. `;
-      if (!executed.length && rejectedReason) answer += `The first rejection reason is: ${rejectedReason}`;
-    }
+    headline = requestedName ? `Why ${requestedName} did or didn't run` : 'Which analyzers ran';
+    answer += requestedId ? explainAnalyzerRun(requestedId, routing, executions) : summarizeAnalyzerRuns(runView);
   } else if (normalized.includes('root cause') || normalized.includes('rca')) {
     headline = 'Likely root-cause direction';
     answer += signals.length
@@ -350,9 +317,9 @@ function localAssistantAnswer(
       : 'First confirm enough samples were collected, then rerun with a 15-30 minute window and inspect router eligibility reasons.';
   } else {
     answer += `Current value is ${formatNumber(stats.current)}, average is ${formatNumber(stats.average)}, and peak is ${formatNumber(stats.peak)}. `;
-    answer += recommended.length
-      ? `The router currently recommends ${recommended.map((item) => item.display_name).join(', ')}.`
-      : 'The router did not recommend an analyzer strongly enough for execution in recommended-only mode.';
+    answer += runView.ran.length
+      ? `Analyzers that ran: ${runView.ran.map((row) => row.name).join(', ')}.`
+      : 'No analyzer ran on this series.';
   }
 
   return {
@@ -365,8 +332,7 @@ function localAssistantAnswer(
     key_points: [
       `${sampleCount.toLocaleString()} samples returned`,
       `${signals.length} signals emitted`,
-      `${recommended.length} analyzers recommended`,
-      `${executed.length} analyzers executed`,
+      `${runView.ran.length} analyzers ran`,
     ],
     evidence_signal_ids: signals.map((signal) => signal.id),
   };
@@ -403,10 +369,7 @@ function buildAssistantMemoryPrompt(
     `metric_name: ${result.metric}`,
     `time_window: ${result.from} - ${result.to}`,
     `sample_count: ${result.sampleCount ?? result.timeseries.length}`,
-    `selection_mode: ${result.analyzerSelectionMode ?? 'all'}`,
-    `executed_analyzers: ${(result.executedAnalyzers ?? []).join(', ') || 'none'}`,
-    `router_recommended: ${routing.filter((item) => item.recommendation === 'RECOMMENDED').map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') || 'none'}`,
-    `router_optional: ${routing.filter((item) => item.recommendation === 'OPTIONAL').map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') || 'none'}`,
+    `analyzers: ${summarizeAnalyzerRuns(buildAnalyzerRunView(routing, result.analyzerExecutions ?? [], result.findings.length))}`,
     `top_finding: ${finding ? `${finding.title} - ${finding.summary}` : 'none'}`,
     `signals: ${signals.length ? signals.slice(0, 5).map((signal) => `${signal.analyzer_id}:${signal.severity}:${signal.summary}`).join(' | ') : 'none'}`,
     "",
@@ -512,7 +475,6 @@ function PrimaryFindingCard({
   const { canEdit } = usePermissions();
   if (!finding) {
     const routing = result.analyzerRouting ?? [];
-    const rows = buildAnalyzerRows(result);
     return (
       <Card>
         <div style={styles.stack}>
@@ -520,20 +482,17 @@ function PrimaryFindingCard({
             <div>
               <h2 style={{ margin: 0 }}>No operational finding detected</h2>
               <p style={{ ...styles.muted, margin: '6px 0 0' }}>
-                Prometheus returned {result.sampleCount?.toLocaleString() ?? result.timeseries.length.toLocaleString()} samples for {result.metric}; the executed analyzers did not emit problem signals.
+                Prometheus returned {result.sampleCount?.toLocaleString() ?? result.timeseries.length.toLocaleString()} samples for {result.metric}; the analyzers that ran found no problem.
               </p>
             </div>
             <StatusPill tone="success">{humanize(result.status).toUpperCase()}</StatusPill>
           </div>
           <div style={styles.detailGrid}>
             <span>Prometheus datasource</span><strong>{result.datasourceUid ? `${result.datasource} (${result.datasourceUid})` : result.datasource}</strong>
-            <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
           </div>
-          <AnalyzerRowsList rows={rows} emptyExecutedLabel="None of the router's candidates executed for this run." />
+          <AnalyzerRunsList result={result} />
           {routing.length === 0 ? (
-            <div style={styles.infoNote}>
-              Analyzer router metadata was not returned for this run. Restart the backend and refresh Grafana to show the full testing-phase routing table.
-            </div>
+            <div style={styles.infoNote}>Analyzer details weren't returned for this run.</div>
           ) : null}
         </div>
       </Card>
@@ -616,7 +575,6 @@ function AskOpsSignalsCard({
           <div style={{ ...styles.detailGrid, marginTop: 10 }}>
             <span>Run</span><strong>{result.runId.slice(0, 8)}</strong>
             <span>Signals</span><strong>{signals.length}</strong>
-            <span>Selection mode</span><strong>{humanize(result.analyzerSelectionMode ?? 'all')}</strong>
           </div>
         </div>
         <div style={styles.row}>

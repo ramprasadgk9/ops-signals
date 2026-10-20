@@ -81,3 +81,23 @@ def test_a_small_wobble_on_the_last_point_is_not_treated_as_a_spike() -> None:
 
     assert "pyod_outlier" not in payload["executed_analyzers"]
     assert payload["findings"] == []
+
+
+def test_each_analyzer_says_why_it_ran_or_did_not() -> None:
+    # The Router Decisions panel and the Grafana plugin read run_reason instead of guessing: STUMPY
+    # and Data Health run on every series, and catalog-only candidates (PyOD, ADTK) can never run.
+    values = _noise(288, seed=11)
+    values[-5] = 95.0
+
+    payload = _validate(values)
+
+    by_id = {item["router_analyzer_id"]: item for item in payload["analyzer_executions"]}
+    assert by_id["stumpy"]["execution_status"] == "completed"
+    assert by_id["stumpy"]["run_reason"] == "always_run"
+    assert by_id["data_health"]["run_reason"] == "always_run"
+    assert by_id["pyod"]["run_reason"] == "not_built_in"
+    assert by_id["adtk"]["run_reason"] == "not_built_in"
+    assert by_id["pyod_outlier"]["execution_status"] == "completed"
+    assert payload["findings"]
+    assert by_id["pyod_outlier"]["in_finding"] is True
+    assert by_id["stumpy"]["in_finding"] is False

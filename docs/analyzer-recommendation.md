@@ -289,7 +289,7 @@ execution slots away from real analyzers in `recommended_threshold` mode (see "K
 ## Router-to-pipeline mapping
 
 Router analyzer IDs aren't always one-to-one with executable analyzers
-(`intelligence/pipeline.py`, `_router_to_pipeline_analyzers` - this is the complete, current
+(`intelligence/analyzer_selection.py`, `_router_to_pipeline_analyzers` - this is the complete, current
 mapping, not illustrative):
 
 | Router analyzer | Pipeline analyzer(s) |
@@ -304,7 +304,37 @@ mapping, not illustrative):
 `RECOMMENDED` result for any of these currently has nothing to actually run.
 `recommended_threshold` selection now filters these out before ranking/capping precisely because of
 this (see "Known gaps"), so they no longer occupy an execution slot, but implementing them (or
-formally retiring them from the router's candidate registry) remains undecided.
+formally retiring them from the router's candidate registry) remains undecided. The router still
+scores them for reference, and the benchmarks rely on those scores; each run records them as
+`not_built_in` (below), so the web UI and the Grafana plugin list them apart from real candidates.
+
+## Why an analyzer ran or didn't
+
+Each analyzer execution record in a run (`analyzer_executions`, stored as the run's
+`executed_analyzers_json`) carries a `run_reason`, so the web UI's Router Decisions panel and the
+Grafana plugin show why an analyzer ran instead of only its router rating. A rating and a run can
+disagree: STUMPY rated "not recommended" still runs, because it runs on every series. Codes and
+default wording are in `RUN_REASON_TEXT` in
+[`intelligence/analyzer_selection.py`](../intelligence/analyzer_selection.py).
+
+| `run_reason` | Ran? | Meaning |
+| --- | --- | --- |
+| `router_pick` | yes | Scored high enough to take one of the `max_analyzers` slots |
+| `covers_shape` | yes | Rated too low to be picked by score, but the best runnable analyzer for a shape the router detected (`cover_detected_profiles`); `shapes` names the shape |
+| `spike_fallback` | yes | Spike detector added because the series looks spiky and nothing selected covers spikes |
+| `always_run` | yes | `always_run: true` in its registration (STUMPY, Data Health) |
+| `runs_all` | yes | Selection mode `all` |
+| `chosen_in_settings` | yes | Listed in `selected_analyzers` (`manual_override`) |
+| `not_built_in` | no | A router candidate with no pipeline analyzer (`darts`, `adtk`, `pyod`, `river`, `kats`, `alibi_detect`) |
+| `library_missing` | no | Its optional library isn't installed; `missing_library` names it. Admins see an install hint |
+| `turned_off` | no | Disabled in `config/analyzers.yaml` or its registration |
+| `rejected` | no | The router ruled it out for this series |
+| `not_selected` | no | Runnable, but not chosen this run |
+
+Each analyzer that ran also gets `in_finding`: `true` when at least one of its signals is part of
+one of the run's findings. One finding can merge several analyzers' signals, so this says which
+analyzers fed the findings, not how many findings each produced. Runs saved before these fields
+existed show the router's own wording instead.
 
 ## Optional AI second opinion
 

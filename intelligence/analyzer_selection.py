@@ -15,6 +15,8 @@ from intelligence.analyzer_registry import (
 )
 from intelligence.analyzers.base import Analyzer
 from intelligence.config import AnalyzerConfig, AppConfig
+from intelligence.findings.schema import OperationalFinding
+from intelligence.signals.schema import OperationalSignal
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,24 @@ PROFILE_GROUPS = {
     "baseline": {"baseline_shift", "regime_change"},
     "seasonal": {"seasonal", "repeating_pattern"},
     "trend": {"trend"},
+}
+SHAPE_NAMES = {"spike": "spikes", "baseline": "baseline shift", "seasonal": "seasonal pattern", "trend": "trend"}
+
+# Why an analyzer was set to run (the first group) or didn't run (the second), as recorded on each
+# analyzer execution snapshot's `run_reason`. The text is the default explanation shown with it.
+RUN_REASON_TEXT = {
+    "router_pick": "Picked by the router for this series.",
+    "covers_shape": "Ran to cover a shape the router detected in this series.",
+    "spike_fallback": "Ran as the spike detector: the series looks spiky and nothing else selected looks for spikes.",
+    "always_run": "Runs on every series.",
+    "runs_all": "Runs because analysis is set to run every analyzer.",
+    "chosen_in_settings": "Chosen in the analysis settings.",
+    "not_built_in": "In the router's catalog, but not built into Ops Signals yet, so it can't run.",
+    "turned_off": "Turned off in the analyzer settings.",
+    "library_missing": "Its library isn't installed, so it doesn't run.",
+    "rejected": "The router ruled it out for this series.",
+    "not_selected": "Not chosen for this run.",
+    "router_failed": "The router couldn't score this series.",
 }
 
 
@@ -126,10 +146,18 @@ class RegistryAnalyzerSelection:
         return allowed
 
     def _selected_router_analyzers(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
-        selected = self._selected_by_mode(analyzer_routing)
-        if selected is None:
+        reasons = self._selection_reasons(analyzer_routing)
+        return None if reasons is None else set(reasons)
+
+    def _selection_reasons(self, analyzer_routing: list[dict[str, object]]) -> dict[str, str] | None:
+        """Router analyzer id -> why it was set to run (a RUN_REASON_TEXT key), or None when the
+        selection mode runs every enabled analyzer. The ids are exactly _selected_router_analyzers'."""
+        reasons = self._selected_by_mode(analyzer_routing)
+        if reasons is None:
             return None
-        return selected | self._always_run_analyzer_ids(analyzer_routing)
+        for analyzer_id in sorted(self._always_run_analyzer_ids(analyzer_routing)):
+            reasons.setdefault(analyzer_id, "always_run")
+        return reasons
 
     def _always_run_analyzer_ids(self, analyzer_routing: list[dict[str, object]]) -> set[str]:
         """Enabled `always_run` analyzers, minus any the router REJECTED as ineligible for this
@@ -145,27 +173,24 @@ class RegistryAnalyzerSelection:
             if registration.always_run and registration.analyzer_id not in rejected
         }
 
-    def _selected_by_mode(self, analyzer_routing: list[dict[str, object]]) -> set[str] | None:
+    def _selected_by_mode(self, analyzer_routing: list[dict[str, object]]) -> dict[str, str] | None:
         mode = (self.config.analysis.selection_mode or "all").lower().strip()
         if mode == "all" or not analyzer_routing:
             return None
 
-        selected = set(self.config.analysis.selected_analyzers or [])
+        recommended_router_ids = [
+            str(decision["analyzer_id"])
+            for decision in analyzer_routing
+            if str(decision.get("recommendation")) == "RECOMMENDED"
+        ]
         if mode == "manual_override":
-            recommended_router_ids = {
-                str(decision["analyzer_id"])
-                for decision in analyzer_routing
-                if str(decision.get("recommendation")) == "RECOMMENDED"
-            }
-            recommended_router_ids.update(selected)
-            return recommended_router_ids
+            reasons = dict.fromkeys(recommended_router_ids, "router_pick")
+            for analyzer_id in self.config.analysis.selected_analyzers or []:
+                reasons.setdefault(analyzer_id, "chosen_in_settings")
+            return reasons
 
         if mode == "recommended_only":
-            return {
-                str(decision["analyzer_id"])
-                for decision in analyzer_routing
-                if str(decision.get("recommendation")) == "RECOMMENDED"
-            }
+            return dict.fromkeys(recommended_router_ids, "router_pick")
 
         if mode != "recommended_threshold":
             return None
@@ -202,11 +227,18 @@ class RegistryAnalyzerSelection:
                 break
             if analyzer_id not in selected:
                 selected.append(analyzer_id)
+        # A coverage pick that also scored well enough on its own reads as a router pick: coverage
+        # is only the reason when the router rated it too low to be chosen by score.
+        scored_ids = {analyzer_id for _, analyzer_id in candidates}
+        reasons = {
+            analyzer_id: "router_pick" if analyzer_id in scored_ids else "covers_shape"
+            for analyzer_id in selected
+        }
         if execution_config.cover_detected_profiles:
             fallback = self._spike_fallback(analyzer_routing, selected, available_pipeline_ids)
             if fallback:
-                selected.append(fallback)
-        return set(selected)
+                reasons[fallback] = "spike_fallback"
+        return reasons
 
     @staticmethod
     def _spike_fallback(
@@ -299,13 +331,25 @@ class RegistryAnalyzerSelection:
         failed_analyzers: dict[str, str] | None = None,
         selected_analyzers: set[str] | None = None,
     ) -> list[dict[str, object]]:
+        """One record per router candidate (plus any analyzer that ran without a router entry):
+        what happened to it and why. `run_reason` is a RUN_REASON_TEXT key - for one set to run,
+        why it was chosen; for one that wasn't, why not. The web UI and the Grafana
+        plugin show these, so they never have to guess why an analyzer ran."""
         failed_analyzers = failed_analyzers or {}
         executed_set = set(executed_analyzers)
         failed_set = set(failed_analyzers)
         selected_router_ids = selected_analyzers
+        selection_reasons = self._selection_reasons(analyzer_routing) or {}
         snapshots = []
-        routed_ids = {str(decision.get("analyzer_id")) for decision in analyzer_routing}
         router_to_pipeline = self._router_to_pipeline_analyzers()
+        # Pipeline ids a router decision already reports on (trend_regression -> trend), so an
+        # aliased analyzer isn't listed a second time as unrouted.
+        routed_ids = {
+            pipeline_id
+            for decision in analyzer_routing
+            for pipeline_id in router_to_pipeline.get(str(decision.get("analyzer_id")), {str(decision.get("analyzer_id"))})
+        }
+        registrations = {registration.analyzer_id: registration for registration in load_registrations(_REPO_ROOT / "config" / "analyzer_registry.d")}
         available_ids = self._available_pipeline_analyzer_ids()
         slot_eligible_ids = self._slot_eligible_pipeline_analyzer_ids()
         for decision in analyzer_routing:
@@ -317,16 +361,21 @@ class RegistryAnalyzerSelection:
             selected = (
                 router_analyzer_id in selected_router_ids
                 if selected_router_ids is not None
-                else bool(recommended and pipeline_ids)
+                # Every enabled analyzer runs in "all" mode, so whatever ran was selected.
+                else bool((recommended and pipeline_ids) or matching_executed or matching_failed)
             )
             status = "completed" if matching_executed else "skipped"
             reason = None
+            missing_library = None
             if matching_failed:
                 status = "failed"
                 reason = "; ".join(f"{pipeline_id}: {failed_analyzers[pipeline_id]}" for pipeline_id in matching_failed)
             if not selected:
                 selected = False
                 status = "skipped"
+                run_reason, missing_library = self._skip_reason(
+                    router_analyzer_id, decision, pipeline_ids, registrations, available_ids, slot_eligible_ids
+                )
                 if recommended and not set(pipeline_ids) & available_ids:
                     # e.g. adtk, darts: the router scores them, but nothing in the pipeline runs them.
                     reason = "Recommended, but no pipeline analyzer implements it yet, so it can't run; the score is for reference."
@@ -338,11 +387,13 @@ class RegistryAnalyzerSelection:
                     reason = str(decision["routing_reason"])
                 else:
                     reason = f"Router decision was {decision.get('recommendation')}."
-            elif not matching_executed:
-                if not matching_failed:
-                    reason = "No enabled pipeline analyzer is available for this recommended router analyzer."
-            elif str(decision.get("recommendation")) not in {"RECOMMENDED", "OPTIONAL"}:
-                reason = self._spike_fallback_reason(router_analyzer_id, analyzer_routing)
+            else:
+                run_reason = self._run_reason(router_analyzer_id, selection_reasons, registrations, selected_router_ids)
+                if not matching_executed:
+                    if not matching_failed:
+                        reason = "No enabled pipeline analyzer is available for this recommended router analyzer."
+                else:
+                    reason = self._run_reason_text(run_reason, router_analyzer_id, analyzer_routing, decision)
             snapshots.append(
                 {
                     "router_analyzer_id": router_analyzer_id,
@@ -354,33 +405,44 @@ class RegistryAnalyzerSelection:
                     "failed_pipeline_analyzer_ids": matching_failed,
                     "execution_status": status,
                     "execution_reason": reason,
+                    "run_reason": run_reason,
+                    "shapes": self._matched_shapes(decision),
+                    "missing_library": missing_library,
+                    "in_finding": None,
                 }
             )
         for analyzer_id in executed_analyzers:
             router_analyzer_id = analyzer_id
             if router_analyzer_id in routed_ids:
                 continue
+            run_reason = self._run_reason(analyzer_id, selection_reasons, registrations, selected_router_ids)
+            registration = registrations.get(analyzer_id)
             snapshots.append(
                 {
                     "router_analyzer_id": router_analyzer_id,
-                    "display_name": router_analyzer_id,
+                    "display_name": registration.display_name if registration else router_analyzer_id,
                     "recommendation": "UNROUTED",
                     "selected": True,
                     "pipeline_analyzer_ids": [analyzer_id],
                     "executed_pipeline_analyzer_ids": [analyzer_id],
                     "failed_pipeline_analyzer_ids": [],
                     "execution_status": "completed",
-                    "execution_reason": self._spike_fallback_reason(analyzer_id, analyzer_routing),
+                    "execution_reason": self._run_reason_text(run_reason, analyzer_id, analyzer_routing, {}),
+                    "run_reason": run_reason,
+                    "shapes": [],
+                    "missing_library": None,
+                    "in_finding": None,
                 }
             )
         for analyzer_id, error in failed_analyzers.items():
             router_analyzer_id = analyzer_id
             if router_analyzer_id in routed_ids:
                 continue
+            registration = registrations.get(analyzer_id)
             snapshots.append(
                 {
                     "router_analyzer_id": router_analyzer_id,
-                    "display_name": router_analyzer_id,
+                    "display_name": registration.display_name if registration else router_analyzer_id,
                     "recommendation": "UNROUTED",
                     "selected": True,
                     "pipeline_analyzer_ids": [analyzer_id],
@@ -388,9 +450,94 @@ class RegistryAnalyzerSelection:
                     "failed_pipeline_analyzer_ids": [analyzer_id],
                     "execution_status": "failed",
                     "execution_reason": f"{analyzer_id}: {error}",
+                    "run_reason": self._run_reason(analyzer_id, selection_reasons, registrations, selected_router_ids),
+                    "shapes": [],
+                    "missing_library": None,
+                    "in_finding": None,
                 }
             )
         return snapshots
+
+    @staticmethod
+    def _mark_finding_contributors(
+        snapshots: list[dict[str, object]],
+        signals: list[OperationalSignal],
+        findings: list[OperationalFinding],
+    ) -> None:
+        """Sets `in_finding` on every analyzer that ran: True when at least one of its signals is
+        part of a finding. One finding can merge several analyzers' signals, so this says which
+        analyzers fed the run's findings, never how many findings each one produced."""
+        analyzer_by_signal = {signal.signal_id: signal.analyzer_id for signal in signals}
+        contributors = {
+            analyzer_by_signal[signal_id]
+            for finding in findings
+            for signal_id in finding.signal_ids
+            if signal_id in analyzer_by_signal
+        }
+        for snapshot in snapshots:
+            executed_ids = snapshot.get("executed_pipeline_analyzer_ids") or []
+            if executed_ids:
+                snapshot["in_finding"] = bool(contributors & set(executed_ids))  # type: ignore[arg-type]
+
+    @staticmethod
+    def _run_reason(
+        analyzer_id: str,
+        selection_reasons: dict[str, str],
+        registrations: dict[str, AnalyzerRegistration],
+        selected_router_ids: set[str] | None,
+    ) -> str:
+        if analyzer_id in selection_reasons:
+            return selection_reasons[analyzer_id]
+        registration = registrations.get(analyzer_id)
+        if registration is not None and registration.always_run:
+            return "always_run"
+        if selected_router_ids is None:
+            return "runs_all"
+        return "router_pick"
+
+    @staticmethod
+    def _skip_reason(
+        analyzer_id: str,
+        decision: dict[str, object],
+        pipeline_ids: list[str],
+        registrations: dict[str, AnalyzerRegistration],
+        available_ids: set[str],
+        slot_eligible_ids: set[str],
+    ) -> tuple[str, str | None]:
+        """Why a router candidate didn't run, and the missing library's name when that's why."""
+        if analyzer_id == "router":
+            return "router_failed", None
+        if not set(pipeline_ids) & set(registrations):
+            return "not_built_in", None
+        if not set(pipeline_ids) & available_ids:
+            return "turned_off", None
+        if not set(pipeline_ids) & slot_eligible_ids:
+            libraries = [registrations[pipeline_id].requires_library for pipeline_id in pipeline_ids if pipeline_id in registrations]
+            return "library_missing", next((library for library in libraries if library), None)
+        if str(decision.get("recommendation")) == "REJECTED":
+            return "rejected", None
+        return "not_selected", None
+
+    def _run_reason_text(
+        self,
+        run_reason: str,
+        analyzer_id: str,
+        analyzer_routing: list[dict[str, object]],
+        decision: dict[str, object],
+    ) -> str:
+        if run_reason == "spike_fallback":
+            return self._spike_fallback_reason(analyzer_id, analyzer_routing) or RUN_REASON_TEXT["spike_fallback"]
+        if run_reason == "covers_shape":
+            shapes = self._matched_shapes(decision)
+            if shapes:
+                return f"Ran to cover the {' and '.join(SHAPE_NAMES[shape] for shape in shapes)} the router detected."
+        return RUN_REASON_TEXT.get(run_reason, RUN_REASON_TEXT["router_pick"])
+
+    @staticmethod
+    def _matched_shapes(decision: dict[str, object]) -> list[str]:
+        """The PROFILE_GROUPS the router matched this analyzer to, in PROFILE_GROUPS order."""
+        matched = {str(profile) for profile in decision.get("matched_profiles") or []}  # type: ignore[union-attr]
+        return [group for group, profiles in PROFILE_GROUPS.items() if matched & profiles]
 
     def _spike_fallback_reason(self, analyzer_id: str, analyzer_routing: list[dict[str, object]]) -> str | None:
         """Why a spike detector ran that the router didn't pick itself (see _spike_fallback)."""
