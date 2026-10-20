@@ -189,6 +189,24 @@ export type Finding = {
   changes?: unknown;
   /** How much to trust it (backend services/finding_trust.py); read with utils/findingTrust. */
   trust?: FindingTrust | null;
+  /** Plain-words wording for the card (backend services/finding_plain.py); read with utils/findingPlain. */
+  plain?: FindingPlain | null;
+};
+
+export type FindingPlainBadge = 'worse' | 'better' | 'changed' | 'gap' | 'noise' | 'blip';
+
+/** Text fields hold time markers, [[time:ISO]], that utils/findingPlain shows in the reader's time zone. */
+export type FindingPlain = {
+  kind: string;
+  badge: FindingPlainBadge;
+  badge_label: string;
+  headline: string;
+  what: string;
+  why?: string | null;
+  check?: string | null;
+  change_time?: string | null;
+  /** Other metrics of the same service that changed at the same moment. */
+  related?: Array<{ finding_id: number | null; text: string }>;
 };
 
 export type FindingVerdict = 'real_problem' | 'expected_change' | 'not_a_problem';
@@ -739,6 +757,7 @@ export type ValidationFinding = {
   investigation_priority: number;
   signal_ids: string[];
   comparison_json: Record<string, unknown>;
+  plain?: FindingPlain | null;
 };
 
 export type CsvValidationResult = {

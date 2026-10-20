@@ -180,3 +180,43 @@ describe('FindingCard problem timing', () => {
     expect(screen.queryByText('Seen in 2 runs')).not.toBeInTheDocument();
   });
 });
+
+describe('FindingCard plain wording', () => {
+  const plainFinding: Finding = {
+    ...newPodsFinding,
+    comparison_json: {},
+    plain: {
+      kind: 'level_change',
+      badge: 'worse',
+      badge_label: 'Worse',
+      headline: 'HTTP errors rose sharply and stayed higher',
+      what: 'About 0.09 until [[time:2026-10-19T22:54:17Z]]. Since then about 1.3 (about 14 times as high).',
+      why: 'More requests fail, so more users see errors or failed actions.',
+      check: null,
+      related: [],
+    },
+  };
+
+  it('leads with the badge and headline, and keeps the stored text under Technical details', () => {
+    renderCard(plainFinding);
+
+    expect(screen.getByTestId('finding-plain-badge')).toHaveTextContent('Worse');
+    expect(screen.getByText('HTTP errors rose sharply and stayed higher')).toBeInTheDocument();
+    expect(screen.queryByText(newPodsFinding.title)).not.toBeInTheDocument();
+    expect(screen.getByTestId('finding-plain-what').textContent).toMatch(/^About 0\.09 until Oct 19, .+\. Since then about 1\.3/);
+    expect(screen.getByText('More requests fail, so more users see errors or failed actions.')).toBeInTheDocument();
+    expect(screen.queryByTestId('finding-plain-details')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Technical details/ }));
+
+    expect(screen.getByTestId('finding-plain-details')).toHaveTextContent(`${newPodsFinding.title} Errors rose.`);
+  });
+
+  it('shows the stored title and summary when there is no plain wording', () => {
+    renderCard({ ...newPodsFinding, comparison_json: {}, plain: null });
+
+    expect(screen.getByText(newPodsFinding.title)).toBeInTheDocument();
+    expect(screen.getByText('Errors rose.')).toBeInTheDocument();
+    expect(screen.queryByTestId('finding-plain')).not.toBeInTheDocument();
+  });
+});

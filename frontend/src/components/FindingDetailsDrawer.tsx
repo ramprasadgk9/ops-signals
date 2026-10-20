@@ -15,6 +15,7 @@ import { breakdownMissingForSource, findingSourceLabel } from '../utils/findingS
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { changeChipLabel, findingChanges, findingWhatChanged } from '../utils/findingChanges';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 
 type Props = {
   open: boolean;
@@ -101,7 +102,8 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
   return (
     <Drawer anchor="right" open={open} onClose={onClose}>
       <Box sx={{ width: { xs: '100vw', md: 560 }, p: 3, overflowY: 'auto' }}>
-        <Typography variant="h5">{finding.title}</Typography>
+        {finding.plain ? <PlainBadge plain={finding.plain} /> : null}
+        <Typography variant="h5" sx={{ mt: finding.plain ? 0.75 : 0 }}>{finding.plain?.headline ?? finding.title}</Typography>
         
         <Stack direction="row" spacing={1} sx={{ my: 2, flexWrap: 'wrap', gap: 1 }}>
           <Tooltip title={findingLevelHint(finding.health_status)} arrow>
@@ -119,12 +121,16 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
         <LinkedAlerts findingId={finding.id} />
 
         <Box sx={{ mb: 3, p: 2, backgroundColor: 'var(--os-surface-alt)', borderRadius: 1 }}>
-          <Stack direction="row" spacing={0.75} alignItems="flex-start">
-            {finding.ai_summary && (
-              <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
-            )}
-            <Typography variant="body2">{finding.ai_summary ?? finding.summary}</Typography>
-          </Stack>
+          {finding.plain ? (
+            <PlainFindingSummary plain={finding.plain} summary={`${finding.title} ${finding.summary}`} />
+          ) : (
+            <Stack direction="row" spacing={0.75} alignItems="flex-start">
+              {finding.ai_summary && (
+                <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
+              )}
+              <Typography variant="body2">{finding.ai_summary ?? finding.summary}</Typography>
+            </Stack>
+          )}
         </Box>
 
         {typeof finding.id === 'number' ? (

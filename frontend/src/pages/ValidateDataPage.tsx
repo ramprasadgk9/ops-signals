@@ -44,6 +44,7 @@ import { panelSx, ui } from '../standalone/theme';
 import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, CsvRunResult, CsvValidationResult, DirectPrometheusAnalysisResponse, Finding, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { LockNote } from '../components/LockNote';
+import { PlainBadge, PlainFindingSummary, PlainHeadline } from '../components/PlainFindingSummary';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -1098,8 +1099,13 @@ export function ValidateDataPage() {
 	                        <Chip size="small" label={primaryFinding.category} />
 	                        <Chip size="small" label={`priority ${primaryFinding.investigation_priority}`} />
 	                      </Stack>
-	                      <Typography sx={{ fontSize: 17, fontWeight: 900, color: ui.text }}>{primaryFinding.title}</Typography>
-	                      <Typography sx={{ color: 'var(--os-text-2)', fontSize: 14, lineHeight: 1.55 }}>{primaryFinding.summary}</Typography>
+	                      {primaryFinding.plain ? <PlainBadge plain={primaryFinding.plain} /> : null}
+	                      <Typography sx={{ fontSize: 17, fontWeight: 900, color: ui.text }}>{primaryFinding.plain?.headline ?? primaryFinding.title}</Typography>
+	                      {primaryFinding.plain ? (
+	                        <PlainFindingSummary plain={primaryFinding.plain} summary={`${primaryFinding.title} ${primaryFinding.summary}`} />
+	                      ) : (
+	                        <Typography sx={{ color: 'var(--os-text-2)', fontSize: 14, lineHeight: 1.55 }}>{primaryFinding.summary}</Typography>
+	                      )}
                         {primaryFinding.id ? (
                           <Stack direction="row" spacing={1}>
                             {createdCases[primaryFinding.id] ? (
@@ -1174,7 +1180,7 @@ export function ValidateDataPage() {
 	                        <Box key={`${finding.id ?? finding.title}`} sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.4 }}>
                             <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.2}>
                               <Box>
-	                              <Typography sx={{ fontWeight: 850 }}>{finding.title}</Typography>
+	                              <PlainHeadline finding={finding} titleSx={{ fontWeight: 850 }} />
 	                              <Typography sx={{ color: ui.muted, fontSize: 13 }}>{finding.category} · {findingLevel(finding.health_status).label} importance</Typography>
                               </Box>
                               {finding.id ? (
@@ -1251,7 +1257,7 @@ export function ValidateDataPage() {
                     <Card key={finding.id} variant="outlined" sx={{ p: 2 }}>
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
                         <Stack spacing={0.5}>
-                          <Typography variant="subtitle1">{finding.title}</Typography>
+                          <PlainHeadline finding={finding} titleSx={{ fontSize: 16, fontWeight: 500 }} />
                           <Typography variant="body2" color="text.secondary">{finding.service ?? 'n/a'} · {finding.metric_name} · importance {finding.importance_score.toFixed(2)}</Typography>
                         </Stack>
                         {createdCases[finding.id] ? (
@@ -1276,7 +1282,7 @@ export function ValidateDataPage() {
           <>
           <RouterDecisionPanel decisions={routerDecisions} executions={routerExecutions} executedAnalyzers={executedAnalyzers} />
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Signals</Typography>{resultSignals.length === 0 ? <Typography variant="body2" color="text.secondary">{csvMutation.isSuccess ? 'No signals: the analyzers that ran detected nothing in this data.' : 'No signals returned yet.'}</Typography> : resultSignals.map((signal) => <Card key={signal.signal_id} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={signal.signal_type} size="small" /><Chip label={signal.severity} size="small" /><Chip label={signal.analyzer_id} size="small" /></Stack><Typography variant="subtitle1">{signal.summary}</Typography><Typography variant="body2" color="text.secondary">{signal.metric_name} · {signal.service ?? 'n/a'} · confidence {signal.confidence.toFixed(2)}</Typography></Stack></Card>)}</Stack></CardContent></Card>
-          <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">{csvMutation.isSuccess ? 'No findings: nothing in this data stood out enough to report.' : 'No findings returned yet.'}</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={`${findingLevel(finding.health_status).label} importance`} size="small" /><Chip label={finding.category} size="small" /></Stack><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography><Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
+          <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">{csvMutation.isSuccess ? 'No findings: nothing in this data stood out enough to report.' : 'No findings returned yet.'}</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={`${findingLevel(finding.health_status).label} importance`} size="small" /><Chip label={finding.category} size="small" /></Stack>{finding.plain ? <><PlainBadge plain={finding.plain} /><Typography variant="subtitle1">{finding.plain.headline}</Typography><PlainFindingSummary plain={finding.plain} summary={`${finding.title} ${finding.summary}`} /></> : <><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography></>}<Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
           </>
           )}
         </>
