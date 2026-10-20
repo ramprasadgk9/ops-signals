@@ -6,10 +6,12 @@ import { api } from '../api/queries';
 import { Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, ui } from '../standalone/theme';
 import { ImportIncidentsDialog } from './ImportIncidentsDialog';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 
 /** Integrations-page view of incident-history imports: what was imported, when, and a way to
  * import again or undo a batch. */
 export function ImportHistoryCard() {
+  const { canAdmin } = useWebPermissions();
   const queryClient = useQueryClient();
   const [open, setOpen] = React.useState(false);
   const importsQuery = useQuery({ queryKey: ['case-imports'], queryFn: () => api.caseImports(), retry: false });
@@ -70,7 +72,8 @@ export function ImportHistoryCard() {
                     <Button
                       size="small"
                       color="warning"
-                      disabled={undoMutation.isPending}
+                      disabled={undoMutation.isPending || !canAdmin}
+                      title={canAdmin ? undefined : WEB_LOCK_REASONS.admin}
                       onClick={() => {
                         if (window.confirm(`Delete the ${batch.counts.new} cases this import created?`)) undoMutation.mutate(batch.id);
                       }}

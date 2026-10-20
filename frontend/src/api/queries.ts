@@ -1,5 +1,6 @@
 import { deleteJson, getHealth, getJson, postForm, postJson, patchJson } from './client';
 import type { SetupCheckResult } from '../utils/setupCheck';
+import type { Me } from '../hooks/useWebPermissions';
 import type {
   AnalyzerConfigSuggestion,
   AnalyzerConfigSuggestionInput,
@@ -109,6 +110,7 @@ export const api = {
   otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
   ingestionStatus: () => getJson<IngestionStatus>('/api/ingestion/status'),
   setupCheck: () => getJson<SetupCheckResult>('/api/setup/check'),
+  me: () => getJson<Me>('/api/me'),
   sendTestAlert: () => postJson<Record<string, never>, AlertReceipt>('/api/integrations/alertmanager/test', {}),
   alerts: (params: AlertListParams = {}) => {
     const search = new URLSearchParams();

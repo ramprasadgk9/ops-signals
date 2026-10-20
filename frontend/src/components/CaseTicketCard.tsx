@@ -41,9 +41,11 @@ import { WalkthroughVideoDialog } from './WalkthroughVideoDialog';
 
 interface CaseTicketCardProps {
   caseId: number;
+  /** A Viewer's case page: the ticket can be seen, not changed (hooks/useWebPermissions). */
+  readOnly?: boolean;
 }
 
-export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
+export function CaseTicketCard({ caseId, readOnly = false }: CaseTicketCardProps) {
   const queryClient = useQueryClient();
   const [activeOpId, setActiveOpId] = useState<string | null>(null);
   const [ambiguousOp, setAmbiguousOp] = useState<CaseTicketOperation | null>(null);
@@ -278,7 +280,8 @@ export function CaseTicketCard({ caseId }: CaseTicketCardProps) {
 
   return (
     <Card variant="outlined" sx={{ mt: 2 }}>
-      <CardContent>
+      {/* A disabled fieldset disables every button inside it: one switch for a Viewer's read-only card. */}
+      <CardContent component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, minWidth: 0, opacity: readOnly ? 0.75 : 1 }}>
         <Stack spacing={2}>
           {/* Wraps in a narrow column (the case page's side column) instead of pushing the buttons out of the card. */}
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>

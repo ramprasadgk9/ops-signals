@@ -29,6 +29,7 @@ from backend.app.config import (
     PrometheusConnectionConfig,
     PrometheusConnectionsError,
     get_alert_enrichment_config,
+    get_auth_config,
     get_metric_usage_config,
     get_prometheus_connections,
     get_security_config,
@@ -271,12 +272,43 @@ def memory_check(store: VectorStore | None, config: MemoryConfig | None) -> Setu
     )
 
 
-def security_checks() -> list[SetupCheck]:
+def _who(actor: Actor) -> str:
+    group = f", group {actor.granted_by}" if actor.granted_by else ""
+    return f"{actor.name or 'anonymous'} ({actor.role or 'no role'}{group})"
+
+
+def login_check(actor: Actor | None) -> SetupCheck | None:
+    """The Login row once a token is set, or with a dev user: which sign-in is on, and who this is."""
+    security, auth = get_security_config(), get_auth_config()
+    base = dict(id="login", group="recommended", title="Login", docs="docs/web-ui-sign-in.md")
+    if actor is not None and actor.via == "dev":
+        return SetupCheck(**base, status="warn", detail=f"Pretending to be {_who(actor)} with OPS_SIGNALS_DEV_USER: for trying sign-in on your own machine only.",
+                          fix=["Unset OPS_SIGNALS_DEV_USER and restart the backend when you are done."])
+    if not security.api_token:
+        return None
+    if auth.mode != "proxy-headers":
+        detail = "An API token is required on every request."
+        if actor is not None:
+            detail += f" You are {_who(actor)} through Grafana."
+        return SetupCheck(**base, status="ok", detail=detail)
+    if actor is None:
+        return SetupCheck(
+            **base, status="warn",
+            detail=f"Company sign-in is on, but this request had no {auth.user_header} header.",
+            cause="The web UI isn't behind the sign-in proxy, or the proxy doesn't pass the user on.",
+            fix=[f"Put the web UI behind the sign-in proxy and have it set {auth.user_header} (and {auth.groups_header}).",
+                 "Or set OPS_SIGNALS_AUTH_USER_HEADER to the header your proxy uses, then restart the backend."],
+        )
+    where = "through Grafana" if actor.via == "grafana" else "through company sign-in"
+    return SetupCheck(**base, status="ok", detail=f"Company sign-in (proxy headers) is on · you are {_who(actor)} {where}.")
+
+
+def security_checks(actor: Actor | None = None) -> list[SetupCheck]:
     security = get_security_config()
+    login = login_check(actor)
     checks = [
-        SetupCheck(id="login", group="recommended", status="ok", title="Login",
-                   detail="An API token is required on every request.")
-        if security.api_token else
+        login
+        if login is not None else
         SetupCheck(
             id="login", group="recommended", status="warn", title="Login",
             detail="Open: no API token is set, so anyone who can reach the backend can change things.",
@@ -412,7 +444,8 @@ def setup_check(
         backend_detail = f"Answering · version {version}"
     else:
         who = f"{actor.name} ({actor.role or 'no role'})" if actor.name else f"an anonymous {actor.role or 'visitor'}"
-        backend_detail = f"Reached through Grafana · version {version} · you are {who}"
+        reached = "Reached through Grafana" if actor.via == "grafana" else "Answering"
+        backend_detail = f"{reached} · version {version} · you are {who}"
     checks = [SetupCheck(id="backend", group="required", status="ok", title="Backend", detail=backend_detail)]
 
     if database_reachable():
@@ -427,7 +460,7 @@ def setup_check(
 
     checks.extend(metrics_checks(db, now))
     checks.append(memory_check(store, memory_config))
-    checks.extend(security_checks())
+    checks.extend(security_checks(actor))
     checks.extend(activity_checks(db, now))
     checks.extend(integration_checks(db, now))
     you = SetupActorOut(name=actor.name, role=actor.role, via=actor.via) if actor else None

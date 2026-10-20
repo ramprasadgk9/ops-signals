@@ -27,6 +27,7 @@ import { InvestigationsPage } from '../pages/InvestigationsPage';
 import { IntegrationsPage } from '../pages/IntegrationsPage';
 import { AlertsPage } from '../pages/AlertsPage';
 import { SetupCheckPage } from '../pages/SetupCheckPage';
+import { AdminArea } from '../components/AdminArea';
 import { MetricUsagePage } from '../pages/MetricUsagePage';
 
 export function AppRoutes() {
@@ -40,18 +41,18 @@ export function AppRoutes() {
       <Route path="/questions/:questionId" element={<QuestionAnswerPage />} />
       <Route path="/capabilities" element={<CapabilitiesPage />} />
       <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
-      <Route path="/behavior-intelligence/lab" element={<BehaviorLabPage />} />
+      <Route path="/behavior-intelligence/lab" element={<AdminArea><BehaviorLabPage /></AdminArea>} />
       <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
       <Route path="/validate-data" element={<ValidateDataPage />} />
       {/* The experiment results page was removed; old links land on the closest replacement. */}
       <Route path="/experiments" element={<Navigate to="/experiments/ruptures-change-point-lab" replace />} />
-      <Route path="/experiments/add-analyzer" element={<AddAnalyzerPage />} />
-      <Route path="/experiments/pyod-outlier-lab" element={<PyodOutlierLabPage />} />
-      <Route path="/experiments/prophet-forecast-lab" element={<ProphetForecastLabPage />} />
-      <Route path="/experiments/ruptures-change-point-lab" element={<RupturesChangePointLabPage />} />
-      <Route path="/experiments/stumpy-motif-lab" element={<StumpyMotifLabPage />} />
-      <Route path="/experiments/trend-lab" element={<TrendLabPage />} />
-      <Route path="/experiments/zscore-anomaly-lab" element={<ZScoreAnomalyLabPage />} />
+      <Route path="/experiments/add-analyzer" element={<AdminArea><AddAnalyzerPage /></AdminArea>} />
+      <Route path="/experiments/pyod-outlier-lab" element={<AdminArea><PyodOutlierLabPage /></AdminArea>} />
+      <Route path="/experiments/prophet-forecast-lab" element={<AdminArea><ProphetForecastLabPage /></AdminArea>} />
+      <Route path="/experiments/ruptures-change-point-lab" element={<AdminArea><RupturesChangePointLabPage /></AdminArea>} />
+      <Route path="/experiments/stumpy-motif-lab" element={<AdminArea><StumpyMotifLabPage /></AdminArea>} />
+      <Route path="/experiments/trend-lab" element={<AdminArea><TrendLabPage /></AdminArea>} />
+      <Route path="/experiments/zscore-anomaly-lab" element={<AdminArea><ZScoreAnomalyLabPage /></AdminArea>} />
       <Route path="/analyzer-router" element={<AnalyzerRouterExperimentPage />} />
       <Route path="/assistant" element={<MemoryChatPage />} />
       <Route path={DOCS_CHECK_PATH} element={<DocsCheckPage />} />

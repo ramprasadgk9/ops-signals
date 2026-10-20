@@ -10,8 +10,8 @@ plugin records who did what, and how to check it all on your own machine.
   usual (or by the company login system that feeds Grafana).
 - **Names are recorded** on what people do: "Answered Expected change by priya", "Created by
   admin", "Resolved by sam", "Owner sam · last edited by priya".
-- **This is the Grafana plugin only.** The standalone web UI has no sign-in or roles yet (see
-  [Plugin or web UI?](#plugin-or-web-ui)).
+- **This is the Grafana plugin.** The standalone web UI signs in through your company's sign-in
+  proxy instead (see [Plugin or web UI?](#plugin-or-web-ui)).
 
 ## How it works
 
@@ -55,10 +55,11 @@ same reason, and nothing changes.
 | Under "Was this real?" | "Answered Expected change by priya · 10m ago" (one answer per finding: the latest replaces the one before) |
 | Under a case button, and in the case drawer | "Created by admin · 3h ago", "Resolved by sam" |
 | On the schedule card | "Owner sam · last edited by priya · 1d ago" |
-| Web UI case page | "… by admin (in Grafana)" next to Created and Resolved |
+| Web UI case page | "… by admin" next to Created and Resolved |
 
-Only what was done in the plugin through Grafana has a name. Older records, and anything done in
-the web UI or in "Browser, directly" mode, show no name; nothing is guessed.
+Only what was done in the plugin through Grafana, or in the web UI with sign-in on, has a name.
+Older records, and anything done without sign-in or in "Browser, directly" mode, show no name;
+nothing is guessed.
 
 ## Set it up (Grafana admin, once)
 
@@ -85,12 +86,12 @@ To set it up with provisioning, see the plugin's [`README`](../frontend/README.m
 
 | | Grafana plugin (`localhost:3000` locally) | Web UI (`localhost:5174` locally) |
 | --- | --- | --- |
-| Sign-in | Grafana's | None yet |
-| Roles | Viewer / Editor / Admin | None yet: everyone can do everything |
-| Records who did what | Yes | No, but shows names recorded in the plugin |
+| Sign-in | Grafana's | Your company's sign-in proxy, when set up |
+| Roles | Viewer / Editor / Admin, from Grafana | Viewer / Editor / Admin, from company groups |
+| Records who did what | Yes | Yes, with sign-in on |
 
-Sign-in and roles for the web UI come with the company's sign-in proxy (step 3 of
-[`adoption-roadmap.md`](adoption-roadmap.md)).
+Without a sign-in proxy the web UI has no roles: everyone can do everything. Setting it up is in
+[`web-ui-sign-in.md`](web-ui-sign-in.md).
 
 ## Check it on your machine
 

@@ -8,6 +8,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { buildAutonomousPreviewRequest } from '../grafana/autonomousPreviewModel';
 import type { AutonomousPolicy, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse, MonitoringCategory } from '../grafana/contracts';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
+import { LockNote } from '../components/LockNote';
 
 function buildPreviewRequestFromPolicy(policy: AutonomousPolicy): AutonomousPreviewRequest {
   return {
@@ -76,6 +78,7 @@ function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume
   onResume: () => void;
   isTogglingStatus: boolean;
 }) {
+  const { canEdit } = useWebPermissions();
   const categoryTitles = policy.monitoring_selection.categories
     .map((id) => categories.find((c) => c.id === id)?.title ?? id)
     .join(', ');
@@ -102,11 +105,11 @@ function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume
           </Typography>
         </Box>
         <Stack direction="row" gap={1}>
-          <Button size="small" startIcon={<EditRoundedIcon />} variant="outlined" onClick={onEdit}>Edit</Button>
+          <Button size="small" startIcon={<EditRoundedIcon />} variant="outlined" disabled={!canEdit} title={canEdit ? undefined : 'Editors can change schedules.'} onClick={onEdit}>Edit</Button>
           {policy.enabled ? (
-            <Button size="small" startIcon={<PauseRoundedIcon />} variant="outlined" disabled={isTogglingStatus} onClick={onPause} title="Stop scheduled runs. The schedule is kept and can be resumed.">Pause</Button>
+            <Button size="small" startIcon={<PauseRoundedIcon />} variant="outlined" disabled={isTogglingStatus || !canEdit} onClick={onPause} title="Stop scheduled runs. The schedule is kept and can be resumed.">Pause</Button>
           ) : (
-            <Button size="small" variant="outlined" disabled={isTogglingStatus} onClick={onResume}>Resume</Button>
+            <Button size="small" variant="outlined" disabled={isTogglingStatus || !canEdit} onClick={onResume}>Resume</Button>
           )}
         </Stack>
       </Stack>
@@ -135,6 +138,7 @@ function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume
 }
 
 export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, enableCategoryRequest, onEnableCategoryHandled, previewNowSignal, onPreviewNowHandled, onPreviewNowStateChange }: Props) {
+  const { canEdit } = useWebPermissions();
   const queryClient = useQueryClient();
   const [environment, setEnvironment] = useState('production');
   const [serviceLabel, setServiceLabel] = useState('service');
@@ -349,18 +353,19 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
           <Button startIcon={<PreviewRoundedIcon />} variant="outlined" disabled={!selectedCategories.length || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
             {previewMutation.isPending ? 'Previewing...' : 'Preview'}
           </Button>
-          <Button startIcon={<PlayArrowRoundedIcon />} variant="outlined" disabled={!selectedCategories.length || runMutation.isPending} onClick={() => runMutation.mutate()}>
+          <Button startIcon={<PlayArrowRoundedIcon />} variant="outlined" disabled={!selectedCategories.length || runMutation.isPending || !canEdit} onClick={() => runMutation.mutate()}>
             {runMutation.isPending ? 'Running...' : 'Run once'}
           </Button>
           <Button
             variant="contained"
-            disabled={!selectedCategories.length || saveMutation.isPending}
+            disabled={!selectedCategories.length || saveMutation.isPending || !canEdit}
             onClick={() => saveMutation.mutate()}
           >
-            {saveMutation.isPending ? 'Saving...' : scheduleMode === 'scheduled' ? 'Save & Schedule' : 'Save'}
+            {saveMutation.isPending ? 'Saving...' : `${canEdit ? '' : '🔒 '}${scheduleMode === 'scheduled' ? 'Save & Schedule' : 'Save'}`}
           </Button>
         </Stack>
       </Stack>
+      {canEdit ? null : <LockNote>{WEB_LOCK_REASONS.saveOrRun}</LockNote>}
 
       {requestError ? (
         <Alert severity="error" sx={{ mb: 2 }}>

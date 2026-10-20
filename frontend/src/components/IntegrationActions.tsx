@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { api } from '../api/queries';
 import { ui } from '../standalone/theme';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 
 // Bundled from sample_data/ruptures_data/ruptures_sample.csv: a checkout cpu_usage series with one
 // abrupt regime shift, so the demo run ends with a real finding rather than an empty page.
@@ -27,6 +28,7 @@ function ResultText({ tone, children }: { tone: 'ok' | 'warn' | 'error'; childre
 }
 
 export function SendTestAlertButton() {
+  const { canAdmin } = useWebPermissions();
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: () => api.sendTestAlert(),
@@ -37,7 +39,7 @@ export function SendTestAlertButton() {
   return (
     <Stack spacing={1}>
       <Box>
-        <Button variant="outlined" size="small" onClick={() => mutation.mutate()} disabled={mutation.isPending} sx={{ textTransform: 'none', fontWeight: 750 }}>
+        <Button variant="outlined" size="small" onClick={() => mutation.mutate()} disabled={mutation.isPending || !canAdmin} title={canAdmin ? undefined : WEB_LOCK_REASONS.admin} sx={{ textTransform: 'none', fontWeight: 750 }}>
           {mutation.isPending ? 'Sending…' : 'Send test alert'}
         </Button>
       </Box>
@@ -64,6 +66,7 @@ async function loadDemoData() {
 
 /** `links`: quiet text buttons, for a one-line mention rather than a tile. */
 export function LoadDemoDataButton({ variant = 'buttons' }: { variant?: 'buttons' | 'links' } = {}) {
+  const { canEdit } = useWebPermissions();
   const links = variant === 'links';
   const queryClient = useQueryClient();
   const mutation = useMutation({
@@ -74,7 +77,7 @@ export function LoadDemoDataButton({ variant = 'buttons' }: { variant?: 'buttons
   return (
     <Stack spacing={1}>
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-        <Button variant={links ? 'text' : 'contained'} size="small" onClick={() => mutation.mutate()} disabled={mutation.isPending} sx={{ textTransform: 'none', fontWeight: 750, ...(links ? {} : { bgcolor: ui.blue }) }}>
+        <Button variant={links ? 'text' : 'contained'} size="small" onClick={() => mutation.mutate()} disabled={mutation.isPending || !canEdit} title={canEdit ? undefined : WEB_LOCK_REASONS.runAnalysis} sx={{ textTransform: 'none', fontWeight: 750, ...(links ? {} : { bgcolor: ui.blue }) }}>
           {mutation.isPending ? 'Analyzing demo data…' : 'Load demo data'}
         </Button>
         <Button component={RouterLink} to="/validate-data" variant={links ? 'text' : 'outlined'} size="small" sx={{ textTransform: 'none', fontWeight: 750 }}>

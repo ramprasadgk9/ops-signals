@@ -38,6 +38,26 @@ spec:
             - name: OPS_SIGNALS_CORS_ORIGINS
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.security.signIn }}
+            - name: OPS_SIGNALS_AUTH_MODE
+              value: {{ .mode | default "none" | quote }}
+            {{- with .userHeader }}
+            - name: OPS_SIGNALS_AUTH_USER_HEADER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .groupsHeader }}
+            - name: OPS_SIGNALS_AUTH_GROUPS_HEADER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .editorGroups }}
+            - name: OPS_SIGNALS_AUTH_EDITOR_GROUPS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .adminGroups }}
+            - name: OPS_SIGNALS_AUTH_ADMIN_GROUPS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.prometheusConnections.config }}
             - name: OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE
               value: /etc/ops-signals/prometheus/connections.yaml

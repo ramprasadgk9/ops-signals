@@ -49,6 +49,7 @@ import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, suppo
 import { CaseTicketCard } from '../components/CaseTicketCard';
 import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { findingLevel } from '../utils/findingLevel';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -92,6 +93,7 @@ function workflowState(label: string, done: boolean, active: boolean) {
 
 export function CaseDetailsPage() {
   const { caseId } = useParams<{ caseId: string }>();
+  const { canEdit } = useWebPermissions();
   const [tabValue, setTabValue] = useState(0);
   const queryClient = useQueryClient();
   const [initialized, setInitialized] = useState(false);
@@ -283,6 +285,11 @@ export function CaseDetailsPage() {
           <Button variant="text" onClick={() => window.location.href = '/'} sx={{ px: 0 }}>
             ← Back to Overview
           </Button>
+          {canEdit ? null : (
+            <Alert severity="warning" role="note" sx={{ mt: 1 }}>
+              {WEB_LOCK_REASONS.workCase}
+            </Alert>
+          )}
 
           <Stack
             direction={{ xs: 'column', md: 'row' }}
@@ -324,7 +331,7 @@ export function CaseDetailsPage() {
                 <Button
                   variant="contained"
                   onClick={() => indexMemoryMutation.mutate()}
-                  disabled={indexMemoryMutation.isPending}
+                  disabled={indexMemoryMutation.isPending || !canEdit}
                 >
                   {indexMemoryMutation.isPending ? 'Indexing…' : 'Add to Memory'}
                 </Button>
@@ -530,7 +537,7 @@ export function CaseDetailsPage() {
                       </Typography>
                       <Typography variant="body2">
                         {new Date(caseData.created_at).toLocaleString()}
-                        {caseData.created_by ? ` by ${caseData.created_by} (in Grafana)` : ''}
+                        {caseData.created_by ? ` by ${caseData.created_by}` : ''}
                       </Typography>
                     </Box>
                     {caseData.resolved_at ? (
@@ -540,7 +547,7 @@ export function CaseDetailsPage() {
                         </Typography>
                         <Typography variant="body2">
                           {new Date(caseData.resolved_at).toLocaleString()}
-                          {caseData.resolved_by ? ` by ${caseData.resolved_by} (in Grafana)` : ''}
+                          {caseData.resolved_by ? ` by ${caseData.resolved_by}` : ''}
                         </Typography>
                       </Box>
                     ) : null}
@@ -563,7 +570,7 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
-              <CaseTicketCard caseId={caseData.id} />
+              <CaseTicketCard caseId={caseData.id} readOnly={!canEdit} />
             </Grid>
           </Grid>
         </TabPanel>
@@ -645,7 +652,7 @@ export function CaseDetailsPage() {
                       placeholder="Capture what you checked, what you ruled out, and what to do next."
                     />
 
-                    <Button variant="contained" onClick={() => updateInvestigationMutation.mutate()} disabled={updateInvestigationMutation.isPending}>
+                    <Button variant="contained" onClick={() => updateInvestigationMutation.mutate()} disabled={updateInvestigationMutation.isPending || !canEdit}>
                       {updateInvestigationMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
                       Save Investigation
                     </Button>
@@ -678,7 +685,7 @@ export function CaseDetailsPage() {
                   )}
                 </CardContent>
               </Card>
-              <CaseTicketCard caseId={caseData.id} />
+              <CaseTicketCard caseId={caseData.id} readOnly={!canEdit} />
             </Grid>
           </Grid>
         </TabPanel>
@@ -743,7 +750,7 @@ export function CaseDetailsPage() {
                     />
 
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                      <Button variant="contained" onClick={() => updateRCAMutation.mutate()} disabled={updateRCAMutation.isPending}>
+                      <Button variant="contained" onClick={() => updateRCAMutation.mutate()} disabled={updateRCAMutation.isPending || !canEdit}>
                         {updateRCAMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
                         Save Root Cause
                       </Button>
@@ -847,7 +854,7 @@ export function CaseDetailsPage() {
                   <Button
                     variant="contained"
                     onClick={() => updateResolutionMutation.mutate()}
-                    disabled={updateResolutionMutation.isPending || !canSaveResolution}
+                    disabled={updateResolutionMutation.isPending || !canSaveResolution || !canEdit}
                   >
                     {updateResolutionMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
                     Save Resolution
@@ -911,7 +918,7 @@ export function CaseDetailsPage() {
                       <Button
                         variant="contained"
                         onClick={() => indexMemoryMutation.mutate()}
-                        disabled={indexMemoryMutation.isPending || caseData.memory_status === 'indexed'}
+                        disabled={indexMemoryMutation.isPending || caseData.memory_status === 'indexed' || !canEdit}
                       >
                         {indexMemoryMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
                         {caseData.memory_status === 'indexed' ? 'Published' : caseData.memory_status === 'stale' ? 'Refresh Knowledge' : 'Publish Knowledge'}
