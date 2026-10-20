@@ -16,8 +16,8 @@ Ops Signals has four release artifacts:
 Output (the zip is named after the plugin's own version, `info.version` in `frontend/plugin.json`):
 
 ```text
-dist/release/0.5.0/<plugin-id>-1.0.34.zip
-dist/release/0.5.0/<plugin-id>-1.0.34.zip.sha1
+dist/release/0.5.0/<plugin-id>-<version>.zip
+dist/release/0.5.0/<plugin-id>-<version>.zip.sha1
 ```
 
 The zip holds one folder named after the plugin id, as Grafana expects, so it can be unzipped
