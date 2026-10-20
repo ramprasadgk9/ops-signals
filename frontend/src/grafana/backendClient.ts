@@ -363,6 +363,7 @@ function toGrafanaFinding(finding: Finding): GrafanaAnalysisFinding {
     signal_ids: finding.signal_ids ?? [],
     comparison_json: finding.comparison_json ?? {},
     trust: finding.trust ?? null,
+    plain: finding.plain ?? null,
   };
 }
 

@@ -17,6 +17,8 @@ import { LOCK_REASONS, usePermissions } from './permissions';
 import { byLine } from '../utils/actorLine';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginFindingTrust } from './PluginFindingTrust';
+import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
+import { plainParagraph } from '../utils/findingPlain';
 import { PluginSameFix } from './PluginSameFix';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import type {
@@ -408,6 +410,7 @@ function buildAssistantMemoryPrompt(
     `router_recommended: ${routing.filter((item) => item.recommendation === 'RECOMMENDED').map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') || 'none'}`,
     `router_optional: ${routing.filter((item) => item.recommendation === 'OPTIONAL').map((item) => `${item.display_name} ${item.final_score.toFixed(2)}`).join(', ') || 'none'}`,
     `top_finding: ${finding ? `${finding.title} - ${finding.summary}` : 'none'}`,
+    `top_finding_in_plain_words: ${plainParagraph(finding?.plain) ?? 'none'}`,
     `signals: ${signals.length ? signals.slice(0, 5).map((signal) => `${signal.analyzer_id}:${signal.severity}:${signal.summary}`).join(' | ') : 'none'}`,
     "",
     "Answer using current run evidence first. Include historical/vector memory context only when relevant.",
@@ -548,8 +551,13 @@ function PrimaryFindingCard({
           <StatusPill tone={({ error: 'danger', warning: 'warning', default: 'neutral' } as const)[findingLevel(finding.health_status).chip]}>{`${findingLevel(finding.health_status).label} importance`.toUpperCase()}</StatusPill>
           <button type="button" style={buttonStyle()}>...</button>
         </div>
-        <h2 style={{ margin: 0 }}>{finding.title}</h2>
-        <p style={{ ...styles.muted, margin: 0 }}>{finding.summary || 'Operational behavior changed during the selected window.'}</p>
+        {finding.plain ? <PluginPlainBadge plain={finding.plain} /> : null}
+        <h2 style={{ margin: 0 }}>{finding.plain?.headline ?? finding.title}</h2>
+        {finding.plain ? (
+          <PluginPlainFinding plain={finding.plain} details={`${finding.title} ${finding.summary}`} />
+        ) : (
+          <p style={{ ...styles.muted, margin: 0 }}>{finding.summary || 'Operational behavior changed during the selected window.'}</p>
+        )}
         <div style={styles.row}>
           <StatusPill>Importance {formatNumber(finding.importance_score)}</StatusPill>
           <StatusPill>Confidence {formatNumber(finding.importance_score)}</StatusPill>
@@ -1046,8 +1054,13 @@ export function InvestigationDrawer({
         <div style={styles.drawerBody}>
           {activeStep === 'Finding' ? (
             <div style={styles.stack}>
-              <h3 style={{ margin: 0 }}>{shownFinding?.title ?? 'Finding snapshot'}</h3>
-              <p style={{ ...styles.muted, margin: 0 }}>{shownFinding?.summary}</p>
+              {shownFinding?.plain ? <PluginPlainBadge plain={shownFinding.plain} /> : null}
+              <h3 style={{ margin: 0 }}>{shownFinding?.plain?.headline ?? shownFinding?.title ?? 'Finding snapshot'}</h3>
+              {shownFinding?.plain ? (
+                <PluginPlainFinding plain={shownFinding.plain} details={`${shownFinding.title} ${shownFinding.summary}`} />
+              ) : (
+                <p style={{ ...styles.muted, margin: 0 }}>{shownFinding?.summary}</p>
+              )}
               <div style={styles.detailGrid}>
                 <span>Importance</span><strong>{findingLevel(shownFinding?.health_status).label}</strong>
                 {result ? (
