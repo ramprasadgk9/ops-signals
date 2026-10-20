@@ -15,6 +15,7 @@
 analyzers:
   baseline_shift:
     display_name: Baseline Shift
+    description: "Checks whether the metric's normal level changed and stayed changed. Example: latency settles at 425 ms instead of 620 ms."
     enabled: true
     class_path: intelligence.analyzers.baseline_shift.BaselineShiftAnalyzer
     runtime_params:
@@ -28,6 +29,7 @@ analyzers:
 
   ruptures:
     display_name: Ruptures
+    description: "Finds the moment a metric jumps to a new normal level and stays there. Example: CPU jumps after a deploy."
     enabled: true
     class_path: intelligence.analyzers.ruptures.RupturesAnalyzer
     runtime_params:
@@ -36,6 +38,7 @@ analyzers:
 
   anomaly_zscore:
     display_name: Z-Score Anomaly
+    description: "Flags readings far from the series' average. Used for spikes on short series. Example: CPU reaches 96%."
     enabled: true
     class_path: intelligence.analyzers.anomaly_zscore.ZScoreAnomalyAnalyzer
     runtime_params:
@@ -57,6 +60,7 @@ analyzers:
 
   pyod_outlier:
     display_name: PyOD Outlier
+    description: "Flags short, sharp spikes that don't fit the usual range. Example: one reading of 85 among readings around 40."
     enabled: true
     class_path: intelligence.analyzers.pyod_outlier.PyODOutlierAnalyzer
     runtime_params:
@@ -83,6 +87,7 @@ analyzers:
 
   trend:
     display_name: Trend Analysis
+    description: "Spots slow, steady climbs or drops. Example: memory grows every hour."
     enabled: true
     class_path: intelligence.analyzers.trend.TrendAnalyzer
     runtime_params:
@@ -94,6 +99,7 @@ analyzers:
 
   stumpy:
     display_name: STUMPY
+    description: "Finds a stretch that looks unlike the rest of the series. Example: one day's CPU surge that doesn't end."
     enabled: true
     class_path: intelligence.analyzers.stumpy.STUMPYAnalyzer
     # Runs on every series, outside the router's slots: in discord mode it stays quiet unless a
@@ -121,6 +127,7 @@ analyzers:
 
   prophet:
     display_name: Prophet
+    description: "Forecasts the expected value from trend and daily cycles, and flags big misses. Example: Sunday traffic double the forecast."
     enabled: true
     class_path: intelligence.analyzers.prophet.ProphetAnalyzer
     # Optional dependency. Without it ProphetAnalyzer falls back to a straight-line fit, so the

@@ -29,6 +29,7 @@ export type RunExecution = {
   shapes?: string[];
   missing_library?: string | null;
   in_finding?: boolean | null;
+  description?: string | null;
 };
 
 export type RanTone = 'pick' | 'cover' | 'always' | 'failed';
@@ -42,6 +43,8 @@ export type RanAnalyzer = {
   /** "In the finding" / "No finding"; null when the run didn't record it. */
   outcome: string | null;
   inFinding: boolean | null;
+  /** What the analyzer looks for, shown as a tip; null for runs saved before descriptions. */
+  description: string | null;
 };
 
 export type MissingLibrary = { id: string; name: string; library: string };
@@ -54,6 +57,7 @@ export type ScoredAnalyzer = {
   shapes: string[];
   outcome: string;
   ran: boolean;
+  description: string | null;
 };
 
 export type AnalyzerRunView = {
@@ -197,6 +201,7 @@ export function buildAnalyzerRunView(
         reason: execution.execution_reason || routerWording(decision),
         outcome: failed ? null : findingOutcome(execution.in_finding, findingCount),
         inFinding: failed ? null : execution.in_finding ?? null,
+        description: execution.description ?? null,
       });
     } else if (execution.run_reason === 'library_missing') {
       missingLibraries.push({ id, name, library: execution.missing_library || id });
@@ -221,6 +226,7 @@ export function buildAnalyzerRunView(
         shapes: shapeNames(execution?.shapes ?? []),
         outcome: scoredOutcome(execution),
         ran: status === 'completed' || status === 'failed',
+        description: execution?.description ?? null,
       };
     })
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));

@@ -27,7 +27,7 @@ const executions: RunExecution[] = [
   { router_analyzer_id: 'adtk', execution_status: 'skipped', run_reason: 'not_built_in' },
   ran('trend_regression', 'router_pick', false, { display_name: 'Trend Regression' }),
   ran('pyod_outlier', 'covers_shape', false, { shapes: ['spike'], execution_reason: 'Ran to cover the spikes the router detected.' }),
-  ran('stumpy', 'always_run', false, { execution_reason: 'Runs on every series.' }),
+  ran('stumpy', 'always_run', false, { execution_reason: 'Runs on every series.', description: 'Finds a stretch that looks unlike the rest of the series.' }),
   ran('data_health', 'always_run', false),
   { router_analyzer_id: 'prophet', execution_status: 'skipped', run_reason: 'library_missing', missing_library: 'prophet' },
 ];
@@ -71,6 +71,12 @@ describe('buildAnalyzerRunView', () => {
     expect(byId.prophet).toMatchObject({ rating: 'Ruled out', outcome: 'Library not installed', ran: false });
   });
 
+  it('carries each analyzer description for its tip', () => {
+    expect(view.ran.find((row) => row.id === 'stumpy')?.description).toBe('Finds a stretch that looks unlike the rest of the series.');
+    expect(view.scored.find((row) => row.id === 'stumpy')?.description).toBe('Finds a stretch that looks unlike the rest of the series.');
+    expect(view.ran.find((row) => row.id === 'ruptures')?.description).toBeNull();
+  });
+
   it('names the detected shapes', () => {
     expect(view.detectedShapes).toEqual(['spikes', 'baseline shift', 'trend']);
   });
@@ -81,7 +87,7 @@ describe('buildAnalyzerRunView', () => {
       [{ router_analyzer_id: 'stumpy', execution_status: 'completed', execution_reason: null }],
     );
     expect(legacy.ran).toEqual([
-      { id: 'stumpy', name: 'STUMPY', label: 'Ran', tone: 'pick', reason: 'Repeating pattern.', outcome: null, inFinding: null },
+      { id: 'stumpy', name: 'STUMPY', label: 'Ran', tone: 'pick', reason: 'Repeating pattern.', outcome: null, inFinding: null, description: null },
     ]);
   });
 

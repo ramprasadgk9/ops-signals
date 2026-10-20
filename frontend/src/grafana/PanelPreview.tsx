@@ -115,6 +115,27 @@ function signalsForFinding(result: GrafanaAnalysisResult, selectedFinding: Grafa
   return result.signals.filter((signal) => ids.has(signal.id));
 }
 
+/** What the analyzer looks for, shown under its row on click (hover-only tips fail on touch). */
+function AnalyzerTip({ name, text }: { name: string; text: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`What ${name} does`}
+        aria-expanded={open}
+        title={text}
+        onClick={() => setOpen((value) => !value)}
+        style={{ background: 'transparent', border: 'none', color: 'rgba(204, 204, 220, 0.72)', cursor: 'pointer', padding: 0, fontSize: 13 }}
+      >
+        ⓘ
+      </button>
+      {open ? <span style={{ ...styles.muted, flexBasis: '100%', order: 99, fontSize: 12 }}>{text}</span> : null}
+    </>
+  );
+}
+
 const RAN_TONES: Record<RanTone, 'success' | 'warning' | 'danger' | 'neutral'> = {
   pick: 'success',
   cover: 'success',
@@ -145,6 +166,7 @@ export function AnalyzerRunsList({ result }: { result: GrafanaAnalysisResult }) 
           <div key={row.id} data-testid={`ran-analyzer-${row.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '4px 0' }}>
             <StatusPill tone={RAN_TONES[row.tone]}>{row.label}</StatusPill>
             <strong>{row.name}</strong>
+            <AnalyzerTip name={row.name} text={row.description} />
             {row.reason ? <span style={styles.muted}>· {row.reason}</span> : null}
             {row.outcome ? <span style={{ ...styles.muted, marginLeft: 'auto' }}>{row.outcome}</span> : null}
           </div>
@@ -177,6 +199,7 @@ export function AnalyzerRunsList({ result }: { result: GrafanaAnalysisResult }) 
                 <div key={row.id} data-testid={`router-score-${row.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '4px 0' }}>
                   <StatusPill tone="neutral">{row.rating}</StatusPill>
                   <strong>{row.name}</strong>
+                  <AnalyzerTip name={row.name} text={row.description} />
                   <span style={styles.muted}>{row.score === null ? '' : formatNumber(row.score)} · {row.outcome}</span>
                 </div>
               ))}

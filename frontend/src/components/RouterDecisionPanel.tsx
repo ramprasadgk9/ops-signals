@@ -5,14 +5,18 @@ import {
   Card,
   CardContent,
   Chip,
+  ClickAwayListener,
+  IconButton,
   Stack,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { ui } from '../standalone/theme';
 import type { AnalyzerExecution, CsvAnalyzerRoutingDecision } from '../types';
 import { useWebPermissions } from '../hooks/useWebPermissions';
@@ -47,6 +51,32 @@ const TONE_SX: Record<RanTone, object> = {
   always: { bgcolor: 'var(--os-surface-alt)', color: 'var(--os-text-2)' },
   failed: { bgcolor: 'var(--os-tint-rose)', color: 'var(--os-ink-red)' },
 };
+
+/** What the analyzer looks for, on hover, keyboard focus or tap, so nobody has to open the docs. */
+function AnalyzerTip({ name, text }: { name: string; text: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <ClickAwayListener onClickAway={() => setOpen(false)}>
+      <span>
+        <Tooltip title={text} open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)} arrow describeChild>
+          <IconButton size="small" aria-label={`What ${name} does`} onClick={() => setOpen((value) => !value)} sx={{ p: 0.25, color: ui.muted }}>
+            <InfoOutlinedIcon sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+      </span>
+    </ClickAwayListener>
+  );
+}
+
+function AnalyzerName({ name, description, bold = true }: { name: string; description: string | null; bold?: boolean }) {
+  return (
+    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+      <Typography component="span" sx={{ fontSize: 13, fontWeight: bold ? 800 : 500 }}>{name}</Typography>
+      <AnalyzerTip name={name} text={description} />
+    </Stack>
+  );
+}
 
 function MissingLibraryHint({ name, library }: { name: string; library: string }) {
   const [showHow, setShowHow] = useState(false);
@@ -151,7 +181,7 @@ export function RouterDecisionPanel({
                         borderTop: index === 0 ? 'none' : `1px solid ${ui.border}`,
                       }}
                     >
-                      <Typography sx={{ fontSize: 13, fontWeight: 800 }}>{row.name}</Typography>
+                      <AnalyzerName name={row.name} description={row.description} />
                       <Chip size="small" label={row.label} sx={{ ...TONE_SX[row.tone], fontWeight: 800, justifySelf: 'start' }} />
                       <Typography sx={{ fontSize: 12, color: row.tone === 'failed' ? ui.red : ui.muted, gridColumn: { xs: '1 / -1', md: 'auto' }, minWidth: 0 }}>
                         {row.reason}
@@ -192,7 +222,7 @@ export function RouterDecisionPanel({
                         <TableBody>
                           {view.scored.map((row) => (
                             <TableRow key={row.id} data-testid={`router-score-${row.id}`}>
-                              <TableCell sx={{ fontWeight: row.ran ? 800 : 500 }}>{row.name}</TableCell>
+                              <TableCell><AnalyzerName name={row.name} description={row.description} bold={row.ran} /></TableCell>
                               <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>{row.score === null ? '—' : row.score.toFixed(2)}</TableCell>
                               <TableCell data-testid={`router-rating-${row.id}`}>{row.rating}</TableCell>
                               <TableCell sx={{ color: ui.muted }}>{row.shapes.length ? row.shapes.join(', ') : '—'}</TableCell>

@@ -73,6 +73,8 @@ type AnalyzerConfig = {
   runtime_params: Record<string, unknown>;
   selected_explanation: string;
   excluded_explanation: string;
+  /** What it looks for, in plain words; shown as a tip next to its name in results. */
+  description?: string;
   source?: 'builtin' | 'custom';
   routable?: boolean;
   executable?: boolean;
@@ -1114,6 +1116,14 @@ export function AddAnalyzerPage() {
             <TextField fullWidth label="Analyzer ID" value={form.analyzer_id} onChange={(event) => setForm({ ...form, analyzer_id: event.target.value })} />
             <TextField fullWidth label="Display Name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} />
           </Stack>
+          <TextField
+            fullWidth
+            label="What it looks for (optional)"
+            placeholder="Finds a day that breaks the usual weekly pattern. Example: Monday traffic at Sunday levels."
+            helperText="One or two plain sentences. Shown as a tip next to the analyzer's name in results."
+            value={form.description ?? ''}
+            onChange={(event) => setForm({ ...form, description: event.target.value })}
+          />
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField fullWidth label="Template Type" value={form.template_type} onChange={(event) => setForm({ ...form, template_type: event.target.value })} />
             {runtimeDesign.type !== 'external_http' ? (

@@ -28,7 +28,7 @@ const result = {
   analyzerExecutions: [
     { router_analyzer_id: 'ruptures', execution_status: 'completed', run_reason: 'router_pick', in_finding: true, execution_reason: 'Picked by the router for this series.' },
     { router_analyzer_id: 'kats', execution_status: 'skipped', run_reason: 'not_built_in' },
-    { router_analyzer_id: 'stumpy', execution_status: 'completed', run_reason: 'always_run', in_finding: false, execution_reason: 'Runs on every series.' },
+    { router_analyzer_id: 'stumpy', execution_status: 'completed', run_reason: 'always_run', in_finding: false, execution_reason: 'Runs on every series.', description: 'Finds a stretch that looks unlike the rest of the series.' },
     { router_analyzer_id: 'prophet', execution_status: 'skipped', run_reason: 'library_missing', missing_library: 'prophet' },
   ],
 } as GrafanaAnalysisResult;
@@ -50,6 +50,15 @@ describe('plugin AnalyzerRunsList', () => {
     expect(within(stumpy).getByText('Runs on every series')).toBeInTheDocument();
     expect(within(stumpy).queryByText(/Profiles did not match/)).not.toBeInTheDocument();
     expect(within(screen.getByTestId('ran-analyzer-ruptures')).getByText('In the finding')).toBeInTheDocument();
+  });
+
+  it('shows what an analyzer does when its tip is clicked', () => {
+    renderList(null);
+
+    const stumpy = screen.getByTestId('ran-analyzer-stumpy');
+    expect(within(stumpy).queryByText('Finds a stretch that looks unlike the rest of the series.')).not.toBeInTheDocument();
+    fireEvent.click(within(stumpy).getByRole('button', { name: 'What STUMPY does' }));
+    expect(within(stumpy).getByText('Finds a stretch that looks unlike the rest of the series.')).toBeInTheDocument();
   });
 
   it('folds the rest and lists catalog-only analyzers separately', () => {

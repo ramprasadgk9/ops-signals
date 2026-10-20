@@ -17,7 +17,7 @@ const decisions: CsvAnalyzerRoutingDecision[] = [
 const executions: AnalyzerExecution[] = [
   { router_analyzer_id: 'ruptures', execution_status: 'completed', run_reason: 'router_pick', in_finding: true, execution_reason: 'Picked by the router for this series.' },
   { router_analyzer_id: 'kats', execution_status: 'skipped', run_reason: 'not_built_in' },
-  { router_analyzer_id: 'stumpy', execution_status: 'completed', run_reason: 'always_run', in_finding: false, execution_reason: 'Runs on every series.' },
+  { router_analyzer_id: 'stumpy', execution_status: 'completed', run_reason: 'always_run', in_finding: false, execution_reason: 'Runs on every series.', description: 'Finds a stretch that looks unlike the rest of the series.' },
   { router_analyzer_id: 'prophet', execution_status: 'skipped', run_reason: 'library_missing', missing_library: 'prophet' },
 ];
 
@@ -63,6 +63,16 @@ describe('RouterDecisionPanel', () => {
     expect(within(stumpy).getByText('Runs on every series.')).toBeInTheDocument();
     expect(within(stumpy).queryByText('Profiles did not match.')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ran-analyzer-kats')).not.toBeInTheDocument();
+  });
+
+  it('explains what an analyzer does from a tip next to its name', async () => {
+    renderPanel('none');
+
+    const stumpy = screen.getByTestId('ran-analyzer-stumpy');
+    fireEvent.click(within(stumpy).getByRole('button', { name: 'What STUMPY does' }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Finds a stretch that looks unlike the rest of the series.');
+    expect(within(screen.getByTestId('ran-analyzer-ruptures')).queryByRole('button', { name: /What Ruptures does/ })).not.toBeInTheDocument();
   });
 
   it('folds the scoring and keeps catalog-only analyzers apart', () => {

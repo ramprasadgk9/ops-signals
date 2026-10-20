@@ -409,6 +409,7 @@ class RegistryAnalyzerSelection:
                     "shapes": self._matched_shapes(decision),
                     "missing_library": missing_library,
                     "in_finding": None,
+                    "description": self._description(pipeline_ids, registrations),
                 }
             )
         for analyzer_id in executed_analyzers:
@@ -432,6 +433,7 @@ class RegistryAnalyzerSelection:
                     "shapes": [],
                     "missing_library": None,
                     "in_finding": None,
+                    "description": self._description([analyzer_id], registrations),
                 }
             )
         for analyzer_id, error in failed_analyzers.items():
@@ -454,6 +456,7 @@ class RegistryAnalyzerSelection:
                     "shapes": [],
                     "missing_library": None,
                     "in_finding": None,
+                    "description": self._description([analyzer_id], registrations),
                 }
             )
         return snapshots
@@ -478,6 +481,15 @@ class RegistryAnalyzerSelection:
             executed_ids = snapshot.get("executed_pipeline_analyzer_ids") or []
             if executed_ids:
                 snapshot["in_finding"] = bool(contributors & set(executed_ids))  # type: ignore[arg-type]
+
+    @staticmethod
+    def _description(pipeline_ids: list[str], registrations: dict[str, AnalyzerRegistration]) -> str | None:
+        """What the analyzer does in plain words, from its registration; None for a router
+        candidate that isn't built in."""
+        return next(
+            (registrations[pipeline_id].description for pipeline_id in pipeline_ids if pipeline_id in registrations and registrations[pipeline_id].description),
+            None,
+        )
 
     @staticmethod
     def _run_reason(

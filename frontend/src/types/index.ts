@@ -637,6 +637,8 @@ export type AnalyzerExecution = {
   missing_library?: string | null;
   /** Whether its signals are part of a finding; null when it didn't run or the run predates this. */
   in_finding?: boolean | null;
+  /** What the analyzer looks for, in plain words, from its registration. */
+  description?: string | null;
 };
 
 export type AnalysisRun = {

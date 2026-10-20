@@ -12,7 +12,9 @@ Includes Grafana plugin 1.0.35.
   listed apart. When an analyzer's library is missing (Prophet), admins see how to install it. Each
   run records the reason as `run_reason` and `in_finding` on its analyzer executions; see
   `docs/analyzer-recommendation.md#why-an-analyzer-ran-or-didnt`. In `all` mode, an analyzer the
-  router rated below "recommended" that ran no longer reads "skipped".
+  router rated below "recommended" that ran no longer reads "skipped". An ⓘ next to each analyzer
+  says in plain words what it looks for, from the new `description` field in its registration (the
+  Add Analyzer wizard has a "What it looks for" field for custom analyzers).
 - **Sign-in and roles for the web UI.** Behind your company's sign-in proxy, set
   `OPS_SIGNALS_AUTH_MODE=proxy-headers` (with an API token): the backend reads the signed-in user
   and their groups from the proxy's headers, and `OPS_SIGNALS_AUTH_EDITOR_GROUPS` /

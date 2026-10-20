@@ -5,8 +5,12 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
 import intelligence.analyzer_selection as analyzer_selection
+from backend.app.api.admin_analyzers import AnalyzerConfigIn, ScoringRuleIn
+from backend.app.api.analyzer_labs import _config_to_registration_dict
+from intelligence.analyzer_registry import load_registrations
 from intelligence.config import AnalyzerConfig, load_config
 from intelligence.findings.schema import OperationalFinding
 from intelligence.pipeline import SignalPipeline
@@ -239,3 +243,60 @@ def test_an_aliased_analyzer_is_not_listed_twice() -> None:
 
     assert [item["router_analyzer_id"] for item in snapshots] == ["trend_regression"]
     assert snapshots[0]["executed_pipeline_analyzer_ids"] == ["trend"]
+
+
+# What each analyzer does, in plain words, is shown as a tip next to its name in the web UI and
+# the Grafana plugin, so nobody has to leave the results to look it up.
+
+
+def test_every_registered_analyzer_has_a_description() -> None:
+    registrations = load_registrations(PROJECT_ROOT / "config" / "analyzer_registry.d")
+
+    missing = [registration.analyzer_id for registration in registrations if not registration.description]
+
+    assert missing == []
+
+
+def test_snapshots_carry_the_analyzer_description() -> None:
+    pipeline = _pipeline()
+
+    snapshots = pipeline._executed_analyzer_snapshots(
+        [_decision("trend_regression", "RECOMMENDED", 0.9, ["trend"]), _decision("kats", "RECOMMENDED", 0.82)],
+        ["trend", "anomaly_zscore"],
+        selected_analyzers={"trend_regression"},
+    )
+
+    by_id = {item["router_analyzer_id"]: item for item in snapshots}
+    assert by_id["trend_regression"]["description"].startswith("Spots slow, steady climbs or drops.")
+    assert by_id["anomaly_zscore"]["description"].startswith("Flags readings far from the series' average.")
+    assert by_id["kats"]["description"] is None
+
+
+def test_a_blank_description_reads_as_none(tmp_path: Path) -> None:
+    (tmp_path / "custom_probe.yml").write_text(
+        "analyzers:\n  probe:\n    display_name: Probe\n    description: '  '\n    class_path: a.b.C\n"
+    )
+
+    [registration] = load_registrations(tmp_path)
+
+    assert registration.description is None
+
+
+@pytest.mark.parametrize("description, expected", [("Finds odd days. Example: Monday at Sunday levels.", "Finds odd days. Example: Monday at Sunday levels."), ("", None)])
+def test_the_add_analyzer_wizard_writes_its_description(tmp_path: Path, description: str, expected: str | None) -> None:
+    config = AnalyzerConfigIn(
+        analyzer_id="odd_days",
+        display_name="Odd Days",
+        template_type="Custom",
+        library="pandas",
+        supported_profiles=["seasonal"],
+        scoring_rules=[ScoringRuleIn(metric="seasonality_strength", operator="gte", threshold=0.4, add=0.2)],
+        selected_explanation="selected",
+        excluded_explanation="excluded",
+        description=description,
+    )
+    (tmp_path / "custom_odd_days.yml").write_text(yaml.safe_dump({"analyzers": {"odd_days": _config_to_registration_dict(config)}}))
+
+    [registration] = load_registrations(tmp_path)
+
+    assert registration.description == expected
