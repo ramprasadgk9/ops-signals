@@ -152,8 +152,9 @@ def _load(path: str, mtime: float) -> Wording | None:
     return parse_wording(raw)
 
 
-def load_wording(path: Path = TEMPLATES_PATH) -> Wording | None:
+def load_wording(path: Path | None = None) -> Wording | None:
     """The wording file, re-read when it changes. None when it is missing or broken."""
+    path = path or TEMPLATES_PATH
     if not path.exists():
         return None
     return _load(str(path), path.stat().st_mtime)
@@ -786,7 +787,7 @@ def _build_rows(db: Session, rows: Iterable[FindingEntity], wording: Wording) ->
     return built
 
 
-def finding_plain(db: Session, rows: list[FindingEntity], path: Path = TEMPLATES_PATH) -> dict[int, dict[str, Any]]:
+def finding_plain(db: Session, rows: list[FindingEntity], path: Path | None = None) -> dict[int, dict[str, Any]]:
     """Plain wording for each finding that has one, keyed by finding id."""
     wording = load_wording(path)
     if wording is None or not rows:
@@ -815,7 +816,7 @@ def finding_plain(db: Session, rows: list[FindingEntity], path: Path = TEMPLATES
     return {row.id: plain.to_json(wording) for row, plain in built}
 
 
-def plain_for_result(findings: Iterable[Any], signals: Iterable[Any], path: Path = TEMPLATES_PATH) -> list[dict[str, Any] | None]:
+def plain_for_result(findings: Iterable[Any], signals: Iterable[Any], path: Path | None = None) -> list[dict[str, Any] | None]:
     """Plain wording for findings that haven't been saved (CSV and Prometheus validation): the
     pipeline's OperationalFinding and OperationalSignal objects, in the same order as `findings`."""
     wording = load_wording(path)

@@ -22,6 +22,7 @@ from backend.app.models.api_schema import (
 )
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
+from backend.app.services.finding_plain import plain_for_result
 from backend.app.services.timeseries_routing_service import build_csv_routing_config, repo_root
 from backend.app.api.errors import internal_error
 from intelligence.normalize.normalizer import AUTO_INTERVAL, RESOLVED_INTERVALS_ATTR, VALIDATION_WARNINGS_ATTR
@@ -407,6 +408,7 @@ def _validate_csv_upload(
             )
             for signal in result.signals
         ]
+        plain_wording = plain_for_result(result.findings, result.signals)
         finding_payloads = [
             ValidationFindingOut(
                 metric_name=finding.metric_name,
@@ -419,8 +421,9 @@ def _validate_csv_upload(
                 investigation_priority=finding.investigation_priority,
                 signal_ids=finding.signal_ids,
                 comparison_json=finding.comparison_json,
+                plain=plain,
             )
-            for finding in result.findings
+            for finding, plain in zip(result.findings, plain_wording)
         ]
 
         return CsvValidationOut(
