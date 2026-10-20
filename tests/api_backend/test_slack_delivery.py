@@ -253,3 +253,30 @@ def test_without_the_outbox_a_background_send_still_happens_once(background_slac
     webhook.release.set()
     notifier.close()
     assert len(webhook.received) == 1
+
+
+def test_a_saved_finding_is_posted_in_plain_words(slack) -> None:
+    import json
+    from pathlib import Path
+
+    from backend.app.models.entities import FindingEntity, SignalEntity
+
+    notifier, webhook = slack
+    item = next(entry for entry in json.loads((Path(__file__).parents[1] / "fixtures" / "plain_findings_real.json").read_text(encoding="utf-8")) if entry["id"] == 8300)
+    with get_session_local()() as db:
+        for signal in item["signals"]:
+            db.add(SignalEntity(signal_id=signal["signal_id"], signal_type=signal["signal_type"], analyzer_id=signal["analyzer_id"], metric_name=item["metric_name"],
+                                service=item["service"], start_time=datetime.fromisoformat(signal["start_time"]), end_time=datetime.fromisoformat(signal["end_time"]),
+                                evidence_json=signal["evidence"], importance_score=0.7))
+        db.add(FindingEntity(id=8300, service=item["service"], metric_name=item["metric_name"], title=item["title"], summary=item["summary"], category=item["category"],
+                             health_status="significant", importance_score=0.8, investigation_priority=2, signal_ids=[s["signal_id"] for s in item["signals"]],
+                             comparison_json=item["comparison_json"]))
+        db.commit()
+
+    notifier.notify_findings([_finding(id=8300, service=item["service"], metric_name=item["metric_name"], title=item["title"], summary=item["summary"])])
+
+    [payload] = webhook.received
+    assert payload["blocks"][0]["text"]["text"] == "🟢 Better: Error rate dropped sharply and stayed lower"
+    assert "Since then about 1.2% (down 89%)." in payload["blocks"][1]["text"]["text"]
+    [row] = _rows()
+    assert row.title == item["title"]
