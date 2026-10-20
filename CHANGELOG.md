@@ -4,6 +4,14 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Findings in plain words.** Finding cards in the web UI and the Grafana plugin, and Slack
+  messages, now lead with a badge (Worse, Better, Monitoring gap, Probably noise, Blip, Changed) and
+  a headline, then what changed in the metric's own units and the reader's time zone, why it
+  matters, what changed at the same moment, and what to check. The stored title and summary are
+  under "Technical details" and don't change. An error rate or latency that dropped now reads
+  "Better" instead of looking like an alarm. The wording is in `config/finding_templates.yaml`;
+  edit it and save. The API returns it as `plain` on each finding. Spike signals also save their
+  peak value. See `docs/finding-wording.md`.
 - **Sign-in and roles for the web UI.** Behind your company's sign-in proxy, set
   `OPS_SIGNALS_AUTH_MODE=proxy-headers` (with an API token): the backend reads the signed-in user
   and their groups from the proxy's headers, and `OPS_SIGNALS_AUTH_EDITOR_GROUPS` /
