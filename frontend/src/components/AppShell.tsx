@@ -13,7 +13,6 @@ import {
 } from '@mui/material';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import InputRoundedIcon from '@mui/icons-material/InputRounded';
-import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
@@ -30,6 +29,8 @@ import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsAc
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
+import { UserChip } from './UserChip';
+import { useWebPermissions } from '../hooks/useWebPermissions';
 import { GlobalSearch } from './GlobalSearch';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -52,6 +53,8 @@ type NavItem = {
   /** Feature id (backend/app/capabilities/availability.py) the page needs a source for. While it
    * is off, the item moves to the "More with Prometheus / Grafana" group. */
   feature?: string;
+  /** Only Admins can change things on this page (backend/app/roles.py); marked for everyone else. */
+  adminOnly?: boolean;
 };
 
 const navItems: NavItem[] = [
@@ -64,23 +67,23 @@ const navItems: NavItem[] = [
   { label: 'Metric Usage', to: '/metric-usage', icon: <VisibilityOutlinedIcon />, feature: 'metric_usage' },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
   { label: 'Behavior Intelligence', to: '/behavior-intelligence', icon: <HubRoundedIcon /> },
-  { label: 'Behavior Lab', to: '/behavior-intelligence/lab', icon: <ScienceRoundedIcon /> },
+  { label: 'Behavior Lab', to: '/behavior-intelligence/lab', icon: <ScienceRoundedIcon />, adminOnly: true },
   { label: 'Operational Memory', to: '/operational-memory', icon: <StorageRoundedIcon /> },
   { label: 'Ask Ops Signals', to: '/assistant', icon: <ChatBubbleOutlineRoundedIcon />, badge: 'Beta' },
   { label: 'New Analysis', to: '/validate-data', icon: <AddRoundedIcon /> },
 ];
 
 const analyzerLabItems: NavItem[] = [
-  { label: 'Z-Score Anomaly Lab', to: '/experiments/zscore-anomaly-lab', icon: <ScienceRoundedIcon /> },
-  { label: 'PyOD Outlier Lab', to: '/experiments/pyod-outlier-lab', icon: <ScienceRoundedIcon /> },
-  { label: 'Prophet Forecast Lab', to: '/experiments/prophet-forecast-lab', icon: <TimelineRoundedIcon /> },
-  { label: 'Ruptures Change Point Lab', to: '/experiments/ruptures-change-point-lab', icon: <TimelineRoundedIcon /> },
-  { label: 'STUMPY Motif Lab', to: '/experiments/stumpy-motif-lab', icon: <TimelineRoundedIcon /> },
-  { label: 'Trend Lab', to: '/experiments/trend-lab', icon: <TimelineRoundedIcon /> },
+  { label: 'Z-Score Anomaly Lab', to: '/experiments/zscore-anomaly-lab', icon: <ScienceRoundedIcon />, adminOnly: true },
+  { label: 'PyOD Outlier Lab', to: '/experiments/pyod-outlier-lab', icon: <ScienceRoundedIcon />, adminOnly: true },
+  { label: 'Prophet Forecast Lab', to: '/experiments/prophet-forecast-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
+  { label: 'Ruptures Change Point Lab', to: '/experiments/ruptures-change-point-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
+  { label: 'STUMPY Motif Lab', to: '/experiments/stumpy-motif-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
+  { label: 'Trend Lab', to: '/experiments/trend-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
 ];
 
 const analyzerWorkbenchItems: NavItem[] = [
-  { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon /> },
+  { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon />, adminOnly: true },
   { label: 'Recommendations', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon /> },
 ];
 
@@ -91,6 +94,7 @@ const systemItems: NavItem[] = [
 
 function NavButton({ item, nested = false, needsSource = false }: { item: NavItem; nested?: boolean; needsSource?: boolean }) {
   const location = useLocation();
+  const { canAdmin } = useWebPermissions();
   const active = item.match ? item.match(location.pathname) : location.pathname === item.to;
   return (
     <Button
@@ -118,6 +122,7 @@ function NavButton({ item, nested = false, needsSource = false }: { item: NavIte
         {item.label}
       </Box>
       {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-violet)', color: ui.purple, fontWeight: 800 }} /> : null}
+      {item.adminOnly && !canAdmin ? <Chip label="🔒 Admin" size="small" title="Only Ops Signals admins can change things here" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', fontWeight: 800 }} /> : null}
       {needsSource ? <Chip label="Connect" size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', fontWeight: 800 }} /> : null}
     </Button>
   );
@@ -309,10 +314,7 @@ export function AppShell({ children }: PropsWithChildren) {
             </IconButton>
           </Tooltip>
           <ThemeToggle />
-          <Avatar sx={{ width: 40, height: 40, bgcolor: '#60a5fa' }}>
-            <PersonRoundedIcon />
-          </Avatar>
-          <KeyboardArrowDownRoundedIcon sx={{ color: 'var(--os-muted)', display: { xs: 'none', sm: 'block' } }} />
+          <UserChip />
         </Stack>
       </Box>
 

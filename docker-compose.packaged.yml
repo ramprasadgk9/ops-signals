@@ -42,6 +42,12 @@ services:
       OPS_SIGNALS_PROMETHEUS_URL: ${OPS_SIGNALS_PROMETHEUS_URL:-http://prometheus:9090}
       # See docs/security-model.md. Without a token the API is open to anyone who can reach port 8000.
       OPS_SIGNALS_API_TOKEN: ${OPS_SIGNALS_API_TOKEN:-}
+      # Web UI sign-in through your company's sign-in proxy (docs/web-ui-sign-in.md); off unless set.
+      OPS_SIGNALS_AUTH_MODE: ${OPS_SIGNALS_AUTH_MODE:-none}
+      OPS_SIGNALS_AUTH_USER_HEADER: ${OPS_SIGNALS_AUTH_USER_HEADER:-}
+      OPS_SIGNALS_AUTH_GROUPS_HEADER: ${OPS_SIGNALS_AUTH_GROUPS_HEADER:-}
+      OPS_SIGNALS_AUTH_EDITOR_GROUPS: ${OPS_SIGNALS_AUTH_EDITOR_GROUPS:-}
+      OPS_SIGNALS_AUTH_ADMIN_GROUPS: ${OPS_SIGNALS_AUTH_ADMIN_GROUPS:-}
       OPS_SIGNALS_ALLOW_FILE_WRITES: ${OPS_SIGNALS_ALLOW_FILE_WRITES:-false}
       OPS_SIGNALS_ENABLE_TESTING_API: ${OPS_SIGNALS_ENABLE_TESTING_API:-false}
       # Jira ticketing (docs/configuration.md), off unless set in .env; blank values count as unset.

@@ -17,6 +17,15 @@ security:
   # Comma-separated origins allowed to call the API from a browser (e.g. your Grafana URL). Empty =
   # the built-in localhost defaults.
   corsOrigins: ""
+  # Web UI sign-in through your company's sign-in proxy (docs/web-ui-sign-in.md). Needs
+  # apiTokenSecret. mode "proxy-headers" turns it on; empty headers keep the defaults
+  # (X-Forwarded-Email, X-Forwarded-Groups). Groups are comma-separated.
+  signIn:
+    mode: none
+    userHeader: ""
+    groupsHeader: ""
+    editorGroups: ""
+    adminGroups: ""
 
 # Postgres connection used by the backend and the MCP server. Set urlSecret.name to read the URL
 # from an existing Secret instead (recommended outside local testing): the plain url below then

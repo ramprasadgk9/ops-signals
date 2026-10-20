@@ -31,6 +31,7 @@ import { api } from '../api/queries';
 import { Pill } from '../standalone/components';
 import { ui } from '../standalone/theme';
 import type { CaseImportPreview, CaseImportProfile, CaseImportRecord, CaseImportResult, CaseImportSettings } from '../types';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 
 export const IMPORT_GUIDE_URL = 'https://github.com/ramprasadgk9/ops-signals/blob/main/docs/importing-incident-history.md';
 const ACCEPTED_FILES = '.csv,.md,.markdown,.zip,.yaml,.yml';
@@ -67,6 +68,7 @@ export function buildImportForm(files: File[], settings: CaseImportSettings) {
 type Props = { open: boolean; onClose: () => void };
 
 export function ImportIncidentsDialog({ open, onClose }: Props) {
+  const { canAdmin } = useWebPermissions();
   const queryClient = useQueryClient();
   const profilesQuery = useQuery({ queryKey: ['case-import-profiles'], queryFn: () => api.caseImportProfiles(), enabled: open });
   const [step, setStep] = React.useState(0);
@@ -237,7 +239,8 @@ export function ImportIncidentsDialog({ open, onClose }: Props) {
         {step === 3 && !result ? (
           <Button
             variant="contained"
-            disabled={!writes || importMutation.isPending}
+            disabled={!writes || importMutation.isPending || !canAdmin}
+            title={canAdmin ? undefined : WEB_LOCK_REASONS.admin}
             onClick={() => importMutation.mutate()}
             sx={{ textTransform: 'none', fontWeight: 800 }}
           >

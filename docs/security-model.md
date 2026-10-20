@@ -109,6 +109,11 @@ role on every request and a browser can't change it, so with `OPS_SIGNALS_API_TO
 Grafana can reach the backend) roles can't be bypassed. Without a token, someone who calls the
 backend directly isn't limited by roles at all.
 
+The web UI gets the same roles from your company's groups when it sits behind a sign-in proxy and
+`OPS_SIGNALS_AUTH_MODE=proxy-headers` is set ([`web-ui-sign-in.md`](web-ui-sign-in.md)). The
+backend believes the proxy's user header only with `OPS_SIGNALS_API_TOKEN` set, and only the web
+UI's nginx holds the token, so the web container must be reachable only through the proxy.
+
 ## Who did what
 
 When the plugin connects through Grafana, Grafana's plugin proxy adds `X-Grafana-Context` to each
@@ -120,18 +125,21 @@ browser sends.
 A request made straight to the backend can carry a made-up header, so the names are only as
 trustworthy as the backend's own access control. With `OPS_SIGNALS_API_TOKEN` set, only Grafana
 (which holds the token) and other token holders can call it at all. Without a token, treat the names
-as a convenience, not an audit trail. Requests that don't come through Grafana (the web UI, scripts,
-the plugin in "Browser, directly" mode) record no name.
+as a convenience, not an audit trail. The web UI with sign-in on records the signed-in person's
+name the same way. Other requests (the web UI without sign-in, scripts, the plugin in "Browser,
+directly" mode) record no name.
 
 ## Known limitations
 
-- **Roles only through Grafana.** Requests through the plugin's Grafana proxy are limited by the
-  person's Grafana role (below). Anything else with the token - the web UI, scripts, the plugin in
-  "Browser, directly" mode - can do everything the API allows, including the file writes and the
-  reset when those are on ([`adoption-roadmap.md`](adoption-roadmap.md)).
+- **Roles only for signed-in people.** Requests through the plugin's Grafana proxy, or through the
+  web UI behind a sign-in proxy, are limited by the person's role. Anything else with the token -
+  the web UI without sign-in, scripts, the plugin in "Browser, directly" mode - can do everything
+  the API allows, including the file writes and the reset when those are on. One shared token for
+  everything; separate tokens per integration are planned ([`adoption-roadmap.md`](adoption-roadmap.md)).
 - **In the Grafana plugin's "Browser, directly" mode, the token sits in the browser.** Connect the
   plugin through Grafana to keep it on the Grafana server.
-- **The web UI doesn't know who is using it.** Its actions record no name.
+- **The web UI knows who is using it only behind a sign-in proxy.** Without one, its actions
+  record no name.
 - **No TLS in the backend.** Put it behind a TLS-terminating proxy or ingress if traffic leaves
   the host.
 - **The dev `docker-compose.yml` uses default passwords** for Postgres and Grafana and publishes

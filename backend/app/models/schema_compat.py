@@ -366,5 +366,10 @@ def ensure_actor_schema(engine: Engine) -> None:
             continue
         with engine.begin() as connection:
             for name, ddl in missing.items():
-                ddl = "DATETIME" if sqlite and ddl == "TIMESTAMPTZ" else ddl
-                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
+                if sqlite:
+                    ddl = "DATETIME" if ddl == "TIMESTAMPTZ" else ddl
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
+                else:
+                    # IF NOT EXISTS: two backends starting at once (replicas, or the two dev stacks) both
+                    # see the column missing, and the second one's plain ADD failed its startup.
+                    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {name} {ddl}"))

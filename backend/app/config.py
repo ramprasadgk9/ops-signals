@@ -551,6 +551,35 @@ def get_security_config() -> SecurityConfig:
     return config
 
 
+class AuthConfig(BaseModel):
+    """Who is using the web UI and the API, beyond the Grafana plugin (docs/web-ui-sign-in.md).
+
+    mode "proxy-headers": the company's sign-in proxy in front of the web UI says who signed in, in
+    user_header, and their groups in groups_header; the groups decide the role (Editor or Admin,
+    else Viewer). Believed only with an API token set, so only the web UI's nginx (which holds it)
+    can pass them on. dev_user ("email:Role") pretends to be someone for trying it locally, and only
+    works without an API token."""
+
+    mode: str = "none"
+    user_header: str = "X-Forwarded-Email"
+    groups_header: str = "X-Forwarded-Groups"
+    editor_groups: list[str] = Field(default_factory=list)
+    admin_groups: list[str] = Field(default_factory=list)
+    dev_user: str | None = None
+
+
+def get_auth_config() -> AuthConfig:
+    mode = (_env("OPS_SIGNALS_AUTH_MODE") or "none").strip().lower()
+    return AuthConfig(
+        mode=mode if mode in {"none", "proxy-headers"} else "none",
+        user_header=_env("OPS_SIGNALS_AUTH_USER_HEADER") or "X-Forwarded-Email",
+        groups_header=_env("OPS_SIGNALS_AUTH_GROUPS_HEADER") or "X-Forwarded-Groups",
+        editor_groups=_parse_list(_env("OPS_SIGNALS_AUTH_EDITOR_GROUPS")) or [],
+        admin_groups=_parse_list(_env("OPS_SIGNALS_AUTH_ADMIN_GROUPS")) or [],
+        dev_user=_env("OPS_SIGNALS_DEV_USER"),
+    )
+
+
 class JiraConfig(BaseModel):
     base_url: str | None = None
     email: str | None = None

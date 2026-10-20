@@ -45,11 +45,12 @@ from backend.app.api.questions import router as questions_router
 from backend.app.api.notifications import router as notifications_router
 from backend.app.api.services import router as services_router
 from backend.app.api.setup_check import router as setup_check_router
+from backend.app.api.me import router as me_router
 from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
 from backend.app.metric_analyzer_recommendations.api import router as metric_analyzer_recommendations_router
-from backend.app.config import MemoryConfig, get_prometheus_connections, get_security_config, get_settings, get_slack_config
+from backend.app.config import MemoryConfig, get_auth_config, get_prometheus_connections, get_security_config, get_settings, get_slack_config
 from backend.app.config import AIConfig, TicketingConfig, get_alert_enrichment_config, get_ticketing_config, ui_base_url
 from backend.app.assistant.knowledge_bootstrap import ApplicationKnowledgeBootstrapService
 from backend.app.memory.embedder import CaseEmbedder
@@ -437,6 +438,13 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "OPS_SIGNALS_API_TOKEN is not set: the API is open to anyone who can reach it. "
             "Only run it on a trusted network (docs/security-model.md)."
         )
+    auth = get_auth_config()
+    if auth.dev_user and not security.api_token:
+        logger.warning("OPS_SIGNALS_DEV_USER is set: every request without a Grafana user acts as %s. For trying sign-in locally only.", auth.dev_user)
+    elif auth.dev_user:
+        logger.warning("OPS_SIGNALS_DEV_USER is ignored because OPS_SIGNALS_API_TOKEN is set.")
+    if auth.mode == "proxy-headers" and not security.api_token:
+        logger.warning("OPS_SIGNALS_AUTH_MODE=proxy-headers needs OPS_SIGNALS_API_TOKEN; the user headers are ignored until it is set.")
     # With an API token, the interactive API docs and the OpenAPI schema are off: FastAPI serves
     # them outside the token check, and a browser can't send the token to them anyway.
     docs_open = not security.api_token
@@ -495,6 +503,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(metric_usage_router)
     app.include_router(notifications_router)
     app.include_router(setup_check_router)
+    app.include_router(me_router)
     
     # Register memory router
     app.include_router(memory_router)

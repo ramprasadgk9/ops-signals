@@ -4,6 +4,17 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Sign-in and roles for the web UI.** Behind your company's sign-in proxy, set
+  `OPS_SIGNALS_AUTH_MODE=proxy-headers` (with an API token): the backend reads the signed-in user
+  and their groups from the proxy's headers, and `OPS_SIGNALS_AUTH_EDITOR_GROUPS` /
+  `OPS_SIGNALS_AUTH_ADMIN_GROUPS` decide the role, with the same rules as the Grafana plugin. The
+  web UI shows who is signed in (`GET /api/me`), locks buttons with the reason and marks Admin
+  pages; names are recorded on what people do. The web UI's nginx now drops `X-Grafana-Context`
+  sent by a browser. Setup check → Login says which sign-in is on and who you are.
+  `OPS_SIGNALS_DEV_USER` tries it locally without a proxy. Settings are in `.env.example`,
+  `docker-compose.packaged.yml` and Helm (`security.signIn`). See `docs/web-ui-sign-in.md`.
+- **Fixed: a backend could fail to start** when another started at the same moment against the same
+  database (both added the same new column); the column is now added with `IF NOT EXISTS`.
 - **Roles in the Grafana plugin.** Through Grafana, each person's Grafana role decides what they can
   change: Viewers read and ask, Editors also run analyses, answer "Was this real?", work on cases and
   change schedules, Admins also manage settings, labs, imports and test data. The backend refuses

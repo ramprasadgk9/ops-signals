@@ -4,6 +4,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { Finding, FindingVerdict } from '../types';
 import { answerLine, movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, VERDICTS } from '../utils/findingTrust';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
+import { LockNote } from './LockNote';
 
 type Props = {
   finding: Finding;
@@ -40,6 +42,7 @@ function Column({ label, headline, caption, value, color, info }: {
 
 /** "On your service" next to "In testing", and the "Was this real?" answer that feeds the first. */
 export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
+  const { canEdit } = useWebPermissions();
   const queryClient = useQueryClient();
   const answer = useMutation({
     mutationFn: (verdict: FindingVerdict) => api.findingFeedback(finding.id!, verdict),
@@ -82,7 +85,7 @@ export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
               key={verdict.id}
               size="small"
               variant={chosen === verdict.id ? 'contained' : 'outlined'}
-              disabled={answer.isPending}
+              disabled={answer.isPending || !canEdit}
               onClick={() => answer.mutate(verdict.id)}
               aria-pressed={chosen === verdict.id}
               sx={{ textTransform: 'none' }}
@@ -93,6 +96,7 @@ export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
           {answer.isError ? <Typography variant="caption" color="error">Couldn't save your answer.</Typography> : null}
         </Stack>
       ) : null}
+      {finding.id && !canEdit ? <LockNote>{WEB_LOCK_REASONS.answer}</LockNote> : null}
       {answerLine(trust) ? <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 0.75 }}>{answerLine(trust)}</Typography> : null}
     </Box>
   );

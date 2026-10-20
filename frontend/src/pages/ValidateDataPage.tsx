@@ -42,6 +42,8 @@ import { findingLevel } from '../utils/findingLevel';
 import { api } from '../api/queries';
 import { panelSx, ui } from '../standalone/theme';
 import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, CsvRunResult, CsvValidationResult, DirectPrometheusAnalysisResponse, Finding, PrometheusPreviewResponse, ValidationFinding, ValidationSignal } from '../types';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
+import { LockNote } from '../components/LockNote';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -328,6 +330,7 @@ function buildDataQualityMessage(result: DirectPrometheusAnalysisResponse | null
 type SavedFinding = Finding & { id: number };
 
 export function ValidateDataPage() {
+  const { canEdit } = useWebPermissions();
   const [mode, setMode] = useState<Mode>('csv');
   const [provider, setProvider] = useState<Provider>('prometheus');
   // Typed in for the "Custom / Other" provider only - sent with each upload, never saved, so the
@@ -750,7 +753,7 @@ export function ValidateDataPage() {
               <Box><Button variant="outlined" component="label">{file ? `Selected: ${file.name}` : 'Choose CSV File'}<input hidden type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button></Box>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
                 <Button variant="outlined" disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); setSavedCsvRun(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button>
-                <Button variant="contained" startIcon={csvSaveMutation.isPending ? undefined : <SaveRoundedIcon />} disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); csvSaveMutation.mutate(); }}>{csvSaveMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Analyze and Save'}</Button>
+                <Button variant="contained" startIcon={csvSaveMutation.isPending ? undefined : <SaveRoundedIcon />} disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete || !canEdit} title={canEdit ? undefined : WEB_LOCK_REASONS.runAnalysis} onClick={() => { setMessage(null); setError(null); csvSaveMutation.mutate(); }}>{csvSaveMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Analyze and Save'}</Button>
               </Stack>
               <Typography variant="caption" color="text.secondary">
                 Validate Data previews the analysis without saving it. Analyze and Save stores the run so its findings appear in Findings and can become cases{analyzerId !== 'all' ? '; it uses the router\'s analyzer choice, not the analyzer picked above' : ''}.
@@ -932,10 +935,11 @@ export function ValidateDataPage() {
                   <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || queryMissing || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: 'var(--os-tint-cyan-border)', color: 'var(--os-ink-brand)', textTransform: 'none', fontWeight: 850 }}>
                     {previewMutation.isPending ? <CircularProgress size={20} /> : 'Preview Data'}
                   </Button>
-                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || queryMissing || belowRouterMinimum || clusterRequired || runPrometheusMutation.isPending} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
-                    {runPrometheusMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Run Analysis'}
+                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || queryMissing || belowRouterMinimum || clusterRequired || runPrometheusMutation.isPending || !canEdit} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
+                    {runPrometheusMutation.isPending ? <CircularProgress size={20} color="inherit" /> : `${canEdit ? '' : '🔒 '}Run Analysis`}
                   </Button>
                 </Stack>
+                {canEdit ? null : <LockNote>{WEB_LOCK_REASONS.runAnalysis}</LockNote>}
                 {clusterRequired ? (
                   <Typography sx={{ color: ui.muted, fontSize: 13, fontWeight: 700 }}>
                     Choose a cluster ({clusterOptions.join(', ')}) to run analysis. Preview shows every cluster.
@@ -1106,7 +1110,7 @@ export function ValidateDataPage() {
                               <Button
                                 size="small"
                                 variant="contained"
-                                disabled={createCaseMutation.isPending}
+                                disabled={createCaseMutation.isPending || !canEdit}
                                 onClick={() => createCaseMutation.mutate(primaryFinding.id as number)}
                                 sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}
                               >
@@ -1186,7 +1190,7 @@ export function ValidateDataPage() {
                                   <Button
                                     size="small"
                                     variant="outlined"
-                                    disabled={createCaseMutation.isPending}
+                                    disabled={createCaseMutation.isPending || !canEdit}
                                     onClick={() => createCaseMutation.mutate(finding.id as number)}
                                     sx={{ textTransform: 'none', fontWeight: 850, alignSelf: { xs: 'flex-start', sm: 'center' } }}
                                   >
@@ -1255,7 +1259,7 @@ export function ValidateDataPage() {
                             Open Case #{createdCases[finding.id]}
                           </Button>
                         ) : (
-                          <Button size="small" variant="contained" disabled={createCaseMutation.isPending} onClick={() => createCaseMutation.mutate(finding.id)} sx={{ textTransform: 'none', fontWeight: 850 }}>
+                          <Button size="small" variant="contained" disabled={createCaseMutation.isPending || !canEdit} onClick={() => createCaseMutation.mutate(finding.id)} sx={{ textTransform: 'none', fontWeight: 850 }}>
                             Create Case
                           </Button>
                         )}

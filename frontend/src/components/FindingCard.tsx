@@ -14,6 +14,7 @@ import { FindingTrustPanel } from './FindingTrustPanel';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
 import { watchedByTag } from '../utils/metricUsage';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 
 /** The same finding seen in several runs; the card shows one of them. */
 export type FindingRepeats = {
@@ -41,6 +42,7 @@ function seenAt(value?: string): string {
 }
 
 export function FindingCard({ finding, onViewDetails, signals = [], repeats, usage }: Props) {
+  const { canEdit } = useWebPermissions();
   const navigate = useNavigate();
   const connectionName = useConnectionName(finding.connection_id);
   const timing = problemTiming(repeats?.latest ?? finding, repeats?.startedAt);
@@ -238,7 +240,8 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
               size="small"
               variant="outlined"
               onClick={handleCreateCase}
-              disabled={createCaseMutation.isPending}
+              disabled={createCaseMutation.isPending || !canEdit}
+              title={canEdit ? undefined : WEB_LOCK_REASONS.createCase}
             >
               {createCaseMutation.isPending ? 'Creating...' : 'Create Case'}
             </Button>

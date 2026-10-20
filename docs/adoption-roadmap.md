@@ -11,11 +11,14 @@ protocols) through configuration, and never build per-vendor integrations.
   ([`ui-tour.md`](ui-tour.md#setup-check-and-settings), `GET /api/setup/check`).
 - **The plugin signs in through Grafana (done, step 1 below).**
 - **Roles in the plugin (done, step 2 below).** Viewer, Editor and Admin, from Grafana.
+- **Web UI sign-in through a sign-in proxy (done, first half of step 3 below).** Roles from company
+  groups ([`web-ui-sign-in.md`](web-ui-sign-in.md)). Named tokens are the other half, next; they also
+  let the web UI insist on a signed-in user.
 - **Login:** one shared API token, `OPS_SIGNALS_API_TOKEN`, or none. Outside the plugin through
-  Grafana there are no roles: anyone with the token can do everything
-  ([`security-model.md`](security-model.md)).
-- **"Who did it":** recorded for what people do in the plugin through Grafana. The web UI records no
-  names yet (step 3).
+  Grafana and the web UI behind a sign-in proxy there are no roles: anyone with the token can do
+  everything ([`security-model.md`](security-model.md)).
+- **"Who did it":** recorded for what people do in the plugin through Grafana and in the web UI with
+  sign-in on. Scripts and integrations record no name (step 3b).
 
 ## Next steps
 
