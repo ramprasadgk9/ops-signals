@@ -50,7 +50,7 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
 - [How It Works](#how-it-works)
 - [Product Overview](#product-overview) (screenshots)
 - [Quick Start](#quick-start): [choose how to run it](#choose-how-to-run-it), [laptop install](#try-it-on-your-laptop), [troubleshooting](#troubleshooting), [security model](#security-model)
-- [Deploy for Your Team](#deploy-for-your-team): [Docker Compose](#one-server-docker-compose), [Helm](#kubernetes-helm)
+- [Deploy for Your Team](#deploy-for-your-team): [Docker Compose](#one-server-docker-compose), [Helm](#kubernetes-helm), [Grafana plugin](#add-the-grafana-plugin)
 - [Architecture](#architecture)
 - [Using Ops Signals](#using-ops-signals): [feature map](#where-to-find-each-feature), [Ask Ops Signals](#operational-intelligence-assistant)
 - [Data, Automation & Configuration](#data-automation--configuration): [data sources](#data-sources), [autonomous analysis](#autonomous-analysis), [metric usage](#metric-usage), [YAML config](#yaml-configuration)
@@ -435,8 +435,9 @@ docker compose -f docker-compose.packaged.yml up -d
 - **`OPS_SIGNALS_PROMETHEUS_URL`** is your Prometheus as the backend container sees it.
   `host.docker.internal` means the machine Docker runs on, so the line above is for a Prometheus on
   this machine at port 9090. For one elsewhere, use its address, for example
-  `http://prometheus.example.internal:9090`. Without it, everything starts but there are no metrics
-  to watch.
+  `http://prometheus.example.internal:9090`. This stack doesn't include a Prometheus of its own, so
+  without this line everything starts but there are no metrics to watch, and **Test Connection**
+  on **New Analysis** fails.
 - **The first start builds the three images** from this checkout, which takes a few minutes.
 - **Check it:** open http://localhost:8080 → **Setup check** (bottom of the sidebar). It tests the
   database, each metrics connection and memory search, and says what to fix for anything that isn't
@@ -473,6 +474,61 @@ helm upgrade --install ops-signals ./helm/ops-signals \
 values and the tokens in a Secret named by `prometheusConnections.secretName`.
 
 Both paths, with every value to set, are in [`docs/release-packaging.md`](docs/release-packaging.md).
+
+### Add the Grafana Plugin
+
+Once the backend runs (Docker Compose or Helm above), your team can use Ops Signals inside your own
+Grafana (13.1 or later). You need a Prometheus datasource in that Grafana.
+
+1. **Build the plugin zip** from this checkout (needs Node.js 20+):
+
+   ```bash
+   ./scripts/release/build_grafana_plugin_artifact.sh 0.5.0
+   ```
+
+   It writes `dist/release/0.5.0/breezypoppy3596-opssignals-app-<version>.zip`.
+
+2. **Install it:** unzip it into Grafana's plugins folder (`/var/lib/grafana/plugins` by default).
+   The zip holds one folder named after the plugin id, as Grafana expects.
+
+   ```bash
+   unzip dist/release/0.5.0/breezypoppy3596-opssignals-app-*.zip -d /var/lib/grafana/plugins
+   ```
+
+3. **Allow it, then restart Grafana.** The plugin isn't signed yet, so Grafana loads it only when
+   it's named in `allow_loading_unsigned_plugins` under `[plugins]` in `grafana.ini`, or in
+   `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-opssignals-app` in Grafana's
+   environment. Grafana reads the plugin only when it starts.
+
+4. **Connect it to the backend** (a Grafana admin, once): **Administration → Plugins and data →
+   Plugins → Ops Signals → Configuration**.
+   - **Connect through:** Grafana.
+   - **Backend URL:** the backend as the Grafana server reaches it, for example
+     `http://ops-signals.example.internal:8000`. If Grafana runs in a container on the same machine
+     as the Docker Compose install, use `http://host.docker.internal:8000`, not `localhost`.
+   - **API token:** the `OPS_SIGNALS_API_TOKEN` from the backend's `.env`, if you set one.
+   - Click **Enable and save**.
+
+5. **Check it:** the **Setup check** below the settings should show the backend reached through
+   Grafana. Then open **Apps → Ops Signals**.
+
+To try this on one computer, run Grafana in Docker with the plugins folder mounted:
+
+```bash
+mkdir -p ~/grafana-plugins
+unzip dist/release/0.5.0/breezypoppy3596-opssignals-app-*.zip -d ~/grafana-plugins
+docker run -d --name grafana -p 3000:3000 \
+  -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-opssignals-app \
+  -v ~/grafana-plugins:/var/lib/grafana/plugins \
+  --add-host host.docker.internal:host-gateway \
+  grafana/grafana:13.1.0
+```
+
+Sign in at http://localhost:3000 as `admin` / `admin` and continue at step 4 with
+`http://host.docker.internal:8000`.
+
+Provisioning, roles and troubleshooting are in the plugin's [`README`](frontend/README.md) and
+[`docs/grafana-plugin-access-and-roles.md`](docs/grafana-plugin-access-and-roles.md).
 
 ## Architecture
 
@@ -711,7 +767,7 @@ Ways to plug Ops Signals into tools you already use.
 ./scripts/run_grafana_stack.sh
 ```
 
-That script builds the plugin bundle, starts Grafana on `3000`, Prometheus on `9090`, mock metrics, and the backend on `8002`. `8002` is reserved for the Grafana/plugin backend.
+That script builds the plugin bundle, starts Grafana on `3000`, Prometheus on `9090`, mock metrics, and the backend on `8002`. `8002` is reserved for the Grafana/plugin backend. It's for trying and developing the plugin; to install it in your team's Grafana, see [Add the Grafana Plugin](#add-the-grafana-plugin).
 
 See [`docs/grafana-plugin-local-setup.md`](docs/grafana-plugin-local-setup.md) for installing the
 plugin specifically, and
