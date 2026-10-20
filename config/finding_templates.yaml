@@ -1,0 +1,155 @@
+# How finding cards describe a finding in plain words (backend/app/services/finding_plain.py).
+#
+# Edit the wording here and save; the backend picks the change up on the next request (or restart
+# it). A finding's stored title and summary never change: they stay under "Technical details".
+#
+# {placeholders} are filled from the finding and its signals. Each template lists the ones it can
+# use. A placeholder that isn't on that list switches the template off (the card falls back to the
+# stored summary, and the backend log says which placeholder was wrong). A line whose value is
+# missing for one finding is left out for that finding only.
+#
+# Times are written as markers that each screen turns into the reader's own time zone.
+
+# The label on the card's badge.
+badges:
+  worse: Worse
+  better: Better
+  changed: Changed
+  gap: Monitoring gap
+  noise: Probably noise
+  blip: Blip
+
+# What each kind of metric means for the people using the service. `bad_when` says which way is
+# bad: up, down or either. A metric whose kind isn't known gets the "Changed" badge and the
+# `unknown_meaning` sentence, never a guess.
+concepts:
+  error_rate:
+    bad_when: up
+    worse: More requests fail, so more users see errors or failed actions.
+    better: Fewer requests fail, so fewer users see errors. If nobody changed anything on purpose, check that traffic didn't drop at the same time.
+    check: Deploys or config changes in {service}, and errors in the services it calls.
+  latency:
+    bad_when: up
+    worse: Pages and API calls feel slower, mostly for the users who wait longest.
+    better: Pages and API calls feel quicker for the users who waited longest.
+    check: Load on {service}, slow database queries, and the services it calls.
+  request_rate:
+    bad_when: down
+    worse: Fewer requests are reaching {service}. Users may not be getting through, or something in front of it is failing.
+    better: More requests are reaching {service}. Check that it has room for the extra load.
+    check: The route into {service} (load balancer, DNS), a client release, or a planned traffic move.
+  cpu:
+    bad_when: up
+    worse: "{service} is using more CPU. If it keeps climbing it can run out of capacity and slow down."
+    better: "{service} is using less CPU. If traffic didn't drop too, a fix or a config change may have helped."
+    check: Traffic to {service}, recent deploys, and busy background jobs.
+  memory:
+    bad_when: up
+    worse: The process is using more memory. If it keeps growing it can run out and be restarted.
+    better: The process is using less memory.
+    check: The memory limit for this process, and whether it restarted.
+  disk_free:
+    bad_when: down
+    worse: Free disk space is shrinking. When it runs out, writes fail.
+    better: More disk space is free.
+    check: Log and data growth on this disk, and cleanup jobs.
+  consumer_lag:
+    bad_when: up
+    worse: Work is waiting longer in the queue, so results reach users later.
+    better: The queue backlog is shrinking.
+    check: Whether consumers are running and keeping up with incoming work.
+  health:
+    bad_when: down
+    worse: "{service} was reported down, so users may not have been able to reach it."
+    better: "{service} is reported up again."
+    check: Restarts, failed health checks, and the host it runs on.
+
+unknown_meaning: We don't know what this metric means for your users, so we can't say if this is good or bad. Describe it in config/finding_templates.yaml to see the impact here.
+
+# Metrics by exact name. plain_name is what the card calls it; unit sets how its values are
+# written: ratio (0.113 is 11.3%), percent, ms, s, bytes, per_second, count, cores. Leave unit
+# out when you don't know it: values are then shown as plain numbers.
+metrics:
+  error_rate: {plain_name: Error rate, concept: error_rate, unit: ratio}
+  http_errors_total: {plain_name: HTTP errors, concept: error_rate}
+  request_latency_p95: {plain_name: Slow-request time (p95), concept: latency, unit: ms}
+  request_latency_seconds: {plain_name: Request time, concept: latency, unit: s}
+  demo_request_latency_ms: {plain_name: Request time, concept: latency, unit: ms}
+  demo_queue_latency_ms: {plain_name: Queue wait time, concept: latency, unit: ms}
+  demo_consumer_lag: {plain_name: Consumer lag, concept: consumer_lag, unit: count}
+  http_requests_total: {plain_name: Requests, concept: request_rate}
+  promhttp_metric_handler_requests_total: {plain_name: Metrics-endpoint requests, concept: request_rate}
+  cpu_usage: {plain_name: CPU usage, concept: cpu}
+  process_cpu_seconds_total: {plain_name: CPU used, concept: cpu, unit: cores}
+  container_cpu_usage_seconds_total: {plain_name: Container CPU used, concept: cpu, unit: cores}
+  memory_usage: {plain_name: Memory usage, concept: memory}
+  process_resident_memory_bytes: {plain_name: Process memory, concept: memory, unit: bytes}
+  container_memory_working_set_bytes: {plain_name: Container memory, concept: memory, unit: bytes}
+  node_filesystem_avail_bytes: {plain_name: Free disk space, concept: disk_free, unit: bytes}
+  prometheus_notifications_errors_total: {plain_name: Alert-notification errors, concept: error_rate}
+  up: {plain_name: Service up, concept: health}
+  probe_success: {plain_name: Health check, concept: health}
+
+# For metrics not listed above. Checked in order; the first rule that sets a concept gives the
+# concept, and the first that sets a unit gives the unit.
+patterns:
+  - {match: ".*_bytes$", unit: bytes}
+  - {match: ".*_ms$", unit: ms}
+  - {match: ".*_seconds$", unit: s}
+  - {match: ".*(latency|duration).*", concept: latency}
+  - {match: ".*(error|fail).*", concept: error_rate}
+  - {match: ".*requests_total$", concept: request_rate}
+  - {match: ".*lag.*", concept: consumer_lag}
+  - {match: ".*memory.*", concept: memory}
+  - {match: ".*cpu.*", concept: cpu}
+
+# Card wording, one block per kind of finding.
+templates:
+  # A lasting step up or down, with the time it happened (change-point analyzers).
+  level_change:
+    headline: "{plain_name} {rose_or_dropped}{sharply} and stayed {higher_or_lower}"
+    what: About {before} until {change_time}. Since then about {after} ({change}).
+    check: Deploys or config changes in {service} between {window_start} and {window_end}.
+    related: "{plain_name} also {rose_or_dropped} at {change_time} ({before} to {after})."
+
+  # A slow climb or fall across the window.
+  trend:
+    headline: "{plain_name} has been {climbing_or_falling} {steadily_or_unevenly}"
+    what: Averaged {first_half} in the first {half} and {second_half} in the last {half} ({change}), with a high of {peak}.
+    turned: It has turned {down_or_up} in the last {half}.
+    not_urgent: Not urgent yet, the change is gradual and uneven.
+
+  # Short bursts outside the normal range.
+  spikes:
+    headline: "{plain_name} went {above_or_below} normal {times}, {up_or_down} to {peak}"
+    what: Between {first_time} and {last_time}. Normally {normal_low} to {normal_high}.
+    what_once: At {first_time}, for {duration}. Normally {normal_low} to {normal_high}.
+    what_typical: Between {first_time} and {last_time}. It usually sits around {typical}.
+    noise_headline: "{plain_name} had {count} odd-looking readings, all within its normal range"
+    noise_what: Between {first_time} and {last_time}. Values stayed between {normal_low} and {normal_high}, as usual.
+    noise_why: No sign of user impact. It's shown because the pattern was unusual, not the level.
+
+  # A stretch that looks unlike the rest of the series.
+  odd_stretch:
+    headline: "{plain_name} had a stretch unlike the rest of the series"
+    what: From {first_time} to {last_time}.
+
+  # Data stopped arriving.
+  data_gap:
+    headline: We lost {plain_name} data for {duration}
+    what: No data from {first_time} to {last_time} ({missing_points} readings missing).
+    more: There were {gap_count} gaps in this window. This card shows the longest.
+    why: Alerts and dashboards using this metric couldn't see problems during this time.
+    check: Is the data source running? Did the metric name or a label change?
+
+  # The value stopped changing.
+  flatline:
+    headline: "{plain_name} got stuck at {stuck_value} for {duration}"
+    what: From {first_time} to {last_time} it didn't change at all. It normally changes on {normal_change} of readings.
+    why: A stuck value often means the data source froze. Alerts on this metric may miss real problems.
+    check: Is the data source running and sending fresh values?
+
+  # Ran away from the forecast.
+  forecast:
+    headline: "{plain_name} ran {higher_or_lower} than expected"
+    what: "{actual}, where about {expected} was expected ({off} off)."

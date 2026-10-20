@@ -192,6 +192,8 @@ class PyODOutlierAnalyzer(Analyzer):
                             "grouping_gap_minutes": self.config.grouping_gap.total_seconds() / 60,
                             "min_samples": self.config.min_samples,
                             "range_excess": round(range_excess, 4),
+                            # The reading furthest outside the normal range, for the finding card.
+                            "peak_value": round(float(anomaly_group.loc[anomaly_group["range_excess"].idxmax(), "value"]), 6),
                             "normal_range": {"low": round(low, 6), "high": round(high, 6)},
                             "daily_peaks": peaks,
                             "finding_rule": {
