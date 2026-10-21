@@ -2,7 +2,8 @@
 
 Every finding says how often findings like it turned out to be real, and which ones need your
 attention. The numbers are measured, not guessed. This page explains what you see, where the
-numbers come from, and what they don't promise.
+numbers come from, and what they don't promise. [How a finding becomes a card](finding-anatomy.md)
+shows where trust fits next to the card's wording.
 
 ## What you see
 
