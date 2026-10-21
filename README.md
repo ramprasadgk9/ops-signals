@@ -190,6 +190,15 @@ below is how to actually work with each piece.
 
 ![Ops Signals Overview](docs/screenshots/images/web/01-overview.png)
 
+### Findings in Plain Words
+
+Each finding leads with a badge (Worse, Better, Monitoring gap...) and a headline, then what changed
+in the metric's own units, why it matters, what changed at the same moment, and what to check. The
+analyzer's own wording stays under **Technical details**. The wording is a file you edit
+([how](docs/finding-wording.md)), not AI output.
+
+![Findings in plain words: an error rate that dropped reads "Better", with why it matters, the CPU drop at the same minute, and what to check](docs/screenshots/images/web/13-findings-plain-words.png)
+
 ### Analyze Prometheus Data Directly
 
 ![Direct Prometheus Analysis](docs/screenshots/images/web/03-new-analysis-prometheus.png)
@@ -208,7 +217,7 @@ for a different next step.
 
 ### Run Analysis Inside Grafana
 
-![Grafana Analysis Results](docs/screenshots/images/grafana-plugin/02-metrics-analysis.png)
+![Grafana analysis result: the same plain wording as the web UI, with the evidence beside it](docs/screenshots/images/grafana-plugin/02-metrics-analysis.png)
 
 ### Enriched Alerts in Slack
 

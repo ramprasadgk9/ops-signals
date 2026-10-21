@@ -173,6 +173,8 @@ class ZScoreAnomalyAnalyzer(Analyzer):
                             "mean": round(mean, 4),
                             "stddev": round(std, 4),
                             "max_abs_zscore": round(max_abs_z, 4),
+                            # The furthest reading itself, for the finding card's "up to" value.
+                            "peak_value": round(float(anomaly_group.loc[anomaly_group["zscore"].abs().idxmax(), "value"]), 6),
                             "point_count": int(len(anomaly_group)),
                             "grouping_gap_minutes": self.grouping_gap.total_seconds() / 60,
                             "rebaselined_after_change_point": rebaselined,

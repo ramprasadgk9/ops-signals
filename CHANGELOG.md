@@ -4,6 +4,23 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Findings in plain words.** Finding cards in the web UI and the Grafana plugin, and Slack
+  messages, now lead with a badge (Worse, Better, Monitoring gap, Probably noise, Blip, Changed) and
+  a headline, then what changed in the metric's own units and the reader's time zone, why it
+  matters, what changed at the same moment, and what to check. The stored title and summary are
+  under "Technical details" and don't change. An error rate or latency that dropped now reads
+  "Better" instead of looking like an alarm. The wording is in `config/finding_templates.yaml`;
+  edit it and save. The API returns it as `plain` on each finding. Spike signals also save their
+  peak value. See `docs/finding-wording.md`. Hovering "Happened with" explains how the other
+  finding was picked: same service, a different metric, both a step change, within 10 minutes.
+  A slow trend whose two halves average within 5% of each other reads "Changed" ("The level has
+  barely moved"), not Better or Worse.
+- **Service context for findings.** Describe a service once in `config/finding_templates.yaml`
+  (what it does, how important it is, the targets it's held to, such as an error rate below 1%), and
+  its findings say so: "Your target: Above your 1% target since 10:54 PM (2 hours so far)", "This
+  service: Customers pay for their orders here", and a "Critical service" label on the card and in
+  Slack. Labels only: scores, priority and lists don't change. Shipped with no services, so nothing
+  changes until you add one.
 - **Router Decisions says why each analyzer ran.** The web UI's panel now leads with the analyzers
   that ran, each with its reason ("Router pick", "Covers spikes", "Runs on every series") and
   whether it fed the run's finding. Before, STUMPY and Data Health read "Not Recommended" while they

@@ -1,4 +1,4 @@
-import { Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { findingSourceLabel } from '../utils/findingSource';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
@@ -11,6 +11,7 @@ import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { problemTiming } from '../utils/findingProblem';
 import { trustBadge } from '../utils/findingTrust';
 import { FindingTrustPanel } from './FindingTrustPanel';
+import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
 import { watchedByTag } from '../utils/metricUsage';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
@@ -77,8 +78,9 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardContent sx={{ flexGrow: 1 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
-          <Stack sx={{ pr: 1, minWidth: 0 }}>
-            <Typography variant="h6">{finding.title}</Typography>
+          <Stack spacing={0.5} sx={{ pr: 1, minWidth: 0 }}>
+            {finding.plain ? <PlainBadge plain={finding.plain} /> : null}
+            <Typography variant="h6">{finding.plain?.headline ?? finding.title}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
               {[finding.service, finding.metric_name, finding.cluster, connectionName, sourceCaption].filter(Boolean).join(' · ')}
             </Typography>
@@ -99,14 +101,20 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
           )}
         </Stack>
         
-        <Stack direction="row" spacing={0.75} alignItems="flex-start" sx={{ mb: 2 }}>
-          {finding.ai_summary && (
-            <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
-          )}
-          <Typography variant="body2" color="text.secondary">
-            {finding.ai_summary ?? finding.summary}
-          </Typography>
-        </Stack>
+        {finding.plain ? (
+          <Box sx={{ mb: 2 }}>
+            <PlainFindingSummary plain={finding.plain} summary={`${finding.title} ${finding.summary}`} />
+          </Box>
+        ) : (
+          <Stack direction="row" spacing={0.75} alignItems="flex-start" sx={{ mb: 2 }}>
+            {finding.ai_summary && (
+              <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
+            )}
+            <Typography variant="body2" color="text.secondary">
+              {finding.ai_summary ?? finding.summary}
+            </Typography>
+          </Stack>
+        )}
 
         {watchedBy && (
           <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{watchedBy.detail}</span>} arrow>

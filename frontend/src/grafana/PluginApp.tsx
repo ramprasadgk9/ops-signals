@@ -19,6 +19,7 @@ import { asGrafanaRole, grafanaUserRole, LockReason, LOCK_REASONS, PermissionsPr
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
+import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
 import { PluginMemoryAlertsView } from './PluginMemoryAlertsView';
 import { connectionName, findingClusters, findingSource, findingsInCluster } from './findingSource';
 import { caseForSymptom, caseIdsByFinding, serviceSymptoms, stillShowing, symptomChange, symptomKey, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms, type ServiceSymptom, type SymptomTriage } from './serviceSymptoms';
@@ -3267,7 +3268,7 @@ function GrafanaFindingsLookupPanel({ lookupState }: { lookupState: AutonomousFi
           <div key={finding.id} style={styles.rowBetween}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <strong>{finding.service} / {finding.metric_name}{finding.cluster ? ` · ${finding.cluster}` : ''}</strong>
-              <div style={styles.helperText}>{finding.title}</div>
+              <div style={styles.helperText}>{finding.plain ? `${finding.plain.badge_label}: ${finding.plain.headline}` : finding.title}</div>
               <div style={styles.helperText}>Importance {finding.importance_score.toFixed(2)} · {humanize(finding.category)} · {formatCompactDate(finding.created_at)}</div>
               <PluginBreakdownDisclosure finding={finding} />
             </div>
@@ -3389,8 +3390,17 @@ function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding
                   <div style={{ ...styles.row, gap: 8 }}>
                     <strong>{row.lead.finding.metric_name}</strong>
                     <SourceChip source={sourceOf(row.lead.finding)} />
-                    {change ? <span>{change.text}</span> : <span style={styles.muted}>{symptomKind(row.lead.finding)}</span>}
-                    {change?.percent ? <strong style={{ color: '#ff7381' }}>{change.percent}</strong> : null}
+                    {row.lead.finding.plain ? (
+                      <>
+                        <PluginPlainBadge plain={row.lead.finding.plain} />
+                        <span>{row.lead.finding.plain.headline}</span>
+                      </>
+                    ) : (
+                      <>
+                        {change ? <span>{change.text}</span> : <span style={styles.muted}>{symptomKind(row.lead.finding)}</span>}
+                        {change?.percent ? <strong style={{ color: '#ff7381' }}>{change.percent}</strong> : null}
+                      </>
+                    )}
                   </div>
                   <div style={{ ...styles.row, gap: 6, marginTop: 3 }}>
                     <span style={{ ...styles.helperText, margin: 0 }}>{symptomTiming(row.lead, triage.latestSeen)}</span>
@@ -3588,8 +3598,13 @@ function AutonomousInvestigationPanel({
           <div style={styles.helperText}>
             {position ?? `${mode === 'evidence' ? 'Evidence' : 'Investigation'} / Current Finding`}
           </div>
-          <h3 style={{ margin: '4px 0 0' }}>{finding.title}</h3>
-          <p style={{ ...styles.muted, margin: '6px 0 0' }}>{finding.summary}</p>
+          {finding.plain ? <div style={{ marginTop: 6 }}><PluginPlainBadge plain={finding.plain} /></div> : null}
+          <h3 style={{ margin: '4px 0 0' }}>{finding.plain?.headline ?? finding.title}</h3>
+          {finding.plain ? (
+            <div style={{ marginTop: 6 }}><PluginPlainFinding plain={finding.plain} details={`${finding.title} ${finding.summary}`} /></div>
+          ) : (
+            <p style={{ ...styles.muted, margin: '6px 0 0' }}>{finding.summary}</p>
+          )}
         </div>
         <div style={{ ...styles.row, flex: 'none' }}>
           {caseAction}

@@ -136,6 +136,8 @@ class ValidationFindingOut(BaseModel):
     investigation_priority: int
     signal_ids: list[str]
     comparison_json: dict = Field(default_factory=dict)
+    # Plain-words wording for the card (services/finding_plain.py); None when there isn't enough evidence.
+    plain: dict | None = None
 
 
 class ValidationSignalOut(BaseModel):
@@ -203,6 +205,10 @@ class FindingOut(BaseModel):
     # How much to trust it: group, needs-attention tier, tested numbers, the team's own answers
     # (services/finding_trust.py).
     trust: dict | None = None
+    # Plain-words wording for the card: badge, headline, what changed, why it matters, what to
+    # check, related findings (services/finding_plain.py). None when there isn't enough evidence;
+    # title and summary are unchanged either way.
+    plain: dict | None = None
 
 
 class FindingFeedbackIn(BaseModel):

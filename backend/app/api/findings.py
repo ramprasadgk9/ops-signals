@@ -15,6 +15,7 @@ from backend.app.models.api_schema import FindingFeedbackIn, FindingOut
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity
 from backend.app.services.finding_changes import finding_changes
+from backend.app.services.finding_plain import finding_plain
 from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.services.finding_trust import finding_trust, record_feedback
 
@@ -43,6 +44,7 @@ def _to_finding_out(
     connection_id: str | None = None,
     trust: dict | None = None,
     source: str | None = None,
+    plain: dict | None = None,
 ) -> FindingOut:
     return FindingOut(
         id=finding.id,
@@ -68,6 +70,7 @@ def _to_finding_out(
         problem_id=finding.problem_id,
         changes=changes,
         trust=trust,
+        plain=plain,
     )
 
 
@@ -85,10 +88,13 @@ def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmen
         else {}
     )
     trust = finding_trust(db, rows)
+    plain = finding_plain(db, rows)
     out = []
     for row in rows:
         connection_id, source_type = runs.get(row.analysis_run_id, (None, None))
-        out.append(_to_finding_out(row, changes.get(row.id), connection_id, trust.get(row.id), _FINDING_SOURCES.get(source_type or "", source_type)))
+        out.append(
+            _to_finding_out(row, changes.get(row.id), connection_id, trust.get(row.id), _FINDING_SOURCES.get(source_type or "", source_type), plain.get(row.id))
+        )
     return out
 
 

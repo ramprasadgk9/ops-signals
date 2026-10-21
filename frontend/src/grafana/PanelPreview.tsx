@@ -17,6 +17,8 @@ import { LOCK_REASONS, usePermissions } from './permissions';
 import { byLine } from '../utils/actorLine';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginFindingTrust } from './PluginFindingTrust';
+import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
+import { leadSignal, leadSignalText, plainParagraph } from '../utils/findingPlain';
 import { PluginSameFix } from './PluginSameFix';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import type {
@@ -320,7 +322,7 @@ function localAssistantAnswer(
   let headline = 'Current investigation summary';
   let answer = `${result.metric} for ${result.service} returned ${sampleCount.toLocaleString()} Prometheus samples. `;
   if (finding) {
-    answer += `The top finding is "${finding.title}" with importance ${formatNumber(finding.importance_score)}. `;
+    answer += `The top finding is "${finding.plain?.headline ?? finding.title}" with importance ${formatNumber(finding.importance_score)}. `;
   } else {
     answer += 'No operational finding was emitted for this run. ';
   }
@@ -394,6 +396,7 @@ function buildAssistantMemoryPrompt(
     `sample_count: ${result.sampleCount ?? result.timeseries.length}`,
     `analyzers: ${summarizeAnalyzerRuns(buildAnalyzerRunView(routing, result.analyzerExecutions ?? [], result.findings.length))}`,
     `top_finding: ${finding ? `${finding.title} - ${finding.summary}` : 'none'}`,
+    `top_finding_in_plain_words: ${plainParagraph(finding?.plain) ?? 'none'}`,
     `signals: ${signals.length ? signals.slice(0, 5).map((signal) => `${signal.analyzer_id}:${signal.severity}:${signal.summary}`).join(' | ') : 'none'}`,
     "",
     "Answer using current run evidence first. Include historical/vector memory context only when relevant.",
@@ -530,8 +533,13 @@ function PrimaryFindingCard({
           <StatusPill tone={({ error: 'danger', warning: 'warning', default: 'neutral' } as const)[findingLevel(finding.health_status).chip]}>{`${findingLevel(finding.health_status).label} importance`.toUpperCase()}</StatusPill>
           <button type="button" style={buttonStyle()}>...</button>
         </div>
-        <h2 style={{ margin: 0 }}>{finding.title}</h2>
-        <p style={{ ...styles.muted, margin: 0 }}>{finding.summary || 'Operational behavior changed during the selected window.'}</p>
+        {finding.plain ? <PluginPlainBadge plain={finding.plain} /> : null}
+        <h2 style={{ margin: 0 }}>{finding.plain?.headline ?? finding.title}</h2>
+        {finding.plain ? (
+          <PluginPlainFinding plain={finding.plain} details={`${finding.title} ${finding.summary}`} signal={leadSignalText(leadSignal(finding.signal_ids, result.signals))} />
+        ) : (
+          <p style={{ ...styles.muted, margin: 0 }}>{finding.summary || 'Operational behavior changed during the selected window.'}</p>
+        )}
         <div style={styles.row}>
           <StatusPill>Importance {formatNumber(finding.importance_score)}</StatusPill>
           <StatusPill>Confidence {formatNumber(finding.importance_score)}</StatusPill>
@@ -729,7 +737,7 @@ function EvidenceSummaryCard({
           <span>Earliest signal</span><strong>{earliest ? new Date(earliest).toLocaleString() : 'n/a'}</strong>
           <span>Highest observed value</span><strong>{formatNumber(stats.peak)}</strong>
           <span>Reference comparison</span><strong>{String(comparisonType)}</strong>
-          <span>Analyzer confidence</span><strong>{formatNumber(findingSignals[0]?.confidence ?? finding?.importance_score)}</strong>
+          <span>Analyzer confidence</span><strong>{formatNumber(leadSignal(finding?.signal_ids, findingSignals)?.confidence ?? finding?.importance_score)}</strong>
         </div>
         <button type="button" style={buttonStyle()} onClick={onToggle}>View all {finding?.signal_ids.length ?? signals.length} signals</button>
         {expanded ? (
@@ -1027,8 +1035,17 @@ export function InvestigationDrawer({
         <div style={styles.drawerBody}>
           {activeStep === 'Finding' ? (
             <div style={styles.stack}>
-              <h3 style={{ margin: 0 }}>{shownFinding?.title ?? 'Finding snapshot'}</h3>
-              <p style={{ ...styles.muted, margin: 0 }}>{shownFinding?.summary}</p>
+              {shownFinding?.plain ? <PluginPlainBadge plain={shownFinding.plain} /> : null}
+              <h3 style={{ margin: 0 }}>{shownFinding?.plain?.headline ?? shownFinding?.title ?? 'Finding snapshot'}</h3>
+              {shownFinding?.plain ? (
+                <PluginPlainFinding
+                  plain={shownFinding.plain}
+                  details={`${shownFinding.title} ${shownFinding.summary}`}
+                  signal={result ? leadSignalText(leadSignal(shownFinding.signal_ids, result.signals)) : null}
+                />
+              ) : (
+                <p style={{ ...styles.muted, margin: 0 }}>{shownFinding?.summary}</p>
+              )}
               <div style={styles.detailGrid}>
                 <span>Importance</span><strong>{findingLevel(shownFinding?.health_status).label}</strong>
                 {result ? (
@@ -1435,7 +1452,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
                       setEvidenceExpanded(false);
                     }}
                   >
-                    {finding.title}
+                    {finding.plain ? `${finding.plain.badge_label}: ${finding.plain.headline}` : finding.title}
                   </button>
                 ))}
               </div>

@@ -83,6 +83,20 @@ const SHOTS = {
     await settle(page, 2500);
   },
 
+  // The first finding cards, in plain words (docs/finding-wording.md).
+  async '13-findings-plain-words'(page) {
+    await page.goto(`${WEB}/findings`);
+    await page.getByTestId('finding-plain-badge').first().waitFor({ timeout: 15000 });
+    await settle(page, 1500);
+    const heading = page.getByText(/^Needs attention \(/).first();
+    const top = await heading.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+    const card = await page.getByTestId('finding-plain-badge').first().evaluate((el) => {
+      const box = el.closest('.MuiCard-root')?.getBoundingClientRect();
+      return box ? box.bottom + window.scrollY : null;
+    });
+    return { clip: { x: 325, y: top - 16, width: VIEWPORT.width - 357, height: (card ?? top + 800) + 16 - (top - 16) }, fullPage: true };
+  },
+
   async '05-case-details'(page) {
     const cases = await (await fetch(`${WEB}/api/cases`)).json();
     const resolved = cases.find((c) => c.outcome_status === 'resolved' && c.finding_snapshot?.service === 'payments-api') || cases[0];
@@ -291,7 +305,7 @@ async function main() {
         continue;
       }
       const file = path.join(outRoot, 'web', `${name}.png`);
-      if (result?.clip) await page.screenshot({ path: file, clip: result.clip });
+      if (result?.clip) await page.screenshot({ path: file, clip: result.clip, fullPage: Boolean(result.fullPage) });
       else await page.screenshot({ path: file });
       console.log(`captured ${path.relative(ROOT, file)}`);
     } catch (error) {

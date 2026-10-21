@@ -13,8 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.config import SlackConfig
-from backend.app.models.entities import SlackNotificationEntity
+from backend.app.models.entities import FindingEntity, SlackNotificationEntity
 from backend.app.notifications.message_builder import build_finding_blocks
+from backend.app.services.finding_plain import finding_plain
 from intelligence.findings.schema import OperationalFinding
 
 logger = logging.getLogger(__name__)
@@ -120,9 +121,23 @@ class SlackNotifier:
             db.commit()
         return len(rows)
 
+    @staticmethod
+    def _plain(db, findings: list[OperationalFinding]) -> dict[int, dict]:
+        """Plain wording for saved findings, from their stored signals. Wording never blocks a
+        message: without it the message uses the stored title and summary."""
+        ids = [finding.id for finding in findings if finding.id is not None]
+        if not ids:
+            return {}
+        try:
+            return finding_plain(db, db.scalars(select(FindingEntity).where(FindingEntity.id.in_(ids))).all())
+        except Exception:
+            logger.warning("Slack message: plain wording failed, using the stored summary", exc_info=True)
+            return {}
+
     def _enqueue_and_send(self, findings: list[OperationalFinding]) -> None:
         now = datetime.utcnow()
         with self.session_factory() as db:
+            plain = self._plain(db, findings)
             rows = [
                 SlackNotificationEntity(
                     problem_key=finding.problem_id if finding.problem_id is not None else finding.id,
@@ -130,7 +145,7 @@ class SlackNotifier:
                     title=finding.title,
                     service=finding.service,
                     metric_name=finding.metric_name,
-                    payload=build_finding_blocks(finding),
+                    payload=build_finding_blocks(finding, plain.get(finding.id)),
                     status=PENDING,
                     # Not due for the retry loop until the first try below has had its chance.
                     next_attempt_at=now + RETRY_DELAYS[0],
