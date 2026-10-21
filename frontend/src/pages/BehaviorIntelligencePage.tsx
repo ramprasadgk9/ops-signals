@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Drawer, Grid2 as Grid, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Drawer, Grid2 as Grid, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Tooltip, Typography } from '@mui/material';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
@@ -10,7 +10,7 @@ import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import { BehaviorBuilder, BLANK_SEED, seedFromDefinition, type BuilderSeed } from '../components/BehaviorBuilder';
+import { BehaviorBuilder, BLANK_SEED, seedFromCatalog, seedFromDefinition, type BuilderSeed } from '../components/BehaviorBuilder';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { PatternMetrics, PatternWhy } from '../components/PatternEvidence';
@@ -18,7 +18,7 @@ import { useWebPermissions } from '../hooks/useWebPermissions';
 import { IconTile, PageHeader, Pill, WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
 import { buildBehaviorSummary, toBehaviorRows, type BehaviorRow } from '../standalone/behaviorService';
-import type { BehaviorDefinition, BehaviorFinding, BehaviorPatternSuggestion } from '../types';
+import type { BehaviorDefinition, BehaviorFinding, BehaviorPatternSuggestion, CatalogPattern, CatalogSignal } from '../types';
 import { patternFindingsHref } from '../utils/combinedPatterns';
 
 type PageTab = 'detected' | 'patterns';
@@ -173,8 +173,24 @@ function DetectedTab({ findings, rows, ruleCount, onSeePatterns }: { findings: B
   );
 }
 
-function ActiveRules({ definitions, findings, canAdmin, onEditCopy }: { definitions: BehaviorDefinition[]; findings: BehaviorFinding[]; canAdmin: boolean; onEditCopy: (id: string) => void }) {
+const PROOF: Record<CatalogPattern['proof'], { label: string; color: 'success' | 'info' | 'default'; detail: (pattern: CatalogPattern) => string }> = {
+  tested: { label: 'Tested here', color: 'success', detail: (pattern) => `Matched as expected in these benchmark scenarios: ${pattern.scenarios.join(', ')}.` },
+  shipped: { label: 'Shipped rule', color: 'info', detail: () => 'Ships with Ops Signals; no benchmark scenario checks it yet.' },
+  common: { label: 'Common pattern', color: 'default', detail: () => 'A well-known pattern, not tested here: a starting point to test on your own data.' },
+};
+
+function ProofChip({ pattern }: { pattern: CatalogPattern }) {
+  const proof = PROOF[pattern.proof];
+  return (
+    <Tooltip title={proof.detail(pattern)} arrow>
+      <Chip size="small" color={proof.color} variant={pattern.proof === 'common' ? 'outlined' : 'filled'} label={proof.label} sx={{ fontWeight: 800 }} />
+    </Tooltip>
+  );
+}
+
+function ActiveRules({ definitions, findings, catalog, canAdmin, onEditCopy }: { definitions: BehaviorDefinition[]; findings: BehaviorFinding[]; catalog: CatalogPattern[]; canAdmin: boolean; onEditCopy: (id: string) => void }) {
   const lastFired = lastFiredByRule(findings);
+  const proofByRule = new Map(catalog.filter((pattern) => pattern.rule).map((pattern) => [pattern.rule as string, pattern]));
   return (
     <Stack spacing={1.5} component="section" aria-labelledby="active-patterns-heading">
       <Box>
@@ -184,8 +200,8 @@ function ActiveRules({ definitions, findings, canAdmin, onEditCopy }: { definiti
         </Typography>
       </Box>
       <WorkspacePanel sx={{ overflowX: 'auto' }}>
-        <Table sx={{ minWidth: 820 }}>
-          <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Pattern</TableCell><TableCell>Needs</TableCell><TableCell>Last fired</TableCell><TableCell>Pack</TableCell><TableCell>Status</TableCell><TableCell align="right"><Box component="span" sx={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Actions</Box></TableCell></TableRow></TableHead>
+        <Table sx={{ minWidth: 920 }}>
+          <TableHead><TableRow sx={{ '& th': { color: ui.muted, fontWeight: 850, borderColor: ui.border } }}><TableCell>Pattern</TableCell><TableCell>Proof</TableCell><TableCell>Needs</TableCell><TableCell>Last fired</TableCell><TableCell>Pack</TableCell><TableCell>Status</TableCell><TableCell align="right"><Box component="span" sx={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>Actions</Box></TableCell></TableRow></TableHead>
           <TableBody>
             {definitions.map((definition) => {
               const fired = lastFired.get(definition.id);
@@ -195,6 +211,7 @@ function ActiveRules({ definitions, findings, canAdmin, onEditCopy }: { definiti
                     <Typography sx={{ fontWeight: 900 }}>{definition.title}</Typography>
                     <Typography sx={{ color: ui.muted, fontSize: 13 }}>{definition.description}</Typography>
                   </TableCell>
+                  <TableCell>{proofByRule.get(definition.id) ? <ProofChip pattern={proofByRule.get(definition.id) as CatalogPattern} /> : null}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{ruleNeeds(definition)}</TableCell>
                   <TableCell>{fired ? relativeTime(fired) : 'Never'}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{fileName(definition.source_file)} · v{definition.version}</TableCell>
@@ -212,6 +229,76 @@ function ActiveRules({ definitions, findings, canAdmin, onEditCopy }: { definiti
           </TableBody>
         </Table>
       </WorkspacePanel>
+    </Stack>
+  );
+}
+
+const SHAPE_WORDS: Record<CatalogSignal['shape'], string> = {
+  rising: 'Goes up',
+  falling: 'Goes down',
+  unusual: 'Unusual spike',
+};
+
+/** Templates for well-known problems, in plain words; Use this pattern opens the builder on one. */
+function KnownPatterns({ templates, canAdmin, onUse }: { templates: CatalogPattern[]; canAdmin: boolean; onUse: (key: string) => void }) {
+  const [area, setArea] = useState<string | null>(null);
+  const areas = [...new Set(templates.map((pattern) => pattern.area).filter((value): value is string => Boolean(value)))];
+  const shown = area ? templates.filter((pattern) => pattern.area === area) : templates;
+  return (
+    <Stack spacing={1.5} component="section" aria-labelledby="known-patterns-heading">
+      <Box>
+        <Typography id="known-patterns-heading" sx={{ fontWeight: 900, fontSize: 18 }}>Start from a known pattern</Typography>
+        <Typography sx={{ color: ui.muted, fontSize: 13 }}>
+          Real problems show up in several metrics at the same time. One signal alone is often a burst or a busy hour; all of them together is evidence.
+        </Typography>
+      </Box>
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" role="group" aria-label="Filter by area">
+        <Chip label="All" color={area ? 'default' : 'primary'} variant={area ? 'outlined' : 'filled'} onClick={() => setArea(null)} />
+        {areas.map((name) => (
+          <Chip key={name} label={name} color={area === name ? 'primary' : 'default'} variant={area === name ? 'filled' : 'outlined'} onClick={() => setArea(name)} />
+        ))}
+      </Stack>
+      <Grid container spacing={2}>
+        {shown.map((pattern) => (
+          <Grid key={pattern.key} size={{ xs: 12, md: 6, xl: 4 }}>
+            <WorkspacePanel sx={{ p: 2.5, height: '100%' }}>
+            <Stack component="article" spacing={1.5} sx={{ height: '100%' }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                <Box>
+                  <Typography component="h3" sx={{ fontWeight: 900, fontSize: 16 }}>{pattern.name}</Typography>
+                  {pattern.area ? <Typography sx={{ color: ui.muted, fontSize: 12 }}>{pattern.area}</Typography> : null}
+                </Box>
+                <ProofChip pattern={pattern} />
+              </Stack>
+              <Typography sx={{ fontSize: 14 }}>{pattern.meaning}</Typography>
+              <Stack spacing={0.75} aria-label={`Signals of ${pattern.name}`}>
+                {pattern.signals.map((signal, index) => (
+                  <Box key={signal.alias} sx={{ px: 1.25, py: 0.9, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 800 }}>{index > 0 ? '+ ' : ''}{signal.label}</Typography>
+                    <Typography sx={{ fontSize: 12, color: ui.muted }}>
+                      {SHAPE_WORDS[signal.shape]} · <Box component="span" sx={{ fontFamily: 'monospace' }}>{signal.analyzers.join(', ')}</Box>
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+              <Box>
+                <Typography sx={{ fontSize: 12, fontWeight: 800, color: ui.orange }}>Why one signal isn't enough</Typography>
+                <Typography sx={{ fontSize: 13 }}>{pattern.why}</Typography>
+              </Box>
+              <Box>
+                <Typography sx={{ fontSize: 12, fontWeight: 800, color: ui.muted }}>Check first</Typography>
+                <Typography sx={{ fontSize: 13 }}>{pattern.check_first}</Typography>
+              </Box>
+              {canAdmin ? (
+                <Box sx={{ mt: 'auto', pt: 0.5 }}>
+                  <Button variant="outlined" onClick={() => onUse(pattern.key)} sx={{ textTransform: 'none', fontWeight: 800 }}>Use this pattern</Button>
+                </Box>
+              ) : null}
+            </Stack>
+            </WorkspacePanel>
+          </Grid>
+        ))}
+      </Grid>
     </Stack>
   );
 }
@@ -291,7 +378,13 @@ function resolveBuilder(
   value: string,
   definitions: BehaviorDefinition[],
   suggestions: BehaviorPatternSuggestion[] | undefined,
+  catalog: CatalogPattern[] | undefined,
 ): { seed: BuilderSeed; label: string } | null {
+  if (value.startsWith('catalog:')) {
+    if (!catalog) return null;
+    const pattern = catalog.find((item) => item.key === value.slice('catalog:'.length) && item.draft);
+    return pattern ? { seed: seedFromCatalog(pattern), label: `From the known pattern “${pattern.name}” · pick your metric for each signal` } : null;
+  }
   if (value.startsWith('rule:')) {
     const definition = definitions.find((item) => item.id === value.slice('rule:'.length));
     return definition ? { seed: seedFromDefinition(definition, '_copy'), label: `Editing a copy of ${fileName(definition.source_file)} · saving never changes the original` } : null;
@@ -310,6 +403,8 @@ export function BehaviorIntelligencePage() {
   const tab: PageTab = searchParams.get('tab') === 'patterns' ? 'patterns' : 'detected';
   const builder = searchParams.get('builder');
   const definitionsQuery = useQuery({ queryKey: ['behavior-definitions'], queryFn: api.behaviorDefinitions });
+  // Optional: without the catalog the page shows no proof or known patterns, and works as before.
+  const catalogQuery = useQuery({ queryKey: ['behavior-catalog'], queryFn: api.behaviorCatalog, retry: false });
   const findingsQuery = useQuery({ queryKey: ['behavior-findings'], queryFn: () => api.behaviorFindings() });
   // Same query the Suggested section reads; here only to seed the builder from a suggestion link.
   const suggestionsQuery = useQuery({
@@ -338,7 +433,9 @@ export function BehaviorIntelligencePage() {
   const definitions = definitionsQuery.data ?? [];
   const findings = findingsQuery.data ?? [];
   const rows = toBehaviorRows(findings);
-  const resolved = builder && canAdmin ? resolveBuilder(builder, definitions, suggestionsQuery.data) : null;
+  const resolved = builder && canAdmin ? resolveBuilder(builder, definitions, suggestionsQuery.data, catalogQuery.data) : null;
+  const catalog = catalogQuery.data ?? [];
+  const templates = catalog.filter((pattern) => !pattern.rule && pattern.draft);
 
   return (
     <Stack spacing={3}>
@@ -365,7 +462,8 @@ export function BehaviorIntelligencePage() {
       ) : (
         <Stack spacing={4}>
           {!canAdmin ? <Alert severity="info">You can see every pattern. Ask an Ops Signals admin to add or change one.</Alert> : null}
-          <ActiveRules definitions={definitions} findings={findings} canAdmin={canAdmin} onEditCopy={(id) => openBuilder(`rule:${id}`)} />
+          <ActiveRules definitions={definitions} findings={findings} catalog={catalog} canAdmin={canAdmin} onEditCopy={(id) => openBuilder(`rule:${id}`)} />
+          {templates.length ? <KnownPatterns templates={templates} canAdmin={canAdmin} onUse={(key) => openBuilder(`catalog:${key}`)} /> : null}
           <SuggestedPatterns canAdmin={canAdmin} onOpen={(id) => openBuilder(`suggestion:${id}`)} />
         </Stack>
       )}

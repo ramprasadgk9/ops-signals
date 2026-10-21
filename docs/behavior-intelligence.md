@@ -136,14 +136,38 @@ independent packs, not one shared file) and restart the backend to pick it up.
 
 ## What Users Can See
 
-The UI explanation includes:
+- **Findings** leads with *Combined patterns*: each matched behavior with every metric it combined
+  (shape, change, window), how long they overlapped and how many conditions passed. The
+  single-metric findings it was made from carry a "Part of" tag, and the Overview's Needs Attention
+  lists it first as "<service> / N metrics".
+- **Behavior Intelligence → Detected** shows the same evidence for the selected behavior, whether it
+  is still active (seen in the last 24 hours) and a link to its card on Findings.
+- **Behavior Intelligence → Patterns** lists every rule with its proof, the analyzers it needs and
+  when it last fired; the known patterns to start from; and the pairs mined from your data. Admins
+  open the builder there to write a rule, test it on a past run and save it to a pack.
 
-- why the finding matched
-- which facts were extracted
-- which conditions passed or failed
-- evidence fields used by the rule
-- correlation summary
-- confidence score
+## Rule Facts That Do Not Depend On One Analyzer
+
+The router runs only some analyzers on a series, and often reports a steady climb as a ruptures
+level change rather than a trend. A rule that means "went up" should ask `<alias>.change.upward`
+(or `change.downward`), which is true when a trend, a baseline shift or a ruptures change of more
+than 25% saw it, and list `trend`, `baseline_shift` and `ruptures` in that input's `analyzers`. The
+shipped rules do. A rule input whose analyzers all missed the metric is skipped, and the rule
+cannot match.
+
+## Known Patterns Catalog
+
+`config/behavior_patterns_catalog.yml` describes patterns in plain words for the Patterns tab:
+
+- every shipped rule, with its proof: **Tested here** when benchmark scenarios require it to match
+  (`tests/test_behavior_catalog.py` checks each one), otherwise **Shipped rule**;
+- templates for well-known problems (consumer lag, cache misses, disk filling, saturated workers,
+  retry storms), marked **Common pattern**: not tested here. *Use this pattern* opens the builder
+  on a draft made from the template's signals, suggests a stored metric for each by keyword, and
+  holds Test Pattern back until every signal points at one.
+
+A template signal is `rising`, `falling` or `unusual`. "Stayed flat" and "an event at that moment"
+can't be expressed: an input with no signals makes the whole rule skip.
 
 ## Limitations
 

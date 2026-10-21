@@ -1,14 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { BehaviorIntelligencePage } from './BehaviorIntelligencePage';
 import { api } from '../api/queries';
-import type { BehaviorDefinition, BehaviorFinding, BehaviorPatternSuggestion } from '../types';
+import type { BehaviorDefinition, BehaviorFinding, BehaviorPatternSuggestion, CatalogPattern } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
     behaviorDefinitions: vi.fn().mockResolvedValue([]),
+    behaviorCatalog: vi.fn().mockResolvedValue([]),
     behaviorFindings: vi.fn(),
     createCaseFromBehavior: vi.fn(),
     behaviorSuggestions: vi.fn().mockResolvedValue([]),
@@ -263,5 +264,99 @@ describe('BehaviorIntelligencePage patterns tab', () => {
     expect(screen.queryByRole('button', { name: 'Edit copy' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'New pattern' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close builder' })).not.toBeInTheDocument();
+  });
+});
+
+const consumerTemplate: CatalogPattern = {
+  key: 'consumer_falling_behind',
+  rule: null,
+  name: 'Consumer falling behind',
+  area: 'Queues',
+  meaning: 'Messages arrive faster than your consumers can process them.',
+  why: 'Lag jumps during every traffic burst and then clears.',
+  check_first: 'Consumer restarts or rebalances.',
+  proof: 'common',
+  scenarios: [],
+  signals: [
+    { alias: 'lag', label: 'Consumer lag rising', shape: 'rising', metric_hint: 'consumer_lag', keywords: ['consumer', 'lag'], analyzers: ['trend', 'baseline_shift', 'ruptures'] },
+    { alias: 'produced', label: 'Incoming messages rising', shape: 'rising', metric_hint: 'messages_in_rate', keywords: ['messages', 'incoming'], analyzers: ['trend', 'baseline_shift', 'ruptures'] },
+  ],
+  draft: {
+    id: 'consumer_falling_behind',
+    title: 'Consumer falling behind',
+    inputs: [
+      { alias: 'lag', metric_name: 'consumer_lag', analyzers: ['trend', 'baseline_shift', 'ruptures'] },
+      { alias: 'produced', metric_name: 'messages_in_rate', analyzers: ['trend', 'baseline_shift', 'ruptures'] },
+    ],
+    conditions: { all: [{ fact: 'lag.change.upward', operator: 'equals', value: true }, { fact: 'produced.change.upward', operator: 'equals', value: true }], any: [] },
+    correlation: { max_time_gap: '30m', minimum_overlap: '5m' },
+    output: { severity: 'high', title: 'Consumer falling behind' },
+  },
+};
+const diskTemplate: CatalogPattern = { ...consumerTemplate, key: 'disk_filling_up', name: 'Disk filling up', area: 'Storage' };
+
+describe('BehaviorIntelligencePage known patterns', () => {
+  beforeEach(() => {
+    // Back to nobody signed in: an earlier test signs in a viewer, and clearAllMocks keeps that.
+    vi.mocked(api.me).mockRejectedValue(new Error('no sign-in'));
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows each shipped rule with its proof', async () => {
+    vi.mocked(api.behaviorDefinitions).mockResolvedValue([rule(), rule({ id: 'server_slow', title: 'Possible server performance degradation' })]);
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+    vi.mocked(api.behaviorCatalog).mockResolvedValue([
+      { ...consumerTemplate, key: 'server_slow', rule: 'server_slow', proof: 'tested', scenarios: ['behavior_server_slow_v1'], signals: [], draft: null },
+      { ...consumerTemplate, key: 'pool_exhaustion', rule: 'pool_exhaustion', proof: 'shipped', signals: [], draft: null },
+    ]);
+
+    renderPage('/?tab=patterns');
+
+    const table = within(await screen.findByRole('table'));
+    expect(await table.findByText('Tested here')).toBeInTheDocument();
+    expect(table.getByText('Shipped rule')).toBeInTheDocument();
+    expect(screen.queryByText('Start from a known pattern')).not.toBeInTheDocument();
+  });
+
+  it('lists templates by area and opens one in the builder to pick metrics', async () => {
+    vi.mocked(api.behaviorDefinitions).mockResolvedValue([]);
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+    vi.mocked(api.behaviorCatalog).mockResolvedValue([consumerTemplate, diskTemplate]);
+    vi.mocked(api.behaviorAvailableMetrics).mockResolvedValue(['kafka_consumergroup_lag', 'kafka_topic_messages_in_rate', 'cpu_usage']);
+
+    renderPage('/?tab=patterns');
+
+    expect(await screen.findByText('Start from a known pattern')).toBeInTheDocument();
+    expect(screen.getByText('Disk filling up')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Queues' }));
+    expect(screen.queryByText('Disk filling up')).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText('Signals of Consumer falling behind')).getByText('Consumer lag rising')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use this pattern' }));
+    expect(await screen.findByText('From the known pattern “Consumer falling behind” · pick your metric for each signal')).toBeInTheDocument();
+    expect(screen.getByLabelText('Id')).toHaveValue('consumer_falling_behind');
+    expect(screen.getByTestId('location')).toHaveTextContent('builder=catalog%3Aconsumer_falling_behind');
+
+    // Both signals start on a generic name: the test waits until each points at a stored metric.
+    expect(await screen.findByText('Pick your metric for Consumer lag rising, Incoming messages rising first (step 2).')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'kafka_consumergroup_lag' }));
+    fireEvent.click(screen.getByRole('button', { name: 'kafka_topic_messages_in_rate' }));
+    expect(screen.getAllByText('Matched to a metric Ops Signals has stored.')).toHaveLength(2);
+    expect(screen.queryByText(/Pick your metric for/)).not.toBeInTheDocument();
+  });
+
+  it('shows a viewer the templates without Use this pattern', async () => {
+    vi.mocked(api.me).mockResolvedValue({ signed_in: true, name: 'v', role: 'Viewer', via: 'proxy', groups: [], granted_by: null, mode: 'proxy', problem: null });
+    vi.mocked(api.behaviorDefinitions).mockResolvedValue([]);
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+    vi.mocked(api.behaviorCatalog).mockResolvedValue([consumerTemplate]);
+
+    renderPage('/?tab=patterns');
+
+    expect(await screen.findByText('Consumer falling behind')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use this pattern' })).not.toBeInTheDocument();
   });
 });

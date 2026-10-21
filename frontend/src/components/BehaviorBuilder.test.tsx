@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
-import { BehaviorBuilder, seedFromDefinition } from './BehaviorBuilder';
+import { BehaviorBuilder, seedFromCatalog, seedFromDefinition } from './BehaviorBuilder';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -105,5 +105,17 @@ describe('seedFromDefinition', () => {
     expect(seed.inputs).toEqual([{ alias: '', metricName: '', analyzers: '' }]);
     expect(seed.severity).toBe('medium');
     expect(seed.maxTimeGap).toBe('15m');
+  });
+});
+
+describe('seedFromCatalog', () => {
+  it('labels each input with its signal and the words to find a metric by', () => {
+    const seed = seedFromCatalog({
+      key: 'retry_storm', rule: null, name: 'Retry storm', meaning: 'm', why: 'w', check_first: 'c', proof: 'common', scenarios: [],
+      signals: [{ alias: 'errors', label: 'Error rate unusual', shape: 'unusual', metric_hint: 'error_rate', keywords: ['error', '5xx'], analyzers: ['pyod_outlier'] }],
+      draft: { id: 'retry_storm', inputs: [{ alias: 'errors', metric_name: 'error_rate', analyzers: ['pyod_outlier'] }] },
+    });
+    expect(seed.id).toBe('retry_storm');
+    expect(seed.inputs).toEqual([{ alias: 'errors', metricName: 'error_rate', analyzers: 'pyod_outlier', label: 'Error rate unusual', keywords: ['error', '5xx'] }]);
   });
 });

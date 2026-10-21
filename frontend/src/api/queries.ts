@@ -9,6 +9,7 @@ import type {
   AnalyzerRecommendationChatResponse,
   AnalysisRun,
   BehaviorDefinition,
+  CatalogPattern,
   BehaviorDefinitionDraft,
   BehaviorEvaluation,
   BehaviorFinding,
@@ -140,6 +141,7 @@ export const api = {
   analysisRun: (runId: string) => getJson<AnalysisRun>(`/api/analysis-runs/${runId}`),
   capabilities: () => getJson<Capability[]>('/api/capabilities'),
   behaviorDefinitions: () => getJson<BehaviorDefinition[]>('/api/behavior-definitions'),
+  behaviorCatalog: () => getJson<CatalogPattern[]>('/api/behavior-definitions/catalog'),
   behaviorFindings: (analysisRunId?: string, service?: string) => {
     const params = new URLSearchParams();
     if (analysisRunId) params.append('analysis_run_id', analysisRunId);

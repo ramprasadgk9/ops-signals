@@ -21,9 +21,17 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
-import type { BehaviorConditionInput, BehaviorDefinitionDraft } from '../types';
+import type { BehaviorConditionInput, BehaviorDefinitionDraft, CatalogPattern } from '../types';
+import { suggestMetrics } from '../utils/metricSuggest';
 
-type InputRow = { alias: string; metricName: string; analyzers: string };
+type InputRow = {
+  alias: string;
+  metricName: string;
+  analyzers: string;
+  /** From a catalog template: the signal in plain words, and words to find the user's metric by. */
+  label?: string;
+  keywords?: string[];
+};
 type ConditionRow = BehaviorConditionInput;
 
 const OPERATORS = ['equals', 'greater_than', 'less_than', 'contains'];
@@ -99,6 +107,19 @@ export function seedFromDefinition(definition: Record<string, unknown>, idSuffix
     conditionsAny: conditionRows(conditions.any),
     maxTimeGap: text(correlation.max_time_gap, BLANK_SEED.maxTimeGap),
     minimumOverlap: text(correlation.minimum_overlap, BLANK_SEED.minimumOverlap),
+  };
+}
+
+/** A seed from a catalog template: its draft, each input labelled with its signal and keywords. */
+export function seedFromCatalog(pattern: CatalogPattern): BuilderSeed {
+  const seed = seedFromDefinition(pattern.draft ?? {});
+  const signals = new Map(pattern.signals.map((signal) => [signal.alias, signal]));
+  return {
+    ...seed,
+    inputs: seed.inputs.map((row) => {
+      const signal = signals.get(row.alias);
+      return signal ? { ...row, label: signal.label, keywords: signal.keywords } : row;
+    }),
   };
 }
 
@@ -285,6 +306,24 @@ type Props = {
  * Author a behavior definition, test it against real historical data, and save it to a pack. Opens
  * as a side panel on Behavior Intelligence from New pattern, Edit copy and Turn into pattern.
  */
+/** Under a template's input: whether it points at a stored metric, and the best fits when not. */
+function MetricMatch({ row, options, onPick }: { row: InputRow; options: string[]; onPick: (metricName: string) => void }) {
+  if (options.includes(row.metricName)) {
+    return <Typography sx={{ mt: 0.75, fontSize: 13, color: ui.green }}>Matched to a metric Ops Signals has stored.</Typography>;
+  }
+  const suggestions = suggestMetrics(row.keywords ?? [], options);
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}>
+      <Typography sx={{ fontSize: 13, color: ui.orange }}>
+        {suggestions.length ? 'Pick your metric:' : 'No stored metric looks like this one. Type to search all of them.'}
+      </Typography>
+      {suggestions.map((metric) => (
+        <Chip key={metric} size="small" variant="outlined" clickable label={metric} onClick={() => onPick(metric)} sx={{ fontFamily: 'monospace' }} />
+      ))}
+    </Stack>
+  );
+}
+
 export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Props) {
   const [id, setId] = useState(seed.id);
   const [title, setTitle] = useState(seed.title);
@@ -307,6 +346,9 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
   // OTel name like container.memory.usage, a Prometheus one like process_resident_memory_bytes).
   const metricsQuery = useQuery({ queryKey: ['behavior-available-metrics'], queryFn: api.behaviorAvailableMetrics, retry: false });
   const metricOptions = Array.isArray(metricsQuery.data) ? metricsQuery.data : [];
+  // A template's signals start on a generic name (consumer_lag); until each points at a metric
+  // Ops Signals has stored, a test could only say "no signals". Without the list, nothing is held up.
+  const unmapped = metricOptions.length ? inputs.filter((row) => row.keywords && !metricOptions.includes(row.metricName)) : [];
   const sampleOptions = samplesQuery.data ?? [];
 
   const draft = buildDraft({
@@ -447,7 +489,9 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
         <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 1.5 }}>2. Inputs (metrics to combine)</Typography>
         <Stack spacing={1.2}>
           {inputs.map((row, index) => (
-            <Stack key={index} direction="row" spacing={1} alignItems="center">
+            <Box key={index}>
+            {row.label ? <Typography sx={{ fontWeight: 800, fontSize: 13, mb: 0.75 }}>{row.label}</Typography> : null}
+            <Stack direction="row" spacing={1} alignItems="center">
               <Tooltip title="Example: cpu — a short nickname for this metric. You'll use it in Conditions below, e.g. cpu.anomaly.present." arrow>
                 <TextField size="small" label="Alias" placeholder="cpu" value={row.alias} onChange={(e) => updateInput(index, { alias: e.target.value })} sx={{ flex: 1 }} />
               </Tooltip>
@@ -468,6 +512,8 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
                 <DeleteRoundedIcon fontSize="small" />
               </IconButton>
             </Stack>
+            {row.keywords && metricOptions.length ? <MetricMatch row={row} options={metricOptions} onPick={(metricName) => updateInput(index, { metricName })} /> : null}
+            </Box>
           ))}
           <Button size="small" startIcon={<AddRoundedIcon />} onClick={() => setInputs([...inputs, { alias: '', metricName: '', analyzers: '' }])} sx={{ alignSelf: 'flex-start', textTransform: 'none' }}>
             Add input
@@ -535,9 +581,14 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
             </MenuItem>
           ))}
         </TextField>
-        <Button startIcon={<ScienceRoundedIcon />} variant="contained" onClick={() => dryRunMutation.mutate()} disabled={dryRunMutation.isPending || !selectedSample} sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}>
+        <Button startIcon={<ScienceRoundedIcon />} variant="contained" onClick={() => dryRunMutation.mutate()} disabled={dryRunMutation.isPending || !selectedSample || unmapped.length > 0} sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}>
           Test Pattern
         </Button>
+        {unmapped.length ? (
+          <Typography role="status" sx={{ mt: 1, fontSize: 13, color: ui.orange }}>
+            Pick your metric for {unmapped.map((row) => row.label ?? row.alias).join(', ')} first (step 2).
+          </Typography>
+        ) : null}
 
         {dryRunMutation.data ? (
           <Box sx={{ mt: 2 }}>

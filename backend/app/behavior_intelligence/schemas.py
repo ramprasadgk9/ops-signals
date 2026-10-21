@@ -152,3 +152,29 @@ class SaveDraftResult(BaseModel):
     saved: bool
     pack_file: str
     validation: ValidationResultOut
+
+
+class CatalogSignalOut(BaseModel):
+    alias: str
+    label: str
+    shape: str
+    metric_hint: str
+    keywords: list[str] = Field(default_factory=list)
+    analyzers: list[str] = Field(default_factory=list)
+
+
+class CatalogPatternOut(BaseModel):
+    """One known pattern (config/behavior_patterns_catalog.yml): a shipped rule with its proof, or
+    a template with its signals and a draft definition for the builder."""
+
+    key: str
+    rule: str | None = None
+    name: str
+    area: str | None = None
+    meaning: str = ""
+    why: str = ""
+    check_first: str = ""
+    proof: str
+    scenarios: list[str] = Field(default_factory=list)
+    signals: list[CatalogSignalOut] = Field(default_factory=list)
+    draft: dict | None = None

@@ -44,6 +44,31 @@ export type BehaviorDefinition = {
   source_file?: string | null;
 };
 
+/** A signal of a catalog template: what to look for, and words to find the user's metric by. */
+export type CatalogSignal = {
+  alias: string;
+  label: string;
+  shape: 'rising' | 'falling' | 'unusual';
+  metric_hint: string;
+  keywords: string[];
+  analyzers: string[];
+};
+
+/** A known pattern (config/behavior_patterns_catalog.yml): a shipped rule with its proof, or a template. */
+export type CatalogPattern = {
+  key: string;
+  rule: string | null;
+  name: string;
+  area?: string | null;
+  meaning: string;
+  why: string;
+  check_first: string;
+  proof: 'tested' | 'shipped' | 'common';
+  scenarios: string[];
+  signals: CatalogSignal[];
+  draft: Record<string, unknown> | null;
+};
+
 export type FactDescriptor = {
   key: string;
   description: string;
