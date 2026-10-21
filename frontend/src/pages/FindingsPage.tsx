@@ -92,6 +92,14 @@ export function FindingsPage() {
     }
   }, [linkedFindingQuery.data]);
 
+  // Link from Behavior Intelligence: /findings?pattern=<id> scrolls to that combined pattern's card.
+  const linkedPatternParam = searchParams.get('pattern');
+  const linkedPatternId = linkedPatternParam && /^\d+$/.test(linkedPatternParam) ? Number(linkedPatternParam) : null;
+  useEffect(() => {
+    if (linkedPatternId === null || findingsQuery.isLoading || summaryQuery.isLoading || !behaviorsQuery.data) return;
+    document.getElementById(`combined-pattern-${linkedPatternId}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }, [linkedPatternId, findingsQuery.isLoading, summaryQuery.isLoading, behaviorsQuery.data]);
+
   const handleCloseDrawer = () => {
     setDrawerOpen(false);
     if (searchParams.has('finding')) {
@@ -361,7 +369,7 @@ export function FindingsPage() {
             <Grid container spacing={2}>
               {visiblePatterns.map((behavior) => (
                 <Grid key={behavior.id} size={{ xs: 12, md: 6 }}>
-                  <CombinedPatternCard behavior={behavior} parts={partFindings(behavior, patternLinks, findings)} onViewFinding={handleViewDetails} />
+                  <CombinedPatternCard behavior={behavior} parts={partFindings(behavior, patternLinks, findings)} onViewFinding={handleViewDetails} highlighted={behavior.id === linkedPatternId} />
                 </Grid>
               ))}
             </Grid>

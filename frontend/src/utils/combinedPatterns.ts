@@ -121,3 +121,19 @@ export function patternsByFinding(behaviors: BehaviorFinding[], findings: Findin
 export function partFindings(behavior: BehaviorFinding, byFinding: Map<number, BehaviorFinding[]>, findings: Finding[]): Finding[] {
   return findings.filter((finding) => finding.id != null && (byFinding.get(finding.id) ?? []).some((item) => item.id === behavior.id));
 }
+
+/** Still going on (seen by a run in the last 24 hours) or quiet since. */
+export function patternStatus(behavior: BehaviorFinding, now = Date.now()): 'active' | 'quiet' {
+  return inWindow(behavior, '24h', now) ? 'active' : 'quiet';
+}
+
+/** The smallest Findings window that still lists the pattern; null when it is older than all of them. */
+export function findingsWindowFor(behavior: BehaviorFinding, now = Date.now()): PatternWindow | null {
+  return (['6h', '24h', '7d'] as PatternWindow[]).find((window) => inWindow(behavior, window, now)) ?? null;
+}
+
+/** Where "View details" opens the pattern: its card on the Findings page. */
+export function patternFindingsHref(behavior: BehaviorFinding, now = Date.now()): string | null {
+  const window = findingsWindowFor(behavior, now);
+  return window ? `/findings?window=${window}&pattern=${behavior.id}` : null;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BehaviorFinding, Finding } from '../types';
-import { conditionsPassed, formatChange, inWindow, overlapMinutes, parseUtc, partFindings, patternParts, patternsByFinding, searchPatterns } from './combinedPatterns';
+import { conditionsPassed, findingsWindowFor, formatChange, inWindow, overlapMinutes, parseUtc, partFindings, patternFindingsHref, patternParts, patternsByFinding, patternStatus, searchPatterns } from './combinedPatterns';
 
 // Shaped like the real record the engine stores for the shipped pool_exhaustion rule.
 const trend = (direction: string, change: number, start: string) => ({
@@ -114,5 +114,22 @@ describe('patternsByFinding', () => {
 
   it('links nothing when the pattern has no run', () => {
     expect(patternsByFinding([{ ...pool, analysis_run_id: undefined }], [finding(1, 'db_connection_wait_seconds')]).size).toBe(0);
+  });
+});
+
+describe('status and link', () => {
+  const seen = parseUtc(pool.last_seen_at);
+  const hours = (count: number) => seen + count * 3600_000;
+
+  it('is active while a run saw it in the last 24 hours, quiet after', () => {
+    expect(patternStatus(pool, hours(2))).toBe('active');
+    expect(patternStatus(pool, hours(30))).toBe('quiet');
+  });
+
+  it('links to the smallest Findings window that lists it', () => {
+    expect(findingsWindowFor(pool, hours(2))).toBe('6h');
+    expect(findingsWindowFor(pool, hours(10))).toBe('24h');
+    expect(patternFindingsHref(pool, hours(30))).toBe('/findings?window=7d&pattern=7');
+    expect(patternFindingsHref(pool, hours(24 * 8))).toBeNull();
   });
 });
