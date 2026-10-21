@@ -117,6 +117,11 @@ function signalsForFinding(result: GrafanaAnalysisResult, selectedFinding: Grafa
   return result.signals.filter((signal) => ids.has(signal.id));
 }
 
+/** "1 signal window", "3 signal windows". */
+export function signalWindows(count: number): string {
+  return `${count} signal window${count === 1 ? '' : 's'}`;
+}
+
 /** What the analyzer looks for, shown under its row on click (hover-only tips fail on touch). */
 function AnalyzerTip({ name, text }: { name: string; text: string | null }) {
   const [open, setOpen] = useState(false);
@@ -729,9 +734,9 @@ function EvidenceSummaryCard({
           <h3 style={{ margin: 0 }}>Evidence</h3>
           <button type="button" style={buttonStyle()} onClick={onToggle}>{expanded ? 'Hide' : '⌄'}</button>
         </div>
-        <div style={styles.evidenceHero}>
-          <strong>{finding?.signal_ids.length ?? signals.length} signal windows</strong>
-          <span style={styles.muted}>support this finding</span>
+        <div data-testid="evidence-windows" style={styles.evidenceHero}>
+          <strong>{signalWindows(finding?.signal_ids.length ?? signals.length)}</strong>{' '}
+          <span style={styles.muted}>{(finding?.signal_ids.length ?? signals.length) === 1 ? 'supports' : 'support'} this finding</span>
         </div>
         <div style={styles.detailGrid}>
           <span>Earliest signal</span><strong>{earliest ? new Date(earliest).toLocaleString() : 'n/a'}</strong>
@@ -1212,6 +1217,8 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
   const [assistantConversationId, setAssistantConversationId] = useState<string | null>(null);
   const [isResettingTestData, setIsResettingTestData] = useState(false);
   const [evidenceExpanded, setEvidenceExpanded] = useState(false);
+  // Open, Run details takes the strip's full width below the tiles: it holds the analyzer list.
+  const [runDetailsOpen, setRunDetailsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // The drawer shows a behavior case's own snapshot, not the selected single-metric finding.
   const [drawerForBehavior, setDrawerForBehavior] = useState(false);
@@ -1402,7 +1409,11 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
           <div style={styles.summaryItem}><span style={styles.summaryIcon}>⌁</span><strong>{result.signals.length}</strong><span>Signals</span></div>
           <div style={styles.summaryItem}><span style={styles.summaryIcon}>◇</span><strong>{result.findings.length}</strong><span>Findings</span></div>
           <div style={styles.summaryItem}><span style={styles.summaryIcon}>⌑</span><strong>{result.behaviorFindings.length}</strong><span>Behavior Findings</span></div>
-          <details style={styles.runDetails}>
+          <details
+            data-testid="run-details"
+            style={runDetailsOpen ? { ...styles.runDetails, gridColumn: '1 / -1', justifySelf: 'stretch' } : styles.runDetails}
+            onToggle={(event) => setRunDetailsOpen(event.currentTarget.open)}
+          >
             <summary>Run details</summary>
             <div style={{ ...styles.detailGrid, marginTop: 12 }}>
               <span>Run ID</span><strong title={result.runId} style={{ cursor: 'help' }}>{truncateId(result.runId)}</strong>
