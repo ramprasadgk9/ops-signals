@@ -22,7 +22,8 @@ release names the plugin version it ships. The full project changelog is
   longer says PyOD or ADTK ran when Z-Score did, or that only "recommended" analyzers run. The
   "Selection mode" rows are gone. An ⓘ next to each analyzer's name says what it looks for.
   Opened, "Run details" takes the full width below the Samples / Signals / Findings tiles instead
-  of squeezing into the strip beside them. The Evidence card reads "2 signal windows support this
+  of squeezing into the strip beside them; it reads as a link ("Run details" / "Hide run details")
+  and has a "Hide run details" button at its end. The Evidence card reads "2 signal windows support this
   finding" on one line (it was split as "2 / signal / windows" beside the rest), and "1 signal
   window supports" for one.
 - **Roles.** Through Grafana, a Viewer's Run Analysis, "Was this real?", Create case, case drawer
