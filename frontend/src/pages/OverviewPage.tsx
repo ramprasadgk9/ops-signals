@@ -18,13 +18,14 @@ import { AlertsOverviewPanel } from '../components/AlertTimeline';
 import { MetricUsageStrip } from '../components/MetricUsageStrip';
 import { SetupBanner } from '../components/SetupBanner';
 import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
-import { relativeTime, titleCase, ui } from '../standalone/theme';
+import { relativeTime, severityTone, titleCase, ui } from '../standalone/theme';
 import { findingLevel } from '../utils/findingLevel';
 import { groupRepeatedFindings } from '../utils/findingSearch';
 import { needsAttention } from '../utils/findingTrust';
+import { inWindow, patternParts } from '../utils/combinedPatterns';
 import { toCaseRows } from '../standalone/casesService';
 import { buildAutonomousDashboardData, type AutonomousDashboardData, type AutonomousPolicyRun } from '../autonomous/dashboardModel';
-import type { AlertItem, Finding, OperationalCase } from '../types';
+import type { AlertItem, BehaviorFinding, Finding, OperationalCase } from '../types';
 
 function KpiCard({ icon, value, label, delta, to, bg, color }: { icon: React.ReactNode; value: number | string; label: string; delta: string; to: string; bg: string; color: string }) {
   return (
@@ -126,7 +127,7 @@ export function OverviewPage() {
 
       <MetricUsageStrip />
 
-      <NeedsAttentionPanel findings={prioritizedFindings} cases={cases} alertByFinding={alertsByFinding(linkedAlertsQuery.data ?? [])} />
+      <NeedsAttentionPanel findings={prioritizedFindings} patterns={behaviors.filter((behavior) => inWindow(behavior, '24h'))} cases={cases} alertByFinding={alertsByFinding(linkedAlertsQuery.data ?? [])} />
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 7 }}>
@@ -174,8 +175,10 @@ function OperationalSummary({ activeFindings, attentionFindings, contextFindings
   );
 }
 
-function NeedsAttentionPanel({ findings, cases, alertByFinding }: { findings: Finding[]; cases: OperationalCase[]; alertByFinding: Map<number, AlertItem> }) {
-  const rows = findings.slice(0, 5);
+function NeedsAttentionPanel({ findings, patterns, cases, alertByFinding }: { findings: Finding[]; patterns: BehaviorFinding[]; cases: OperationalCase[]; alertByFinding: Map<number, AlertItem> }) {
+  // Combined patterns lead: several metrics agreeing is stronger evidence than any one of them.
+  const patternRows = patterns.slice(0, 5);
+  const rows = findings.slice(0, 5 - patternRows.length);
   return (
     <WorkspacePanel sx={{ p: 2.5 }}>
       <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 2 }}>Needs Attention</Typography>
@@ -195,6 +198,23 @@ function NeedsAttentionPanel({ findings, cases, alertByFinding }: { findings: Fi
               {header}
             </Typography>
           ))}
+          {patternRows.map((behavior) => {
+            const tone = severityTone(behavior.severity);
+            return (
+              <NeedsAttentionRow
+                key={`pattern-${behavior.id}`}
+                priority={titleCase(behavior.severity)}
+                priorityColor={tone.color}
+                priorityBg={tone.bg}
+                serviceMetric={`${behavior.service ?? 'unknown'} / ${patternParts(behavior).length} metrics`}
+                issue="Combined pattern"
+                impact={behavior.title}
+                status={behavior.case_id ? `Case #${behavior.case_id}` : 'No case'}
+                action={behavior.case_id ? 'Review' : 'Watch'}
+                to={behavior.case_id ? `/cases/${behavior.case_id}` : '/findings?window=24h'}
+              />
+            );
+          })}
           {rows.map((finding, index) => {
             // Matching on finding_id only: a case is only ever created by explicitly promoting
             // one specific finding (backend/app/api/cases.py), so finding_id is the sole reliable
@@ -222,7 +242,7 @@ function NeedsAttentionPanel({ findings, cases, alertByFinding }: { findings: Fi
           })}
         </Box>
       </Box>
-      {rows.length === 0 ? <Typography sx={{ color: ui.muted, mt: 2 }}>No findings need attention in this window.</Typography> : null}
+      {rows.length + patternRows.length === 0 ? <Typography sx={{ color: ui.muted, mt: 2 }}>No findings need attention in this window.</Typography> : null}
     </WorkspacePanel>
   );
 }

@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { FindingsPage } from './FindingsPage';
 import { api } from '../api/queries';
-import type { Finding, FindingTrust } from '../types';
+import type { BehaviorFinding, Finding, FindingTrust } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -17,6 +17,7 @@ vi.mock('../api/queries', () => ({
     alerts: vi.fn(),
     metricUsageLookup: vi.fn(),
     findingFeedback: vi.fn(),
+    behaviorFindings: vi.fn(),
   },
 }));
 
@@ -70,6 +71,7 @@ describe('FindingsPage deep link', () => {
     });
     vi.mocked(api.alerts).mockResolvedValue([]);
     vi.mocked(api.metricUsageLookup).mockResolvedValue({});
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -455,5 +457,103 @@ describe('FindingsPage trust', () => {
     expect(screen.getByText('Moved to Needs attention: your team said 4 of 6 findings like this on checkout-api were real.')).toBeInTheDocument();
     expect(screen.getByText('4 of 6 were real')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Context only/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('FindingsPage combined patterns', () => {
+  const emptySummary = {
+    generated_at: '2026-10-21T00:00:00Z',
+    window: '24h' as const,
+    active_findings: 2,
+    open_cases: 0,
+    behavior_changes: 1,
+    impacted_services: 1,
+    memory_items: 0,
+    severity_trend: [],
+    category_breakdown: [],
+  };
+  const trend = (change: number) => ({
+    trend: { present: true, direction: 'upward', change_percent: change },
+    baseline_shift: { present: false },
+    ruptures: { present: false },
+    anomaly: { present: false },
+    signal: { window_start: null, window_end: null },
+  });
+  const pool = (extra: Partial<BehaviorFinding> = {}): BehaviorFinding => ({
+    id: 3,
+    behavior_id: 'pool_exhaustion:1:run-1',
+    definition_id: 'pool_exhaustion',
+    definition_version: 1,
+    title: 'Database connection pool exhaustion',
+    summary: 'Database connection pool reached saturation with surging connection wait times.',
+    category: 'resource_constraint',
+    severity: 'critical',
+    service: 'checkout-api',
+    analysis_run_id: 'run-1',
+    input_metrics_json: { db_wait: 'db_connection_wait_seconds', db_pool: 'db_connections_active' },
+    facts_json: { db_wait: trend(85), db_pool: trend(40) },
+    evidence_json: [],
+    matched_conditions_json: [{ passed: true }, { passed: true }],
+    confidence: 1,
+    correlation_json: { matched: true, overlap_minutes: 35 },
+    case_id: null,
+    occurrence_count: 1,
+    last_seen_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+    ...extra,
+  });
+  const waitFinding: Finding = { ...finding, id: 11, metric_name: 'db_connection_wait_seconds', title: 'Wait time is climbing', analysis_run_id: 'run-1' };
+  const otherFinding: Finding = { ...finding, id: 12, metric_name: 'cpu_usage', title: 'CPU is climbing', analysis_run_id: 'run-1' };
+
+  beforeEach(() => {
+    vi.mocked(api.findings).mockResolvedValue([waitFinding, otherFinding]);
+    vi.mocked(api.overviewSummary).mockResolvedValue(emptySummary);
+    vi.mocked(api.signalsByRunIds).mockResolvedValue([]);
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.metricUsageLookup).mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows the pattern with each metric, why it matched, and tags the finding it was made from', async () => {
+    vi.mocked(api.behaviorFindings).mockResolvedValue([pool()]);
+
+    renderAt('/findings');
+
+    expect(await screen.findByText('Combined patterns (1)')).toBeInTheDocument();
+    expect(screen.getByText('Combined pattern · 2 metrics')).toBeInTheDocument();
+    const metrics = within(screen.getByLabelText('Metrics in this pattern'));
+    expect(metrics.getByText('db_connection_wait_seconds')).toBeInTheDocument();
+    expect(metrics.getByText('db_connections_active')).toBeInTheDocument();
+    expect(metrics.getAllByText('Slowly rising')).toHaveLength(2);
+    expect(metrics.getByText('+85%')).toBeInTheDocument();
+    expect(screen.getByText('Both at the same time · overlapped 35 min')).toBeInTheDocument();
+    expect(screen.getByText('2 of 2 conditions passed')).toBeInTheDocument();
+    expect(screen.getByText('Made from these 1 findings')).toBeInTheDocument();
+    // Only the finding on one of the rule's metrics carries the tag.
+    expect(screen.getAllByText('Part of: Database connection pool exhaustion')).toHaveLength(1);
+  });
+
+  it('leaves out patterns last seen before the window', async () => {
+    vi.mocked(api.behaviorFindings).mockResolvedValue([pool({ id: 4, last_seen_at: '2026-01-01T00:00:00Z' })]);
+    renderAt('/findings');
+    expect(await screen.findByText('Wait time is climbing')).toBeInTheDocument();
+    expect(screen.queryByText(/Combined patterns/)).not.toBeInTheDocument();
+  });
+
+  it('hides patterns the search does not match', async () => {
+    vi.mocked(api.behaviorFindings).mockResolvedValue([pool()]);
+    renderAt('/findings?q=payments');
+    expect(await screen.findByText('No findings in this window match "payments".')).toBeInTheDocument();
+    expect(screen.queryByText(/Combined patterns/)).not.toBeInTheDocument();
+  });
+
+  it('renders the page as before when the behaviors read fails', async () => {
+    vi.mocked(api.behaviorFindings).mockRejectedValue(new Error('down'));
+    renderAt('/findings');
+    expect(await screen.findByText('Wait time is climbing')).toBeInTheDocument();
+    expect(screen.queryByText(/Combined patterns/)).not.toBeInTheDocument();
   });
 });

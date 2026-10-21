@@ -110,6 +110,8 @@ export type BehaviorFinding = {
   definition_version: number;
   title: string;
   summary: string;
+  /** Plain-words rewrite of the facts, written by the backend on first read; null until then. */
+  ai_explanation?: string | null;
   category: string;
   severity: string;
   service?: string;

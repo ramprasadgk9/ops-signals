@@ -17,6 +17,8 @@ import type { Finding } from '../types';
 import { categoryDetail, categoryLabel, categoryShortDescription } from '../utils/findingCategories';
 import { findingIdFromQuery, findingSortFromParam, findingSorts, groupRepeatedFindings, searchFindings } from '../utils/findingSearch';
 import { needsAttention } from '../utils/findingTrust';
+import { inWindow, partFindings, patternsByFinding, searchPatterns } from '../utils/combinedPatterns';
+import { CombinedPatternCard } from '../components/CombinedPatternCard';
 
 type FindingsWindow = '6h' | '24h' | '7d';
 
@@ -57,6 +59,10 @@ export function FindingsPage() {
     enabled: metricNames.length > 0,
     retry: false,
   });
+
+  // Combined patterns (behavior rules that matched several metrics together). Optional: if this
+  // read fails, the page renders exactly as it would without it.
+  const behaviorsQuery = useQuery({ queryKey: ['behavior-findings'], queryFn: () => api.behaviorFindings(), retry: false });
 
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -143,6 +149,14 @@ export function FindingsPage() {
   // they stay one click away instead of crowding the list that asks for attention.
   const attentionGroups = visibleGroups.filter((group) => needsAttention(group.finding));
   const contextGroups = visibleGroups.filter((group) => !needsAttention(group.finding));
+  // A pattern has no cluster or source of its own: with either filter on, keep the patterns made
+  // from a finding the filter kept.
+  const patternLinks = patternsByFinding(behaviorsQuery.data ?? [], findings);
+  const filteredIds = new Set(sourceFindings.map((finding) => finding.id));
+  const visiblePatterns = searchPatterns(
+    (behaviorsQuery.data ?? []).filter((behavior) => inWindow(behavior, window)),
+    searchQuery,
+  ).filter((behavior) => !(clusterFilter || sourceFilter) || partFindings(behavior, patternLinks, findings).some((finding) => filteredIds.has(finding.id)));
   const setClusterFilter = (cluster: string | null) => setParam('cluster', cluster);
   const setSourceFilter = (source: string | null) => setParam('source', source);
   // "#57" for a finding outside this window: offer to open it directly, as the deep link does.
@@ -336,6 +350,23 @@ export function FindingsPage() {
             Finding #{linkedFindingId} could not be found.
           </Typography>
         ) : null}
+        {visiblePatterns.length ? (
+          <Stack spacing={1.5} sx={{ mb: 3 }}>
+            <Box>
+              <Typography sx={{ fontSize: 16, fontWeight: 900 }}>Combined patterns ({visiblePatterns.length})</Typography>
+              <Typography variant="body2" sx={{ color: ui.muted }}>
+                Several metrics on one service changed at the same time and matched a behavior rule. The single-metric findings below are tagged “Part of”.
+              </Typography>
+            </Box>
+            <Grid container spacing={2}>
+              {visiblePatterns.map((behavior) => (
+                <Grid key={behavior.id} size={{ xs: 12, md: 6 }}>
+                  <CombinedPatternCard behavior={behavior} parts={partFindings(behavior, patternLinks, findings)} onViewFinding={handleViewDetails} />
+                </Grid>
+              ))}
+            </Grid>
+          </Stack>
+        ) : null}
         {findingsQuery.error ? (
           <Typography color="error">Findings unavailable.</Typography>
         ) : visibleFindings.length ? (
@@ -348,7 +379,7 @@ export function FindingsPage() {
             </Typography>
             <Typography sx={{ fontSize: 16, fontWeight: 900 }}>Needs attention ({attentionGroups.length})</Typography>
             {attentionGroups.length ? (
-              <TopFindingsList groups={attentionGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} />
+              <TopFindingsList groups={attentionGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} patternsByFinding={patternLinks} />
             ) : (
               <Typography color="text.secondary">Nothing needs attention in this window.</Typography>
             )}
@@ -372,7 +403,7 @@ export function FindingsPage() {
                 </Typography>
                 {contextOpen ? (
                   <Stack spacing={2}>
-                    <TopFindingsList groups={contextGroups.slice(0, contextShown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} />
+                    <TopFindingsList groups={contextGroups.slice(0, contextShown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} patternsByFinding={patternLinks} />
                     {contextGroups.length > contextShown ? (
                       <Button variant="outlined" onClick={() => setContextShown((current) => current + PAGE_SIZE)} sx={{ alignSelf: 'center', textTransform: 'none', fontWeight: 800 }}>
                         Show {Math.min(PAGE_SIZE, contextGroups.length - contextShown)} more
