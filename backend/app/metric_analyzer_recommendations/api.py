@@ -202,16 +202,7 @@ def chat_metric_analyzer_recommendation(
 
     if context.sample_id is not None or (context.metric_name and context.provider):
         try:
-            sample_rows = service.list_samples(db)
-            sample = next(
-                (
-                    item
-                    for item in sample_rows
-                    if item["metric_name"] == context.metric_name
-                    and (context.provider is None or item["service"] == context.provider or context.provider.lower() in item["service"].lower())
-                ),
-                None,
-            )
+            sample = service.find_metric_sample(db, context.metric_name, context.provider) if context.metric_name else None
             if context.sample_id is not None and sample is not None:
                 profile, timeseries = service.profile_sample(db, sample["service"], sample["metric_name"], sample.get("analysis_run_id"))
                 recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers, timeseries)]

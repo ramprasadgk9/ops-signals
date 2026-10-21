@@ -814,7 +814,7 @@ export type MetricSample = {
   start_time: string;
   end_time: string;
   sampling_interval_seconds?: number | null;
-  missing_ratio: number;
+  missing_ratio?: number | null;
   min_value?: number | null;
   max_value?: number | null;
   mean_value?: number | null;

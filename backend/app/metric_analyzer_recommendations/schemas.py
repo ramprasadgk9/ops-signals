@@ -29,8 +29,9 @@ class MetricSampleOut(BaseModel):
     sample_count: int
     start_time: datetime
     end_time: datetime
+    # The statistics below are filled for a single chosen sample (evaluate), not in the sample list.
     sampling_interval_seconds: int | None = None
-    missing_ratio: float = 0.0
+    missing_ratio: float | None = None
     min_value: float | None = None
     max_value: float | None = None
     mean_value: float | None = None

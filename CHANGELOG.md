@@ -4,6 +4,15 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Behavior Lab, Analyzer Recommendation and Add Analyzer no longer hang on a large database.**
+  Their sample list summarised every stored metric point on each page load; with tens of millions
+  of points one call ran for 15 minutes or more, and a few at once used up the backend's database
+  connections, so every other page hung too. The list now reads one row per analysis run (the 500
+  newest), in milliseconds, and `GET /api/metric-analyzer-recommendations/metrics` no longer fills
+  the per-sample statistics (`missing_ratio`, `min_value`... are empty there; the evaluate response
+  still has them). Evaluating one metric reads only that metric's points. The integration suite's
+  test data now records its runs like the app does, its cleanup no longer scans the points table,
+  and the suggested-patterns tests act only on their own suggestion.
 - **Findings in plain words.** Finding cards in the web UI and the Grafana plugin, and Slack
   messages, now lead with a badge (Worse, Better, Monitoring gap, Probably noise, Blip, Changed) and
   a headline, then what changed in the metric's own units and the reader's time zone, why it

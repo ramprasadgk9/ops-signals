@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import NormalizedPoint
+from backend.app.models.entities import AnalysisRunEntity, NormalizedPoint
 
 
 def test_metric_analyzer_chat_returns_preliminary_recommendation_without_sample() -> None:
@@ -43,6 +43,13 @@ def test_metric_analyzer_chat_returns_evaluated_recommendation_with_sample() -> 
         session_local = get_session_local()
         with session_local() as db:
             start = datetime.utcnow() - timedelta(hours=2)
+            # Every stored point belongs to a run, which the pipeline records first.
+            db.add(
+                AnalysisRunEntity(
+                    id='run-123', source_type='prometheus', service='prometheus', metric_name='container_memory_usage_bytes',
+                    start_time=start, end_time=start + timedelta(minutes=118), sample_count=60, status='completed',
+                )
+            )
             for index in range(60):
                 db.add(
                     NormalizedPoint(
