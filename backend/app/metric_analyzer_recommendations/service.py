@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
@@ -19,7 +19,7 @@ from experiments.analyzer_router.router import UniversalTimeSeriesRouter
 
 from backend.app.ai.factory import OptionalAIServices
 from backend.app.metric_analyzer_recommendations.gemma_advisor import GemmaAnalyzerAdvisor
-from backend.app.models.entities import NormalizedPoint
+from backend.app.models.entities import AnalysisRunEntity, NormalizedPoint
 
 logger = logging.getLogger(__name__)
 
@@ -70,56 +70,95 @@ class MetricAnalyzerRecommendationService:
         "variance": ("detect_variance_change", "Detect Variance Change"),
     }
 
-    def list_samples(self, db: Session) -> list[dict[str, Any]]:
-        rows = db.execute(
+    # The sample list is one row per analysis run, newest first. It reads the runs table, never the
+    # stored points: those grow by every run (tens of millions of rows), and summarising them all
+    # took minutes per call and starved the backend's database connections.
+    SAMPLE_LIST_LIMIT = 500
+
+    def list_samples(self, db: Session, limit: int = SAMPLE_LIST_LIMIT) -> list[dict[str, Any]]:
+        runs = db.execute(
             select(
-                NormalizedPoint.service,
-                NormalizedPoint.metric_name,
-                NormalizedPoint.analysis_run_id,
-                NormalizedPoint.timestamp,
-                NormalizedPoint.value,
-            ).order_by(NormalizedPoint.timestamp.asc())
-        ).all()
-        grouped: dict[tuple[str, str, str | None], list[tuple[Any, float]]] = {}
-        for service, metric_name, analysis_run_id, timestamp, value in rows:
-            key = (service or "unknown", metric_name, analysis_run_id)
-            grouped.setdefault(key, []).append((timestamp, float(value)))
-        samples = []
-        for (service, metric_name, analysis_run_id), values in grouped.items():
-            timestamps = [stamp for stamp, _ in values]
-            numeric = self._finite_values([val for _, val in values])
-            if not numeric:
-                continue
-            samples.append(
-                {
-                    "service": service,
-                    "metric_name": metric_name,
-                    "analysis_run_id": analysis_run_id,
-                    "sample_count": len(values),
-                    "start_time": min(timestamps),
-                    "end_time": max(timestamps),
-                    "sampling_interval_seconds": self._infer_interval_seconds(timestamps),
-                    "missing_ratio": 1.0 - (len(numeric) / max(len(values), 1)),
-                    "min_value": min(numeric),
-                    "max_value": max(numeric),
-                    "mean_value": mean(numeric),
-                    "stddev_value": pstdev(numeric) if len(numeric) > 1 else 0.0,
-                }
+                AnalysisRunEntity.id,
+                AnalysisRunEntity.service,
+                AnalysisRunEntity.metric_name,
+                AnalysisRunEntity.sample_count,
+                AnalysisRunEntity.start_time,
+                AnalysisRunEntity.end_time,
             )
-        return samples
+            .where(AnalysisRunEntity.sample_count > 0)
+            .order_by(AnalysisRunEntity.created_at.desc())
+            .limit(limit)
+        ).all()
+        return [
+            {
+                "service": service or "unknown",
+                "metric_name": metric_name,
+                "analysis_run_id": run_id,
+                "sample_count": sample_count,
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+            for run_id, service, metric_name, sample_count, start_time, end_time in runs
+        ]
+
+    def find_metric_sample(self, db: Session, metric_name: str, provider: str | None = None) -> dict[str, Any] | None:
+        """The newest run of this metric whose service matches `provider` (equal, or containing it),
+        for the recommendation chat. Reads the runs table only."""
+        runs = db.execute(
+            select(AnalysisRunEntity.id, AnalysisRunEntity.service)
+            .where(AnalysisRunEntity.metric_name == metric_name, AnalysisRunEntity.sample_count > 0)
+            .order_by(AnalysisRunEntity.created_at.desc())
+            .limit(self.SAMPLE_LIST_LIMIT)
+        ).all()
+        for run_id, service in runs:
+            service = service or "unknown"
+            if provider is None or service == provider or provider.lower() in service.lower():
+                return {"service": service, "metric_name": metric_name, "analysis_run_id": run_id}
+        return None
 
     def find_sample(self, db: Session, service: str, metric_name: str, analysis_run_id: str | None = None) -> dict[str, Any] | None:
         """The stored sample for this service and metric: the given run's, or, when no run id is
         given, the most recent run's. The run id is optional in the API, but without this every
-        call that left it out was a 404: no sample has a run id of None."""
-        matches = [
-            sample
-            for sample in self.list_samples(db)
-            if sample["service"] == service and sample["metric_name"] == metric_name
-        ]
-        if analysis_run_id is not None:
-            return next((sample for sample in matches if sample["analysis_run_id"] == analysis_run_id), None)
-        return max(matches, key=lambda sample: sample["end_time"], default=None)
+        call that left it out was a 404: no sample has a run id of None. Only this service and
+        metric's points are read, and only the chosen run's are summarised."""
+        if analysis_run_id is None:
+            latest = db.execute(
+                select(NormalizedPoint.analysis_run_id)
+                .where(NormalizedPoint.service == service, NormalizedPoint.metric_name == metric_name)
+                .group_by(NormalizedPoint.analysis_run_id)
+                .order_by(func.max(NormalizedPoint.timestamp).desc())
+                .limit(1)
+            ).first()
+            if latest is None:
+                return None
+            analysis_run_id = latest[0]
+        run_filter = NormalizedPoint.analysis_run_id.is_(None) if analysis_run_id is None else NormalizedPoint.analysis_run_id == analysis_run_id
+        rows = db.execute(
+            select(NormalizedPoint.timestamp, NormalizedPoint.value)
+            .where(NormalizedPoint.service == service, NormalizedPoint.metric_name == metric_name, run_filter)
+            .order_by(NormalizedPoint.timestamp.asc())
+        ).all()
+        return self._summarize_sample(service, metric_name, analysis_run_id, [(timestamp, float(value)) for timestamp, value in rows])
+
+    def _summarize_sample(self, service: str, metric_name: str, analysis_run_id: str | None, values: list[tuple[Any, float]]) -> dict[str, Any] | None:
+        numeric = self._finite_values([value for _, value in values])
+        if not numeric:
+            return None
+        timestamps = [stamp for stamp, _ in values]
+        return {
+            "service": service or "unknown",
+            "metric_name": metric_name,
+            "analysis_run_id": analysis_run_id,
+            "sample_count": len(values),
+            "start_time": min(timestamps),
+            "end_time": max(timestamps),
+            "sampling_interval_seconds": self._infer_interval_seconds(timestamps),
+            "missing_ratio": 1.0 - (len(numeric) / max(len(values), 1)),
+            "min_value": min(numeric),
+            "max_value": max(numeric),
+            "mean_value": mean(numeric),
+            "stddev_value": pstdev(numeric) if len(numeric) > 1 else 0.0,
+        }
 
     def profile_sample(self, db: Session, service: str, metric_name: str, analysis_run_id: str | None = None) -> tuple[MetricProfile, list[tuple[Any, float]]]:
         query = select(NormalizedPoint).where(

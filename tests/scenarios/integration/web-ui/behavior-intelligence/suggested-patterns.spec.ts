@@ -5,6 +5,11 @@ import yaml from 'js-yaml';
 import { makeRunId, seedSignal, cleanupRun, cleanupBehaviorPatternSuggestionsForService } from '../../shared/db';
 import { env } from '../../shared/env';
 
+/** The suggestion card around a card title: its nearest wrapper that holds the card's buttons. */
+function ownCard(title: import('@playwright/test').Locator): import('@playwright/test').Locator {
+  return title.locator('xpath=ancestor::*[.//button[normalize-space()="Dismiss"]][1]');
+}
+
 const PACK_DIR = path.resolve(__dirname, '../../../../../config/behavior_definitions.d');
 // The page's "Promote to Pack" button has no file picker — it always writes into this shared
 // default (see queries.ts promoteBehaviorSuggestion's `packFile ?? 'suggested_patterns.yml'`), so
@@ -55,12 +60,14 @@ test.describe('Behavior Intelligence — suggested patterns', () => {
 
       const suggestionCard = page.locator(`text=${metricA} + ${metricB} on ${service}`);
       await expect(suggestionCard).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText(/Co-occurred 3 of 3 times \(100% correlation strength\)/)).toBeVisible();
+      // Scoped to this test's own card: a database with real history has other pending
+      // suggestions, and a page-wide Promote could promote one of them.
+      const card = ownCard(suggestionCard);
+      await expect(card.getByText(/Co-occurred 3 of 3 times \(100% correlation strength\)/)).toBeVisible();
 
       const definitionId = `suggested_${metricA}_${metricB}`;
 
-      const promoteButton = page.locator('button:has-text("Promote to Pack")');
-      await promoteButton.click();
+      await card.getByRole('button', { name: 'Promote to Pack' }).click();
       await expect(suggestionCard).not.toBeVisible({ timeout: 15_000 });
 
       const response = await page.request.get(`${env.webUiBackendUrl}/api/behavior-definitions/suggestions?status=promoted`);
@@ -105,7 +112,7 @@ test.describe('Behavior Intelligence — suggested patterns', () => {
       const suggestionCard = page.locator(`text=${metricA} + ${metricB} on ${service}`);
       await expect(suggestionCard).toBeVisible({ timeout: 15_000 });
 
-      await page.locator('button:has-text("Dismiss")').click();
+      await ownCard(suggestionCard).getByRole('button', { name: 'Dismiss' }).click();
       await expect(suggestionCard).not.toBeVisible({ timeout: 15_000 });
 
       const response = await page.request.get(`${env.webUiBackendUrl}/api/behavior-definitions/suggestions?status=dismissed`);

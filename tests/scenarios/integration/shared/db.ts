@@ -9,8 +9,9 @@ function toNodePgConnectionString(url: string): string {
 
 const pool = new Pool({ connectionString: toNodePgConnectionString(env.databaseUrl) });
 
+/** Fits analysis_runs.id (64 characters), which seedNormalizedPoints writes it to. */
 export function makeRunId(scenario: string): string {
-  return `integration-${scenario}-${randomUUID()}`;
+  return `integration-${scenario}`.slice(0, 47) + `-${randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }
 
 export function makeFindingId(): number {
@@ -28,6 +29,15 @@ export async function seedNormalizedPoints(params: {
   points: SeedPoint[];
 }): Promise<void> {
   const { runId, service, metricName, points } = params;
+  // The app records a run before it stores the run's points, and the sample lists read the runs
+  // table (one row per run), not the points table. Seed the run the same way.
+  const times = points.map((point) => point.timestamp.getTime());
+  await pool.query(
+    `insert into analysis_runs (id, source_type, provider, service, metric_name, start_time, end_time, sample_count, status, created_at)
+     values ($1, 'csv', 'generic', $2, $3, $4, $5, $6, 'completed', now())
+     on conflict (id) do nothing`,
+    [runId, service, metricName, new Date(Math.min(...times)), new Date(Math.max(...times)), points.length]
+  );
   for (const point of points) {
     await pool.query(
       `insert into ops_normalized_timeseries_points
@@ -224,7 +234,17 @@ export async function cleanupRun(params: { runId: string; findingId?: number | n
     await pool.query(`delete from ops_operational_cases where finding_id = $1`, [id]);
     await pool.query(`delete from ops_operational_findings where id = $1`, [id]);
   }
-  await pool.query(`delete from ops_normalized_timeseries_points where analysis_run_id = $1`, [runId]);
+  // Points are deleted through the run's service and metric: ops_normalized_timeseries_points has
+  // no index on analysis_run_id, and on a database with real history (tens of millions of points)
+  // a delete by run id alone scans the whole table and outlasts the test's timeout. A run the test
+  // never seeded points for has no run row here, so the points table isn't touched.
+  const seeded = await pool.query(`select service, metric_name from analysis_runs where id = $1`, [runId]);
+  for (const row of seeded.rows) {
+    await pool.query(
+      `delete from ops_normalized_timeseries_points where service = $1 and metric_name = $2 and analysis_run_id = $3`,
+      [row.service, row.metric_name, runId]
+    );
+  }
   await pool.query(`delete from ops_operational_signals where analysis_run_id = $1`, [runId]);
   await pool.query(`delete from ops_behavior_findings where analysis_run_id = $1`, [runId]);
   await pool.query(`delete from analysis_runs where id = $1`, [runId]);

@@ -5,8 +5,8 @@ import { makeRunId, seedNormalizedPoints, cleanupRun } from '../../shared/db';
 
 /**
  * Data source = a pre-existing sample selected via AnalyzerRecommendationPage's
- * "Select Existing Sample" dropdown, which lists distinct (service, metric_name, analysis_run_id)
- * rows out of ops_normalized_timeseries_points. We seed that table directly with the same fixture
+ * "Select Existing Sample" dropdown, which lists recent analysis runs (one row per run, from the
+ * analysis_runs table). We seed a run and its ops_normalized_timeseries_points directly with the same fixture
  * shapes used by the CSV-upload spec, rather than waiting on real Prometheus scrape history —
  * see the suite discussion on why live-Prometheus outcome assertions are DB-seeded, not scrape-timed.
  *
