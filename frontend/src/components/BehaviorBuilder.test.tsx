@@ -13,6 +13,8 @@ vi.mock('../api/queries', () => ({
     validateBehaviorDefinition: vi.fn(),
     dryRunBehaviorDefinition: vi.fn(),
     saveBehaviorDefinitionToPack: vi.fn(),
+    behaviorHistoryServices: vi.fn().mockResolvedValue([]),
+    behaviorHistoryPreview: vi.fn(),
   },
 }));
 

@@ -178,3 +178,60 @@ class CatalogPatternOut(BaseModel):
     scenarios: list[str] = Field(default_factory=list)
     signals: list[CatalogSignalOut] = Field(default_factory=list)
     draft: dict | None = None
+
+
+class HistoryPreviewRequest(BaseModel):
+    """Try a draft definition on a service's recent analysis runs, as the pipeline would have."""
+
+    definition: BehaviorDefinitionDraftIn
+    service: str
+    hours: int = Field(default=168, ge=1, le=720)
+    max_runs: int = Field(default=50, ge=1, le=200)
+
+
+class HistoryRunOut(BaseModel):
+    analysis_run_id: str
+    at: datetime | None = None
+    matched: bool
+    missing_inputs: list[str] = Field(default_factory=list)
+    blocked_by: list[str] = Field(default_factory=list)
+    overlap_minutes: float | None = None
+    start: datetime | None = None
+    end: datetime | None = None
+
+
+class HistoryConditionOut(BaseModel):
+    group: str
+    fact: str
+    operator: str
+    value: object
+    passed_runs: int
+
+
+class HistoryInputOut(BaseModel):
+    alias: str
+    metric_name: str
+    analyzers: list[str] = Field(default_factory=list)
+    runs_with_signals: int
+
+
+class HistorySeriesOut(BaseModel):
+    alias: str
+    metric_name: str
+    points: list[tuple[datetime, float]] = Field(default_factory=list)
+
+
+class HistoryPreviewOut(BaseModel):
+    service: str
+    since: datetime
+    verdict: str
+    reason: str | None = None
+    runs_checked: int
+    runs_judged: int
+    runs_matched: int
+    conditions: list[HistoryConditionOut] = Field(default_factory=list)
+    inputs: list[HistoryInputOut] = Field(default_factory=list)
+    runs: list[HistoryRunOut] = Field(default_factory=list)
+    series: list[HistorySeriesOut] = Field(default_factory=list)
+    # Whether the chart shows every stored point in the look-back or only the newest MAX ones.
+    series_truncated: bool = False

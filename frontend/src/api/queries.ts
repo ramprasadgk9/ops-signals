@@ -10,6 +10,7 @@ import type {
   AnalysisRun,
   BehaviorDefinition,
   CatalogPattern,
+  HistoryPreview,
   BehaviorDefinitionDraft,
   BehaviorEvaluation,
   BehaviorFinding,
@@ -153,6 +154,12 @@ export const api = {
   behaviorAvailableMetrics: () => getJson<string[]>('/api/behavior-definitions/available-metrics'),
   validateBehaviorDefinition: (draft: BehaviorDefinitionDraft) =>
     postJson<BehaviorDefinitionDraft, ValidationResult>('/api/behavior-definitions/validate', draft),
+  behaviorHistoryServices: () => getJson<string[]>('/api/behavior-definitions/history-services'),
+  behaviorHistoryPreview: (draft: BehaviorDefinitionDraft, service: string, hours: number) =>
+    postJson<{ definition: BehaviorDefinitionDraft; service: string; hours: number }, HistoryPreview>(
+      '/api/behavior-definitions/history-preview',
+      { definition: draft, service, hours }
+    ),
   dryRunBehaviorDefinition: (draft: BehaviorDefinitionDraft, analysisRunId: string, service?: string) =>
     postJson<{ definition: BehaviorDefinitionDraft; analysis_run_id: string; service?: string }, BehaviorEvaluation>(
       '/api/behavior-definitions/dry-run',

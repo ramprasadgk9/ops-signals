@@ -23,6 +23,7 @@ import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
 import type { BehaviorConditionInput, BehaviorDefinitionDraft, CatalogPattern } from '../types';
 import { suggestMetrics } from '../utils/metricSuggest';
+import { HistoryPreview } from './HistoryPreview';
 
 type InputRow = {
   alias: string;
@@ -613,6 +614,11 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
             </Box>
           </Box>
         ) : null}
+
+        <HistoryPreview
+          draft={draft}
+          blockedReason={unmapped.length ? `Pick your metric for ${unmapped.map((row) => row.label ?? row.alias).join(', ')} first (step 2).` : null}
+        />
       </WorkspacePanel>
 
       <WorkspacePanel sx={{ p: 2.5 }}>

@@ -166,6 +166,17 @@ cannot match.
   on a draft made from the template's signals, suggests a stored metric for each by keyword, and
   holds Test Pattern back until every signal points at one.
 
+## See It On My Data
+
+In the builder, *See it on my data* tries the draft on every recent analysis run of one service
+(`POST /api/behavior-definitions/history-preview`; look-back 24 hours to 7 days, newest 50 runs)
+with the same matching as the pipeline, and saves nothing. It answers with one verdict - would
+have fired in N of M runs, never matched (with the condition that stopped it most often), or
+can't tell yet (an input had no signal in any run: the metric never changed, or its analyzers
+did not run on it) - plus each run's own reason and a line per metric with the matched runs
+shaded. It reads signals and points through the (service, time) indexes only, and at most 20,000
+points for the lines; the service list comes from the runs table.
+
 A template signal is `rising`, `falling` or `unusual`. "Stayed flat" and "an event at that moment"
 can't be expressed: an input with no signals makes the whole rule skip.
 

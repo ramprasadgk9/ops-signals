@@ -44,6 +44,33 @@ export type BehaviorDefinition = {
   source_file?: string | null;
 };
 
+/** One analysis run as a draft rule would have judged it (POST /api/behavior-definitions/history-preview). */
+export type HistoryRun = {
+  analysis_run_id: string;
+  at: string | null;
+  matched: boolean;
+  missing_inputs: string[];
+  blocked_by: string[];
+  overlap_minutes: number | null;
+  start: string | null;
+  end: string | null;
+};
+
+export type HistoryPreview = {
+  service: string;
+  since: string;
+  verdict: 'fired' | 'never' | 'cant_check' | 'no_runs';
+  reason: string | null;
+  runs_checked: number;
+  runs_judged: number;
+  runs_matched: number;
+  conditions: Array<{ group: string; fact: string; operator: string; value: unknown; passed_runs: number }>;
+  inputs: Array<{ alias: string; metric_name: string; analyzers: string[]; runs_with_signals: number }>;
+  runs: HistoryRun[];
+  series: Array<{ alias: string; metric_name: string; points: Array<[string, number]> }>;
+  series_truncated: boolean;
+};
+
 /** A signal of a catalog template: what to look for, and words to find the user's metric by. */
 export type CatalogSignal = {
   alias: string;
