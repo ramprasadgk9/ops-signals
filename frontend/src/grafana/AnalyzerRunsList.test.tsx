@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { AnalyzerRunsList } from './PanelPreview';
+import { AnalyzerRunsList, signalWindows } from './PanelPreview';
 import { PermissionsProvider, type GrafanaRole } from './permissions';
 import type { GrafanaAnalysisResult } from './contracts';
 
@@ -84,5 +84,13 @@ describe('plugin AnalyzerRunsList', () => {
     renderList(null, { analyzerExecutions: [] });
     expect(screen.getByText(/2 analyzers ran/)).toBeInTheDocument();
     expect(screen.getByText('Ruptures, Stumpy')).toBeInTheDocument();
+  });
+});
+
+describe('signalWindows', () => {
+  it('counts signal windows in the Evidence card, singular for one', () => {
+    expect(signalWindows(1)).toBe('1 signal window');
+    expect(signalWindows(3)).toBe('3 signal windows');
+    expect(signalWindows(0)).toBe('0 signal windows');
   });
 });

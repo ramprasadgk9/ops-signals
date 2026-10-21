@@ -117,6 +117,11 @@ function signalsForFinding(result: GrafanaAnalysisResult, selectedFinding: Grafa
   return result.signals.filter((signal) => ids.has(signal.id));
 }
 
+/** "1 signal window", "3 signal windows". */
+export function signalWindows(count: number): string {
+  return `${count} signal window${count === 1 ? '' : 's'}`;
+}
+
 /** What the analyzer looks for, shown under its row on click (hover-only tips fail on touch). */
 function AnalyzerTip({ name, text }: { name: string; text: string | null }) {
   const [open, setOpen] = useState(false);
@@ -729,9 +734,9 @@ function EvidenceSummaryCard({
           <h3 style={{ margin: 0 }}>Evidence</h3>
           <button type="button" style={buttonStyle()} onClick={onToggle}>{expanded ? 'Hide' : '⌄'}</button>
         </div>
-        <div style={styles.evidenceHero}>
-          <strong>{finding?.signal_ids.length ?? signals.length} signal windows</strong>
-          <span style={styles.muted}>support this finding</span>
+        <div data-testid="evidence-windows" style={styles.evidenceHero}>
+          <strong>{signalWindows(finding?.signal_ids.length ?? signals.length)}</strong>{' '}
+          <span style={styles.muted}>{(finding?.signal_ids.length ?? signals.length) === 1 ? 'supports' : 'support'} this finding</span>
         </div>
         <div style={styles.detailGrid}>
           <span>Earliest signal</span><strong>{earliest ? new Date(earliest).toLocaleString() : 'n/a'}</strong>

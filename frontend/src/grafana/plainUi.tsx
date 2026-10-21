@@ -52,7 +52,8 @@ export const styles = {
   findingIcon: { display: 'grid', placeItems: 'center', minHeight: 88, borderRadius: 8, background: 'rgba(242, 73, 92, 0.18)', color: '#ff7381', fontSize: 56 },
   questionButton: { display: 'flex', gap: 10, alignItems: 'center', width: '100%', border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 6, padding: '12px 14px', background: 'rgba(204, 204, 220, 0.05)', color: 'inherit', cursor: 'pointer', textAlign: 'left' },
   answerCard: { border: '1px solid rgba(204, 204, 220, 0.14)', borderRadius: 8, padding: 12, background: 'rgba(17, 18, 23, 0.72)' },
-  evidenceHero: { display: 'grid', gridTemplateColumns: '42px 1fr', columnGap: 12, alignItems: 'center', border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 12, background: 'rgba(63, 207, 142, 0.08)' },
+  // One sentence ("3 signal windows support this finding"); a narrow first column split the count across lines.
+  evidenceHero: { margin: 0, lineHeight: 1.5, border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 12, background: 'rgba(63, 207, 142, 0.08)' },
   detailGrid: { display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) minmax(120px, 1fr)', gap: '10px 16px', alignItems: 'center' },
   compactTable: { display: 'grid', gridTemplateColumns: '0.7fr 1.4fr 1fr 1fr', gap: '8px 12px', alignItems: 'center', fontSize: 12 },
   tableHeader: { color: 'rgba(204, 204, 220, 0.68)', fontSize: 12, fontWeight: 600 },
