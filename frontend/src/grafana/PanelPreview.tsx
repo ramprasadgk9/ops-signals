@@ -1412,9 +1412,14 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
           <details
             data-testid="run-details"
             style={runDetailsOpen ? { ...styles.runDetails, gridColumn: '1 / -1', justifySelf: 'stretch' } : styles.runDetails}
+            open={runDetailsOpen}
             onToggle={(event) => setRunDetailsOpen(event.currentTarget.open)}
           >
-            <summary>Run details</summary>
+            {/* Styled as a control, and named for what a click does: it looked like a heading, so
+                people didn't see that it closes the section again. */}
+            <summary style={{ ...styles.tableRowButton, fontWeight: 600 }}>
+              {runDetailsOpen ? 'Hide run details' : 'Run details'}
+            </summary>
             <div style={{ ...styles.detailGrid, marginTop: 12 }}>
               <span>Run ID</span><strong title={result.runId} style={{ cursor: 'help' }}>{truncateId(result.runId)}</strong>
               <span>{result.connection ? 'Connection' : 'Data source'}</span><strong>{result.datasource}</strong>
@@ -1431,6 +1436,9 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
               </button>
               <div style={{ marginTop: 6 }}>Testing only: clears analysis outputs and case vector memory, not configuration or app documentation.</div>
             </div>
+            <button type="button" style={{ ...buttonStyle(), marginTop: 12 }} onClick={() => setRunDetailsOpen(false)}>
+              Hide run details
+            </button>
           </details>
         </div>
       </Card>
