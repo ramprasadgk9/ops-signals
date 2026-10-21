@@ -21,6 +21,8 @@ release names the plugin version it ships. The full project changelog is
   (Prophet). The assistant's "Why did STUMPY run?" now answers from the run's own record: it no
   longer says PyOD or ADTK ran when Z-Score did, or that only "recommended" analyzers run. The
   "Selection mode" rows are gone. An ⓘ next to each analyzer's name says what it looks for.
+  Opened, "Run details" takes the full width below the Samples / Signals / Findings tiles instead
+  of squeezing into the strip beside them.
 - **Roles.** Through Grafana, a Viewer's Run Analysis, "Was this real?", Create case, case drawer
   Save, ticket, Run once and schedule buttons are locked, each with the reason ("Editors can run
   analyses. Ask your Grafana admin for the Editor role."). The case drawer is read-only for Viewers

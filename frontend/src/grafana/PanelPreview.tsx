@@ -1212,6 +1212,8 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
   const [assistantConversationId, setAssistantConversationId] = useState<string | null>(null);
   const [isResettingTestData, setIsResettingTestData] = useState(false);
   const [evidenceExpanded, setEvidenceExpanded] = useState(false);
+  // Open, Run details takes the strip's full width below the tiles: it holds the analyzer list.
+  const [runDetailsOpen, setRunDetailsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // The drawer shows a behavior case's own snapshot, not the selected single-metric finding.
   const [drawerForBehavior, setDrawerForBehavior] = useState(false);
@@ -1402,7 +1404,11 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
           <div style={styles.summaryItem}><span style={styles.summaryIcon}>⌁</span><strong>{result.signals.length}</strong><span>Signals</span></div>
           <div style={styles.summaryItem}><span style={styles.summaryIcon}>◇</span><strong>{result.findings.length}</strong><span>Findings</span></div>
           <div style={styles.summaryItem}><span style={styles.summaryIcon}>⌑</span><strong>{result.behaviorFindings.length}</strong><span>Behavior Findings</span></div>
-          <details style={styles.runDetails}>
+          <details
+            data-testid="run-details"
+            style={runDetailsOpen ? { ...styles.runDetails, gridColumn: '1 / -1', justifySelf: 'stretch' } : styles.runDetails}
+            onToggle={(event) => setRunDetailsOpen(event.currentTarget.open)}
+          >
             <summary>Run details</summary>
             <div style={{ ...styles.detailGrid, marginTop: 12 }}>
               <span>Run ID</span><strong title={result.runId} style={{ cursor: 'help' }}>{truncateId(result.runId)}</strong>
