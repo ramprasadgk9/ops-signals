@@ -9,7 +9,8 @@ release names the plugin version it ships. The full project changelog is
 - **Findings in plain words.** The analysis result, the investigation panel, the "Needs attention"
   rows and the finding lookup show a finding's badge (Worse, Better, Monitoring gap...) and plain
   headline, then what changed, why it matters and what to check, with the stored text under
-  "Technical details". A needs-attention row no longer shows an improvement in red.
+  "Technical details". A needs-attention row no longer shows an improvement in red. Hovering
+  "Happened with" explains how the other finding was picked.
 - **Service context.** For a service described in the wording file, findings show its importance
   ("Critical service") next to the badge, a "Your target" line and a "This service" line.
 - **Roles.** Through Grafana, a Viewer's Run Analysis, "Was this real?", Create case, case drawer

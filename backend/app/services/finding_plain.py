@@ -34,7 +34,7 @@ TIME_MARKER = re.compile(r"\[\[time:([^\]]+)\]\]")
 _CHUNK = 500
 # Level changes of one service this close together are shown as one event, and findings created
 # this close together are searched for them.
-RELATED_WINDOW = timedelta(minutes=10)
+RELATED_WINDOW = timedelta(minutes=10)  # also in RELATED_HINT (frontend/src/utils/findingPlain.ts)
 RELATED_SEARCH = timedelta(hours=24)
 RELATED_SEARCH_LIMIT = 500
 CHECK_WINDOW = timedelta(minutes=30)

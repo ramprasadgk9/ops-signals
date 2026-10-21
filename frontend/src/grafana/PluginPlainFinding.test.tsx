@@ -52,4 +52,14 @@ describe('PluginPlainFinding', () => {
     fireEvent.click(screen.getByRole('button', { name: /Technical details/ }));
     expect(screen.getByTestId('plugin-plain-signal')).toHaveTextContent('Strongest signal: A stretch unlike the rest. (stumpy · confidence 1.00)');
   });
+
+  it('explains "Happened with" in a tooltip', () => {
+    const related = { ...gap, related: [{ finding_id: 8299, text: 'Slow-request time (p95) also dropped at [[time:2026-10-19T22:54:17Z]] (571 ms to 357 ms).' }] };
+    render(<PluginPlainFinding plain={related} details="stored text" />);
+
+    const hint = screen.getByTestId('plugin-plain-hint');
+    expect(hint).toHaveTextContent('Happened with');
+    expect(hint).toHaveAttribute('title', expect.stringContaining('within 10 minutes'));
+    expect(screen.getAllByTestId('plugin-plain-hint')).toHaveLength(1);
+  });
 });

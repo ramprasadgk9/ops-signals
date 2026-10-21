@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, Button, Chip, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import type { FindingPlain } from '../types';
 import { plainLines, plainTimes, plainTone, type PlainTone } from '../utils/findingPlain';
 
@@ -75,7 +75,15 @@ export function PlainFindingSummary({
           {lines.map((line, index) => (
             <Box key={`${line.label}-${index}`} sx={{ display: 'contents' }}>
               <Typography component="dt" variant="caption" color="text.secondary" sx={{ fontWeight: 700, pt: '2px', mt: { xs: index ? 0.75 : 0, sm: 0 } }}>
-                {line.label}
+                {line.hint ? (
+                  <Tooltip title={line.hint} enterTouchDelay={0}>
+                    <Box component="span" tabIndex={0} data-testid="finding-plain-hint" sx={{ cursor: 'help', borderBottom: '1px dotted', borderColor: 'text.secondary' }}>
+                      {line.label}
+                    </Box>
+                  </Tooltip>
+                ) : (
+                  line.label
+                )}
               </Typography>
               <Typography component="dd" variant="body2" sx={{ m: 0, minWidth: 0 }}>
                 {line.text}

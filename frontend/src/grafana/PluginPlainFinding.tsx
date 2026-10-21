@@ -49,7 +49,15 @@ export function PluginPlainFinding({ plain, details, signal }: {
         <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(96px, auto) minmax(0, 1fr)', columnGap: 12, rowGap: 6, fontSize: 13 }}>
           {lines.map((line, index) => (
             <React.Fragment key={`${line.label}-${index}`}>
-              <dt style={{ ...styles.muted, fontWeight: 600 }}>{line.label}</dt>
+              <dt style={{ ...styles.muted, fontWeight: 600 }}>
+                {line.hint ? (
+                  <span title={line.hint} tabIndex={0} data-testid="plugin-plain-hint" style={{ cursor: 'help', borderBottom: '1px dotted currentColor' }}>
+                    {line.label}
+                  </span>
+                ) : (
+                  line.label
+                )}
+              </dt>
               <dd style={{ margin: 0, minWidth: 0 }}>{line.text}</dd>
             </React.Fragment>
           ))}

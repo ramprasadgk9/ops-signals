@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leadSignal, leadSignalText, plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
+import { RELATED_HINT, leadSignal, leadSignalText, plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
 import type { FindingPlain } from '../types';
 
 // Finding #8300 as the backend words it (tests/test_finding_plain.py).
@@ -37,9 +37,14 @@ describe('plainLines', () => {
   it('lists why, the related changes and what to check, in that order', () => {
     expect(plainLines(errors, utc)).toEqual([
       { label: 'Why it matters', text: 'Fewer requests fail, so fewer users see errors.' },
-      { label: 'Happened with', text: 'Slow-request time (p95) also dropped at Oct 19, 10:54 PM (571 ms to 357 ms).', findingId: 8299 },
+      { label: 'Happened with', text: 'Slow-request time (p95) also dropped at Oct 19, 10:54 PM (571 ms to 357 ms).', findingId: 8299, hint: RELATED_HINT },
       { label: 'What to check', text: 'Deploys or config changes in spike-lab between Oct 19, 10:24 PM and 11:24 PM.' },
     ]);
+  });
+
+  it('explains how a related finding was chosen', () => {
+    expect(RELATED_HINT).toContain('within 10 minutes');
+    expect(plainLines(errors, utc).filter((line) => line.hint).map((line) => line.label)).toEqual(['Happened with']);
   });
 
   it('skips lines the finding has no value for', () => {

@@ -97,6 +97,36 @@ services:
 - An entry that isn't right (an unknown importance, a target written `{under: 0.01}`) is left out
   and logged; the rest of the service stays.
 
+## How "Happened with" is chosen
+
+"Happened with" points to **another finding**. When the card is shown, it looks through the other
+saved findings and keeps those that pass every check:
+
+| Check | Why |
+|---|---|
+| Same service | A change in another service is a different story. |
+| A different metric | Another finding on the same metric is the same change found again by another run, not a second clue. |
+| Both are a step change ("rose / dropped and stayed") | Only a step has one exact moment to compare. Spikes, trends, stuck values and gaps don't, so they're never matched. |
+| The two changes are at most 10 minutes apart | Changes in the same few minutes often share one cause: a deploy, a restart, a traffic move. |
+| The other finding was saved in the last 24 hours | Keeps the search small. |
+
+When several findings on one metric pass, the closest in time is kept, so there's at most one line
+per metric. The line itself is the other finding's `templates.level_change.related` sentence,
+written with that finding's own metric name and values. The finding's Technical details don't
+mention it: they describe only its own metric. On the web UI the line links to the other finding;
+on both screens, hovering the "Happened with" label shows a short version of these rules.
+
+Nothing about the link is stored. It's worked out each time the card is read, so the order of the
+runs doesn't matter, and a later run that finds a closer change replaces the earlier one.
+
+Example: spike-lab's error rate dropped from 9.1% to 0.6% at 8:15 PM. Its CPU usage dropped from 1.1
+to 0.28 at 8:14 PM. The error-rate card says "Happened with: CPU usage also dropped at 8:14 PM (1.1
+to 0.28)". Latency on spike-lab only had slow trends that day, so it isn't listed.
+
+The 10 minutes and the 24 hours are `RELATED_WINDOW` and `RELATED_SEARCH` in
+`backend/app/services/finding_plain.py`, not settings in the wording file. If you change the 10
+minutes, change `RELATED_HINT` in `frontend/src/utils/findingPlain.ts` (the tooltip) too.
+
 ## Templates and their placeholders
 
 Every line may also use `{plain_name}`, `{service}` and `{metric}`. A concept's lines may use only

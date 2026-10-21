@@ -11,7 +11,8 @@ Includes Grafana plugin 1.0.35.
   under "Technical details" and don't change. An error rate or latency that dropped now reads
   "Better" instead of looking like an alarm. The wording is in `config/finding_templates.yaml`;
   edit it and save. The API returns it as `plain` on each finding. Spike signals also save their
-  peak value. See `docs/finding-wording.md`.
+  peak value. See `docs/finding-wording.md`. Hovering "Happened with" explains how the other
+  finding was picked: same service, a different metric, both a step change, within 10 minutes.
 - **Service context for findings.** Describe a service once in `config/finding_templates.yaml`
   (what it does, how important it is, the targets it's held to, such as an error rate below 1%), and
   its findings say so: "Your target: Above your 1% target since 10:54 PM (2 hours so far)", "This

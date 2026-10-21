@@ -42,7 +42,14 @@ export function plainTimes(text: string | null | undefined, options: { locale?: 
   });
 }
 
-export type PlainLine = { label: string; text: string; findingId?: number | null };
+export type PlainLine = { label: string; text: string; findingId?: number | null; hint?: string };
+
+/** Tooltip on "Happened with": how the other finding was chosen. The 10 minutes is
+ * RELATED_WINDOW in backend/app/services/finding_plain.py; docs/finding-wording.md explains it. */
+export const RELATED_HINT =
+  'Another finding on this service: a different metric that also rose or dropped and stayed there, ' +
+  'within 10 minutes of this change. Changes at the same moment often share one cause, such as a deploy, ' +
+  'a restart or a traffic move. Spikes, trends and stuck values have no single moment, so they are not matched.';
 
 /** The lines under the headline, in card order, with times shown in the reader's time zone. The
  * target comes first: against a target the team set, the finding is a fact about their service. */
@@ -51,7 +58,7 @@ export function plainLines(plain: FindingPlain, options: { locale?: string; time
   if (plain.target) lines.push({ label: 'Your target', text: plainTimes(plain.target, options) });
   if (plain.why) lines.push({ label: 'Why it matters', text: plainTimes(plain.why, options) });
   if (plain.service_about) lines.push({ label: 'This service', text: plain.service_about });
-  for (const item of plain.related ?? []) lines.push({ label: 'Happened with', text: plainTimes(item.text, options), findingId: item.finding_id });
+  for (const item of plain.related ?? []) lines.push({ label: 'Happened with', text: plainTimes(item.text, options), findingId: item.finding_id, hint: RELATED_HINT });
   if (plain.check) lines.push({ label: 'What to check', text: plainTimes(plain.check, options) });
   return lines;
 }

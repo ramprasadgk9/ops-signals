@@ -246,4 +246,13 @@ describe('FindingCard plain wording', () => {
     fireEvent.click(screen.getByRole('button', { name: /Technical details/ }));
     expect(screen.getByTestId('finding-plain-signal')).toHaveTextContent('Strongest signal: A stretch unlike the rest. (stumpy · confidence 1.00)');
   });
+
+  it('explains "Happened with" in a tooltip', async () => {
+    const { PlainFindingSummary } = await import('./PlainFindingSummary');
+    const related = { ...plainFinding.plain!, related: [{ finding_id: 8299, text: 'Slow-request time (p95) also rose at [[time:2026-10-19T22:54:17Z]] (357 ms to 571 ms).' }] };
+    render(<PlainFindingSummary plain={related} summary="stored" />);
+
+    fireEvent.mouseOver(screen.getByTestId('finding-plain-hint'));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('within 10 minutes of this change');
+  });
 });
