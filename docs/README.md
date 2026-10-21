@@ -97,7 +97,7 @@ What analyzers are, why a given one gets picked for a given metric, and how much
 ## 4. UI Tour
 
 - [`ui-tour.md`](ui-tour.md) - every tab in the standalone web UI (Overview, Autonomous Analysis
-  Configure, Investigations, Findings, Cases, Behavior Intelligence, Behavior Lab, Operational
+  Configure, Investigations, Findings, Cases, Behavior Intelligence, Operational
   Memory, Ask Ops Signals, Experiments, New Analysis) and every mode in the Grafana plugin
   (Interactive Analysis, Autonomous Analysis), with a one-line purpose and a link to the deeper doc
   for each.

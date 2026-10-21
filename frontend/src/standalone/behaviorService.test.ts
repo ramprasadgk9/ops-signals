@@ -13,7 +13,7 @@ function behavior(overrides: Partial<BehaviorFinding> = {}): BehaviorFinding {
     category: 'saturation',
     severity: 'critical',
     service: 'checkout-api',
-    input_metrics_json: {},
+    input_metrics_json: { cpu: 'cpu_usage', load: 'load_average' },
     facts_json: {},
     evidence_json: ['cpu.high', 'load.high'],
     matched_conditions_json: [],
@@ -27,13 +27,21 @@ function behavior(overrides: Partial<BehaviorFinding> = {}): BehaviorFinding {
 }
 
 describe('behavior service', () => {
+  const now = Date.parse('2026-07-26T06:00:00Z');
+
   it('builds summary from returned behavior evaluations', () => {
-    expect(buildBehaviorSummary([behavior(), behavior({ id: 2, service: 'payments-api', confidence: 0.8 })])).toEqual({
+    const quiet = behavior({ id: 3, last_seen_at: '2026-07-20T00:00:00Z', input_metrics_json: { cpu: 'cpu_usage', mem: 'memory_usage' } });
+    expect(buildBehaviorSummary([behavior(), behavior({ id: 2, service: 'payments-api', confidence: 0.8 }), quiet], now)).toEqual({
       activeBehaviors: 2,
-      totalSignals: 4,
+      metricsCombined: 3,
       affectedServices: 2,
-      confidenceAverage: 86,
+      confidenceAverage: 88,
     });
+  });
+
+  it('says whether a behavior is still going on', () => {
+    expect(toBehaviorRows([behavior()], now)[0].status).toBe('active');
+    expect(toBehaviorRows([behavior({ last_seen_at: '2026-07-20T00:00:00Z' })], now)[0].status).toBe('quiet');
   });
 
   it('marks missing impacted service as unavailable', () => {

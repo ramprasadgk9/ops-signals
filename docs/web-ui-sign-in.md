@@ -45,7 +45,7 @@ Browser → company sign-in proxy → web UI (nginx) → Ops Signals backend
 | Create a case; investigate, resolve, add to memory, create or sync a ticket | – | ✓ | ✓ |
 | Run Analysis, Analyze and Save, Run once (Autonomous) | – | ✓ | ✓ |
 | Save, edit, pause or resume a schedule | – | ✓ | ✓ |
-| Analyzer labs, Add Analyzer, Behavior Lab, case imports, test alerts | – | – | ✓ |
+| Analyzer labs, Add Analyzer, the behavior pattern builder, case imports, test alerts | – | – | ✓ |
 
 What people see:
 
@@ -129,7 +129,7 @@ person. It works **only without an API token**, and the backend logs a warning w
 | New Analysis | 🔒 Run Analysis, with "Editors can run analyses. Ask your Ops Signals admin for the Editor role." |
 | A finding | "Was this real?" and Create case locked |
 | A case page | The read-only note; Save Investigation and Add to Memory disabled |
-| Menu | Behavior Lab, the analyzer labs and Add Analyzer marked `🔒 Admin` |
+| Menu | The analyzer labs and Add Analyzer marked `🔒 Admin`; on Behavior Intelligence, New pattern and Edit copy are hidden |
 
 Change `Viewer` to `Editor` or `Admin` and restart to see the other roles. Remove the line and
 restart when you're done.

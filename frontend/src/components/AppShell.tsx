@@ -67,7 +67,6 @@ const navItems: NavItem[] = [
   { label: 'Metric Usage', to: '/metric-usage', icon: <VisibilityOutlinedIcon />, feature: 'metric_usage' },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
   { label: 'Behavior Intelligence', to: '/behavior-intelligence', icon: <HubRoundedIcon /> },
-  { label: 'Behavior Lab', to: '/behavior-intelligence/lab', icon: <ScienceRoundedIcon />, adminOnly: true },
   { label: 'Operational Memory', to: '/operational-memory', icon: <StorageRoundedIcon /> },
   { label: 'Ask Ops Signals', to: '/assistant', icon: <ChatBubbleOutlineRoundedIcon />, badge: 'Beta' },
   { label: 'New Analysis', to: '/validate-data', icon: <AddRoundedIcon /> },

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
-import { BehaviorLabPage } from './BehaviorLabPage';
+import { BehaviorBuilder, seedFromDefinition } from './BehaviorBuilder';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -21,13 +21,13 @@ function renderPage() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <BehaviorLabPage />
+        <BehaviorBuilder />
       </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-describe('BehaviorLabPage metric name', () => {
+describe('BehaviorBuilder metric name', () => {
   afterEach(() => {
     cleanup();
     vi.mocked(api.behaviorAvailableMetrics).mockReset();
@@ -67,5 +67,43 @@ describe('BehaviorLabPage metric name', () => {
     fireEvent.change(field, { target: { value: 'memory_usage' } });
 
     expect(field).toHaveValue('memory_usage');
+  });
+});
+
+describe('seedFromDefinition', () => {
+  it('fills every field from a definition as the API returns it, under a new id', () => {
+    const seed = seedFromDefinition(
+      {
+        id: 'pool_exhaustion',
+        title: 'Pool exhaustion',
+        description: 'Wait and connections rise together.',
+        inputs: [{ alias: 'db_wait', metric_name: 'db_connection_wait_seconds', analyzers: ['trend', 'ruptures'] }],
+        conditions: { all: [{ fact: 'db_wait.change.upward', operator: 'equals', value: true }], any: [] },
+        correlation: { max_time_gap: '30m', minimum_overlap: '5m' },
+        output: { category: 'resource_constraint', severity: 'critical', title: 'Pool exhaustion', summary: 'Filling up.\n' },
+      },
+      '_copy',
+    );
+    expect(seed).toEqual({
+      id: 'pool_exhaustion_copy',
+      title: 'Pool exhaustion',
+      description: 'Wait and connections rise together.',
+      category: 'resource_constraint',
+      severity: 'critical',
+      outputTitle: 'Pool exhaustion',
+      outputSummary: 'Filling up.',
+      inputs: [{ alias: 'db_wait', metricName: 'db_connection_wait_seconds', analyzers: 'trend,ruptures' }],
+      conditionsAll: [{ fact: 'db_wait.change.upward', operator: 'equals', value: true }],
+      conditionsAny: [],
+      maxTimeGap: '30m',
+      minimumOverlap: '5m',
+    });
+  });
+
+  it('falls back to a blank form for missing parts', () => {
+    const seed = seedFromDefinition({ id: 'x' });
+    expect(seed.inputs).toEqual([{ alias: '', metricName: '', analyzers: '' }]);
+    expect(seed.severity).toBe('medium');
+    expect(seed.maxTimeGap).toBe('15m');
   });
 });

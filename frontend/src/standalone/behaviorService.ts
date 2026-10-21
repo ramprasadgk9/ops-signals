@@ -1,8 +1,11 @@
 import type { BehaviorDefinition, BehaviorFinding } from '../types';
+import { patternParts, patternStatus } from '../utils/combinedPatterns';
 
 export type BehaviorSummary = {
+  /** Seen by a run in the last 24 hours. */
   activeBehaviors: number;
-  totalSignals: number;
+  /** Distinct metrics the detected behaviors combine. */
+  metricsCombined: number;
   affectedServices: number;
   confidenceAverage: number | null;
 };
@@ -17,7 +20,7 @@ export type BehaviorRow = {
   detectedAt: string;
   lastSeenAt: string;
   occurrenceCount: number;
-  status: 'active';
+  status: 'active' | 'quiet';
   evidence: string[];
   summary: string;
   caseId: number | null;
@@ -32,16 +35,16 @@ export type BehaviorRuleRow = {
   sourceFile: string;
 };
 
-export function buildBehaviorSummary(findings: BehaviorFinding[]): BehaviorSummary {
+export function buildBehaviorSummary(findings: BehaviorFinding[], now = Date.now()): BehaviorSummary {
   return {
-    activeBehaviors: findings.length,
-    totalSignals: findings.reduce((total, item) => total + (item.evidence_json?.length ?? 0), 0),
+    activeBehaviors: findings.filter((item) => patternStatus(item, now) === 'active').length,
+    metricsCombined: new Set(findings.flatMap((item) => patternParts(item).map((part) => part.metric))).size,
     affectedServices: new Set(findings.map((item) => item.service).filter(Boolean)).size,
     confidenceAverage: findings.length ? Math.round((findings.reduce((total, item) => total + item.confidence, 0) / findings.length) * 100) : null,
   };
 }
 
-export function toBehaviorRows(findings: BehaviorFinding[]): BehaviorRow[] {
+export function toBehaviorRows(findings: BehaviorFinding[], now = Date.now()): BehaviorRow[] {
   return findings.map((finding) => ({
     id: finding.id,
     title: finding.title,
@@ -52,7 +55,7 @@ export function toBehaviorRows(findings: BehaviorFinding[]): BehaviorRow[] {
     detectedAt: finding.created_at,
     lastSeenAt: finding.last_seen_at,
     occurrenceCount: finding.occurrence_count,
-    status: 'active',
+    status: patternStatus(finding, now),
     evidence: finding.evidence_json ?? [],
     summary: finding.summary,
     caseId: finding.case_id ?? null,

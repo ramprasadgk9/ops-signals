@@ -16,9 +16,10 @@ import {
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import { PageHeader, WorkspacePanel } from '../standalone/components';
+import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
 import type { BehaviorConditionInput, BehaviorDefinitionDraft } from '../types';
 
@@ -28,9 +29,8 @@ type ConditionRow = BehaviorConditionInput;
 const OPERATORS = ['equals', 'greater_than', 'less_than', 'contains'];
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
 
-type ExampleDefinition = {
-  key: string;
-  label: string;
+/** What the builder starts from: a blank form, a shipped rule, a suggestion or an example. */
+export type BuilderSeed = {
   id: string;
   title: string;
   description: string;
@@ -44,6 +44,63 @@ type ExampleDefinition = {
   maxTimeGap: string;
   minimumOverlap: string;
 };
+
+type ExampleDefinition = BuilderSeed & { key: string; label: string };
+
+export const BLANK_SEED: BuilderSeed = {
+  id: '',
+  title: '',
+  description: '',
+  category: 'behavior',
+  severity: 'medium',
+  outputTitle: '',
+  outputSummary: '',
+  inputs: [{ alias: '', metricName: '', analyzers: '' }],
+  conditionsAll: [],
+  conditionsAny: [],
+  maxTimeGap: '15m',
+  minimumOverlap: '5m',
+};
+
+const text = (value: unknown, fallback = ''): string => (typeof value === 'string' ? value : fallback);
+
+function conditionRows(rows: unknown): ConditionRow[] {
+  return Array.isArray(rows)
+    ? rows.map((row) => ({ fact: text(row?.fact), operator: text(row?.operator, 'equals'), value: row?.value ?? true }))
+    : [];
+}
+
+/**
+ * A seed from a definition as the API returns it: a shipped rule (GET /api/behavior-definitions) or
+ * a suggestion's draft (draft_definition_json). The id gets `idSuffix`, so saving the copy can't
+ * overwrite the original.
+ */
+export function seedFromDefinition(definition: Record<string, unknown>, idSuffix = ''): BuilderSeed {
+  const output = (definition.output ?? {}) as Record<string, unknown>;
+  const correlation = (definition.correlation ?? {}) as Record<string, unknown>;
+  const conditions = (definition.conditions ?? {}) as Record<string, unknown>;
+  const inputs = Array.isArray(definition.inputs) ? (definition.inputs as Array<Record<string, unknown>>) : [];
+  return {
+    id: `${text(definition.id)}${idSuffix}`,
+    title: text(definition.title),
+    description: text(definition.description),
+    category: text(output.category, 'behavior'),
+    severity: text(output.severity, 'medium'),
+    outputTitle: text(output.title),
+    outputSummary: text(output.summary).trim(),
+    inputs: inputs.length
+      ? inputs.map((item) => ({
+          alias: text(item.alias),
+          metricName: text(item.metric_name),
+          analyzers: Array.isArray(item.analyzers) ? item.analyzers.join(',') : '',
+        }))
+      : BLANK_SEED.inputs,
+    conditionsAll: conditionRows(conditions.all),
+    conditionsAny: conditionRows(conditions.any),
+    maxTimeGap: text(correlation.max_time_gap, BLANK_SEED.maxTimeGap),
+    minimumOverlap: text(correlation.minimum_overlap, BLANK_SEED.minimumOverlap),
+  };
+}
 
 // Real, already-shipped patterns (config/behavior_definitions.d/core.yml and
 // latency_and_errors.yml) reused as fill-in-the-form examples, not invented sample data — so
@@ -216,19 +273,31 @@ function ConditionEditor({
   );
 }
 
-export function BehaviorLabPage() {
-  const [id, setId] = useState('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('behavior');
-  const [severity, setSeverity] = useState('medium');
-  const [outputTitle, setOutputTitle] = useState('');
-  const [outputSummary, setOutputSummary] = useState('');
-  const [inputs, setInputs] = useState<InputRow[]>([{ alias: '', metricName: '', analyzers: '' }]);
-  const [conditionsAll, setConditionsAll] = useState<ConditionRow[]>([]);
-  const [conditionsAny, setConditionsAny] = useState<ConditionRow[]>([]);
-  const [maxTimeGap, setMaxTimeGap] = useState('15m');
-  const [minimumOverlap, setMinimumOverlap] = useState('5m');
+type Props = {
+  /** Where the form starts; the caller remounts the builder (a new `key`) to start over. */
+  seed?: BuilderSeed;
+  /** Shown above the title, e.g. "Editing a copy of a shipped rule". */
+  sourceLabel?: string;
+  onClose?: () => void;
+};
+
+/**
+ * Author a behavior definition, test it against real historical data, and save it to a pack. Opens
+ * as a side panel on Behavior Intelligence from New pattern, Edit copy and Turn into pattern.
+ */
+export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Props) {
+  const [id, setId] = useState(seed.id);
+  const [title, setTitle] = useState(seed.title);
+  const [description, setDescription] = useState(seed.description);
+  const [category, setCategory] = useState(seed.category);
+  const [severity, setSeverity] = useState(seed.severity);
+  const [outputTitle, setOutputTitle] = useState(seed.outputTitle);
+  const [outputSummary, setOutputSummary] = useState(seed.outputSummary);
+  const [inputs, setInputs] = useState<InputRow[]>(seed.inputs);
+  const [conditionsAll, setConditionsAll] = useState<ConditionRow[]>(seed.conditionsAll);
+  const [conditionsAny, setConditionsAny] = useState<ConditionRow[]>(seed.conditionsAny);
+  const [maxTimeGap, setMaxTimeGap] = useState(seed.maxTimeGap);
+  const [minimumOverlap, setMinimumOverlap] = useState(seed.minimumOverlap);
   const [selectedSample, setSelectedSample] = useState('');
   const [packFile, setPackFile] = useState('custom_patterns.yml');
 
@@ -292,10 +361,20 @@ export function BehaviorLabPage() {
 
   return (
     <Stack spacing={3}>
-      <PageHeader
-        title="Behavior Lab"
-        subtitle="Author a behavior definition, test it against real historical data, and save it as a pack — without editing YAML by hand or guessing at fact names."
-      />
+      <Stack direction="row" alignItems="flex-start" spacing={2}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {sourceLabel ? <Typography variant="caption" sx={{ color: ui.muted, fontWeight: 700 }}>{sourceLabel}</Typography> : null}
+          <Typography component="h2" sx={{ fontWeight: 900, fontSize: 24 }}>{seed.title || 'New pattern'}</Typography>
+          <Typography sx={{ color: ui.muted, fontSize: 14 }}>
+            Combine metrics into one pattern, test it against real historical data, and save it to a pack — without editing YAML by hand or guessing at fact names.
+          </Typography>
+        </Box>
+        {onClose ? (
+          <IconButton onClick={onClose} aria-label="Close builder">
+            <CloseRoundedIcon />
+          </IconButton>
+        ) : null}
+      </Stack>
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 0.5 }}>Not sure where to start?</Typography>
@@ -320,7 +399,7 @@ export function BehaviorLabPage() {
             </Tooltip>
           </Grid>
           <Grid size={{ xs: 12, md: 4 }}>
-            <Tooltip title="Example: Possible CPU throttling — a short, human-readable name shown in the Rules and Patterns Library lists." arrow>
+            <Tooltip title="Example: Possible CPU throttling — a short, human-readable name shown in the Patterns list." arrow>
               <TextField fullWidth size="small" label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
             </Tooltip>
           </Grid>
