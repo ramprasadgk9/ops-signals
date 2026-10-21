@@ -39,6 +39,12 @@ Findings show severity, confidence, evidence, affected services, timestamps, and
 
 ![Operational Findings](screenshots/images/web/04-findings.png)
 
+Each finding card says what happened in plain words: a badge, a headline, what changed, why it
+matters, what changed at the same moment and what to check. See
+[Finding wording](finding-wording.md).
+
+![Findings in plain words](screenshots/images/web/13-findings-plain-words.png)
+
 ### Finding Drill-down
 
 With [drill-down](finding-drilldown.md) on, a finding from an autonomous Prometheus run shows which

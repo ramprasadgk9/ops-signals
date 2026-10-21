@@ -30,6 +30,7 @@ from backend.app.services.prometheus_service import (
     configured_connection,
     get_prometheus_connection,
 )
+from backend.app.services.finding_plain import finding_plain
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from backend.app.api.errors import internal_error
 from intelligence.pipeline import SignalPipeline
@@ -186,6 +187,7 @@ def run_direct_prometheus_analysis(
 
     finding_rows = db.execute(select(FindingEntity).where(FindingEntity.analysis_run_id == result.analysis_run_id)).scalars().all()
     signal_rows = db.execute(select(SignalEntity).where(SignalEntity.analysis_run_id == result.analysis_run_id)).scalars().all()
+    plain_wording = finding_plain(db, list(finding_rows))
     findings_count = len(finding_rows)
     signal_count = len(signal_rows)
     behavior_count = db.execute(select(func.count(BehaviorFindingEntity.id)).where(BehaviorFindingEntity.analysis_run_id == result.analysis_run_id)).scalar() or 0
@@ -248,6 +250,7 @@ def run_direct_prometheus_analysis(
                 "comparison_json": finding.comparison_json or {},
                 "analysis_run_id": finding.analysis_run_id,
                 "created_at": finding.created_at,
+                "plain": plain_wording.get(finding.id),
             }
             for finding in finding_rows
         ],

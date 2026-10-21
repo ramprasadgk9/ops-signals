@@ -6,6 +6,14 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Findings in plain words.** The analysis result, the investigation panel, the "Needs attention"
+  rows and the finding lookup show a finding's badge (Worse, Better, Monitoring gap...) and plain
+  headline, then what changed, why it matters and what to check, with the stored text under
+  "Technical details". A needs-attention row no longer shows an improvement in red. Hovering
+  "Happened with" explains how the other finding was picked. The buttons that switch between a
+  run's findings use the plain headline too.
+- **Service context.** For a service described in the wording file, findings show its importance
+  ("Critical service") next to the badge, a "Your target" line and a "This service" line.
 - **Roles.** Through Grafana, a Viewer's Run Analysis, "Was this real?", Create case, case drawer
   Save, ticket, Run once and schedule buttons are locked, each with the reason ("Editors can run
   analyses. Ask your Grafana admin for the Editor role."). The case drawer is read-only for Viewers

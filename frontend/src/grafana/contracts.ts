@@ -1,4 +1,4 @@
-import type { AnalysisRun, FindingTrust, TimeseriesPoint } from '../types';
+import type { AnalysisRun, FindingPlain, FindingTrust, TimeseriesPoint } from '../types';
 
 export type GrafanaQueryTarget = {
   datasource: string;
@@ -46,6 +46,7 @@ export type GrafanaAnalysisFinding = {
   signal_ids: string[];
   comparison_json?: Record<string, unknown>;
   trust?: FindingTrust | null;
+  plain?: FindingPlain | null;
 };
 
 export type GrafanaAnalyzerExecution = {

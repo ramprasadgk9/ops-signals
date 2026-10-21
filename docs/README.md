@@ -89,6 +89,8 @@ What analyzers are, why a given one gets picked for a given metric, and how much
 - [`finding-trust.md`](finding-trust.md) - how much to trust a finding: the "Needs attention" and
   "Context only" lists, the badges, the tested numbers behind them (and how they compare with a
   random alert), and the "Was this real?" answers that replace them for your service.
+- [`finding-wording.md`](finding-wording.md) - how finding cards and Slack messages describe a
+  finding in plain words, and how to change that wording in `config/finding_templates.yaml`.
 
 ## 4. UI Tour
 
