@@ -55,10 +55,14 @@ TEMPLATE_FIELDS: dict[str, set[str]] = {
     "data_gap": {"duration", "first_time", "last_time", "missing_points", "gap_count"},
     "flatline": {"stuck_value", "duration", "first_time", "last_time", "normal_change"},
     "forecast": {"higher_or_lower", "actual", "expected", "off"},
+    # Lines comparing a finding with the service's own target (the `services` section).
+    "targets": {"target", "breach_side", "since", "until", "duration", "half", "peak", "value"},
 }
 REQUIRED_LINES: dict[str, tuple[str, ...]] = {
     "spikes": ("headline", "what", "noise_headline", "noise_what"),
+    "targets": (),
 }
+SERVICE_IMPORTANCE = ("critical", "normal", "low")
 BADGES = ("worse", "better", "changed", "gap", "noise", "blip")
 
 
@@ -74,6 +78,47 @@ class Wording:
     metrics: dict[str, dict[str, str]]
     patterns: list[tuple[re.Pattern[str], dict[str, str]]]
     templates: dict[str, dict[str, str]]
+    services: dict[str, "ServiceContext"] = field(default_factory=dict)
+    importance_labels: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Target:
+    limit: float
+    # "below": the value should stay below the limit (error rate, latency); "above": it should
+    # stay above it (requests, free disk).
+    keep: str
+
+
+@dataclass(frozen=True)
+class ServiceContext:
+    about: str | None
+    importance: str | None
+    targets: dict[str, Target]
+
+
+def _parse_services(raw: Any) -> dict[str, ServiceContext]:
+    """The `services` section; a wrong entry is left out and logged, the rest of it stays."""
+    services: dict[str, ServiceContext] = {}
+    for name, block in (raw or {}).items():
+        if not isinstance(block, dict):
+            logger.warning("finding_templates: service %r is ignored (expected about, importance, targets)", name)
+            continue
+        importance = block.get("importance")
+        if importance is not None and importance not in SERVICE_IMPORTANCE:
+            logger.warning("finding_templates: service %r has importance %r (use critical, normal or low); left out", name, importance)
+            importance = None
+        targets: dict[str, Target] = {}
+        for metric, rule in (block.get("targets") or {}).items():
+            keep = next((key for key in ("below", "above") if isinstance(rule, dict) and key in rule), None)
+            limit = _number(rule.get(keep)) if keep else None
+            if keep is None or limit is None or len(rule) != 1:
+                logger.warning("finding_templates: target %r of service %r is left out (write {below: 0.01} or {above: 100})", metric, name)
+                continue
+            targets[str(metric)] = Target(limit, keep)
+        about = block.get("about")
+        services[str(name).lower()] = ServiceContext(str(about).strip() if about else None, importance, targets)
+    return services
 
 
 def _fields(text: str) -> set[str]:
@@ -139,7 +184,8 @@ def parse_wording(raw: dict[str, Any]) -> Wording:
         unknown = None
     badges = {key: str((raw.get("badges") or {}).get(key) or key.replace("_", " ").capitalize()) for key in BADGES}
     metrics = {str(name): {key: str(value) for key, value in (entry or {}).items()} for name, entry in (raw.get("metrics") or {}).items()}
-    return Wording(badges, concepts, str(unknown) if unknown else None, metrics, patterns, templates)
+    labels = {key: str(value) for key, value in (raw.get("service_importance") or {}).items() if key in SERVICE_IMPORTANCE and value}
+    return Wording(badges, concepts, str(unknown) if unknown else None, metrics, patterns, templates, _parse_services(raw.get("services")), labels)
 
 
 @lru_cache(maxsize=4)
@@ -316,6 +362,8 @@ class FindingFacts:
     comparison: dict[str, Any] = field(default_factory=dict)
     event_start: datetime | None = None
     event_end: datetime | None = None
+    # Whether the problem was still going on at the end of the analyzed data; None when unknown.
+    ongoing: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -352,6 +400,11 @@ class Plain:
     # How another finding of the same event mentions this one ("Error rate also dropped at ...").
     related_sentence: str | None = None
     related: list[dict[str, Any]] = field(default_factory=list)
+    # The values a target is checked against (before/after, halves, peak...), from the template.
+    facts: dict[str, Any] = field(default_factory=dict)
+    target: str | None = None
+    service_about: str | None = None
+    service_importance: str | None = None
 
     def to_json(self, wording: Wording) -> dict[str, Any]:
         return {
@@ -364,6 +417,10 @@ class Plain:
             "check": self.check,
             "change_time": self.change_time,
             "related": self.related,
+            "target": self.target,
+            "service_about": self.service_about,
+            "service_importance": self.service_importance,
+            "service_importance_label": wording.importance_labels.get(self.service_importance or ""),
         }
 
 
@@ -463,6 +520,7 @@ def _level_change(finding: FindingFacts, signal: SignalFacts, meaning: MetricMea
         check=_fill(template.get("check"), values) or _fill(concept.get("check"), values),
         change_time=time_marker(change_at),
         related_sentence=_fill(template.get("related"), values),
+        facts={"before": before, "after": after, "change_at": change_at},
     )
 
 
@@ -503,6 +561,7 @@ def _trend(finding: FindingFacts, signal: SignalFacts, meaning: MetricMeaning, w
         what=_join(what, _fill(template.get("turned"), values) if turned else None) or what,
         why=_join(_why(badge, meaning, wording, values), _fill(template.get("not_urgent"), values) if uneven else None),
         check=_fill(concept.get("check"), values),
+        facts={"first": first_half, "second": second_half, "half": values["half"]},
     )
 
 
@@ -584,7 +643,15 @@ def _spikes(finding: FindingFacts, anomalies: list[SignalFacts], meaning: Metric
     if single and span is not None and span <= BLIP_MAX.total_seconds() / 60 and badge == "worse":
         badge = "blip"
     concept = wording.concepts.get(meaning.concept or "") or {}
-    return Plain(kind="spikes", badge=badge, headline=headline, what=what, why=_why(badge, meaning, wording, values), check=_fill(concept.get("check"), values))
+    return Plain(
+        kind="spikes",
+        badge=badge,
+        headline=headline,
+        what=what,
+        why=_why(badge, meaning, wording, values),
+        check=_fill(concept.get("check"), values),
+        facts={"peak": peak},
+    )
 
 
 def _odd_stretch(signals: list[SignalFacts], meaning: MetricMeaning, wording: Wording, base: dict[str, Any]) -> Plain | None:
@@ -663,7 +730,15 @@ def _forecast(signal: SignalFacts, meaning: MetricMeaning, wording: Wording, bas
         return None
     badge = _direction_badge(direction, meaning)
     concept = wording.concepts.get(meaning.concept or "") or {}
-    return Plain(kind="forecast", badge=badge, headline=headline, what=what, why=_why(badge, meaning, wording, values), check=_fill(concept.get("check"), values))
+    return Plain(
+        kind="forecast",
+        badge=badge,
+        headline=headline,
+        what=what,
+        why=_why(badge, meaning, wording, values),
+        check=_fill(concept.get("check"), values),
+        facts={"value": actual},
+    )
 
 
 def build_plain(finding: FindingFacts, signals: Iterable[SignalFacts], wording: Wording | None) -> Plain | None:
@@ -685,7 +760,72 @@ def build_plain(finding: FindingFacts, signals: Iterable[SignalFacts], wording: 
         return None
     if plain is not None:
         plain.service, plain.metric_name = service, finding.metric_name
+        context = wording.services.get((service or "").lower())
+        if context is not None:
+            plain.service_about, plain.service_importance = context.about, context.importance
+            target = context.targets.get(finding.metric_name)
+            if target is not None and "targets" in wording.templates:
+                plain.target = _target_line(plain, finding, target, meaning, wording)
     return plain
+
+
+def _target_line(plain: Plain, finding: FindingFacts, target: Target, meaning: MetricMeaning, wording: Wording) -> str | None:
+    """How the finding stands against the service's own target, from the same values the card
+    shows: averages before and after a change, the two halves of a trend, a spike's peak."""
+    lines = wording.templates["targets"]
+    facts = plain.facts
+
+    def misses(value: Any) -> bool | None:
+        number = _number(value)
+        if number is None:
+            return None
+        return number > target.limit if target.keep == "below" else number < target.limit
+
+    values = {
+        "plain_name": meaning.plain_name,
+        "service": plain.service or "this service",
+        "metric": finding.metric_name,
+        "target": format_value(target.limit, meaning.unit),
+        "breach_side": "Above" if target.keep == "below" else "Below",
+        "half": facts.get("half"),
+        "peak": format_value(facts.get("peak"), meaning.unit),
+        "value": format_value(facts.get("value"), meaning.unit),
+    }
+    if plain.kind == "level_change":
+        before, after = misses(facts.get("before")), misses(facts.get("after"))
+        change_at, end = facts.get("change_at"), _utc(finding.event_end)
+        values.update({"since": time_marker(change_at), "until": time_marker(end), "duration": duration_words(_minutes(change_at, end))})
+        if before is None or after is None:
+            return None
+        if after and before:
+            return _fill(lines.get("breach_throughout"), values)
+        if after:
+            if finding.ongoing is True:
+                return _fill(lines.get("breach_ongoing"), values) or _fill(lines.get("breach_since"), values)
+            if finding.ongoing is False:
+                return _fill(lines.get("breach_ended"), values) or _fill(lines.get("breach_since"), values)
+            return _fill(lines.get("breach_since"), values)
+        return _fill(lines.get("recovered" if before else "within"), values)
+    if plain.kind == "trend":
+        first, second = misses(facts.get("first")), misses(facts.get("second"))
+        if first is None or second is None:
+            return None
+        if first and second:
+            return _fill(lines.get("window_breach"), values)
+        if second:
+            return _fill(lines.get("trend_breach"), values)
+        return _fill(lines.get("trend_recovered" if first else "within"), values)
+    if plain.kind == "spikes":
+        peak = misses(facts.get("peak"))
+        if peak is None:
+            return None
+        return _fill(lines.get("peak_breach" if peak else "within"), values)
+    if plain.kind == "forecast":
+        value = misses(facts.get("value"))
+        if value is None:
+            return None
+        return _fill(lines.get("value_breach" if value else "within"), values)
+    return None
 
 
 def _pick(finding: FindingFacts, signal_list: list[SignalFacts], types: set[str], meaning: MetricMeaning, wording: Wording, base: dict[str, Any]) -> Plain | None:
@@ -773,7 +913,7 @@ def _signal_facts(db: Session, signal_ids: set[str]) -> dict[str, SignalFacts]:
 
 
 def _finding_facts(row: FindingEntity) -> FindingFacts:
-    return FindingFacts(row.metric_name, row.service, row.title or "", row.category or "", row.comparison_json or {}, row.event_start, row.event_end)
+    return FindingFacts(row.metric_name, row.service, row.title or "", row.category or "", row.comparison_json or {}, row.event_start, row.event_end, row.ongoing)
 
 
 def _build_rows(db: Session, rows: Iterable[FindingEntity], wording: Wording) -> list[tuple[FindingEntity, Plain]]:
@@ -837,6 +977,7 @@ def plain_for_result(findings: Iterable[Any], signals: Iterable[Any], path: Path
             dict(finding.comparison_json or {}),
             getattr(finding, "event_start", None),
             getattr(finding, "event_end", None),
+            getattr(finding, "ongoing", None),
         )
         built.append(build_plain(facts, [by_id[signal_id] for signal_id in finding.signal_ids if signal_id in by_id], wording))
     link_related([(None, plain) for plain in built if plain is not None])

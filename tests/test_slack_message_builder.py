@@ -136,3 +136,22 @@ def test_plain_wording_leads_the_message_with_the_stored_summary_as_small_print(
 
 def test_without_plain_wording_the_message_is_unchanged() -> None:
     assert build_finding_blocks(_finding(), None) == build_finding_blocks(_finding())
+
+
+def test_service_context_names_the_target_and_the_service() -> None:
+    plain = {
+        **PLAIN,
+        "badge": "worse",
+        "badge_label": "Worse",
+        "related": [],
+        "target": "Above your 1% target since [[time:2026-10-19T22:54:17Z]] (2 hours so far).",
+        "service_about": "Customers pay for their orders here.",
+        "service_importance": "critical",
+        "service_importance_label": "Critical service",
+    }
+    blocks = build_finding_blocks(_finding(), plain)["blocks"]
+
+    assert blocks[0]["text"]["text"] == "🔴 Worse · Critical service: Error rate dropped sharply and stayed lower"
+    body = blocks[1]["text"]["text"]
+    assert "\n*Your target:* Above your 1% target since <!date^1792450457^{date_short_pretty} {time}|Oct 19, 22:54 UTC> (2 hours so far).\n*Why it matters:*" in body
+    assert "*This service:* Customers pay for their orders here." in body

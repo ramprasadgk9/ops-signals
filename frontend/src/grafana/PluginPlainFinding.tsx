@@ -15,13 +15,21 @@ const TONE: Record<PlainTone, { color: string; border: string; background: strin
 
 export function PluginPlainBadge({ plain }: { plain: FindingPlain }) {
   const tone = TONE[plainTone(plain.badge)];
+  const important = TONE[plain.service_importance === 'critical' ? 'gap' : 'neutral'];
   return (
-    <span
-      data-testid="plugin-plain-badge"
-      style={{ ...styles.chip, color: tone.color, borderColor: tone.border, background: tone.background, fontWeight: 600, flex: 'none' }}
-    >
-      {plain.badge_label}
-    </span>
+    <>
+      <span
+        data-testid="plugin-plain-badge"
+        style={{ ...styles.chip, color: tone.color, borderColor: tone.border, background: tone.background, fontWeight: 600, flex: 'none' }}
+      >
+        {plain.badge_label}
+      </span>
+      {plain.service_importance_label ? (
+        <span data-testid="plugin-plain-importance" style={{ ...styles.chip, color: important.color, borderColor: important.border, marginLeft: 6, flex: 'none' }}>
+          {plain.service_importance_label}
+        </span>
+      ) : null}
+    </>
   );
 }
 

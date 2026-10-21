@@ -207,6 +207,12 @@ export type FindingPlain = {
   change_time?: string | null;
   /** Other metrics of the same service that changed at the same moment. */
   related?: Array<{ finding_id: number | null; text: string }>;
+  /** How the finding stands against its service's target ("Above your 1% target since ..."). */
+  target?: string | null;
+  /** What the service does, and how important it is, from the `services` section of the wording file. */
+  service_about?: string | null;
+  service_importance?: 'critical' | 'normal' | 'low' | null;
+  service_importance_label?: string | null;
 };
 
 export type FindingVerdict = 'real_problem' | 'expected_change' | 'not_a_problem';

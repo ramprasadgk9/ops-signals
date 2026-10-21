@@ -27,8 +27,12 @@ def _slack_time(moment: datetime) -> str:
 
 def _plain_text(plain: dict) -> str:
     lines = [render_times(plain.get("what") or "", _slack_time)]
+    if plain.get("target"):
+        lines.append(f"*Your target:* {render_times(plain['target'], _slack_time)}")
     if plain.get("why"):
         lines.append(f"*Why it matters:* {render_times(plain['why'], _slack_time)}")
+    if plain.get("service_about"):
+        lines.append(f"*This service:* {plain['service_about']}")
     for item in plain.get("related") or []:
         lines.append(f"*Happened with:* {render_times(item.get('text') or '', _slack_time)}")
     if plain.get("check"):
@@ -41,7 +45,8 @@ def build_finding_blocks(finding: OperationalFinding, plain: dict | None = None)
     given, with the stored summary as small print; otherwise the stored title and summary."""
     if plain and plain.get("headline"):
         icon = _PLAIN_ICON.get(plain.get("badge"), "⚪")
-        header_text = f"{icon} {plain.get('badge_label') or ''}: {plain['headline']}"[:_HEADER_MAX_LEN]
+        label = " · ".join(part for part in (plain.get("badge_label"), plain.get("service_importance_label")) if part)
+        header_text = f"{icon} {label}: {plain['headline']}"[:_HEADER_MAX_LEN]
         body = _plain_text(plain)
         technical = [{"type": "context", "elements": [{"type": "mrkdwn", "text": f"Technical: {finding.title} {finding.summary}"[:_TECHNICAL_MAX_LEN]}]}]
     else:

@@ -23,6 +23,8 @@ alerts, cases, search and the assistant keep reading them.
 | Section | What it does |
 |---|---|
 | `badges` | The badge labels: `worse`, `better`, `changed`, `gap`, `noise`, `blip`. |
+| `services` | What each service does, how important it is, and the targets it's held to. See below. |
+| `service_importance` | The label each importance gets on the card ("Critical service"). |
 | `concepts` | One block per kind of metric (error rate, latency, CPU...): `bad_when` (`up`, `down` or `either`) decides Worse or Better, `worse` and `better` are the "Why it matters" sentences, `check` is "What to check". |
 | `unknown_meaning` | The "Why it matters" sentence for a metric with no concept. Such a metric always gets the **Changed** badge, never a guess. |
 | `metrics` | Per metric name: `plain_name` (what the card calls it), `concept`, `unit`. |
@@ -55,6 +57,46 @@ metrics:
   checkout_orders_total: {plain_name: Orders placed, concept: orders}
 ```
 
+## Describe a service and its targets
+
+With a service described, its findings say who they affect and how they stand against the target
+the team holds the service to:
+
+> **Worse** · **Critical service** · Error rate rose sharply and stayed higher
+> About 0.4% until 10:00 AM. Since then about 2.1% (about 5 times as high).
+> **Your target:** Above your 1% target since 10:00 AM (2 hours so far).
+> **Why it matters:** More requests fail, so more users see errors or failed actions.
+> **This service:** Customers pay for their orders here.
+
+```yaml
+services:
+  payments:
+    about: Customers pay for their orders here.
+    importance: critical
+    targets:
+      error_rate: {below: 0.01}
+      request_latency_p95: {below: 500}
+  search:
+    about: Customers find products here.
+    targets:
+      http_requests_total: {above: 100}
+```
+
+- Service names match the finding's service, ignoring case. Services that aren't listed read as
+  before.
+- `importance` is `critical`, `normal` or `low`. It's a label on the card and in Slack; it doesn't
+  change a finding's importance score, priority or which list it's in.
+- A target is per metric name: `below` for values that should stay under it (errors, latency),
+  `above` for values that should stay over it (requests, free disk). Write it in the metric's raw
+  value, the same number the analyzers see: an `error_rate` of 1% is `0.01`, a
+  `request_latency_p95` of 500 ms is `500`.
+- The target line uses the values the card already shows: the averages before and after a change,
+  the two halves of a trend, a spike's peak, a forecast's actual value. It says "Above your 1% target
+  since ...", "Back within your 1% target since ...", "Still within your 500 ms target" and so on.
+  A data gap or a stuck value has no target line.
+- An entry that isn't right (an unknown importance, a target written `{under: 0.01}`) is left out
+  and logged; the rest of the service stays.
+
 ## Templates and their placeholders
 
 Every line may also use `{plain_name}`, `{service}` and `{metric}`. A concept's lines may use only
@@ -69,6 +111,7 @@ those three.
 | `data_gap` | Data stopped arriving | `duration`, `first_time`, `last_time`, `missing_points`, `gap_count` |
 | `flatline` | The value stopped changing | `stuck_value`, `duration`, `first_time`, `last_time`, `normal_change` |
 | `forecast` | Ran away from the forecast | `higher_or_lower`, `actual`, `expected`, `off` |
+| `targets` | The "Your target" line, for a service with a target on the metric | `target`, `breach_side`, `since`, `until`, `duration`, `half`, `peak`, `value` |
 
 Times (`change_time`, `first_time`...) are shown in each reader's own time zone.
 

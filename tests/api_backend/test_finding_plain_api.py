@@ -136,3 +136,22 @@ def test_csv_validation_findings_carry_plain_wording() -> None:
     plain = [finding["plain"] for finding in response.json()["findings"] if finding["plain"]]
     assert plain, response.json()["findings"]
     assert any(item["badge"] == "better" and "Error rate dropped" in item["headline"] for item in plain), plain
+
+
+def test_service_context_from_the_wording_file_reaches_the_api(seeded: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import yaml
+
+    from backend.app.services.finding_plain import TEMPLATES_PATH
+
+    raw = yaml.safe_load(TEMPLATES_PATH.read_text(encoding="utf-8"))
+    raw["services"] = {"spike-lab": {"about": "Lab traffic for demos.", "importance": "low", "targets": {"error_rate": {"below": 0.05}}}}
+    path = tmp_path / "finding_templates.yaml"
+    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    monkeypatch.setattr("backend.app.services.finding_plain.TEMPLATES_PATH", path)
+
+    plain = seeded.get("/api/findings/8300").json()["plain"]
+
+    assert utc_text(plain["target"]) == "Back within your 5% target since Oct 19, 22:54 UTC."
+    assert (plain["service_about"], plain["service_importance"], plain["service_importance_label"]) == ("Lab traffic for demos.", "low", "Low-impact service")
+    # The latency finding on the same service has no target set.
+    assert seeded.get("/api/findings/8299").json()["plain"]["target"] is None

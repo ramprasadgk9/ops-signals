@@ -44,10 +44,13 @@ export function plainTimes(text: string | null | undefined, options: { locale?: 
 
 export type PlainLine = { label: string; text: string; findingId?: number | null };
 
-/** The lines under the headline, in card order, with times shown in the reader's time zone. */
+/** The lines under the headline, in card order, with times shown in the reader's time zone. The
+ * target comes first: against a target the team set, the finding is a fact about their service. */
 export function plainLines(plain: FindingPlain, options: { locale?: string; timeZone?: string } = {}): PlainLine[] {
   const lines: PlainLine[] = [];
+  if (plain.target) lines.push({ label: 'Your target', text: plainTimes(plain.target, options) });
   if (plain.why) lines.push({ label: 'Why it matters', text: plainTimes(plain.why, options) });
+  if (plain.service_about) lines.push({ label: 'This service', text: plain.service_about });
   for (const item of plain.related ?? []) lines.push({ label: 'Happened with', text: plainTimes(item.text, options), findingId: item.finding_id });
   if (plain.check) lines.push({ label: 'What to check', text: plainTimes(plain.check, options) });
   return lines;
@@ -56,5 +59,5 @@ export function plainLines(plain: FindingPlain, options: { locale?: string; time
 /** One paragraph for places that show a single line of text (the assistant, copied summaries). */
 export function plainParagraph(plain: FindingPlain | null | undefined, options: { locale?: string; timeZone?: string } = {}): string | null {
   if (!plain) return null;
-  return [`${plain.badge_label}: ${plain.headline}.`, plainTimes(plain.what, options), plainTimes(plain.why, options)].filter(Boolean).join(' ');
+  return [`${plain.badge_label}: ${plain.headline}.`, plainTimes(plain.what, options), plainTimes(plain.target, options), plainTimes(plain.why, options)].filter(Boolean).join(' ');
 }

@@ -219,4 +219,22 @@ describe('FindingCard plain wording', () => {
     expect(screen.getByText('Errors rose.')).toBeInTheDocument();
     expect(screen.queryByTestId('finding-plain')).not.toBeInTheDocument();
   });
+
+  it("shows the service's importance and the target line when the wording file has them", () => {
+    renderCard({
+      ...plainFinding,
+      plain: {
+        ...plainFinding.plain!,
+        target: 'Above your 1% target since [[time:2026-10-19T22:54:17Z]] (2 hours so far).',
+        service_about: 'Customers pay for their orders here.',
+        service_importance: 'critical',
+        service_importance_label: 'Critical service',
+      },
+    });
+
+    expect(screen.getByTestId('finding-plain-importance')).toHaveTextContent('Critical service');
+    expect(screen.getByText('Your target')).toBeInTheDocument();
+    expect(screen.getByText(/^Above your 1% target since Oct 19, .+ \(2 hours so far\)\.$/)).toBeInTheDocument();
+    expect(screen.getByText('Customers pay for their orders here.')).toBeInTheDocument();
+  });
 });

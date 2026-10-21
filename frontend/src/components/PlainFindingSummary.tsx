@@ -16,14 +16,25 @@ const CHIP_COLOR: Record<PlainTone, 'error' | 'success' | 'warning' | 'default'>
 export function PlainBadge({ plain }: { plain: FindingPlain }) {
   const tone = plainTone(plain.badge);
   return (
-    <Chip
-      label={plain.badge_label}
-      color={CHIP_COLOR[tone]}
-      size="small"
-      variant={tone === 'neutral' ? 'outlined' : 'filled'}
-      data-testid="finding-plain-badge"
-      sx={{ fontWeight: 700, alignSelf: 'flex-start' }}
-    />
+    <Stack direction="row" spacing={0.75} sx={{ alignSelf: 'flex-start' }}>
+      <Chip
+        label={plain.badge_label}
+        color={CHIP_COLOR[tone]}
+        size="small"
+        variant={tone === 'neutral' ? 'outlined' : 'filled'}
+        data-testid="finding-plain-badge"
+        sx={{ fontWeight: 700 }}
+      />
+      {plain.service_importance_label ? (
+        <Chip
+          label={plain.service_importance_label}
+          size="small"
+          variant="outlined"
+          color={plain.service_importance === 'critical' ? 'warning' : 'default'}
+          data-testid="finding-plain-importance"
+        />
+      ) : null}
+    </Stack>
   );
 }
 

@@ -34,4 +34,14 @@ describe('PluginPlainFinding', () => {
     render(<PluginPlainBadge plain={gap} />);
     expect(screen.getByTestId('plugin-plain-badge')).toHaveTextContent('Monitoring gap');
   });
+
+  it("shows the service's importance next to the badge", () => {
+    render(<PluginPlainBadge plain={{ ...gap, service_importance: 'critical', service_importance_label: 'Critical service' }} />);
+    expect(screen.getByTestId('plugin-plain-importance')).toHaveTextContent('Critical service');
+  });
+
+  it('shows no importance label for a service without one', () => {
+    render(<PluginPlainBadge plain={gap} />);
+    expect(screen.queryByTestId('plugin-plain-importance')).not.toBeInTheDocument();
+  });
 });

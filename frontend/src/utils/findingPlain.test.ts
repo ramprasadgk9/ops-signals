@@ -47,6 +47,32 @@ describe('plainLines', () => {
   });
 });
 
+describe('service context', () => {
+  const payments: FindingPlain = {
+    ...errors,
+    badge: 'worse',
+    badge_label: 'Worse',
+    related: [],
+    check: null,
+    target: 'Above your 1% target since [[time:2026-10-19T22:54:17Z]] (2 hours so far).',
+    service_about: 'Customers pay for their orders here.',
+    service_importance: 'critical',
+    service_importance_label: 'Critical service',
+  };
+
+  it('puts the target first and says what the service does after why it matters', () => {
+    expect(plainLines(payments, utc)).toEqual([
+      { label: 'Your target', text: 'Above your 1% target since Oct 19, 10:54 PM (2 hours so far).' },
+      { label: 'Why it matters', text: 'Fewer requests fail, so fewer users see errors.' },
+      { label: 'This service', text: 'Customers pay for their orders here.' },
+    ]);
+  });
+
+  it('includes the target in the one-paragraph version', () => {
+    expect(plainParagraph(payments, utc)).toContain('(down 89%). Above your 1% target since Oct 19, 10:54 PM (2 hours so far). Fewer');
+  });
+});
+
 describe('plainParagraph and plainTone', () => {
   it('reads as one paragraph for single-line places', () => {
     expect(plainParagraph(errors, utc)).toBe(

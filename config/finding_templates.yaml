@@ -19,6 +19,33 @@ badges:
   noise: Probably noise
   blip: Blip
 
+# What your services do and the targets you hold them to. A finding on a service listed here
+# says who it affects and how it stands against the target ("Above your 1% target since 10:54 PM").
+# Services that aren't listed read as before. Names match the finding's service, ignoring case.
+#
+#   importance: critical, normal or low. Shown as a label on the card; it doesn't change scores.
+#   targets:    per metric name, `below` (the value should stay under it: errors, latency) or
+#               `above` (it should stay over it: requests, free disk), in the metric's own raw
+#               value: an error_rate of 1% is 0.01, a request_latency_p95 of 500 ms is 500.
+#
+# services:
+#   payments:
+#     about: Customers pay for their orders here.
+#     importance: critical
+#     targets:
+#       error_rate: {below: 0.01}
+#       request_latency_p95: {below: 500}
+#   search:
+#     about: Customers find products here.
+#     targets:
+#       http_requests_total: {above: 100}
+services: {}
+
+# The label a service's importance gets on the card. Normal services get no label.
+service_importance:
+  critical: Critical service
+  low: Low-impact service
+
 # What each kind of metric means for the people using the service. `bad_when` says which way is
 # bad: up, down or either. A metric whose kind isn't known gets the "Changed" badge and the
 # `unknown_meaning` sentence, never a guess.
@@ -148,6 +175,21 @@ templates:
     what: From {first_time} to {last_time} it didn't change at all. It normally changes on {normal_change} of readings.
     why: A stuck value often means the data source froze. Alerts on this metric may miss real problems.
     check: Is the data source running and sending fresh values?
+
+  # How a finding stands against its service's target (the `services` section above).
+  # breach_side is "Above" for a `below` target and "Below" for an `above` one.
+  targets:
+    breach_ongoing: "{breach_side} your {target} target since {since} ({duration} so far)."
+    breach_ended: "{breach_side} your {target} target from {since} to {until} ({duration})."
+    breach_since: "{breach_side} your {target} target since {since}."
+    breach_throughout: "{breach_side} your {target} target both before and after the change."
+    recovered: Back within your {target} target since {since}.
+    trend_breach: "{breach_side} your {target} target on average in the last {half}."
+    trend_recovered: Back within your {target} target on average in the last {half}.
+    window_breach: "{breach_side} your {target} target on average all through this window."
+    peak_breach: Went past your {target} target, reaching {peak}.
+    value_breach: "{breach_side} your {target} target at {value}."
+    within: Still within your {target} target.
 
   # Ran away from the forecast.
   forecast:

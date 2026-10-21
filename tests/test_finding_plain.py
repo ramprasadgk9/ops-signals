@@ -168,7 +168,9 @@ def test_the_shipped_wording_loads_with_every_template_on(caplog: pytest.LogCapt
     with caplog.at_level(logging.WARNING):
         wording = parse_wording(_shipped())
     assert caplog.records == []
-    assert set(wording.templates) == {"level_change", "trend", "spikes", "odd_stretch", "data_gap", "flatline", "forecast"}
+    assert set(wording.templates) == {"level_change", "trend", "spikes", "odd_stretch", "data_gap", "flatline", "forecast", "targets"}
+    # Shipped without services: every finding reads as it would without this section.
+    assert wording.services == {}
     assert wording.badges["worse"] == "Worse"
 
 
@@ -344,3 +346,88 @@ def test_spike_signals_save_their_peak_for_the_card() -> None:
     pyod = PyODOutlierAnalyzer().analyze(_frame(values))
     peaks = [signal.evidence["peak_value"] for signal in pyod]
     assert pytest.approx(0.09) in peaks
+
+
+# --- Service context: what a service does and the targets it's held to ---------------------------
+
+
+def _with_services(services: dict):
+    raw = _shipped()
+    raw["services"] = services
+    return parse_wording(raw)
+
+
+def _target(finding_id: int, services: dict) -> str | None:
+    plain = _plain(finding_id, _with_services(services))
+    return utc_text(plain.target) if plain.target else None
+
+
+def test_a_service_says_what_it_does_and_how_important_it_is() -> None:
+    wording = _with_services({"Spike-Lab": {"about": "Customers pay for their orders here.", "importance": "critical"}})
+    shown = _plain(8300, wording).to_json(wording)
+    assert shown["service_about"] == "Customers pay for their orders here."
+    assert (shown["service_importance"], shown["service_importance_label"]) == ("critical", "Critical service")
+    # No target set for the metric: no target line.
+    assert shown["target"] is None
+
+
+@pytest.mark.parametrize(
+    ("finding_id", "services", "expected"),
+    [
+        # Error rate 11.3% -> 1.2% at 22:54: back under a 5% target, over a 1% one before and after.
+        (8300, {"spike-lab": {"targets": {"error_rate": {"below": 0.05}}}}, "Back within your 5% target since Oct 19, 22:54 UTC."),
+        (8300, {"spike-lab": {"targets": {"error_rate": {"below": 0.01}}}}, "Above your 1% target both before and after the change."),
+        (8300, {"spike-lab": {"targets": {"error_rate": {"below": 0.2}}}}, "Still within your 20% target."),
+        # Latency 571 ms -> 357 ms.
+        (8299, {"spike-lab": {"targets": {"request_latency_p95": {"below": 400}}}}, "Back within your 400 ms target since Oct 19, 22:54 UTC."),
+        # Traffic 243 -> 88, held to at least 100.
+        (6724, {"search": {"targets": {"http_requests_total": {"above": 100}}}}, "Below your 100 target since Oct 8, 21:31 UTC."),
+        # Latency trend: 363 ms then 431 ms on average.
+        (8282, {"spike-lab": {"targets": {"request_latency_p95": {"below": 400}}}}, "Above your 400 ms target on average in the last 12 hours."),
+        (8282, {"spike-lab": {"targets": {"request_latency_p95": {"below": 300}}}}, "Above your 300 ms target on average all through this window."),
+        (8282, {"spike-lab": {"targets": {"request_latency_p95": {"below": 500}}}}, "Still within your 500 ms target."),
+        # One-minute error spike to 1.7% on payments.
+        (8286, {"payments": {"targets": {"error_rate": {"below": 0.01}}}}, "Went past your 1% target, reaching 1.7%."),
+        (8286, {"payments": {"targets": {"error_rate": {"below": 0.02}}}}, "Still within your 2% target."),
+        # A data gap has no value to hold against a target.
+        (8305, {"unknown": {"targets": {"prometheus_notifications_errors_total": {"below": 1}}}}, None),
+    ],
+)
+def test_findings_say_how_they_stand_against_the_services_target(finding_id: int, services: dict, expected: str | None) -> None:
+    assert _target(finding_id, services) == expected
+
+
+def test_a_target_breach_says_how_long_it_has_lasted() -> None:
+    wording = _with_services({"checkout": {"targets": {"error_rate": {"below": 0.01}}}})
+    change = SignalFacts("ruptures", "ruptures", {"left_mean": 0.004, "right_mean": 0.021, "percent_change": 425.0, "change_point_time": "2026-10-19T10:00:00Z"}, None, None)
+    title = "error_rate experienced a persistent baseline shift during the selected time window."
+    end = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+
+    def line(ongoing: bool | None) -> str:
+        finding = FindingFacts("error_rate", "checkout", title, "behavior_change", {}, None, end, ongoing)
+        return utc_text(build_plain(finding, [change], wording).target)
+
+    assert line(True) == "Above your 1% target since Oct 19, 10:00 UTC (2 hours so far)."
+    assert line(False) == "Above your 1% target from Oct 19, 10:00 UTC to Oct 19, 12:00 UTC (2 hours)."
+    assert line(None) == "Above your 1% target since Oct 19, 10:00 UTC."
+
+
+def test_a_wrong_service_entry_is_left_out_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        wording = _with_services(
+            {
+                "payments": {"importance": "urgent", "targets": {"error_rate": {"under": 0.01}, "request_latency_p95": {"below": 500}}},
+                "search": "customers find products here",
+            }
+        )
+    assert "urgent" in caplog.text and "error_rate" in caplog.text and "'search'" in caplog.text
+    payments = wording.services["payments"]
+    assert payments.importance is None
+    assert list(payments.targets) == ["request_latency_p95"]
+    assert "search" not in wording.services
+
+
+def test_a_service_without_context_reads_as_before() -> None:
+    plain = _plain(8300)
+    shown = plain.to_json(load_wording())
+    assert (shown["target"], shown["service_about"], shown["service_importance"], shown["service_importance_label"]) == (None, None, None, None)

@@ -12,6 +12,12 @@ Includes Grafana plugin 1.0.35.
   "Better" instead of looking like an alarm. The wording is in `config/finding_templates.yaml`;
   edit it and save. The API returns it as `plain` on each finding. Spike signals also save their
   peak value. See `docs/finding-wording.md`.
+- **Service context for findings.** Describe a service once in `config/finding_templates.yaml`
+  (what it does, how important it is, the targets it's held to, such as an error rate below 1%), and
+  its findings say so: "Your target: Above your 1% target since 10:54 PM (2 hours so far)", "This
+  service: Customers pay for their orders here", and a "Critical service" label on the card and in
+  Slack. Labels only: scores, priority and lists don't change. Shipped with no services, so nothing
+  changes until you add one.
 - **Sign-in and roles for the web UI.** Behind your company's sign-in proxy, set
   `OPS_SIGNALS_AUTH_MODE=proxy-headers` (with an API token): the backend reads the signed-in user
   and their groups from the proxy's headers, and `OPS_SIGNALS_AUTH_EDITOR_GROUPS` /
