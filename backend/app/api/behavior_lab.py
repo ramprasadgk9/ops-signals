@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
@@ -148,9 +148,23 @@ def _bucketed(points: list[tuple[datetime, float]], since: datetime, until: date
 
 
 @router.get("/history-services")
-def list_history_services(db: Session = Depends(get_db)) -> list[str]:
+def list_history_services(metric: list[str] = Query(default=[]), db: Session = Depends(get_db)) -> list[str]:
     """Services with recent analysis runs, most recent first, for the history preview. Read from the
-    runs table: a DISTINCT over the points table scans every stored point (tens of millions)."""
+    runs table: a DISTINCT over the points table scans every stored point (tens of millions).
+
+    With `metric`: only services where analyzers found a change on one of those metrics in the
+    last 30 days, those with the most of them first - by the (metric_name, start_time) index."""
+    if metric:
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        found = func.count(distinct(SignalEntity.metric_name))
+        rows = db.execute(
+            select(SignalEntity.service, found, func.max(SignalEntity.start_time))
+            .where(SignalEntity.metric_name.in_(metric), SignalEntity.start_time >= since, SignalEntity.service.is_not(None))
+            .group_by(SignalEntity.service)
+            .order_by(found.desc(), func.max(SignalEntity.start_time).desc())
+            .limit(200)
+        ).all()
+        return [service for service, _, _ in rows]
     rows = db.execute(
         select(AnalysisRunEntity.service, func.max(AnalysisRunEntity.end_time).label("last"))
         .group_by(AnalysisRunEntity.service)

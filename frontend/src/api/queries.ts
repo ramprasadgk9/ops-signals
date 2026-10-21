@@ -154,7 +154,9 @@ export const api = {
   behaviorAvailableMetrics: () => getJson<string[]>('/api/behavior-definitions/available-metrics'),
   validateBehaviorDefinition: (draft: BehaviorDefinitionDraft) =>
     postJson<BehaviorDefinitionDraft, ValidationResult>('/api/behavior-definitions/validate', draft),
-  behaviorHistoryServices: () => getJson<string[]>('/api/behavior-definitions/history-services'),
+  /** With metrics: only the services where one of them changed recently, most of them first. */
+  behaviorHistoryServices: (metrics: string[] = []) =>
+    getJson<string[]>(`/api/behavior-definitions/history-services${metrics.length ? `?${metrics.map((metric) => `metric=${encodeURIComponent(metric)}`).join('&')}` : ''}`),
   behaviorHistoryPreview: (draft: BehaviorDefinitionDraft, service: string, hours: number) =>
     postJson<{ definition: BehaviorDefinitionDraft; service: string; hours: number }, HistoryPreview>(
       '/api/behavior-definitions/history-preview',

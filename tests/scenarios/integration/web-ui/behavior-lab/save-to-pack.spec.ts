@@ -30,8 +30,8 @@ test.describe('Behavior Lab — save to pack', () => {
       await page.getByLabel('Alias', { exact: true }).nth(1).fill('memory');
       await page.getByLabel('Metric name', { exact: true }).nth(1).fill('memory_usage');
 
+      // Added in plain words: "cpu is rising".
       await page.locator('button:has-text("Add all condition")').click();
-      await page.getByPlaceholder('cpu.anomaly.present').fill('cpu.anomaly.present');
 
       await page.getByLabel('Pack file', { exact: true }).fill(packFile);
       await page.locator('button:has-text("Save to Pack")').click();
@@ -43,6 +43,7 @@ test.describe('Behavior Lab — save to pack', () => {
       expect(yamlText).toContain(definitionId);
       expect(yamlText).toContain('cpu_usage');
       expect(yamlText).toContain('memory_usage');
+      expect(yamlText).toContain('cpu.change.upward');
 
       const response = await page.request.get(`${env.webUiBackendUrl}/api/behavior-definitions`);
       const definitions = await response.json();

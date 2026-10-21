@@ -1,15 +1,15 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Covers the "self-service pattern authoring" improvement: the Fact Reference panel (real facts
+ * Covers the "self-service pattern authoring" improvement: the Advanced: all facts panel (real facts
  * from GET /api/behavior-definitions/facts, not a hardcoded list) and the Validate button's
  * structural checks (BehaviorDefinitionValidator — backend/app/behavior_intelligence/validator.py),
  * confirmed live against the actual error/warning strings the backend returns.
  */
 test.describe('Behavior Lab — fact reference and validation', () => {
-  test('Fact Reference panel lists real facts from the backend catalog', async ({ page }) => {
+  test('Advanced: all facts lists real facts from the backend catalog', async ({ page }) => {
     await page.goto('/behavior-intelligence/lab');
-    await expect(page.getByText('Fact Reference', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /Advanced: all facts/ }).click();
     // anomaly.present is one of FACT_DESCRIPTORS in fact_catalog.py — confirms this renders the
     // real catalog rather than an empty or stubbed panel.
     await expect(page.getByText('anomaly.present', { exact: true })).toBeVisible();
@@ -37,8 +37,8 @@ test.describe('Behavior Lab — fact reference and validation', () => {
     await page.getByLabel('Alias', { exact: true }).first().fill('cpu');
     await page.getByLabel('Metric name', { exact: true }).first().fill('cpu_usage');
 
+    // Added in plain words: "cpu is rising".
     await page.locator('button:has-text("Add all condition")').click();
-    await page.getByPlaceholder('cpu.anomaly.present').fill('cpu.anomaly.present');
 
     await page.locator('button:has-text("Validate")').click();
 
@@ -61,8 +61,8 @@ test.describe('Behavior Lab — fact reference and validation', () => {
     await page.getByLabel('Alias', { exact: true }).nth(1).fill('memory');
     await page.getByLabel('Metric name', { exact: true }).nth(1).fill('memory_usage');
 
+    // Added in plain words: "cpu is rising".
     await page.locator('button:has-text("Add all condition")').click();
-    await page.getByPlaceholder('cpu.anomaly.present').fill('cpu.anomaly.present');
 
     await page.locator('button:has-text("Validate")').click();
 
@@ -81,6 +81,7 @@ test.describe('Behavior Lab — fact reference and validation', () => {
     await page.getByLabel('Metric name', { exact: true }).first().fill('cpu_usage');
 
     await page.locator('button:has-text("Add all condition")').click();
+    await page.getByRole('button', { name: 'Write All condition 1 by hand' }).click();
     await page.getByPlaceholder('cpu.anomaly.present').fill('cpu.not_a_real_fact_path');
 
     await page.locator('button:has-text("Validate")').click();

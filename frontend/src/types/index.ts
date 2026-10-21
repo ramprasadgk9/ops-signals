@@ -51,6 +51,10 @@ export type HistoryRun = {
   matched: boolean;
   missing_inputs: string[];
   blocked_by: string[];
+  /** Each condition with the value it was checked against; empty when an input had no signal. */
+  conditions: Array<{ group: string; fact: string; operator: string; value: unknown; passed: boolean; actual: unknown }>;
+  confidence: number | null;
+  changes: Array<{ alias: string; signed_change_percent: number | null }>;
   overlap_minutes: number | null;
   start: string | null;
   end: string | null;

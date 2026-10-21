@@ -40,6 +40,11 @@ class TestJudgeRun:
         assert run["blocked_by"] == [] and run["missing_inputs"] == []
         assert run["overlap_minutes"] == 120.0
         assert (run["start"], run["end"]) == (NOW - timedelta(hours=3), NOW - timedelta(hours=1))
+        assert run["confidence"] == 1.0
+        assert run["changes"] == [{"alias": "db_wait", "signed_change_percent": 80.0}, {"alias": "db_pool", "signed_change_percent": 40.0}]
+        assert [(item["fact"], item["passed"], item["actual"]) for item in run["conditions"]] == [
+            ("db_wait.change.upward", True, True), ("db_pool.change.upward", True, True),
+        ]
 
     def test_an_input_without_signals_cannot_be_judged(self) -> None:
         run = judge_run(POOL, "r1", NOW, _both_rising(1)[:1])
@@ -52,6 +57,9 @@ class TestJudgeRun:
         signals = [_change("db_connection_wait_seconds", 80, start, end), _change("db_connections_active", -40, start, end)]
         run = judge_run(POOL, "r1", NOW, signals)
         assert run["blocked_by"] == ["none of: db_pool.change.upward equals True"]
+        # The details say why: the pool went down, not up.
+        assert run["changes"][1] == {"alias": "db_pool", "signed_change_percent": -40.0}
+        assert run["confidence"] < 1.0
 
     def test_changes_at_different_times_fail_the_timing_check(self) -> None:
         signals = [
@@ -186,3 +194,16 @@ def test_history_services_come_from_the_runs_table_newest_first(db: Session, mon
     db.commit()
     with _client(db, monkeypatch) as client:
         assert client.get("/api/behavior-definitions/history-services").json() == ["payments", "checkout-api"]
+
+
+def test_history_services_for_metrics_are_where_those_metrics_changed(db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    _seed(db)
+    with _client(db, monkeypatch) as client:
+        both = client.get("/api/behavior-definitions/history-services", params={"metric": ["db_connection_wait_seconds", "db_connections_active"]}).json()
+        unknown = client.get("/api/behavior-definitions/history-services", params={"metric": ["kafka_consumergroup_lag"]}).json()
+        body = client.post("/api/behavior-definitions/history-preview", json={"definition": _draft(), "service": "checkout-api", "hours": 168}).json()
+    # checkout-api had both metrics change, payments only one; the 9-day-old run is still within 30 days.
+    assert both == ["checkout-api", "payments"]
+    assert unknown == []
+    assert body["runs"][0]["confidence"] == 1.0
+    assert body["runs"][0]["conditions"][0]["actual"] is True

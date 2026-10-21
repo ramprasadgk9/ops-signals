@@ -423,6 +423,11 @@ export function BehaviorIntelligencePage() {
   };
   const openBuilder = (value: string) => update({ tab: 'patterns', builder: value });
   const closeBuilder = () => update({ builder: null });
+  // From a blank pattern to the known ones: close the panel and bring them into view.
+  const browseKnown = () => {
+    closeBuilder();
+    window.setTimeout(() => document.getElementById('known-patterns-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+  };
 
   if (definitionsQuery.isLoading || findingsQuery.isLoading) return <LoadingSkeleton />;
   if (definitionsQuery.error || findingsQuery.error) return <ErrorState message="Failed to load behavior intelligence" onRetry={() => {
@@ -475,7 +480,15 @@ export function BehaviorIntelligencePage() {
         onClose={(_event, reason) => { if (reason !== 'backdropClick') closeBuilder(); }}
         PaperProps={{ sx: { width: { xs: '100%', md: 'min(960px, 92vw)' }, p: { xs: 2, md: 3 }, bgcolor: 'var(--os-bg)' } }}
       >
-        {resolved ? <BehaviorBuilder key={builder} seed={resolved.seed} sourceLabel={resolved.label} onClose={closeBuilder} /> : null}
+        {resolved ? (
+          <BehaviorBuilder
+            key={builder}
+            seed={resolved.seed}
+            sourceLabel={resolved.label}
+            onClose={closeBuilder}
+            onBrowseKnown={builder === 'new' && templates.length ? browseKnown : undefined}
+          />
+        ) : null}
       </Drawer>
     </Stack>
   );

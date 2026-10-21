@@ -37,10 +37,9 @@ test.describe('Behavior Lab — see it on my data', () => {
       await page.getByLabel('Alias', { exact: true }).nth(1).fill('b');
       await page.getByLabel('Metric name', { exact: true }).nth(1).fill('history_beta');
 
+      // In plain words, one per metric: "a is rising", "b is rising".
       await page.locator('button:has-text("Add all condition")').click();
-      await page.getByPlaceholder('cpu.anomaly.present').first().fill('a.change.upward');
       await page.locator('button:has-text("Add all condition")').click();
-      await page.getByPlaceholder('cpu.anomaly.present').nth(1).fill('b.change.upward');
 
       await page.getByRole('combobox', { name: 'Service' }).fill(service);
       await page.getByRole('button', { name: 'See it on my data' }).click();
@@ -49,6 +48,10 @@ test.describe('Behavior Lab — see it on my data', () => {
       const runs = page.getByRole('table', { name: 'Runs checked' });
       await expect(runs.getByText('Matched', { exact: true })).toBeVisible();
       await expect(runs.getByText('No signal for b: no change, or its analyzers did not run')).toBeVisible();
+
+      await runs.getByRole('button', { name: /^Details for run/ }).first().click();
+      await expect(runs.getByText('a went up 60% · b went up 60%')).toBeVisible();
+      await expect(runs.getByText('✓ a is rising')).toBeVisible();
     } finally {
       await cleanupRun({ runId: newRun });
       await cleanupRun({ runId: oldRun });

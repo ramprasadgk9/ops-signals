@@ -189,12 +189,29 @@ class HistoryPreviewRequest(BaseModel):
     max_runs: int = Field(default=50, ge=1, le=200)
 
 
+class HistoryRunConditionOut(BaseModel):
+    group: str
+    fact: str
+    operator: str
+    value: object
+    passed: bool
+    actual: object = None
+
+
+class HistoryRunChangeOut(BaseModel):
+    alias: str
+    signed_change_percent: float | None = None
+
+
 class HistoryRunOut(BaseModel):
     analysis_run_id: str
     at: datetime | None = None
     matched: bool
     missing_inputs: list[str] = Field(default_factory=list)
     blocked_by: list[str] = Field(default_factory=list)
+    conditions: list[HistoryRunConditionOut] = Field(default_factory=list)
+    confidence: float | None = None
+    changes: list[HistoryRunChangeOut] = Field(default_factory=list)
     overlap_minutes: float | None = None
     start: datetime | None = None
     end: datetime | None = None

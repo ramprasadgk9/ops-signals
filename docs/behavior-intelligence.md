@@ -163,8 +163,9 @@ cannot match.
   (`tests/test_behavior_catalog.py` checks each one), otherwise **Shipped rule**;
 - templates for well-known problems (consumer lag, cache misses, disk filling, saturated workers,
   retry storms), marked **Common pattern**: not tested here. *Use this pattern* opens the builder
-  on a draft made from the template's signals, suggests a stored metric for each by keyword, and
-  holds Test Pattern back until every signal points at one.
+  on a draft made from the template's signals and suggests a stored metric for each by keyword.
+  When only one stored metric fits a signal it is filled in, and the builder says so; otherwise
+  the preview waits until every signal points at one. A blank *New pattern* links here.
 
 ## See It On My Data
 
@@ -174,8 +175,21 @@ with the same matching as the pipeline, and saves nothing. It answers with one v
 have fired in N of M runs, never matched (with the condition that stopped it most often), or
 can't tell yet (an input had no signal in any run: the metric never changed, or its analyzers
 did not run on it) - plus each run's own reason and a line per metric with the matched runs
-shaded. It reads signals and points through the (service, time) indexes only, and at most 20,000
-points for the lines; the service list comes from the runs table.
+shaded. Opening a run shows what changed (each metric's change in percent), every condition with
+the value it was checked against, how long the metrics changed together, and the confidence. It
+reads signals and points through the (service, time) indexes only, and at most 20,000 points for
+the lines. The Service box suggests the services where the draft's metrics changed in the last 30
+days (`GET /api/behavior-definitions/history-services?metric=...`, by the signals table's
+(metric_name, start_time) index), and fills in the service when only one fits.
+
+## Conditions In Plain Words
+
+The builder writes conditions as choices: *[metric] [is rising / is falling / has an unusual spike
+/ went up by more than N% / went down by more than N%]*, which it saves as `change.upward`,
+`change.downward`, `anomaly.present` or `change.signed_change_percent`. Picking one keeps an
+analyzer that can produce it in that input's `analyzers` list (an empty list already means any).
+Anything else is written by hand as `<alias>.<fact path>`, operator and value; *Advanced: all
+facts* lists every fact path.
 
 A template signal is `rising`, `falling` or `unusual`. "Stayed flat" and "an event at that moment"
 can't be expressed: an input with no signals makes the whole rule skip.

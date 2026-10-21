@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Autocomplete,
   Box,
@@ -15,14 +18,17 @@ import {
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
-import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
+import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
+import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
 import type { BehaviorConditionInput, BehaviorDefinitionDraft, CatalogPattern } from '../types';
 import { suggestMetrics } from '../utils/metricSuggest';
+import { analyzersFor, parsePlain, PLAIN_KINDS, toCondition, type PlainKind } from '../utils/plainConditions';
 import { HistoryPreview } from './HistoryPreview';
 
 type InputRow = {
@@ -32,8 +38,11 @@ type InputRow = {
   /** From a catalog template: the signal in plain words, and words to find the user's metric by. */
   label?: string;
   keywords?: string[];
+  /** Filled in because it was the only stored metric that fits; said so under the input. */
+  autoPicked?: boolean;
 };
-type ConditionRow = BehaviorConditionInput;
+/** `manual`: written as a fact by hand, even when it could be said in plain words. */
+type ConditionRow = BehaviorConditionInput & { manual?: boolean };
 
 const OPERATORS = ['equals', 'greater_than', 'less_than', 'contains'];
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
@@ -53,8 +62,6 @@ export type BuilderSeed = {
   maxTimeGap: string;
   minimumOverlap: string;
 };
-
-type ExampleDefinition = BuilderSeed & { key: string; label: string };
 
 export const BLANK_SEED: BuilderSeed = {
   id: '',
@@ -124,63 +131,6 @@ export function seedFromCatalog(pattern: CatalogPattern): BuilderSeed {
   };
 }
 
-// Real, already-shipped patterns (config/behavior_definitions.d/core.yml and
-// latency_and_errors.yml) reused as fill-in-the-form examples, not invented sample data — so
-// what a new user sees here is a known-working two-input pattern with real fact paths, not
-// something that can drift out of sync with what the engine actually supports. The id gets an
-// "_example" suffix so Save to Pack can't silently collide with the real shipped definition.
-const EXAMPLES: ExampleDefinition[] = [
-  {
-    key: 'cpu_throttling',
-    label: 'Load Example: CPU + Throttling',
-    id: 'cpu_throttling_example',
-    title: 'Possible CPU throttling',
-    description: 'Detects abnormal CPU usage occurring together with increased CPU throttling activity.',
-    category: 'resource_constraint',
-    severity: 'high',
-    outputTitle: 'Possible CPU throttling detected',
-    outputSummary: 'CPU usage showed abnormal behavior while throttling activity increased during the same analysis period.',
-    inputs: [
-      { alias: 'cpu', metricName: 'cpu_usage', analyzers: 'anomaly_zscore,pyod_outlier,trend' },
-      { alias: 'throttling', metricName: 'cpu_throttled_seconds', analyzers: 'anomaly_zscore,pyod_outlier,trend,baseline_shift,ruptures' },
-    ],
-    conditionsAll: [
-      { fact: 'cpu.anomaly.present', operator: 'equals', value: true },
-      { fact: 'throttling.change.upward', operator: 'equals', value: true },
-    ],
-    conditionsAny: [
-      { fact: 'throttling.anomaly.present', operator: 'equals', value: true },
-      { fact: 'throttling.change.change_percent', operator: 'greater_than', value: 20 },
-    ],
-    maxTimeGap: '15m',
-    minimumOverlap: '5m',
-  },
-  {
-    key: 'latency_errors',
-    label: 'Load Example: Latency + Errors',
-    id: 'latency_error_cascade_example',
-    title: 'Possible cascading failure',
-    description:
-      'Detects rising request latency occurring together with a rising error rate in the same analysis window — a common precursor to timeouts and cascading failures.',
-    category: 'availability',
-    severity: 'high',
-    outputTitle: 'Possible cascading failure detected',
-    outputSummary:
-      'Latency and error rate both showed abnormal behavior in the same window — a pattern often seen when timeouts start cascading into failures downstream.',
-    inputs: [
-      { alias: 'latency', metricName: 'request_latency_p95', analyzers: 'anomaly_zscore,pyod_outlier,trend' },
-      { alias: 'errors', metricName: 'error_rate', analyzers: 'anomaly_zscore,pyod_outlier,trend' },
-    ],
-    conditionsAll: [
-      { fact: 'latency.anomaly.present', operator: 'equals', value: true },
-      { fact: 'errors.anomaly.present', operator: 'equals', value: true },
-    ],
-    conditionsAny: [],
-    maxTimeGap: '10m',
-    minimumOverlap: '5m',
-  },
-];
-
 function buildDraft(params: {
   id: string;
   title: string;
@@ -207,8 +157,8 @@ function buildDraft(params: {
         analyzers: item.analyzers.split(',').map((a) => a.trim()).filter(Boolean),
       })),
     conditions: {
-      all: params.conditionsAll,
-      any: params.conditionsAny,
+      all: params.conditionsAll.map(({ manual: _manual, ...row }) => row),
+      any: params.conditionsAny.map(({ manual: _manual, ...row }) => row),
     },
     correlation: {
       same_analysis_context: true,
@@ -225,67 +175,154 @@ function buildDraft(params: {
   };
 }
 
+type InputChoice = { alias: string; name: string };
+
+/** A condition by hand: the fact the engine reads (Advanced: all facts lists them), an operator, a value. */
+function ManualCondition({ label, index, row, update }: { label: string; index: number; row: ConditionRow; update: (patch: Partial<ConditionRow>) => void }) {
+  return (
+    <>
+      <Tooltip title="Example: cpu.anomaly.present — written as <alias>.<fact path>. The alias is whatever you named the input above; Advanced: all facts at the end lists every fact path." arrow>
+        <TextField
+          size="small"
+          label="Fact (alias.fact.path)"
+          placeholder="cpu.anomaly.present"
+          value={row.fact}
+          onChange={(e) => update({ fact: e.target.value })}
+          sx={{ flex: 2 }}
+        />
+      </Tooltip>
+      <TextField select size="small" label="Operator" id={`${label}-operator-${index}`} value={row.operator} onChange={(e) => update({ operator: e.target.value })} sx={{ minWidth: 140 }}>
+        {OPERATORS.map((op) => (
+          <MenuItem key={op} value={op}>
+            {op}
+          </MenuItem>
+        ))}
+      </TextField>
+      <Tooltip title="What the fact should equal / exceed / contain, e.g. true for a present/absent fact, upward for a trend direction, or 20 for a percent change." arrow>
+        <TextField
+          size="small"
+          label="Value"
+          placeholder="true / upward / 20"
+          value={String(row.value ?? '')}
+          onChange={(e) => update({ value: e.target.value })}
+          sx={{ flex: 1 }}
+        />
+      </Tooltip>
+    </>
+  );
+}
+
+/**
+ * Conditions in plain words: [metric] [is rising / is falling / ...]. Anything else is written as a
+ * fact by hand, and any row can switch to that.
+ */
 function ConditionEditor({
   label,
   rows,
+  inputs,
   onChange,
+  onKindPicked,
 }: {
   label: string;
   rows: ConditionRow[];
+  inputs: InputChoice[];
   onChange: (rows: ConditionRow[]) => void;
+  /** So the input's analyzer list can keep one that produces this fact. */
+  onKindPicked: (alias: string, kind: PlainKind) => void;
 }) {
   const update = (index: number, patch: Partial<ConditionRow>) => {
     onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+  const choose = (index: number, alias: string, kind: PlainKind, percent?: number) => {
+    update(index, toCondition({ alias, kind, percent }));
+    onKindPicked(alias, kind);
+  };
+  const add = () => {
+    const used = new Set(rows.map((row) => parsePlain(row)?.alias));
+    const alias = (inputs.find((input) => !used.has(input.alias)) ?? inputs[0])?.alias;
+    if (!alias) {
+      onChange([...rows, { fact: '', operator: 'equals', value: true, manual: true }]);
+      return;
+    }
+    onChange([...rows, toCondition({ alias, kind: 'rising' })]);
+    onKindPicked(alias, 'rising');
   };
   return (
     <Box>
       <Typography sx={{ fontWeight: 800, mb: 1 }}>{label}</Typography>
       <Stack spacing={1.2}>
-        {rows.map((row, index) => (
-          <Stack key={index} direction="row" spacing={1} alignItems="center">
-            <Tooltip title="Example: cpu.anomaly.present — written as <alias>.<fact path>. The alias is whatever you named the input above; see Fact Reference below for the full list of fact paths." arrow>
-              <TextField
-                size="small"
-                label="Fact (alias.fact.path)"
-                placeholder="cpu.anomaly.present"
-                value={row.fact}
-                onChange={(e) => update(index, { fact: e.target.value })}
-                sx={{ flex: 2 }}
-              />
-            </Tooltip>
-            <TextField
-              select
-              size="small"
-              label="Operator"
-              value={row.operator}
-              onChange={(e) => update(index, { operator: e.target.value })}
-              sx={{ minWidth: 140 }}
-            >
-              {OPERATORS.map((op) => (
-                <MenuItem key={op} value={op}>
-                  {op}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Tooltip title="What the fact should equal / exceed / contain, e.g. true for a present/absent fact, upward for a trend direction, or 20 for a percent change." arrow>
-              <TextField
-                size="small"
-                label="Value"
-                placeholder="true / upward / 20"
-                value={String(row.value ?? '')}
-                onChange={(e) => update(index, { value: e.target.value })}
-                sx={{ flex: 1 }}
-              />
-            </Tooltip>
-            <IconButton size="small" onClick={() => onChange(rows.filter((_, i) => i !== index))} aria-label={`Remove ${label} condition ${index + 1}`}>
-              <DeleteRoundedIcon fontSize="small" />
-            </IconButton>
-          </Stack>
-        ))}
+        {rows.map((row, index) => {
+          const plain = row.manual ? null : parsePlain(row);
+          const choices = plain && !inputs.some((input) => input.alias === plain.alias) ? [...inputs, { alias: plain.alias, name: '' }] : inputs;
+          return (
+            <Stack key={index} direction="row" spacing={1} alignItems="center">
+              {plain ? (
+                <>
+                  <TextField
+                    select
+                    size="small"
+                    label="Metric"
+                    id={`${label}-metric-${index}`}
+                    value={plain.alias}
+                    onChange={(e) => choose(index, e.target.value, plain.kind, plain.percent)}
+                    sx={{ flex: 2 }}
+                  >
+                    {choices.map((input) => (
+                      <MenuItem key={input.alias} value={input.alias}>
+                        {input.alias}
+                        {input.name ? <Box component="span" sx={{ ml: 1, color: ui.muted, fontFamily: 'monospace', fontSize: 12 }}>{input.name}</Box> : null}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="What happens"
+                    id={`${label}-kind-${index}`}
+                    value={plain.kind}
+                    onChange={(e) => choose(index, plain.alias, e.target.value as PlainKind, plain.percent)}
+                    sx={{ flex: 2 }}
+                  >
+                    {PLAIN_KINDS.map((item) => <MenuItem key={item.kind} value={item.kind}>{item.label}</MenuItem>)}
+                  </TextField>
+                  {plain.percent !== undefined ? (
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Percent"
+                      value={plain.percent}
+                      onChange={(e) => choose(index, plain.alias, plain.kind, Math.abs(Number(e.target.value)))}
+                      slotProps={{ htmlInput: { min: 0 } }}
+                      sx={{ width: 110 }}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <ManualCondition label={label} index={index} row={row} update={(patch) => update(index, patch)} />
+              )}
+              {plain ? (
+                <Tooltip title="Write this condition as a fact by hand, for anything the plain choices can't say." arrow>
+                  <IconButton size="small" onClick={() => update(index, { manual: true })} aria-label={`Write ${label} condition ${index + 1} by hand`}>
+                    <EditNoteRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : parsePlain(row) ? (
+                <Tooltip title="Show this condition as plain choices again." arrow>
+                  <IconButton size="small" onClick={() => update(index, { manual: false })} aria-label={`Show ${label} condition ${index + 1} in plain words`}>
+                    <ListAltRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
+              <IconButton size="small" onClick={() => onChange(rows.filter((_, i) => i !== index))} aria-label={`Remove ${label} condition ${index + 1}`}>
+                <DeleteRoundedIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          );
+        })}
         <Button
           size="small"
           startIcon={<AddRoundedIcon />}
-          onClick={() => onChange([...rows, { fact: '', operator: 'equals', value: true }])}
+          onClick={add}
           sx={{ alignSelf: 'flex-start', textTransform: 'none' }}
         >
           Add {label.toLowerCase()} condition
@@ -301,6 +338,8 @@ type Props = {
   /** Shown above the title, e.g. "Editing a copy of a shipped rule". */
   sourceLabel?: string;
   onClose?: () => void;
+  /** On a blank pattern: closes the builder and shows the known patterns to start from instead. */
+  onBrowseKnown?: () => void;
 };
 
 /**
@@ -310,7 +349,13 @@ type Props = {
 /** Under a template's input: whether it points at a stored metric, and the best fits when not. */
 function MetricMatch({ row, options, onPick }: { row: InputRow; options: string[]; onPick: (metricName: string) => void }) {
   if (options.includes(row.metricName)) {
-    return <Typography sx={{ mt: 0.75, fontSize: 13, color: ui.green }}>Matched to a metric Ops Signals has stored.</Typography>;
+    return row.autoPicked ? (
+      <Typography sx={{ mt: 0.75, fontSize: 13 }}>
+        Picked <Box component="span" sx={{ fontFamily: 'monospace' }}>{row.metricName}</Box>, the only stored metric that looks like this one. Not right? Type another.
+      </Typography>
+    ) : (
+      <Typography sx={{ mt: 0.75, fontSize: 13, color: ui.green }}>Matched to a metric Ops Signals has stored.</Typography>
+    );
   }
   const suggestions = suggestMetrics(row.keywords ?? [], options);
   return (
@@ -325,7 +370,7 @@ function MetricMatch({ row, options, onPick }: { row: InputRow; options: string[
   );
 }
 
-export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Props) {
+export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose, onBrowseKnown }: Props) {
   const [id, setId] = useState(seed.id);
   const [title, setTitle] = useState(seed.title);
   const [description, setDescription] = useState(seed.description);
@@ -338,11 +383,9 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
   const [conditionsAny, setConditionsAny] = useState<ConditionRow[]>(seed.conditionsAny);
   const [maxTimeGap, setMaxTimeGap] = useState(seed.maxTimeGap);
   const [minimumOverlap, setMinimumOverlap] = useState(seed.minimumOverlap);
-  const [selectedSample, setSelectedSample] = useState('');
   const [packFile, setPackFile] = useState('custom_patterns.yml');
 
   const factsQuery = useQuery({ queryKey: ['behavior-facts'], queryFn: api.behaviorFacts });
-  const samplesQuery = useQuery({ queryKey: ['metric-analyzer-samples'], queryFn: api.metricAnalyzerSamples });
   // Every metric name stored so far, offered as you type: the real names your sources send (an
   // OTel name like container.memory.usage, a Prometheus one like process_resident_memory_bytes).
   const metricsQuery = useQuery({ queryKey: ['behavior-available-metrics'], queryFn: api.behaviorAvailableMetrics, retry: false });
@@ -350,7 +393,18 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
   // A template's signals start on a generic name (consumer_lag); until each points at a metric
   // Ops Signals has stored, a test could only say "no signals". Without the list, nothing is held up.
   const unmapped = metricOptions.length ? inputs.filter((row) => row.keywords && !metricOptions.includes(row.metricName)) : [];
-  const sampleOptions = samplesQuery.data ?? [];
+
+  // A template signal only one stored metric fits needs no choosing: fill it in, once, and say so.
+  const [autoPicked, setAutoPicked] = useState(false);
+  useEffect(() => {
+    if (autoPicked || !metricOptions.length) return;
+    setAutoPicked(true);
+    setInputs((rows) => rows.map((row) => {
+      if (!row.keywords || metricOptions.includes(row.metricName)) return row;
+      const fits = suggestMetrics(row.keywords, metricOptions);
+      return fits.length === 1 ? { ...row, metricName: fits[0], autoPicked: true } : row;
+    }));
+  }, [autoPicked, metricOptions]);
 
   const draft = buildDraft({
     id,
@@ -368,39 +422,27 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
   });
 
   const validateMutation = useMutation({ mutationFn: () => api.validateBehaviorDefinition(draft) });
-  const dryRunMutation = useMutation({
-    mutationFn: () => {
-      const sample = sampleOptions.find(
-        (item) => `${item.service}::${item.metric_name}::${item.analysis_run_id ?? ''}` === selectedSample
-      );
-      if (!sample?.analysis_run_id) throw new Error('Select a historical sample first');
-      return api.dryRunBehaviorDefinition(draft, sample.analysis_run_id, sample.service);
-    },
-  });
   const saveMutation = useMutation({ mutationFn: () => api.saveBehaviorDefinitionToPack(draft, packFile) });
 
   const updateInput = (index: number, patch: Partial<InputRow>) => {
-    setInputs(inputs.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    setInputs(inputs.map((row, i) => {
+      if (i !== index) return row;
+      // A metric the user chose is no longer the one picked for them.
+      const chosen = patch.metricName !== undefined && patch.metricName !== row.metricName;
+      return { ...row, ...patch, ...(chosen ? { autoPicked: false } : {}) };
+    }));
   };
-
-  const applyExample = (example: ExampleDefinition) => {
-    setId(example.id);
-    setTitle(example.title);
-    setDescription(example.description);
-    setCategory(example.category);
-    setSeverity(example.severity);
-    setOutputTitle(example.outputTitle);
-    setOutputSummary(example.outputSummary);
-    setInputs(example.inputs);
-    setConditionsAll(example.conditionsAll);
-    setConditionsAny(example.conditionsAny);
-    setMaxTimeGap(example.maxTimeGap);
-    setMinimumOverlap(example.minimumOverlap);
-    setSelectedSample('');
-    validateMutation.reset();
-    dryRunMutation.reset();
-    saveMutation.reset();
+  // A condition can only be true when the input's analyzers produce its fact: keep one that does.
+  // An empty list already means any analyzer.
+  const keepAnalyzersFor = (alias: string, kind: PlainKind) => {
+    const needed = analyzersFor(kind);
+    setInputs((rows) => rows.map((row) => {
+      const listed = row.analyzers.split(',').map((item) => item.trim()).filter(Boolean);
+      if (row.alias !== alias || !listed.length || listed.some((item) => needed.includes(item))) return row;
+      return { ...row, analyzers: [...listed, ...needed].join(',') };
+    }));
   };
+  const inputChoices: InputChoice[] = inputs.filter((row) => row.alias).map((row) => ({ alias: row.alias, name: row.metricName }));
 
   return (
     <Stack spacing={3}>
@@ -419,19 +461,14 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
         ) : null}
       </Stack>
 
-      <WorkspacePanel sx={{ p: 2.5 }}>
-        <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 0.5 }}>Not sure where to start?</Typography>
-        <Typography sx={{ color: ui.muted, mb: 1.5, fontSize: 13 }}>
-          Load a real, already-working pattern below to see how two metrics combine into one behavior — then tweak it into your own.
-        </Typography>
-        <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-          {EXAMPLES.map((example) => (
-            <Button key={example.key} variant="outlined" size="small" onClick={() => applyExample(example)} sx={{ textTransform: 'none', fontWeight: 800 }}>
-              {example.label}
-            </Button>
-          ))}
-        </Stack>
-      </WorkspacePanel>
+      {onBrowseKnown ? (
+        <Alert
+          severity="info"
+          action={<Button color="inherit" size="small" onClick={onBrowseKnown} sx={{ textTransform: 'none', fontWeight: 800 }}>See known patterns</Button>}
+        >
+          Not sure where to start? Pick a known pattern — its metrics and conditions are already filled in.
+        </Alert>
+      ) : null}
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 1.5 }}>1. Define the pattern</Typography>
@@ -525,11 +562,11 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 0.5 }}>3. Conditions</Typography>
         <Typography sx={{ color: ui.muted, mb: 1.5, fontSize: 13 }}>
-          Every "all" condition must pass, and at least one "any" condition must pass (if any are declared). See the Fact Reference below for valid fact paths.
+          Every "all" condition must pass, and at least one "any" condition must pass (if any are declared). For anything the choices can't say, write the condition by hand.
         </Typography>
         <Stack spacing={2}>
-          <ConditionEditor label="All" rows={conditionsAll} onChange={setConditionsAll} />
-          <ConditionEditor label="Any" rows={conditionsAny} onChange={setConditionsAny} />
+          <ConditionEditor label="All" rows={conditionsAll} inputs={inputChoices} onChange={setConditionsAll} onKindPicked={keepAnalyzersFor} />
+          <ConditionEditor label="Any" rows={conditionsAny} inputs={inputChoices} onChange={setConditionsAny} onKindPicked={keepAnalyzersFor} />
           <Stack direction="row" spacing={1.5}>
             <Tooltip title="Example: 15m — how far apart two inputs' signals can be and still count as related to the same event." arrow>
               <TextField size="small" label="Max time gap" value={maxTimeGap} onChange={(e) => setMaxTimeGap(e.target.value)} sx={{ width: 160 }} />
@@ -543,7 +580,7 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-          <Typography sx={{ fontWeight: 900, fontSize: 18 }}>4. Validate and test</Typography>
+          <Typography sx={{ fontWeight: 900, fontSize: 18 }}>4. Check and try it</Typography>
           <Button variant="outlined" onClick={() => validateMutation.mutate()} disabled={validateMutation.isPending} sx={{ textTransform: 'none', fontWeight: 800 }}>
             Validate
           </Button>
@@ -563,56 +600,10 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
           </Alert>
         ) : null}
 
-        <TextField
-          select
-          fullWidth
-          size="small"
-          label="Select Existing Sample"
-          helperText="Pick a real service + metric + analysis run you already have data for, to test this pattern against actual historical values."
-          value={selectedSample}
-          onChange={(e) => setSelectedSample(String(e.target.value))}
-          sx={{ mb: 1.5 }}
-        >
-          {sampleOptions.map((sample) => (
-            <MenuItem
-              key={`${sample.service}-${sample.metric_name}-${sample.analysis_run_id ?? 'none'}`}
-              value={`${sample.service}::${sample.metric_name}::${sample.analysis_run_id ?? ''}`}
-            >
-              {sample.service} / {sample.metric_name} {sample.analysis_run_id ? `(${sample.analysis_run_id})` : ''}
-            </MenuItem>
-          ))}
-        </TextField>
-        <Button startIcon={<ScienceRoundedIcon />} variant="contained" onClick={() => dryRunMutation.mutate()} disabled={dryRunMutation.isPending || !selectedSample || unmapped.length > 0} sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}>
-          Test Pattern
-        </Button>
         {unmapped.length ? (
-          <Typography role="status" sx={{ mt: 1, fontSize: 13, color: ui.orange }}>
+          <Typography role="status" sx={{ fontSize: 13, color: ui.orange }}>
             Pick your metric for {unmapped.map((row) => row.label ?? row.alias).join(', ')} first (step 2).
           </Typography>
-        ) : null}
-
-        {dryRunMutation.data ? (
-          <Box sx={{ mt: 2 }}>
-            <Chip
-              label={dryRunMutation.data.matched ? 'MATCHED' : 'NOT_MATCHED'}
-              color={dryRunMutation.data.matched ? 'success' : 'default'}
-              sx={{ fontWeight: 850, mb: 1.5 }}
-            />
-            <Typography sx={{ mb: 1 }}>{dryRunMutation.data.description}</Typography>
-            <Typography sx={{ fontWeight: 800, mb: 0.5 }}>Confidence: {Math.round(dryRunMutation.data.confidence * 100)}%</Typography>
-            {dryRunMutation.data.matched_conditions.length ? (
-              <Stack spacing={0.5} sx={{ mt: 1 }}>
-                {dryRunMutation.data.matched_conditions.map((c, i) => (
-                  <Typography key={i} sx={{ fontSize: 13, color: c.passed ? ui.green : ui.red }}>
-                    {c.passed ? '✓' : '✗'} {String(c.fact)} {String(c.operator)} {String(c.value)}
-                  </Typography>
-                ))}
-              </Stack>
-            ) : null}
-            <Box component="pre" sx={{ mt: 1.5, p: 1.5, bgcolor: '#0f172a', color: '#e2e8f0', borderRadius: 2, fontSize: 12, overflow: 'auto' }}>
-              {JSON.stringify(dryRunMutation.data.facts, null, 2)}
-            </Box>
-          </Box>
         ) : null}
 
         <HistoryPreview
@@ -640,23 +631,30 @@ export function BehaviorBuilder({ seed = BLANK_SEED, sourceLabel, onClose }: Pro
         ) : null}
       </WorkspacePanel>
 
-      <WorkspacePanel sx={{ p: 2.5 }}>
-        <Typography sx={{ fontWeight: 900, fontSize: 18, mb: 1.5 }}>Fact Reference</Typography>
-        <Typography sx={{ color: ui.muted, mb: 1.5, fontSize: 13 }}>
-          Every fact is written as &lt;alias&gt;.&lt;fact path&gt; — e.g. an input aliased "cpu" with the fact "anomaly.present" below is referenced as "cpu.anomaly.present".
-        </Typography>
-        <Grid container spacing={1}>
-          {(factsQuery.data ?? []).map((fact) => (
-            <Grid key={fact.key} size={{ xs: 12, md: 6 }}>
-              <Box sx={{ p: 1.2, border: `1px solid ${ui.border}`, borderRadius: 2 }}>
-                <Typography sx={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 13 }}>{fact.key}</Typography>
-                <Typography sx={{ color: ui.muted, fontSize: 12 }}>{fact.description}</Typography>
-                <Typography sx={{ fontSize: 12 }}>example: {JSON.stringify(fact.example)}</Typography>
-              </Box>
-            </Grid>
-          ))}
-        </Grid>
-      </WorkspacePanel>
+      <Accordion disableGutters sx={{ bgcolor: 'transparent', border: `1px solid ${ui.border}`, borderRadius: 2, '&::before': { display: 'none' } }}>
+        <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+          <Box>
+            <Typography sx={{ fontWeight: 900, fontSize: 16 }}>Advanced: all facts</Typography>
+            <Typography sx={{ color: ui.muted, fontSize: 13 }}>Only needed to write a condition by hand.</Typography>
+          </Box>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography sx={{ color: ui.muted, mb: 1.5, fontSize: 13 }}>
+            Every fact is written as &lt;alias&gt;.&lt;fact path&gt; — e.g. an input aliased "cpu" with the fact "anomaly.present" below is referenced as "cpu.anomaly.present".
+          </Typography>
+          <Grid container spacing={1}>
+            {(factsQuery.data ?? []).map((fact) => (
+              <Grid key={fact.key} size={{ xs: 12, md: 6 }}>
+                <Box sx={{ p: 1.2, border: `1px solid ${ui.border}`, borderRadius: 2 }}>
+                  <Typography sx={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 13 }}>{fact.key}</Typography>
+                  <Typography sx={{ color: ui.muted, fontSize: 12 }}>{fact.description}</Typography>
+                  <Typography sx={{ fontSize: 12 }}>example: {JSON.stringify(fact.example)}</Typography>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </AccordionDetails>
+      </Accordion>
     </Stack>
   );
 }

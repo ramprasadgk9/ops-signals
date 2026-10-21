@@ -1,11 +1,13 @@
-import { useState } from 'react';
-import { Alert, Autocomplete, Box, Button, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Fragment, useEffect, useState } from 'react';
+import { Alert, Autocomplete, Box, Button, Collapse, IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
 import { formatDateTime, ui } from '../standalone/theme';
 import type { BehaviorDefinitionDraft, HistoryPreview as HistoryPreviewResult, HistoryRun } from '../types';
+import { describeCondition } from '../utils/plainConditions';
 
 // Passes the palette checks (lightness band, chroma, contrast) on both the light and dark surface.
 const LINE = '#0d9488';
@@ -39,6 +41,41 @@ export function runReason(run: HistoryRun): string {
   // No signal means its analyzers saw no change - or did not run on that metric at all.
   if (run.missing_inputs.length) return `No signal for ${run.missing_inputs.join(', ')}: no change, or its analyzers did not run`;
   return run.blocked_by[0] ?? 'Did not match';
+}
+
+const percent = (value: number) => `${Math.abs(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}%`;
+
+/** One run up close: what changed, each condition with the value it was checked against, how sure. */
+export function RunDetails({ run }: { run: HistoryRun }) {
+  if (run.missing_inputs.length) {
+    return (
+      <Typography sx={{ fontSize: 13 }}>
+        Nothing to check in this run: no signal for {run.missing_inputs.join(', ')}. Either it did not change, or its analyzers did not run on it.
+      </Typography>
+    );
+  }
+  return (
+    <Stack spacing={0.5}>
+      {run.changes.length ? (
+        <Typography sx={{ fontSize: 13 }}>
+          <strong>What changed:</strong>{' '}
+          {run.changes.map((change) => (change.signed_change_percent === null
+            ? `${change.alias} changed`
+            : `${change.alias} went ${change.signed_change_percent >= 0 ? 'up' : 'down'} ${percent(change.signed_change_percent)}`)).join(' · ')}
+        </Typography>
+      ) : null}
+      {run.conditions.map((condition) => (
+        <Typography key={`${condition.group}-${condition.fact}`} sx={{ fontSize: 13, color: condition.passed ? ui.green : ui.red }}>
+          {condition.passed ? '✓' : '✗'} {condition.group === 'any' ? 'any of: ' : ''}{describeCondition(condition)}
+          {typeof condition.actual === 'number' ? ` (was ${condition.actual.toLocaleString(undefined, { maximumFractionDigits: 1 })})` : ''}
+        </Typography>
+      ))}
+      {run.overlap_minutes !== null ? (
+        <Typography sx={{ fontSize: 13 }}>Changed at the same time for {Math.round(run.overlap_minutes)} minutes.</Typography>
+      ) : null}
+      {run.confidence !== null ? <Typography sx={{ fontSize: 13, fontWeight: 800 }}>Confidence: {Math.round(run.confidence * 100)}%</Typography> : null}
+    </Stack>
+  );
 }
 
 function Verdict({ result, lookBack }: { result: HistoryPreviewResult; lookBack: string }) {
@@ -116,9 +153,20 @@ export function HistoryPreview({ draft, blockedReason }: {
   /** Why the preview can't run yet; the builder already shows it next to Test Pattern. */
   blockedReason?: string | null;
 }) {
-  // Services of recent runs; any other service can be typed in.
-  const servicesQuery = useQuery({ queryKey: ['behavior-history-services'], queryFn: api.behaviorHistoryServices, retry: false });
+  // Services where this pattern's metrics changed recently; any other service can be typed in.
+  const metrics = [...new Set(draft.inputs.map((input) => input.metric_name).filter(Boolean))].sort();
+  const servicesQuery = useQuery({ queryKey: ['behavior-history-services', metrics], queryFn: () => api.behaviorHistoryServices(metrics), retry: false });
   const [service, setService] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  const onlyService = servicesQuery.data?.length === 1 ? servicesQuery.data[0] : null;
+  // One service fits: it is the one to check, so fill it in (once; clearing it stays cleared).
+  const [filled, setFilled] = useState<string | null>(null);
+  useEffect(() => {
+    if (onlyService && onlyService !== filled && !service) {
+      setService(onlyService);
+      setFilled(onlyService);
+    }
+  }, [onlyService, filled, service]);
   const [hours, setHours] = useState(168);
   const previewMutation = useMutation({ mutationFn: () => api.behaviorHistoryPreview(draft, service, hours) });
   const lookBack = LOOK_BACKS.find((item) => item.hours === hours)?.label ?? `${hours} hours`;
@@ -138,6 +186,7 @@ export function HistoryPreview({ draft, blockedReason }: {
           onInputChange={(_event, value) => setService(value.trim())}
           sx={{ minWidth: 240 }}
           renderInput={(params) => <TextField {...params} size="small" label="Service" />}
+          slotProps={{ listbox: { 'aria-label': 'Services where these metrics changed' } }}
         />
         <TextField select size="small" label="Look back" value={hours} onChange={(event) => setHours(Number(event.target.value))} sx={{ minWidth: 160 }}>
           {LOOK_BACKS.map((item) => <MenuItem key={item.hours} value={item.hours}>{item.label}</MenuItem>)}
@@ -153,6 +202,13 @@ export function HistoryPreview({ draft, blockedReason }: {
           {previewMutation.isPending ? 'Checking…' : 'See it on my data'}
         </Button>
       </Stack>
+      {metrics.length && servicesQuery.data ? (
+        <Typography sx={{ fontSize: 12, color: ui.muted, mt: 0.75 }}>
+          {servicesQuery.data.length
+            ? `Suggested: the ${servicesQuery.data.length === 1 ? 'service' : `${servicesQuery.data.length} services`} where these metrics changed in the last 30 days.`
+            : 'These metrics did not change on any service in the last 30 days. Type a service to check it anyway.'}
+        </Typography>
+      ) : null}
       {previewMutation.isError ? (
         <Alert severity="error" sx={{ mt: 2 }}>{previewMutation.error instanceof Error ? previewMutation.error.message : 'The preview failed.'}</Alert>
       ) : null}
@@ -172,7 +228,7 @@ export function HistoryPreview({ draft, blockedReason }: {
                 {result.runs_judged ? (
                   result.conditions.map((condition) => (
                     <Typography key={`${condition.group}-${condition.fact}`} sx={{ fontSize: 13 }}>
-                      {condition.fact} {condition.operator} {String(condition.value)}: passed in {condition.passed_runs} of {result.runs_judged} runs it could be checked in
+                      {condition.group === 'any' ? 'any of: ' : ''}{describeCondition(condition)}: passed in {condition.passed_runs} of {result.runs_judged} runs it could be checked in
                     </Typography>
                   ))
                 ) : null}
@@ -180,18 +236,44 @@ export function HistoryPreview({ draft, blockedReason }: {
               <MetricCharts result={result} />
               <Box sx={{ overflowX: 'auto' }}>
                 <Table size="small" aria-label="Runs checked">
-                  <TableHead><TableRow><TableCell>Run</TableCell><TableCell>When</TableCell><TableCell>Result</TableCell></TableRow></TableHead>
+                  <TableHead><TableRow><TableCell /><TableCell>Run</TableCell><TableCell>When</TableCell><TableCell>Result</TableCell></TableRow></TableHead>
                   <TableBody>
-                    {result.runs.slice(0, 20).map((run) => (
-                      <TableRow key={run.analysis_run_id}>
-                        <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{run.analysis_run_id.slice(0, 12)}</TableCell>
-                        <TableCell>{formatDateTime(run.at)}</TableCell>
-                        <TableCell sx={{ color: run.matched ? ui.green : 'inherit', fontWeight: run.matched ? 800 : 400 }}>{runReason(run)}</TableCell>
-                      </TableRow>
-                    ))}
+                    {result.runs.slice(0, 20).map((run) => {
+                      const expanded = open === run.analysis_run_id;
+                      return (
+                        <Fragment key={run.analysis_run_id}>
+                          <TableRow sx={{ '& > td': { borderBottom: expanded ? 'none' : undefined } }}>
+                            <TableCell padding="checkbox">
+                              <IconButton
+                                size="small"
+                                aria-label={`Details for run ${run.analysis_run_id.slice(0, 12)}`}
+                                aria-expanded={expanded}
+                                onClick={() => setOpen(expanded ? null : run.analysis_run_id)}
+                              >
+                                <KeyboardArrowDownRoundedIcon fontSize="small" sx={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }} />
+                              </IconButton>
+                            </TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{run.analysis_run_id.slice(0, 12)}</TableCell>
+                            <TableCell>{formatDateTime(run.at)}</TableCell>
+                            <TableCell sx={{ color: run.matched ? ui.green : 'inherit', fontWeight: run.matched ? 800 : 400 }}>{runReason(run)}</TableCell>
+                          </TableRow>
+                          {expanded ? (
+                            <TableRow>
+                              <TableCell />
+                              <TableCell colSpan={3}>
+                                <Collapse in appear><RunDetails run={run} /></Collapse>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
                   </TableBody>
                 </Table>
-                {result.runs.length > 20 ? <Typography sx={{ fontSize: 12, color: ui.muted, mt: 0.5 }}>Newest 20 of {result.runs.length} runs shown.</Typography> : null}
+                <Typography sx={{ fontSize: 12, color: ui.muted, mt: 0.5 }}>
+                  Open a run to see what changed, each condition and how sure the match is.
+                  {result.runs.length > 20 ? ` Newest 20 of ${result.runs.length} runs shown.` : ''}
+                </Typography>
               </Box>
             </>
           ) : null}

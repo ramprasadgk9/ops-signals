@@ -19,10 +19,8 @@ vi.mock('../api/queries', () => ({
     // Nobody signed in: nothing is locked, as on a fresh install.
     me: vi.fn().mockRejectedValue(new Error('no sign-in')),
     behaviorFacts: vi.fn().mockResolvedValue([]),
-    metricAnalyzerSamples: vi.fn().mockResolvedValue([]),
     behaviorAvailableMetrics: vi.fn().mockResolvedValue([]),
     validateBehaviorDefinition: vi.fn(),
-    dryRunBehaviorDefinition: vi.fn(),
     saveBehaviorDefinitionToPack: vi.fn(),
     behaviorHistoryServices: vi.fn().mockResolvedValue([]),
     behaviorHistoryPreview: vi.fn(),
@@ -342,11 +340,10 @@ describe('BehaviorIntelligencePage known patterns', () => {
     expect(screen.getByLabelText('Id')).toHaveValue('consumer_falling_behind');
     expect(screen.getByTestId('location')).toHaveTextContent('builder=catalog%3Aconsumer_falling_behind');
 
-    // Both signals start on a generic name: the test waits until each points at a stored metric.
-    expect(await screen.findByText('Pick your metric for Consumer lag rising, Incoming messages rising first (step 2).')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'kafka_consumergroup_lag' }));
-    fireEvent.click(screen.getByRole('button', { name: 'kafka_topic_messages_in_rate' }));
-    expect(screen.getAllByText('Matched to a metric Ops Signals has stored.')).toHaveLength(2);
+    // Both signals start on a generic name; one stored metric fits each, so both are filled in.
+    expect(await screen.findAllByText(/the only stored metric that looks like this one/)).toHaveLength(2);
+    const fields = screen.getAllByRole('combobox', { name: 'Metric name' });
+    expect(fields.map((field) => (field as HTMLInputElement).value)).toEqual(['kafka_consumergroup_lag', 'kafka_topic_messages_in_rate']);
     expect(screen.queryByText(/Pick your metric for/)).not.toBeInTheDocument();
   });
 

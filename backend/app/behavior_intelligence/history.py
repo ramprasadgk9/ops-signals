@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
+from .condition_evaluator import _resolve_fact
 from .fact_extractor import input_facts
 from .finding_builder import build_evaluation
 from .models import BehaviorDefinition
@@ -27,6 +28,7 @@ def judge_run(definition: BehaviorDefinition, run_id: str, at: datetime | None, 
     ends = [signal.get("end_time") or signal["start_time"] for signal in signals if signal.get("start_time")]
     run: dict[str, Any] = {
         "analysis_run_id": run_id, "at": at, "matched": False, "missing_inputs": missing, "blocked_by": [], "conditions": [], "overlap_minutes": None,
+        "confidence": None, "changes": [],
         # When this run's signals on the rule's metrics were active, for the chart.
         "start": min(starts) if starts else None, "end": max(ends) if ends else None,
     }
@@ -34,9 +36,16 @@ def judge_run(definition: BehaviorDefinition, run_id: str, at: datetime | None, 
         return run
 
     evaluation = build_evaluation(definition, matched_inputs, matched_inputs, None, run_id)
-    conditions = evaluation.matched_conditions
+    # Each condition with the value it was checked against, for the run's details.
+    conditions = [{**item, "actual": _resolve_fact(matched_inputs, item["fact"])} for item in evaluation.matched_conditions]
     run["conditions"] = conditions
     run["matched"] = evaluation.matched
+    run["confidence"] = evaluation.confidence
+    run["changes"] = [
+        {"alias": alias, "signed_change_percent": facts["change"]["signed_change_percent"]}
+        for alias, facts in matched_inputs.items()
+        if facts.get("change", {}).get("present")
+    ]
     run["overlap_minutes"] = evaluation.correlation.get("overlap_minutes")
     if evaluation.matched:
         return run
