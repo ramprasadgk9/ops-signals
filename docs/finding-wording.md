@@ -1,5 +1,8 @@
 # Finding wording
 
+New to finding cards? [How a finding becomes a card](finding-anatomy.md) follows one finding
+through wording, trust and "Happened with".
+
 Finding cards (web UI, Grafana plugin) and Slack messages describe each finding in plain words:
 
 > **Better** · Error rate dropped sharply and stayed lower
