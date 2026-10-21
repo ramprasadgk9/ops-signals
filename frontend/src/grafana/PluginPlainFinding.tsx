@@ -33,7 +33,13 @@ export function PluginPlainBadge({ plain }: { plain: FindingPlain }) {
   );
 }
 
-export function PluginPlainFinding({ plain, details }: { plain: FindingPlain; details: string }) {
+export function PluginPlainFinding({ plain, details, signal }: {
+  plain: FindingPlain;
+  /** The stored title and summary, under Technical details. */
+  details: string;
+  /** The strongest signal in analyzer words (utils/findingPlain leadSignalText), also under Technical details. */
+  signal?: string | null;
+}) {
   const [showDetails, setShowDetails] = useState(false);
   const lines = plainLines(plain);
   return (
@@ -54,9 +60,10 @@ export function PluginPlainFinding({ plain, details }: { plain: FindingPlain; de
           {showDetails ? '▾' : '▸'} Technical details
         </button>
         {showDetails ? (
-          <p data-testid="plugin-plain-details" style={{ ...styles.muted, margin: '4px 0 0', fontSize: 13 }}>
-            {details}
-          </p>
+          <div data-testid="plugin-plain-details" style={{ ...styles.muted, margin: '4px 0 0', fontSize: 13, display: 'grid', gap: 4 }}>
+            <span>{details}</span>
+            {signal ? <span data-testid="plugin-plain-signal"><strong>Strongest signal:</strong> {signal}</span> : null}
+          </div>
         ) : null}
       </div>
     </div>

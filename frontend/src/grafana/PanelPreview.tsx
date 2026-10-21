@@ -18,7 +18,7 @@ import { byLine } from '../utils/actorLine';
 import { PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
-import { plainParagraph } from '../utils/findingPlain';
+import { leadSignal, leadSignalText, plainParagraph } from '../utils/findingPlain';
 import { PluginSameFix } from './PluginSameFix';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import type {
@@ -554,7 +554,7 @@ function PrimaryFindingCard({
         {finding.plain ? <PluginPlainBadge plain={finding.plain} /> : null}
         <h2 style={{ margin: 0 }}>{finding.plain?.headline ?? finding.title}</h2>
         {finding.plain ? (
-          <PluginPlainFinding plain={finding.plain} details={`${finding.title} ${finding.summary}`} />
+          <PluginPlainFinding plain={finding.plain} details={`${finding.title} ${finding.summary}`} signal={leadSignalText(leadSignal(finding.signal_ids, result.signals))} />
         ) : (
           <p style={{ ...styles.muted, margin: 0 }}>{finding.summary || 'Operational behavior changed during the selected window.'}</p>
         )}
@@ -756,7 +756,7 @@ function EvidenceSummaryCard({
           <span>Earliest signal</span><strong>{earliest ? new Date(earliest).toLocaleString() : 'n/a'}</strong>
           <span>Highest observed value</span><strong>{formatNumber(stats.peak)}</strong>
           <span>Reference comparison</span><strong>{String(comparisonType)}</strong>
-          <span>Analyzer confidence</span><strong>{formatNumber(findingSignals[0]?.confidence ?? finding?.importance_score)}</strong>
+          <span>Analyzer confidence</span><strong>{formatNumber(leadSignal(finding?.signal_ids, findingSignals)?.confidence ?? finding?.importance_score)}</strong>
         </div>
         <button type="button" style={buttonStyle()} onClick={onToggle}>View all {finding?.signal_ids.length ?? signals.length} signals</button>
         {expanded ? (
@@ -1057,7 +1057,11 @@ export function InvestigationDrawer({
               {shownFinding?.plain ? <PluginPlainBadge plain={shownFinding.plain} /> : null}
               <h3 style={{ margin: 0 }}>{shownFinding?.plain?.headline ?? shownFinding?.title ?? 'Finding snapshot'}</h3>
               {shownFinding?.plain ? (
-                <PluginPlainFinding plain={shownFinding.plain} details={`${shownFinding.title} ${shownFinding.summary}`} />
+                <PluginPlainFinding
+                  plain={shownFinding.plain}
+                  details={`${shownFinding.title} ${shownFinding.summary}`}
+                  signal={result ? leadSignalText(leadSignal(shownFinding.signal_ids, result.signals)) : null}
+                />
               ) : (
                 <p style={{ ...styles.muted, margin: 0 }}>{shownFinding?.summary}</p>
               )}

@@ -44,4 +44,12 @@ describe('PluginPlainFinding', () => {
     render(<PluginPlainBadge plain={gap} />);
     expect(screen.queryByTestId('plugin-plain-importance')).not.toBeInTheDocument();
   });
+
+  it('keeps the strongest signal in analyzer words under Technical details', () => {
+    render(<PluginPlainFinding plain={gap} details="stored text" signal="A stretch unlike the rest. (stumpy · confidence 1.00)" />);
+
+    expect(screen.queryByTestId('plugin-plain-signal')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Technical details/ }));
+    expect(screen.getByTestId('plugin-plain-signal')).toHaveTextContent('Strongest signal: A stretch unlike the rest. (stumpy · confidence 1.00)');
+  });
 });
