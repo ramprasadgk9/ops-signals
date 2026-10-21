@@ -3,7 +3,7 @@
 behavior_definitions:
   memory_pressure_with_errors:
     enabled: true
-    version: 1
+    version: 2
     title: Possible memory pressure impacting requests
     description: >
       Detects sustained upward memory pressure (trend or baseline shift) occurring together
@@ -30,16 +30,10 @@ behavior_definitions:
           operator: equals
           value: true
       any:
-        - fact: memory.trend.direction
+        # Upward only, as in server_slow (core.yml).
+        - fact: memory.change.upward
           operator: equals
-          value: upward
-        # Upward level changes only, as in server_slow (core.yml).
-        - fact: memory.baseline_shift.signed_change_percent
-          operator: greater_than
-          value: 0
-        - fact: memory.ruptures.signed_change_percent
-          operator: greater_than
-          value: 25
+          value: true
     correlation:
       same_analysis_context: true
       max_time_gap: 20m
@@ -52,8 +46,6 @@ behavior_definitions:
         Memory usage is trending upward or shifted to a new baseline while errors are also
         anomalous in the same window — worth checking for memory exhaustion.
       evidence:
-        - memory.trend.direction
-        - memory.trend.change_percent
-        - memory.baseline_shift.signed_change_percent
-        - memory.ruptures.signed_change_percent
+        - memory.change.direction
+        - memory.change.signed_change_percent
         - errors.anomaly.count

@@ -6,7 +6,7 @@ from itertools import product
 from typing import Any
 
 # Fact groups that carry the times their signals were active (fact_extractor's "windows").
-TIMED_FACT_GROUPS = ("anomaly", "trend", "baseline_shift", "ruptures")
+TIMED_FACT_GROUPS = ("anomaly", "trend", "baseline_shift", "ruptures", "change")
 # Enough to cover realistic inputs (a few anomaly windows each); beyond it the remaining
 # combinations are skipped rather than letting one evaluation run away.
 MAX_WINDOW_COMBINATIONS = 10_000

@@ -62,16 +62,16 @@ const EXAMPLES: ExampleDefinition[] = [
     outputTitle: 'Possible CPU throttling detected',
     outputSummary: 'CPU usage showed abnormal behavior while throttling activity increased during the same analysis period.',
     inputs: [
-      { alias: 'cpu', metricName: 'cpu_usage', analyzers: 'anomaly_zscore,trend' },
-      { alias: 'throttling', metricName: 'cpu_throttled_seconds', analyzers: 'anomaly_zscore,trend' },
+      { alias: 'cpu', metricName: 'cpu_usage', analyzers: 'anomaly_zscore,pyod_outlier,trend' },
+      { alias: 'throttling', metricName: 'cpu_throttled_seconds', analyzers: 'anomaly_zscore,pyod_outlier,trend,baseline_shift,ruptures' },
     ],
     conditionsAll: [
       { fact: 'cpu.anomaly.present', operator: 'equals', value: true },
-      { fact: 'throttling.trend.direction', operator: 'equals', value: 'upward' },
+      { fact: 'throttling.change.upward', operator: 'equals', value: true },
     ],
     conditionsAny: [
       { fact: 'throttling.anomaly.present', operator: 'equals', value: true },
-      { fact: 'throttling.trend.change_percent', operator: 'greater_than', value: 20 },
+      { fact: 'throttling.change.change_percent', operator: 'greater_than', value: 20 },
     ],
     maxTimeGap: '15m',
     minimumOverlap: '5m',
@@ -89,8 +89,8 @@ const EXAMPLES: ExampleDefinition[] = [
     outputSummary:
       'Latency and error rate both showed abnormal behavior in the same window — a pattern often seen when timeouts start cascading into failures downstream.',
     inputs: [
-      { alias: 'latency', metricName: 'request_latency_p95', analyzers: 'anomaly_zscore,trend' },
-      { alias: 'errors', metricName: 'error_rate', analyzers: 'anomaly_zscore,trend' },
+      { alias: 'latency', metricName: 'request_latency_p95', analyzers: 'anomaly_zscore,pyod_outlier,trend' },
+      { alias: 'errors', metricName: 'error_rate', analyzers: 'anomaly_zscore,pyod_outlier,trend' },
     ],
     conditionsAll: [
       { fact: 'latency.anomaly.present', operator: 'equals', value: true },

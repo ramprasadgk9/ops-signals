@@ -39,6 +39,50 @@ def _windows(signals: list[dict[str, Any]], level_change: bool = False) -> list[
     return windows
 
 
+# A ruptures change point counts as a change only above this size: unlike baseline_shift and
+# trend, the ruptures analyzer reports every change point it finds, however small. The same
+# "> 25" the shipped rules used before the change facts existed.
+RUPTURES_MIN_CHANGE_PERCENT = 25.0
+
+
+def _change_facts(
+    trend_signals: list[dict[str, Any]],
+    trend_slope: float,
+    trend_change_percent: float,
+    baseline_signals: list[dict[str, Any]],
+    ruptures_signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Whether the metric went up or down, whichever analyzer saw it: a trend, a baseline shift, or
+    a ruptures change point of more than RUPTURES_MIN_CHANGE_PERCENT. The router runs only some of
+    these on a given series (ruptures on a steady climb, often), so a rule that means "went up"
+    asks this instead of naming one analyzer and missing the run where another one ran."""
+    sources: list[tuple[str, float, list[dict[str, Any]], bool]] = []
+    if trend_signals and trend_slope:
+        signed = abs(trend_change_percent) if trend_slope > 0 else -abs(trend_change_percent)
+        sources.append(("trend", signed, trend_signals, False))
+    if baseline_signals:
+        sources.append(("baseline_shift", _largest_change(baseline_signals), baseline_signals, True))
+    significant_ruptures = [
+        sig for sig in ruptures_signals if abs(_largest_change([sig])) > RUPTURES_MIN_CHANGE_PERCENT
+    ]
+    if significant_ruptures:
+        sources.append(("ruptures", _largest_change(significant_ruptures), significant_ruptures, True))
+
+    upward = any(signed > 0 for _, signed, _, _ in sources)
+    downward = any(signed < 0 for _, signed, _, _ in sources)
+    signed_change = max((signed for _, signed, _, _ in sources), key=abs, default=0.0)
+    return {
+        "present": bool(sources),
+        "upward": upward,
+        "downward": downward,
+        "direction": "mixed" if upward and downward else "upward" if upward else "downward" if downward else "none",
+        "change_percent": abs(signed_change),
+        "signed_change_percent": signed_change,
+        "sources": [name for name, _, _, _ in sources],
+        "windows": [window for _, _, signals, level in sources for window in _windows(signals, level_change=level)],
+    }
+
+
 def input_facts(metric_names: list[str], analyzers: list[str], signals: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Facts for one behavior input: the signals of the first of its metric names that has any
     (from the input's analyzers, when it lists some). None when none of the names has signals."""
@@ -106,6 +150,7 @@ def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 "change_point_index": min([int(sig.get("evidence", {}).get("change_point_index", 0)) for sig in ruptures_signals], default=0),
                 "windows": _windows(ruptures_signals, level_change=True),
             },
+            "change": _change_facts(trend_signals, trend_slope, trend_change_percent, baseline_signals, ruptures_signals),
             "signal": {
                 "count": len(metric_signals),
                 "types": sorted({str(sig.get("signal_type")) for sig in metric_signals if sig.get("signal_type")}),
