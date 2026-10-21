@@ -145,6 +145,9 @@ templates:
     what: Averaged {first_half} in the first {half} and {second_half} in the last {half} ({change}), with a high of {peak}.
     turned: It has turned {down_or_up} in the last {half}.
     not_urgent: Not urgent yet, the change is gradual and uneven.
+    # When the two halves average within 5% of each other: the badge is "Changed" and this is the
+    # only line under the headline.
+    small: The level has barely moved ({change} between the two halves), so users are unlikely to notice.
 
   # Short bursts outside the normal range.
   spikes:

@@ -13,6 +13,8 @@ Includes Grafana plugin 1.0.35.
   edit it and save. The API returns it as `plain` on each finding. Spike signals also save their
   peak value. See `docs/finding-wording.md`. Hovering "Happened with" explains how the other
   finding was picked: same service, a different metric, both a step change, within 10 minutes.
+  A slow trend whose two halves average within 5% of each other reads "Changed" ("The level has
+  barely moved"), not Better or Worse.
 - **Service context for findings.** Describe a service once in `config/finding_templates.yaml`
   (what it does, how important it is, the targets it's held to, such as an error rate below 1%), and
   its findings say so: "Your target: Above your 1% target since 10:54 PM (2 hours so far)", "This

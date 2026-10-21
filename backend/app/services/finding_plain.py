@@ -41,6 +41,9 @@ CHECK_WINDOW = timedelta(minutes=30)
 SHARP_PERCENT = 50.0
 STEADY_R_SQUARED = 0.5
 UNEVEN_R_SQUARED = 0.2
+# A trend whose two halves average within this share of each other has barely moved the level: it
+# reads "Changed", not Worse or Better.
+SMALL_TREND = 0.05
 BLIP_MAX = timedelta(minutes=2)
 DATA_HEALTH_TYPES = {"data_gap", "flatline"}
 ANOMALY_TYPES = {"anomaly", "spike", "outlier"}
@@ -551,6 +554,10 @@ def _trend(finding: FindingFacts, signal: SignalFacts, meaning: MetricMeaning, w
     headline, what = _fill(template.get("headline"), values), _fill(template.get("what"), values)
     if not headline or not what:
         return None
+    what = _join(what, _fill(template.get("turned"), values) if turned else None) or what
+    facts = {"first": first_half, "second": second_half, "half": values["half"]}
+    if _small_change(first_half, second_half, _number(comparison.get("change_percent"))):
+        return Plain(kind="trend", badge="changed", headline=headline, what=what, why=_fill(template.get("small"), values), check=None, facts=facts)
     badge = _direction_badge(direction, meaning)
     uneven = badge == "worse" and r_squared is not None and r_squared < UNEVEN_R_SQUARED
     concept = wording.concepts.get(meaning.concept or "") or {}
@@ -558,11 +565,19 @@ def _trend(finding: FindingFacts, signal: SignalFacts, meaning: MetricMeaning, w
         kind="trend",
         badge=badge,
         headline=headline,
-        what=_join(what, _fill(template.get("turned"), values) if turned else None) or what,
+        what=what,
         why=_join(_why(badge, meaning, wording, values), _fill(template.get("not_urgent"), values) if uneven else None),
         check=_fill(concept.get("check"), values),
-        facts={"first": first_half, "second": second_half, "half": values["half"]},
+        facts=facts,
     )
+
+
+def _small_change(first: float | None, second: float | None, change_percent: float | None) -> bool:
+    """Whether the two halves average within SMALL_TREND of each other, by the same percentage the
+    card shows (change_words). An unknown change isn't small."""
+    if change_percent is None and first not in (None, 0) and second is not None:
+        change_percent = (second - first) / abs(first) * 100
+    return change_percent is not None and abs(change_percent) < SMALL_TREND * 100
 
 
 def _spike_peak(signal: SignalFacts, comparison: dict[str, Any]) -> tuple[float | None, int]:

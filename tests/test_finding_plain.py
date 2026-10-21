@@ -448,3 +448,28 @@ def test_an_odd_stretch_on_an_undescribed_metric_says_it_needs_describing() -> N
     plain = build_plain(finding, [stretch], load_wording())
     assert plain.why.startswith("We don't know what this metric means")
     assert plain.check is None
+
+
+def _cpu_trend(previous_mean: float, current_mean: float) -> object:
+    # Like mixed-lab's CPU on Oct 20: a falling fit line, but the two halves average about the same.
+    finding = FindingFacts(
+        "cpu_usage", "mixed-lab", "cpu_usage is trending in one direction.", "behavior_change",
+        {"previous_mean": previous_mean, "current_mean": current_mean, "previous_max": 1.7, "current_max": 1.4},
+    )
+    trend = SignalFacts("trend", "trend", {"slope_percent": -12.0, "r_squared": 0.1}, "2026-10-20T01:00:00Z", "2026-10-21T01:00:00Z")
+    return build_plain(finding, [trend], load_wording())
+
+
+def test_a_trend_that_barely_moved_the_level_is_not_called_better_or_worse() -> None:
+    plain = _cpu_trend(0.98, 0.97)
+    assert (plain.kind, plain.badge) == ("trend", "changed")
+    assert plain.headline == "CPU usage has been falling unevenly"
+    assert plain.why == "The level has barely moved (down 1% between the two halves), so users are unlikely to notice."
+    assert plain.check is None
+
+
+def test_a_trend_that_moved_the_level_keeps_its_direction() -> None:
+    plain = _cpu_trend(1.0, 0.9)
+    assert plain.badge == "better"
+    assert plain.why.startswith("mixed-lab is using less CPU")
+    assert plain.check is not None
