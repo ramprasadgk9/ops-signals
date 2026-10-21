@@ -137,9 +137,13 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
             for finding in findings:
                 finding.analysis_run_id = analysis_run_id
             self.store.save_findings(findings)
+            self._mark_finding_contributors(analyzer_executions, scored_signals, findings)
             self.store.update_analysis_run_learning_snapshot(
                 analysis_run_id,
-                {"generated_findings_json": [finding.to_json() for finding in findings]},
+                {
+                    "generated_findings_json": [finding.to_json() for finding in findings],
+                    "executed_analyzers_json": analyzer_executions,
+                },
             )
             self._evaluate_behavior_intelligence(scored_signals, analysis_run_id, db=db)
 

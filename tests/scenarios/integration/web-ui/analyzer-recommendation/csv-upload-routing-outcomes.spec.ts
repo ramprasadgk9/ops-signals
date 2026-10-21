@@ -9,12 +9,10 @@ import { env } from '../../shared/env';
  * dev/mock_prometheus_target.py's Prometheus-scrape replay), which the upload endpoint rejects —
  * writeUploadableCsv() reshapes them to `timestamp,metric,value,service` first.
  *
- * Expected outcomes are captured from a live run (2026-09-08), not from
- * sample_data/ops_signals_test_series/README.md's "Expected routing behavior" table — that table
- * disagrees with the live router for fixture 04 (see below and analyzerFixtures.pyodOutlier's
- * comment in shared/fixtures.ts). This suite asserts real behavior so it catches real regressions
- * from today's baseline; the README-vs-router discrepancy itself is a separate open question for
- * the team, not something resolved here.
+ * Expected outcomes are captured from live runs (2026-09-08, fixture 04 re-captured 2026-10-20),
+ * not from sample_data/ops_signals_test_series/README.md's "Expected routing behavior" table, so
+ * this suite catches real regressions from today's baseline. See analyzerFixtures.pyodOutlier's
+ * comment in shared/fixtures.ts for fixture 04.
  */
 
 async function openCsvTab(page: import('@playwright/test').Page) {
@@ -34,11 +32,20 @@ async function uploadAndRun(page: import('@playwright/test').Page, csvPath: stri
   await expect(page.getByText('No router decisions returned yet.')).toBeHidden({ timeout: 30_000 });
 }
 
-function bucketCard(page: import('@playwright/test').Page, bucketLabel: string) {
-  // Each bucket renders as its own Card with a heading matching routerBucketLabel() exactly
-  // (Recommended / Optional / Rejected / Not Recommended) — see ValidateDataPage.tsx. Scoping to
-  // the Card (not a bare div) avoids matching every ancestor div of the heading text.
-  return page.locator('.MuiCard-root', { has: page.getByText(bucketLabel, { exact: true }) });
+// Router candidates with no pipeline analyzer behind them: the panel lists these apart from the
+// scoring table, under "not built into Ops Signals yet" (run_reason "not_built_in").
+const NOT_BUILT_IN = new Set(['river', 'kats', 'darts', 'alibi_detect', 'adtk', 'pyod']);
+
+async function openRouterScoring(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: /How the router scored this series/ }).click();
+}
+
+async function expectRouterOutcome(page: import('@playwright/test').Page, analyzerId: string, rating: string) {
+  if (NOT_BUILT_IN.has(analyzerId)) {
+    await expect(page.getByTestId(`router-not-built-in-${analyzerId}`)).toBeVisible();
+    return;
+  }
+  await expect(page.getByTestId(`router-rating-${analyzerId}`)).toHaveText(rating);
 }
 
 for (const key of ['ruptures', 'trend', 'stumpy', 'pyodOutlier', 'mixed'] as const) {
@@ -49,8 +56,9 @@ for (const key of ['ruptures', 'trend', 'stumpy', 'pyodOutlier', 'mixed'] as con
     await openCsvTab(page);
     await uploadAndRun(page, uploadPath, fixture.service, fixture.metricName);
 
-    for (const [analyzerId, bucketLabel] of Object.entries(fixture.csvRouterOutcomes)) {
-      await expect(bucketCard(page, bucketLabel).getByText(analyzerId, { exact: true })).toBeVisible();
+    await openRouterScoring(page);
+    for (const [analyzerId, rating] of Object.entries(fixture.csvRouterOutcomes)) {
+      await expectRouterOutcome(page, analyzerId, rating);
     }
   });
 }
@@ -75,7 +83,8 @@ test('CSV upload with a router-recommended but runtime-unmapped custom analyzer 
     await openCsvTab(page);
     await uploadAndRun(page, uploadPath, fixture.service, fixture.metricName);
 
-    await expect(bucketCard(page, 'Not Recommended').getByText(analyzerId, { exact: true })).toBeVisible();
+    await openRouterScoring(page);
+    await expectRouterOutcome(page, analyzerId, 'Not recommended');
   } finally {
     await deleteCustomAnalyzerDraft(env.webUiBackendUrl, draftId, analyzerId);
   }

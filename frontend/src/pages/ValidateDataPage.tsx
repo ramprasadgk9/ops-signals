@@ -46,6 +46,7 @@ import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions'
 import { LockNote } from '../components/LockNote';
 import { PlainBadge, PlainFindingSummary, PlainHeadline } from '../components/PlainFindingSummary';
 import { leadSignal, leadSignalText } from '../utils/findingPlain';
+import { RouterDecisionPanel } from '../components/RouterDecisionPanel';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -169,130 +170,6 @@ function SummaryRow({ icon, label, value }: { icon: ReactNode; label: string; va
       </Stack>
       <Typography sx={{ fontSize: 13, color: ui.text, fontWeight: 850, textAlign: 'right' }}>{value}</Typography>
     </Stack>
-  );
-}
-
-function routerBucketLabel(decision: CsvAnalyzerRoutingDecision) {
-  const recommendation = String(decision.recommendation ?? '').toUpperCase();
-  if (recommendation === 'RECOMMENDED') return 'Recommended';
-  if (recommendation === 'OPTIONAL') return 'Optional';
-  if (recommendation === 'REJECTED') return 'Rejected';
-  return 'Not Recommended';
-}
-
-function executionChipSx(status?: string) {
-  const normalized = String(status ?? 'skipped').toLowerCase();
-  if (normalized === 'completed') return { bgcolor: 'var(--os-tint-green)', color: 'var(--os-ink-green)', fontWeight: 850 };
-  if (normalized === 'failed') return { bgcolor: '#fee2e2', color: '#991b1b', fontWeight: 850 };
-  if (normalized === 'unavailable') return { bgcolor: '#fef3c7', color: 'var(--os-ink-amber)', fontWeight: 850 };
-  return { bgcolor: 'var(--os-surface-alt)', color: 'var(--os-text-2)', fontWeight: 850 };
-}
-
-function RouterDecisionPanel({
-  decisions,
-  executions = [],
-  executedAnalyzers = [],
-}: {
-  decisions: CsvAnalyzerRoutingDecision[];
-  executions?: AnalyzerExecution[];
-  executedAnalyzers?: string[];
-}) {
-  const buckets = ['Recommended', 'Optional', 'Not Recommended', 'Rejected'];
-  const executionByAnalyzer = new Map(
-    executions
-      .filter((execution) => execution.router_analyzer_id)
-      .map((execution) => [execution.router_analyzer_id as string, execution]),
-  );
-  const completedExecutions = executions.filter((execution) => execution.execution_status === 'completed');
-  const failedExecutions = executions.filter((execution) => execution.execution_status === 'failed');
-  const selectedSkippedExecutions = executions.filter(
-    (execution) => execution.selected && execution.execution_status === 'skipped',
-  );
-  const executedLabel = executedAnalyzers.length
-    ? executedAnalyzers.join(', ')
-    : completedExecutions
-      .flatMap((execution) => execution.executed_pipeline_analyzer_ids ?? [])
-      .join(', ') || 'none';
-  const hasExecutionSnapshots = executions.length > 0;
-  return (
-    <Card variant="outlined">
-      <CardContent>
-        <Stack spacing={2}>
-          <Typography variant="h6">Router Decisions</Typography>
-          {decisions.length ? (
-            <Box sx={{ border: '1px solid var(--os-tint-blue-border)', bgcolor: 'var(--os-tint-cyan)', borderRadius: '8px', px: 2, py: 1.5 }}>
-              <Typography sx={{ fontSize: 13, color: 'var(--os-ink-brand)', fontWeight: 850 }}>
-                Executed analyzers: {executedLabel}
-              </Typography>
-              {!hasExecutionSnapshots ? (
-                <Typography sx={{ fontSize: 12, color: 'var(--os-ink-amber)', mt: 0.5 }}>
-                  Execution details were not returned for this run. Re-run analysis after backend/frontend restart to confirm selected vs skipped analyzers.
-                </Typography>
-              ) : null}
-              {selectedSkippedExecutions.length ? (
-                <Typography sx={{ fontSize: 12, color: 'var(--os-ink-brand)', mt: 0.5 }}>
-                  Recommended but not executed: {selectedSkippedExecutions.map((execution) => execution.display_name ?? execution.router_analyzer_id).join(', ')}.
-                </Typography>
-              ) : null}
-              {failedExecutions.length ? (
-                <Typography sx={{ fontSize: 12, color: ui.red, mt: 0.5 }}>
-                  Failed analyzer executions: {failedExecutions.map((execution) => execution.display_name ?? execution.router_analyzer_id).join(', ')}.
-                </Typography>
-              ) : null}
-            </Box>
-          ) : null}
-          {decisions.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No router decisions returned yet.</Typography>
-          ) : (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(4, 1fr)' }, gap: 2 }}>
-              {buckets.map((bucket) => {
-                const items = decisions.filter((decision) => routerBucketLabel(decision) === bucket);
-                return (
-                  <Card key={bucket} variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack spacing={1}>
-                      <Typography sx={{ fontSize: 13, fontWeight: 900 }}>{bucket}</Typography>
-                      {items.length === 0 ? (
-                        <Typography variant="caption" color="text.secondary">None</Typography>
-                      ) : items.map((decision) => {
-                        const displayReason = decision.routing_reason ?? decision.explanation ?? decision.reasons?.[0];
-                        const execution = decision.analyzer_id ? executionByAnalyzer.get(decision.analyzer_id) : undefined;
-                        const ranIds = execution?.executed_pipeline_analyzer_ids ?? [];
-                        const failedIds = execution?.failed_pipeline_analyzer_ids ?? [];
-                        const executionStatus = execution?.execution_status ?? (hasExecutionSnapshots ? 'not selected' : 'unavailable');
-                        return (
-                          <Box key={`${bucket}-${decision.analyzer_id ?? decision.display_name}`} sx={{ borderTop: `1px solid ${ui.border}`, pt: 1 }}>
-                            <Stack direction="row" spacing={0.8} flexWrap="wrap" alignItems="center">
-                              <Chip size="small" label={decision.analyzer_id ?? decision.display_name ?? 'unknown'} />
-                              <Chip size="small" variant="outlined" label={`score ${typeof decision.final_score === 'number' ? decision.final_score.toFixed(2) : 'n/a'}`} />
-                              <Chip size="small" variant="outlined" label={decision.eligible ? 'eligible' : 'ineligible'} />
-                              <Chip size="small" label={`execution ${executionStatus}`} sx={executionChipSx(executionStatus)} />
-                              {ranIds.length ? (
-                                <Chip size="small" variant="outlined" label={`ran ${ranIds.join(', ')}`} />
-                              ) : null}
-                              {failedIds.length ? (
-                                <Chip size="small" variant="outlined" color="error" label={`failed ${failedIds.join(', ')}`} />
-                              ) : null}
-                            </Stack>
-                            {displayReason ? (
-                              <Typography sx={{ color: ui.muted, fontSize: 12, mt: 0.8 }}>{displayReason}</Typography>
-                            ) : null}
-                            {execution?.execution_reason ? (
-                              <Typography sx={{ color: execution.execution_status === 'failed' ? ui.red : ui.muted, fontSize: 12, mt: 0.8 }}>
-                                Execution: {execution.execution_reason}
-                              </Typography>
-                            ) : null}
-                          </Box>
-                        );
-                      })}
-                    </Stack>
-                  </Card>
-                );
-              })}
-            </Box>
-          )}
-        </Stack>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1166,6 +1043,7 @@ export function ValidateDataPage() {
 	                decisions={(promResult.analyzer_routing ?? []) as CsvAnalyzerRoutingDecision[]}
 	                executions={promResult.analyzer_executions ?? []}
 	                executedAnalyzers={promResult.executed_analyzers ?? []}
+	                findingCount={promResult.findings_count}
 	              />
 
 	              {promResult.signal_count === 0 && !dataQualityMessage && !promResult.analyzer_executions?.length ? (
@@ -1283,7 +1161,7 @@ export function ValidateDataPage() {
           {/* After a save, the empty preview panels below would read "nothing returned yet" next to real findings. */}
           {savedCsvRun && !csvMutation.isSuccess ? null : (
           <>
-          <RouterDecisionPanel decisions={routerDecisions} executions={routerExecutions} executedAnalyzers={executedAnalyzers} />
+          <RouterDecisionPanel decisions={routerDecisions} executions={routerExecutions} executedAnalyzers={executedAnalyzers} findingCount={csvMutation.isSuccess ? resultFindings.length : null} />
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Signals</Typography>{resultSignals.length === 0 ? <Typography variant="body2" color="text.secondary">{csvMutation.isSuccess ? 'No signals: the analyzers that ran detected nothing in this data.' : 'No signals returned yet.'}</Typography> : resultSignals.map((signal) => <Card key={signal.signal_id} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={signal.signal_type} size="small" /><Chip label={signal.severity} size="small" /><Chip label={signal.analyzer_id} size="small" /></Stack><Typography variant="subtitle1">{signal.summary}</Typography><Typography variant="body2" color="text.secondary">{signal.metric_name} · {signal.service ?? 'n/a'} · confidence {signal.confidence.toFixed(2)}</Typography></Stack></Card>)}</Stack></CardContent></Card>
           <Card variant="outlined"><CardContent><Stack spacing={2}><Typography variant="h6">Findings</Typography>{resultFindings.length === 0 ? <Typography variant="body2" color="text.secondary">{csvMutation.isSuccess ? 'No findings: nothing in this data stood out enough to report.' : 'No findings returned yet.'}</Typography> : resultFindings.map((finding) => <Card key={`${finding.metric_name}-${finding.title}`} variant="outlined" sx={{ p: 2 }}><Stack spacing={1}><Stack direction="row" spacing={1} flexWrap="wrap"><Chip label={`${findingLevel(finding.health_status).label} importance`} size="small" /><Chip label={finding.category} size="small" /></Stack>{finding.plain ? <><PlainBadge plain={finding.plain} /><Typography variant="subtitle1">{finding.plain.headline}</Typography><PlainFindingSummary plain={finding.plain} summary={`${finding.title} ${finding.summary}`} /></> : <><Typography variant="subtitle1">{finding.title}</Typography><Typography variant="body2" color="text.secondary">{finding.summary}</Typography></>}<Typography variant="caption" color="text.secondary">Importance {finding.importance_score.toFixed(2)} · Priority {finding.investigation_priority}</Typography></Stack></Card>)}</Stack></CardContent></Card>
           </>

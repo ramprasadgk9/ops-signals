@@ -9,10 +9,10 @@ const FIXTURE_DIR = path.resolve(__dirname, '../../../../sample_data/ops_signals
 
 export type RoutingOutcome = 'recommended' | 'optional' | 'conditional' | 'not_recommended' | 'rejected';
 
-/** Title Case bucket labels used by ValidateDataPage's Router Decisions panel — see
- * routerBucketLabel() in frontend/src/pages/ValidateDataPage.tsx. Distinct vocabulary from the
- * lowercase recommended/conditional/not_recommended used by AnalyzerRecommendationPage's chat flow. */
-export type CsvRouterBucket = 'Recommended' | 'Optional' | 'Rejected' | 'Not Recommended';
+/** Router rating labels in the Router Decisions panel's scoring table — see ratingLabel() in
+ * frontend/src/utils/analyzerRuns.ts. Distinct vocabulary from the lowercase
+ * recommended/conditional/not_recommended used by AnalyzerRecommendationPage's chat flow. */
+export type CsvRouterBucket = 'Recommended' | 'Optional' | 'Ruled out' | 'Not recommended';
 
 export type AnalyzerFixture = {
   file: string;
@@ -40,7 +40,7 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     service: 'test-ruptures-abrupt-regime-shift',
     metricName: 'cpu_usage',
     expectedOutcomes: { ruptures: 'recommended', trend_regression: 'not_recommended' },
-    csvRouterOutcomes: { ruptures: 'Recommended', pyod_outlier: 'Not Recommended' },
+    csvRouterOutcomes: { ruptures: 'Recommended', pyod_outlier: 'Not recommended' },
   },
   trend: {
     file: '02_trend_smooth_linear_increase.csv',
@@ -50,7 +50,7 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     // prophet is rejected, not recommended: the prophet package isn't in requirements.txt, and the
     // router rejects an analyzer whose requires_library is missing (af162d6).
     expectedOutcomes: { trend_regression: 'recommended', prophet: 'rejected' },
-    csvRouterOutcomes: { trend_regression: 'Recommended', stumpy: 'Not Recommended', ruptures: 'Optional' },
+    csvRouterOutcomes: { trend_regression: 'Recommended', stumpy: 'Not recommended', ruptures: 'Optional' },
   },
   stumpy: {
     file: '03_stumpy_repeating_motif.csv',
@@ -58,7 +58,7 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     service: 'test-stumpy-repeating-motif',
     metricName: 'cpu_usage',
     expectedOutcomes: { stumpy: 'recommended' },
-    csvRouterOutcomes: { stumpy: 'Recommended', pyod_outlier: 'Not Recommended' },
+    csvRouterOutcomes: { stumpy: 'Recommended', pyod_outlier: 'Not recommended' },
   },
   pyodOutlier: {
     file: '04_pyod_adtk_isolated_spikes.csv',
@@ -66,10 +66,10 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     service: 'test-pyod-adtk-isolated-spikes',
     metricName: 'cpu_usage',
     expectedOutcomes: { pyod_outlier: 'recommended', ruptures: 'optional' },
-    // README says PyOD/ADTK should be primary here; the live router instead recommends
-    // stumpy/prophet/trend_regression/darts and rejects pyod_outlier/adtk. Asserting real
-    // behavior per this suite's scope decision — see the discrepancy note in the spec file.
-    csvRouterOutcomes: { stumpy: 'Recommended', pyod_outlier: 'Not Recommended', adtk: 'Not Recommended' },
+    // The router now recommends pyod_outlier here (score 0.86 on 2026-10-20, as the sample README
+    // expects). The 2026-09-08 capture said "Not recommended"; the old bucket check matched the
+    // outer card and couldn't tell the two apart, so the stale value went unnoticed.
+    csvRouterOutcomes: { stumpy: 'Recommended', pyod_outlier: 'Recommended', adtk: 'Not recommended' },
   },
   mixed: {
     file: '05_kats_mixed_behavior.csv',
@@ -77,7 +77,7 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     service: 'test-kats-mixed-behavior',
     metricName: 'cpu_usage',
     expectedOutcomes: { kats: 'recommended', stumpy: 'not_recommended' },
-    csvRouterOutcomes: { kats: 'Recommended', ruptures: 'Recommended', stumpy: 'Not Recommended' },
+    csvRouterOutcomes: { kats: 'Recommended', ruptures: 'Recommended', stumpy: 'Not recommended' },
   },
 };
 

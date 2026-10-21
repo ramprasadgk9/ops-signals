@@ -297,6 +297,7 @@ def _config_to_registration_dict(config: AnalyzerConfigIn) -> dict:
     )
     return {
         "display_name": legacy_shape["display_name"],
+        **({"description": config.description.strip()} if config.description.strip() else {}),
         "enabled": config.enabled,
         **runtime,
         "router": {

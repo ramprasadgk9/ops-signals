@@ -83,6 +83,9 @@ class AnalyzerRegistration:
     # runs a simpler fallback, not the method the router scored, so it may not take one of the
     # router's max_analyzers slots (it still runs when every analyzer is asked for).
     requires_library: str | None = None
+    # One or two plain sentences on what the analyzer looks for, with an example. Shown as a tip
+    # next to the analyzer's name in the web UI and the Grafana plugin.
+    description: str | None = None
 
 
 def _validate_entry(analyzer_id: str, data: dict[str, Any]) -> list[str]:
@@ -155,6 +158,7 @@ def _parse_entry(analyzer_id: str, data: dict[str, Any], source_file: str) -> An
         runtime_params=dict(data.get("runtime_params") or {}),
         always_run=bool(data.get("always_run", False)),
         requires_library=data.get("requires_library"),
+        description=str(data.get("description") or "").strip() or None,
     )
 
 

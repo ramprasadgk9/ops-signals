@@ -655,6 +655,14 @@ export type AnalyzerExecution = {
   failed_pipeline_analyzer_ids?: string[];
   execution_status?: 'completed' | 'skipped' | 'failed' | string;
   execution_reason?: string | null;
+  /** Why it ran or didn't; see intelligence/analyzer_selection.py RUN_REASON_TEXT. Absent on older runs. */
+  run_reason?: string | null;
+  shapes?: string[];
+  missing_library?: string | null;
+  /** Whether its signals are part of a finding; null when it didn't run or the run predates this. */
+  in_finding?: boolean | null;
+  /** What the analyzer looks for, in plain words, from its registration. */
+  description?: string | null;
 };
 
 export type AnalysisRun = {
@@ -795,6 +803,7 @@ export type CsvAnalyzerRoutingDecision = {
   routing_reason?: string;
   reasons?: string[];
   warnings?: string[];
+  parameters_tested?: { detected_profiles?: string[] } | null;
 };
 
 export type MetricSample = {

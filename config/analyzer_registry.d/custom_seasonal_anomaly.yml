@@ -1,6 +1,7 @@
 analyzers:
   seasonal_anomaly:
     display_name: Seasonal Anomaly
+    description: "Compares each value with what is normal for that time of day or week. Example: high CPU at 2 AM."
     enabled: true
     class_path: backend.app.analyzers.custom.seasonal_anomaly.SeasonalAnomalyAnalyzer
     # Not routed: without supported_profiles or scoring_rules the router never picks it, so it runs

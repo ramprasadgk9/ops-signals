@@ -65,6 +65,8 @@ class AnalyzerConfigIn(BaseModel):
     runtime_params: dict[str, Any] = Field(default_factory=dict)
     selected_explanation: str
     excluded_explanation: str
+    # What the analyzer looks for, in plain words; shown as a tip next to its name in results.
+    description: str = ""
 
 
 class AnalyzerConfigOut(AnalyzerConfigIn):
@@ -244,6 +246,7 @@ def _new_registration_to_ui(registration: AnalyzerRegistration) -> AnalyzerConfi
         runtime_params=dict(registration.runtime_params),
         selected_explanation=str(registration.router.explanation_templates.get("selected", "")),
         excluded_explanation=str(registration.router.explanation_templates.get("excluded", "")),
+        description=registration.description or "",
         source="custom",
         routable=True,
         executable=adapter_exists or is_http,

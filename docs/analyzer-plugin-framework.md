@@ -71,6 +71,11 @@ A registered analyzer runs on CSV/interactive runs and on scheduled (autonomous)
 both build analyzers from `config/analyzer_registry.d/` through the same shared code
 (`intelligence/analyzer_selection.py`) - and appears in the Recommendations view.
 
+Give every analyzer a `description` (top level, next to `display_name`): one or two plain
+sentences on what it looks for, with an example. The web UI and the Grafana plugin show it as a
+tip next to the analyzer's name in results, so readers don't have to look it up. The wizard's
+"What it looks for" field writes it.
+
 Two options exist for guard-style analyzers such as a data-health check (both are also switches
 in the wizard):
 
@@ -85,6 +90,7 @@ in the wizard):
 analyzers:
   data_health:
     display_name: Data Health
+    description: "Checks whether the metric stopped reporting or got stuck at one value. Example: a metric stops updating."
     class_path: backend.app.analyzers.custom.data_health.DataHealthAnalyzer
     always_run: true
     router:
