@@ -310,7 +310,7 @@ function localAssistantAnswer(
   let headline = 'Current investigation summary';
   let answer = `${result.metric} for ${result.service} returned ${sampleCount.toLocaleString()} Prometheus samples. `;
   if (finding) {
-    answer += `The top finding is "${finding.title}" with importance ${formatNumber(finding.importance_score)}. `;
+    answer += `The top finding is "${finding.plain?.headline ?? finding.title}" with importance ${formatNumber(finding.importance_score)}. `;
   } else {
     answer += 'No operational finding was emitted for this run. ';
   }
@@ -1471,7 +1471,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
                       setEvidenceExpanded(false);
                     }}
                   >
-                    {finding.title}
+                    {finding.plain ? `${finding.plain.badge_label}: ${finding.plain.headline}` : finding.title}
                   </button>
                 ))}
               </div>

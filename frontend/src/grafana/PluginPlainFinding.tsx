@@ -16,8 +16,9 @@ const TONE: Record<PlainTone, { color: string; border: string; background: strin
 export function PluginPlainBadge({ plain }: { plain: FindingPlain }) {
   const tone = TONE[plainTone(plain.badge)];
   const important = TONE[plain.service_importance === 'critical' ? 'gap' : 'neutral'];
+  // A box of its own, so the chips keep their size in a column layout instead of stretching.
   return (
-    <>
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', alignSelf: 'flex-start', flex: 'none' }}>
       <span
         data-testid="plugin-plain-badge"
         style={{ ...styles.chip, color: tone.color, borderColor: tone.border, background: tone.background, fontWeight: 600, flex: 'none' }}
@@ -25,11 +26,11 @@ export function PluginPlainBadge({ plain }: { plain: FindingPlain }) {
         {plain.badge_label}
       </span>
       {plain.service_importance_label ? (
-        <span data-testid="plugin-plain-importance" style={{ ...styles.chip, color: important.color, borderColor: important.border, marginLeft: 6, flex: 'none' }}>
+        <span data-testid="plugin-plain-importance" style={{ ...styles.chip, color: important.color, borderColor: important.border, flex: 'none' }}>
           {plain.service_importance_label}
         </span>
       ) : null}
-    </>
+    </span>
   );
 }
 
