@@ -237,4 +237,13 @@ describe('FindingCard plain wording', () => {
     expect(screen.getByText(/^Above your 1% target since Oct 19, .+ \(2 hours so far\)\.$/)).toBeInTheDocument();
     expect(screen.getByText('Customers pay for their orders here.')).toBeInTheDocument();
   });
+
+  it('keeps the analyzer wording of the strongest signal under Technical details', async () => {
+    const { PlainFindingSummary } = await import('./PlainFindingSummary');
+    render(<PlainFindingSummary plain={plainFinding.plain!} summary="stored" signal="A stretch unlike the rest. (stumpy · confidence 1.00)" />);
+
+    expect(screen.queryByTestId('finding-plain-signal')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Technical details/ }));
+    expect(screen.getByTestId('finding-plain-signal')).toHaveTextContent('Strongest signal: A stretch unlike the rest. (stumpy · confidence 1.00)');
+  });
 });

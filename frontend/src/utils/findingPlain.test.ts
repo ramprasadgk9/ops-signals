@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
+import { leadSignal, leadSignalText, plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
 import type { FindingPlain } from '../types';
 
 // Finding #8300 as the backend words it (tests/test_finding_plain.py).
@@ -83,5 +83,25 @@ describe('plainParagraph and plainTone', () => {
 
   it('gives each badge a tone, unknown ones neutral', () => {
     expect([plainTone('worse'), plainTone('better'), plainTone('gap'), plainTone('noise'), plainTone('whatever')]).toEqual(['bad', 'good', 'gap', 'neutral', 'neutral']);
+  });
+});
+
+describe('leadSignal', () => {
+  const weakFromElsewhere = { id: 'other', summary: 'A weak wobble elsewhere.', analyzer_id: 'anomaly_zscore', confidence: 0.4, importance_score: 0.2 };
+  const stretch = { id: 'a', summary: 'A stretch of 16 points unlike anything else.', analyzer_id: 'stumpy', confidence: 1, importance_score: 0.6 };
+  const trend = { id: 'b', summary: 'An upward trend.', analyzer_id: 'trend', confidence: 0.7, importance_score: 0.3 };
+
+  it("picks the strongest of the finding's own signals, not the run's first", () => {
+    expect(leadSignal(['a', 'b'], [weakFromElsewhere, trend, stretch])).toBe(stretch);
+  });
+
+  it("falls back to the run's first signal when the finding names none of them", () => {
+    expect(leadSignal(['missing'], [weakFromElsewhere, trend])).toBe(weakFromElsewhere);
+    expect(leadSignal(undefined, [])).toBeNull();
+  });
+
+  it('writes it as one line with its analyzer and confidence', () => {
+    expect(leadSignalText(stretch)).toBe('A stretch of 16 points unlike anything else. (stumpy · confidence 1.00)');
+    expect(leadSignalText(null)).toBeNull();
   });
 });

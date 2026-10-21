@@ -61,3 +61,23 @@ export function plainParagraph(plain: FindingPlain | null | undefined, options: 
   if (!plain) return null;
   return [`${plain.badge_label}: ${plain.headline}.`, plainTimes(plain.what, options), plainTimes(plain.target, options), plainTimes(plain.why, options)].filter(Boolean).join(' ');
 }
+
+export type LeadSignal = { id?: string; summary?: string | null; signal_type?: string; analyzer_id?: string | null; confidence?: number | null; importance_score?: number | null };
+
+/**
+ * The signal that best stands for a finding: the strongest of its own signals (importance, then
+ * confidence). Falls back to the run's first signal only when the finding names none that were
+ * returned, so a weak signal from elsewhere in the run doesn't stand in for the finding.
+ */
+export function leadSignal<T extends LeadSignal>(signalIds: string[] | undefined, signals: T[]): T | null {
+  const own = signals.filter((signal) => signal.id !== undefined && (signalIds ?? []).includes(signal.id));
+  if (!own.length) return signals[0] ?? null;
+  return [...own].sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0) || (b.confidence ?? 0) - (a.confidence ?? 0))[0];
+}
+
+/** One line for the signal under Technical details: "<summary> (stumpy · confidence 1.00)". */
+export function leadSignalText(signal: LeadSignal | null | undefined): string | null {
+  if (!signal) return null;
+  const confidence = typeof signal.confidence === 'number' ? ` · confidence ${signal.confidence.toFixed(2)}` : '';
+  return `${signal.summary ?? signal.signal_type ?? 'Signal'} (${signal.analyzer_id ?? 'unknown analyzer'}${confidence})`;
+}

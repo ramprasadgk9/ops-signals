@@ -160,6 +160,7 @@ templates:
   odd_stretch:
     headline: "{plain_name} had a stretch unlike the rest of the series"
     what: From {first_time} to {last_time}.
+    why: A stretch unlike the rest can be an early sign of trouble, or a one-off such as a batch job, a test or a release.
 
   # Data stopped arriving.
   data_gap:

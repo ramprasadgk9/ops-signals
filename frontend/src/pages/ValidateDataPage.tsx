@@ -45,6 +45,7 @@ import type { AnalyzerExecution, CsvAnalyzerRoutingDecision, CsvRunResult, CsvVa
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { LockNote } from '../components/LockNote';
 import { PlainBadge, PlainFindingSummary, PlainHeadline } from '../components/PlainFindingSummary';
+import { leadSignal, leadSignalText } from '../utils/findingPlain';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -655,7 +656,8 @@ export function ValidateDataPage() {
   const firstSample = previewSamples[0]?.timestamp;
   const lastSample = previewSamples[previewSamples.length - 1]?.timestamp;
   const primaryFinding = promResult?.findings[0];
-  const primarySignal = promResult?.signals[0];
+  // The finding's own strongest signal, not just the run's first one.
+  const primarySignal = promResult ? leadSignal(primaryFinding?.signal_ids, promResult.signals) : null;
   const dataQualityMessage = buildDataQualityMessage(promResult);
 
   return (
@@ -1102,7 +1104,7 @@ export function ValidateDataPage() {
 	                      {primaryFinding.plain ? <PlainBadge plain={primaryFinding.plain} /> : null}
 	                      <Typography sx={{ fontSize: 17, fontWeight: 900, color: ui.text }}>{primaryFinding.plain?.headline ?? primaryFinding.title}</Typography>
 	                      {primaryFinding.plain ? (
-	                        <PlainFindingSummary plain={primaryFinding.plain} summary={`${primaryFinding.title} ${primaryFinding.summary}`} />
+	                        <PlainFindingSummary plain={primaryFinding.plain} summary={`${primaryFinding.title} ${primaryFinding.summary}`} signal={leadSignalText(primarySignal)} />
 	                      ) : (
 	                        <Typography sx={{ color: 'var(--os-text-2)', fontSize: 14, lineHeight: 1.55 }}>{primaryFinding.summary}</Typography>
 	                      )}
@@ -1132,7 +1134,8 @@ export function ValidateDataPage() {
 	                  ) : (
 	                    <Typography color="text.secondary">No findings were emitted for this run.</Typography>
 	                  )}
-	                  {primarySignal ? (
+	                  {/* With plain wording the signal is under Technical details; analyzer words stay out of the summary. */}
+	                  {primarySignal && !primaryFinding?.plain ? (
 	                    <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${ui.border}` }}>
 	                      <Typography sx={{ fontWeight: 850, color: ui.text, mb: 0.7 }}>Primary Signal</Typography>
 	                      <Typography sx={{ color: 'var(--os-text-2)', fontSize: 14 }}>{primarySignal.summary ?? primarySignal.signal_type}</Typography>

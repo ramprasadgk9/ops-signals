@@ -41,11 +41,14 @@ export function PlainBadge({ plain }: { plain: FindingPlain }) {
 export function PlainFindingSummary({
   plain,
   summary,
+  signal,
   onOpenFinding,
 }: {
   plain: FindingPlain;
   /** The finding's stored summary, shown under Technical details. */
   summary: string;
+  /** The finding's strongest signal in analyzer words (utils/findingPlain leadSignalText), also under Technical details. */
+  signal?: string | null;
   onOpenFinding?: (findingId: number) => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
@@ -96,9 +99,16 @@ export function PlainFindingSummary({
           {showDetails ? '▾' : '▸'} Technical details
         </Button>
         {showDetails ? (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: 13 }} data-testid="finding-plain-details">
-            {summary}
-          </Typography>
+          <Stack spacing={0.75} sx={{ mt: 0.5 }} data-testid="finding-plain-details">
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }}>
+              {summary}
+            </Typography>
+            {signal ? (
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13 }} data-testid="finding-plain-signal">
+                <strong>Strongest signal:</strong> {signal}
+              </Typography>
+            ) : null}
+          </Stack>
         ) : null}
       </Box>
     </Stack>

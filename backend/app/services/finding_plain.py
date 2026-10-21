@@ -662,7 +662,11 @@ def _odd_stretch(signals: list[SignalFacts], meaning: MetricMeaning, wording: Wo
     headline, what = _fill(template.get("headline"), values), _fill(template.get("what"), values)
     if not headline or not what:
         return None
-    return Plain(kind="odd_stretch", badge="changed", headline=headline, what=what, why=_fill(wording.unknown_meaning, values) if not meaning.concept else None, check=None)
+    # Which way a stretch went isn't known, so a described metric gets the template's neutral
+    # sentence rather than its worse or better one; an undescribed metric says it isn't described.
+    concept = wording.concepts.get(meaning.concept or "") or {}
+    why = _fill(template.get("why"), values) if meaning.concept else _fill(wording.unknown_meaning, values)
+    return Plain(kind="odd_stretch", badge="changed", headline=headline, what=what, why=why, check=_fill(concept.get("check"), values))
 
 
 def _data_gap(gaps: list[SignalFacts], wording: Wording, base: dict[str, Any]) -> Plain | None:

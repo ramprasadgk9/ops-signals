@@ -431,3 +431,20 @@ def test_a_service_without_context_reads_as_before() -> None:
     plain = _plain(8300)
     shown = plain.to_json(load_wording())
     assert (shown["target"], shown["service_about"], shown["service_importance"], shown["service_importance_label"]) == (None, None, None, None)
+
+
+def test_an_odd_stretch_on_a_described_metric_says_why_and_what_to_check() -> None:
+    finding = FindingFacts("request_latency_p95", "checkout", "request_latency_p95 has unusual activity in the selected time window.", "unusual_activity")
+    stretch = SignalFacts("anomaly", "stumpy", {"surprise": 13.9}, "2026-10-19T22:49:00Z", "2026-10-20T21:09:00Z")
+    plain = build_plain(finding, [stretch], load_wording())
+    assert (plain.kind, plain.badge) == ("odd_stretch", "changed")
+    assert plain.why == "A stretch unlike the rest can be an early sign of trouble, or a one-off such as a batch job, a test or a release."
+    assert plain.check == "Load on checkout, slow database queries, and the services it calls."
+
+
+def test_an_odd_stretch_on_an_undescribed_metric_says_it_needs_describing() -> None:
+    finding = FindingFacts("ops_signal_lab_value", "spike-lab", "ops_signal_lab_value has unusual activity in the selected time window.", "unusual_activity")
+    stretch = SignalFacts("anomaly", "stumpy", {"surprise": 13.9}, "2026-10-19T22:49:00Z", "2026-10-20T21:09:00Z")
+    plain = build_plain(finding, [stretch], load_wording())
+    assert plain.why.startswith("We don't know what this metric means")
+    assert plain.check is None
