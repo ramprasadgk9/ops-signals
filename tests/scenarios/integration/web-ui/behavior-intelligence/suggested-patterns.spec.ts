@@ -11,7 +11,7 @@ function ownCard(title: import('@playwright/test').Locator): import('@playwright
 }
 
 const PACK_DIR = path.resolve(__dirname, '../../../../../config/behavior_definitions.d');
-// The page's "Promote to Pack" button has no file picker — it always writes into this shared
+// The page's "Save as is" button (promote) has no file picker — it always writes into this shared
 // default (see queries.ts promoteBehaviorSuggestion's `packFile ?? 'suggested_patterns.yml'`), so
 // cleanup must remove only this test's own entry, not the whole file — other promotions (real or
 // from other test runs) may share it.
@@ -34,7 +34,7 @@ function removeDefinitionFromPack(definitionId: string): void {
  * miner (backend/app/behavior_intelligence/pattern_miner.py). Seeds 3 occasions of two metrics
  * whose signal windows land close together (within CO_OCCURRENCE_GAP=30min) on the same service,
  * meeting MIN_OCCASIONS=3 and MIN_CORRELATION_STRENGTH=0.5 so a real candidate surfaces, then
- * drives Mine -> review -> Promote through the actual page.
+ * drives Mine -> review -> Save as is (promote) through the actual page.
  */
 test.describe('Behavior Intelligence — suggested patterns', () => {
   test('mining seeded co-occurring signals surfaces a suggestion, which can be promoted to a pack', async ({ page }) => {
@@ -55,7 +55,7 @@ test.describe('Behavior Intelligence — suggested patterns', () => {
       }
 
       await page.goto('/behavior-intelligence');
-      await page.getByRole('tab', { name: 'Suggested Patterns' }).click();
+      await page.getByRole('tab', { name: /^Patterns/ }).click();
       await page.locator('button:has-text("Mine Suggestions")').click();
 
       const suggestionCard = page.locator(`text=${metricA} + ${metricB} on ${service}`);
@@ -67,7 +67,7 @@ test.describe('Behavior Intelligence — suggested patterns', () => {
 
       const definitionId = `suggested_${metricA}_${metricB}`;
 
-      await card.getByRole('button', { name: 'Promote to Pack' }).click();
+      await card.getByRole('button', { name: 'Save as is' }).click();
       await expect(suggestionCard).not.toBeVisible({ timeout: 15_000 });
 
       const response = await page.request.get(`${env.webUiBackendUrl}/api/behavior-definitions/suggestions?status=promoted`);
@@ -106,7 +106,7 @@ test.describe('Behavior Intelligence — suggested patterns', () => {
       }
 
       await page.goto('/behavior-intelligence');
-      await page.getByRole('tab', { name: 'Suggested Patterns' }).click();
+      await page.getByRole('tab', { name: /^Patterns/ }).click();
       await page.locator('button:has-text("Mine Suggestions")').click();
 
       const suggestionCard = page.locator(`text=${metricA} + ${metricB} on ${service}`);
