@@ -9,12 +9,10 @@ import { env } from '../../shared/env';
  * dev/mock_prometheus_target.py's Prometheus-scrape replay), which the upload endpoint rejects —
  * writeUploadableCsv() reshapes them to `timestamp,metric,value,service` first.
  *
- * Expected outcomes are captured from a live run (2026-09-08), not from
- * sample_data/ops_signals_test_series/README.md's "Expected routing behavior" table — that table
- * disagrees with the live router for fixture 04 (see below and analyzerFixtures.pyodOutlier's
- * comment in shared/fixtures.ts). This suite asserts real behavior so it catches real regressions
- * from today's baseline; the README-vs-router discrepancy itself is a separate open question for
- * the team, not something resolved here.
+ * Expected outcomes are captured from live runs (2026-09-08, fixture 04 re-captured 2026-10-20),
+ * not from sample_data/ops_signals_test_series/README.md's "Expected routing behavior" table, so
+ * this suite catches real regressions from today's baseline. See analyzerFixtures.pyodOutlier's
+ * comment in shared/fixtures.ts for fixture 04.
  */
 
 async function openCsvTab(page: import('@playwright/test').Page) {

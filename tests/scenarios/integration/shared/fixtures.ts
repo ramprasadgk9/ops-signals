@@ -66,10 +66,10 @@ export const analyzerFixtures: Record<string, AnalyzerFixture> = {
     service: 'test-pyod-adtk-isolated-spikes',
     metricName: 'cpu_usage',
     expectedOutcomes: { pyod_outlier: 'recommended', ruptures: 'optional' },
-    // README says PyOD/ADTK should be primary here; the live router instead recommends
-    // stumpy/prophet/trend_regression/darts and rejects pyod_outlier/adtk. Asserting real
-    // behavior per this suite's scope decision — see the discrepancy note in the spec file.
-    csvRouterOutcomes: { stumpy: 'Recommended', pyod_outlier: 'Not recommended', adtk: 'Not recommended' },
+    // The router now recommends pyod_outlier here (score 0.86 on 2026-10-20, as the sample README
+    // expects). The 2026-09-08 capture said "Not recommended"; the old bucket check matched the
+    // outer card and couldn't tell the two apart, so the stale value went unnoticed.
+    csvRouterOutcomes: { stumpy: 'Recommended', pyod_outlier: 'Recommended', adtk: 'Not recommended' },
   },
   mixed: {
     file: '05_kats_mixed_behavior.csv',
