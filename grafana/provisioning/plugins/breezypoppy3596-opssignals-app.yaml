@@ -10,3 +10,5 @@ apps:
     jsonData:
       backendUrl: http://host.docker.internal:8002
       connectMode: grafana
+      # Where browsers open the web UI (scripts/run_all.sh); behavior findings link there.
+      webUiUrl: http://localhost:5174

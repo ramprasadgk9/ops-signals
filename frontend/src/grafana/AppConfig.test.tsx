@@ -33,7 +33,7 @@ describe('AppConfig', () => {
     expect(save).toHaveBeenCalledWith('ops-signals-app', {
       enabled: true,
       pinned: true,
-      jsonData: { other: 'kept', backendUrl: 'http://host.docker.internal:8002', connectMode: 'grafana' },
+      jsonData: { other: 'kept', backendUrl: 'http://host.docker.internal:8002', connectMode: 'grafana', webUiUrl: '' },
       secureJsonData: { apiToken: 's3cret' },
     });
   });
@@ -49,7 +49,7 @@ describe('AppConfig', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(save).toHaveBeenCalled());
     // No token typed: nothing encrypted is sent, so Grafana keeps what it has.
-    expect(save.mock.calls[0][1]).toEqual({ enabled: true, pinned: true, jsonData: { backendUrl: 'http://backend:8000', connectMode: 'direct' } });
+    expect(save.mock.calls[0][1]).toEqual({ enabled: true, pinned: true, jsonData: { backendUrl: 'http://backend:8000', connectMode: 'direct', webUiUrl: '' } });
   });
 
   it('clears a saved backend URL with an empty value, not a missing key', async () => {
@@ -60,7 +60,7 @@ describe('AppConfig', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
 
     await waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][1].jsonData).toEqual({ backendUrl: '', connectMode: 'direct' });
+    expect(save.mock.calls[0][1].jsonData).toEqual({ backendUrl: '', connectMode: 'direct', webUiUrl: '' });
   });
 
   it('shows a saved token only as Configured, and Reset removes it', async () => {
@@ -107,7 +107,21 @@ describe('AppConfig', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enable and save' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Permission denied');
-    expect(save).toHaveBeenCalledWith('ops-signals-app', { enabled: true, pinned: true, jsonData: { connectMode: 'direct', backendUrl: '' } });
+    expect(save).toHaveBeenCalledWith('ops-signals-app', { enabled: true, pinned: true, jsonData: { connectMode: 'direct', backendUrl: '', webUiUrl: '' } });
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('saves the web UI address, and refuses one that is not a URL', async () => {
+    const save = vi.fn().mockResolvedValue({});
+    render(<AppConfig plugin={{ meta: meta({ jsonData: { backendUrl: 'http://backend:8000', connectMode: 'grafana' } }) }} save={save} reload={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('Web UI address'), { target: { value: 'ops signals' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter the web UI address as an http:// or https:// URL.');
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Web UI address'), { target: { value: 'http://localhost:5174/' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][1].jsonData).toEqual({ backendUrl: 'http://backend:8000', connectMode: 'grafana', webUiUrl: 'http://localhost:5174' });
   });
 });

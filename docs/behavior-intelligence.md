@@ -145,6 +145,12 @@ independent packs, not one shared file) and restart the backend to pick it up.
 - **Behavior Intelligence → Patterns** lists every rule with its proof, the analyzers it needs and
   when it last fired; the known patterns to start from; and the pairs mined from your data. Admins
   open the builder there to write a rule, test it on a past run and save it to a pack.
+- **In the Grafana plugin**, the *Behavior findings* panel (Autonomous overview and Interactive
+  analysis results) shows the same evidence: each metric with its shape, change and window, the
+  overlap, conditions passed and the rule. On the Autonomous overview, a symptom that is one of a
+  match's metrics in the same run carries "Part of: <match> · N metrics", which jumps to it. Rules
+  are written in the web UI only; when the plugin's *Ops Signals web UI address* setting is filled
+  in, the panel links there (*Manage patterns*, and *Open in Ops Signals* per match).
 
 ## Rule Facts That Do Not Depend On One Analyzer
 

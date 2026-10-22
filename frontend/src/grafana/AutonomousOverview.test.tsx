@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAutonomousDashboardData } from '../autonomous/dashboardModel';
-import type { Finding, FindingTrust } from '../types';
+import type { BehaviorFinding, Finding, FindingTrust } from '../types';
 import { getCase, listCases, listPrometheusConnections } from './backendClient';
 import type { GrafanaCase } from './contracts';
 import { GrafanaAutonomousOverview } from './PluginApp';
@@ -68,8 +68,9 @@ function grafanaCase(id: number, findingId: number): GrafanaCase {
   };
 }
 
-function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter }: {
+function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter, behaviorFindings = [] }: {
   onCreateCase: (finding: Finding) => Promise<number | null>;
+  behaviorFindings?: BehaviorFinding[];
   findings?: Finding[];
   onInvestigateInteractive?: (finding: Finding) => void;
   clusters?: string[];
@@ -86,7 +87,7 @@ function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive =
       clusters={clusters}
       clusterFilter={null}
       onClusterFilter={onClusterFilter}
-      behaviorFindings={[]}
+      behaviorFindings={behaviorFindings}
       state="ready"
       context={{}}
       endpointErrors={[]}
@@ -240,5 +241,56 @@ describe('GrafanaAutonomousOverview symptom triage', () => {
     await renderOverview();
 
     expect(screen.queryByRole('group', { name: 'Cluster' })).not.toBeInTheDocument();
+  });
+});
+
+// A rule that matched error_rate and p95 latency together in run-1 on trend-lab.
+const LATENCY_AND_ERRORS: BehaviorFinding = {
+  id: 77, behavior_id: 'b', definition_id: 'latency_error_cascade', definition_version: 1,
+  title: 'Possible cascading failure', summary: 'Latency and errors rose together.', category: 'availability', severity: 'high',
+  service: 'trend-lab', analysis_run_id: 'run-1',
+  input_metrics_json: { latency: 'p95_latency_ms', errors: 'error_rate' },
+  facts_json: {
+    latency: { ruptures: { present: true, signed_change_percent: 7.4 } },
+    errors: { ruptures: { present: true, signed_change_percent: 671 } },
+  },
+  evidence_json: [], matched_conditions_json: [{ passed: true }, { passed: true }], confidence: 1,
+  correlation_json: { matched: true, overlap_minutes: 42 }, case_id: null, occurrence_count: 1,
+  last_seen_at: '2026-10-09T05:00:00Z', created_at: '2026-10-09T05:00:00Z',
+};
+
+describe('GrafanaAutonomousOverview behavior matches', () => {
+  beforeEach(() => {
+    cases.mockReset().mockResolvedValue([grafanaCase(31, 6519)]);
+    connections.mockReset().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] });
+  });
+
+  it('says which symptoms are one problem, and jumps to the match', async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    await renderOverview({ behaviorFindings: [LATENCY_AND_ERRORS] });
+
+    const rows = within(screen.getByTestId('symptom-triage')).getAllByTestId('triage-attention');
+    expect(rows.map((row) => within(row).queryByTestId('symptom-part-of')?.textContent ?? null)).toEqual([
+      'Part of: Possible cascading failure · 2 metrics',
+      'Part of: Possible cascading failure · 2 metrics',
+    ]);
+
+    fireEvent.click(within(rows[1]).getByTestId('symptom-part-of'));
+    expect(scrolled).toHaveBeenCalled();
+    // The chip is not the row: clicking it does not select that symptom.
+    expect(rows[1]).toHaveAttribute('aria-pressed', 'false');
+
+    const match = screen.getByTestId('plugin-behavior-finding');
+    expect(match).toHaveAttribute('id', 'plugin-behavior-77');
+    expect(within(match).getAllByTestId('plugin-behavior-metric').map((metric) => metric.textContent)).toEqual([
+      expect.stringContaining('p95_latency_ms'),
+      expect.stringContaining('error_rate'),
+    ]);
+  });
+
+  it('gives no chip to a symptom from another run', async () => {
+    await renderOverview({ behaviorFindings: [{ ...LATENCY_AND_ERRORS, analysis_run_id: 'run-9' }] });
+    expect(screen.queryByTestId('symptom-part-of')).not.toBeInTheDocument();
   });
 });

@@ -11,12 +11,14 @@ import {
   type PrometheusDatasourceRef,
 } from './grafanaPrometheus';
 import { InvestigationDrawer, PanelPreview } from './PanelPreview';
-import { activeBackendUrl, backendOptionsFor, configuredBackendUrl, isGrafanaProxyUrl, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
+import { activeBackendUrl, backendOptionsFor, configuredBackendUrl, configuredWebUiUrl, isGrafanaProxyUrl, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
 import { ApiTokenField } from './ApiTokenField';
 import { Card, Field, styles } from './plainUi';
 import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel';
 import { asGrafanaRole, grafanaUserRole, LockReason, LOCK_REASONS, PermissionsProvider, usePermissions } from './permissions';
-import { PluginBehaviorFindings } from './PluginBehaviorFindings';
+import { behaviorAnchor, PluginBehaviorFindings } from './PluginBehaviorFindings';
+import { WebUiContext } from './webUiLink';
+import { patternParts, patternsByFinding } from '../utils/combinedPatterns';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
@@ -577,6 +579,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
 
   return (
     <PermissionsProvider role={role}>
+    <WebUiContext.Provider value={configuredWebUiUrl(props.meta?.jsonData) ?? null}>
     <main style={styles.shell}>
       <div>
         <h1 style={{ margin: 0 }}>Ops Signals</h1>
@@ -907,6 +910,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
         />
       )}
     </main>
+    </WebUiContext.Provider>
     </PermissionsProvider>
   );
 }
@@ -2477,6 +2481,17 @@ export function GrafanaAutonomousOverview({
   const primaryServiceName = primaryService?.service ?? null;
   const symptoms = useMemo(() => (primaryServiceName ? serviceSymptoms(findings, primaryServiceName) : []), [findings, primaryServiceName]);
   const triage = useMemo(() => triageSymptoms(symptoms), [symptoms]);
+  // Behavior matches each finding is part of: same service, one of the rule's metrics, same run.
+  const patternsOfFinding = useMemo(() => patternsByFinding(behaviorFindings, findings), [behaviorFindings, findings]);
+  const patternsOf = (symptom: ServiceSymptom): BehaviorFinding[] => {
+    const seen = new Map<number, BehaviorFinding>();
+    for (const run of symptom.runs) for (const behavior of patternsOfFinding.get(run.id ?? -1) ?? []) seen.set(behavior.id, behavior);
+    return [...seen.values()];
+  };
+  const linkedBehaviorIds = useMemo(
+    () => [...new Set(triage.attention.flatMap((row) => row.lead.runs.flatMap((run) => (patternsOfFinding.get(run.id ?? -1) ?? []).map((behavior) => behavior.id))))],
+    [triage, patternsOfFinding],
+  );
   const [showAllSymptoms, setShowAllSymptoms] = useState(false);
   // Finding id -> case id: the service's cases, plus cases opened on this page since.
   const [serviceCases, setServiceCases] = useState<Map<number, number>>(new Map());
@@ -2767,6 +2782,7 @@ export function GrafanaAutonomousOverview({
               onSelect={(symptom) => onOpenInvestigation(symptom.finding, 'investigate')}
               onOpenScope={(finding) => onOpenInvestigation(finding, 'evidence')}
               renderCase={(symptom) => caseButton(symptom.finding, caseForSymptom(symptom, caseByFinding), true)}
+              patternsOf={patternsOf}
             />
           </div>
         </div>
@@ -2808,7 +2824,7 @@ export function GrafanaAutonomousOverview({
         </div>
       ) : null}
 
-      <BehaviorFindingsPanel behaviorFindings={behaviorFindings} backendUrl={backendUrl} onCasesChanged={onRetry} />
+      <BehaviorFindingsPanel behaviorFindings={behaviorFindings} backendUrl={backendUrl} onCasesChanged={onRetry} include={linkedBehaviorIds} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.95fr) minmax(280px, 1fr) minmax(260px, 0.85fr)', gap: 12, alignItems: 'start' }}>
         <CoverageDetailsPanel selection={data.selection} onEnableCategory={onEnableCategory} onPreviewNow={onPreviewNow} isPreviewingNow={isPreviewingNow} previewNowError={previewNowError} />
@@ -3085,14 +3101,21 @@ export function CasesPanel({ data, backendUrl, onCasesChanged }: { data: Autonom
 }
 
 /** Recent behavior findings with Create Case / Open Case; the case opens in the investigation drawer. */
-export function BehaviorFindingsPanel({ behaviorFindings, backendUrl, onCasesChanged }: { behaviorFindings: BehaviorFinding[]; backendUrl: string; onCasesChanged?: () => void }) {
+export function BehaviorFindingsPanel({ behaviorFindings, backendUrl, onCasesChanged, include = [] }: {
+  behaviorFindings: BehaviorFinding[];
+  backendUrl: string;
+  onCasesChanged?: () => void;
+  /** Shown even when older than the five most recent: the matches a symptom's "Part of" chip points at. */
+  include?: number[];
+}) {
   const [openCase, setOpenCase] = useState<GrafanaCase | null>(null);
   const [openError, setOpenError] = useState('');
   const [caseChanged, setCaseChanged] = useState(false);
-  const recent = useMemo(
-    () => [...behaviorFindings].sort((a, b) => (b.last_seen_at ?? '').localeCompare(a.last_seen_at ?? '')).slice(0, 5),
-    [behaviorFindings]
-  );
+  const recent = useMemo(() => {
+    const newest = [...behaviorFindings].sort((a, b) => (b.last_seen_at ?? '').localeCompare(a.last_seen_at ?? ''));
+    const shown = newest.slice(0, 5);
+    return [...shown, ...newest.slice(5).filter((behavior) => include.includes(behavior.id))];
+  }, [behaviorFindings, include]);
 
   if (!recent.length) return null;
 
@@ -3316,7 +3339,7 @@ function symptomTiming(symptom: ServiceSymptom, latestSeen: string | null) {
 /** A service's symptoms sorted into what to act on (one row per metric, with what changed, for how
  * long, and its case), data problems to fix first, and folded background signals. Clicking a row
  * shows it in the finding panel below. */
-function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase }: {
+function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase, patternsOf = () => [] }: {
   service: string;
   /** "us · Team A": the cluster and connection, when there are several. */
   sourceOf: (finding: Finding) => string | null;
@@ -3328,6 +3351,8 @@ function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding
   onSelect: (symptom: ServiceSymptom) => void;
   /** The pod-scope chip ("where") opens the finding's evidence. */
   onOpenScope: (finding: Finding) => void;
+  /** The behavior matches (several metrics together) a symptom is part of. */
+  patternsOf?: (symptom: ServiceSymptom) => BehaviorFinding[];
   renderCase: (symptom: ServiceSymptom) => React.ReactNode;
 }) {
   const [showBackground, setShowBackground] = useState(false);
@@ -3405,6 +3430,7 @@ function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding
                   <div style={{ ...styles.row, gap: 6, marginTop: 3 }}>
                     <span style={{ ...styles.helperText, margin: 0 }}>{symptomTiming(row.lead, triage.latestSeen)}</span>
                     <span onClick={(event) => event.stopPropagation()}><SymptomScopeChip finding={row.lead.finding} onOpen={onOpenScope} /></span>
+                    {patternsOf(row.lead).map((behavior) => <PartOfChip key={behavior.id} behavior={behavior} />)}
                   </div>
                   {row.others.length ? (
                     <div style={{ ...styles.helperText, marginTop: 2 }}>
@@ -3460,6 +3486,26 @@ function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** "Part of: <match> · N metrics": scrolls to that match in the Behavior findings panel. */
+function PartOfChip({ behavior }: { behavior: BehaviorFinding }) {
+  const metrics = patternParts(behavior).length;
+  return (
+    <button
+      type="button"
+      data-testid="symptom-part-of"
+      title="This symptom is one of the metrics a behavior pattern matched together: one problem, not several."
+      onClick={(event) => {
+        event.stopPropagation();
+        document.getElementById(behaviorAnchor(behavior.id))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      style={{ ...styles.chip, padding: '2px 9px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#9ab8ff', borderColor: 'rgba(110, 159, 255, 0.55)', background: 'rgba(110, 159, 255, 0.08)' }}
+    >
+      Part of: {behavior.title}{metrics > 1 ? ` · ${metrics} metrics` : ''}
+    </button>
   );
 }
 
