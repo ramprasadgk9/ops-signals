@@ -341,6 +341,24 @@ describe('GrafanaAutonomousOverview layout of what is going on', () => {
     expect(screen.queryByText(/^unknown$/)).not.toBeInTheDocument();
   });
 
+  it("gives the card's chips and buttons the lead service's own top finding", async () => {
+    connections.mockReset().mockResolvedValue({ connections: [] });
+    const onCreateCase = vi.fn(async (_finding: Finding) => 50 as number | null);
+    loadCase.mockResolvedValue(grafanaCase(50, 2));
+    render(<Harness onCreateCase={onCreateCase} findings={[
+      finding({ id: 1, service: undefined, metric_name: 'process_resident_memory_bytes', importance_score: 0.95, trust: SHIFT, created_at: '2026-10-21T01:00:00Z' }),
+      finding({ id: 2, service: 'orders-consumer', metric_name: 'kafka_consumergroup_lag', importance_score: 0.6, trust: SHIFT }),
+    ]} />);
+    await screen.findByText("orders-consumer: what's going on");
+    // 0.95 belongs to the metrics with no service label, ranked after orders-consumer.
+    expect(screen.getByText(/^Highest importance 0\.60/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Highest importance 0\.95/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create case' })[0]);
+    await vi.waitFor(() => expect(onCreateCase).toHaveBeenCalled());
+    expect(onCreateCase.mock.calls[0]?.[0].id).toBe(2);
+  });
+
   it('explains a service-less lead when nothing has a service', async () => {
     connections.mockReset().mockResolvedValue({ connections: [] });
     render(<Harness onCreateCase={vi.fn()} findings={[finding({ id: 1, service: undefined, importance_score: 0.9, trust: SHIFT })]} />);
