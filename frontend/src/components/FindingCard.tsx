@@ -1,12 +1,12 @@
 import { Box, Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
+import HistoryIcon from '@mui/icons-material/History';
 import { findingSourceLabel } from '../utils/findingSource';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { useConnectionName } from '../api/useConnectionName';
-import type { BehaviorFinding, Finding, MetricUsageItem, Signal } from '../types';
+import type { BehaviorFinding, Finding, FindingDetailsSection, MetricUsageItem, SeenBeforeResponse } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
-import { categoryDetail, categoryLabel } from '../utils/findingCategories';
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { problemTiming } from '../utils/findingProblem';
 import { trustBadge } from '../utils/findingTrust';
@@ -14,7 +14,6 @@ import { FindingTrustPanel } from './FindingTrustPanel';
 import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
 import { watchedByTag } from '../utils/metricUsage';
-import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 
 /** The same finding seen in several runs; the card shows one of them. */
@@ -31,20 +30,21 @@ export type FindingRepeats = {
 
 type Props = {
   finding: Finding;
-  onViewDetails?: (finding: Finding) => void;
-  signals?: Signal[];
+  onViewDetails?: (finding: Finding, section?: FindingDetailsSection) => void;
   repeats?: FindingRepeats;
   /** Which dashboards and alerts read this finding's metric, from the latest metric usage check. */
   usage?: MetricUsageItem;
   /** Combined patterns (behavior rules) this finding is one of the metrics of. */
   partOf?: BehaviorFinding[];
+  /** Past cases that look like this finding: shown as one chip when there are any. */
+  seenBefore?: SeenBeforeResponse;
 };
 
 function seenAt(value?: string): string {
   return value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'unknown';
 }
 
-export function FindingCard({ finding, onViewDetails, signals = [], repeats, usage, partOf = [] }: Props) {
+export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [], seenBefore }: Props) {
   const { canEdit } = useWebPermissions();
   const navigate = useNavigate();
   const connectionName = useConnectionName(finding.connection_id);
@@ -64,9 +64,6 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
     }
   };
 
-  const matchedSignals = supportingSignals(finding.signal_ids, signals);
-
-  const signalGroups = groupSignalsByAnalyzer(matchedSignals);
   const breakdown = findingBreakdown(finding);
   const changes = findingChanges(finding);
   const changeChip = changeChipLabel(changes);
@@ -75,6 +72,7 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
   const watchedBy = usage ? watchedByTag(usage) : null;
   // Trust replaces the importance-based level: importance didn't separate real problems from noise in tests.
   const badge = trustBadge(finding.trust);
+  const pastCases = seenBefore?.available && seenBefore.novelty && seenBefore.matches.length ? seenBefore : null;
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -131,6 +129,20 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
             />
           </Tooltip>
         ))}
+        {pastCases?.novelty && (
+          <Tooltip title={`${pastCases.novelty.explanation} Closest: "${pastCases.matches[0].title}". Click to see past cases and what fixed them.`} arrow>
+            <Chip
+              icon={<HistoryIcon />}
+              label={pastCases.novelty.label}
+              size="small"
+              color={pastCases.novelty.level === 'recurring' ? 'warning' : 'info'}
+              variant="outlined"
+              onClick={onViewDetails ? () => onViewDetails(finding, 'seen-before') : undefined}
+              data-testid="finding-seen-before"
+              sx={{ mb: 1, mr: 1 }}
+            />
+          </Tooltip>
+        )}
         {watchedBy && (
           <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{watchedBy.detail}</span>} arrow>
             <Chip
@@ -204,50 +216,6 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
 
         {finding.trust ? <FindingTrustPanel finding={finding} answerOnly={finding.trust.tier === 'context' && !finding.trust.moved} /> : null}
 
-        <Stack spacing={1} sx={{ mt: 2 }}>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="caption" color="text.secondary">Importance</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>
-              {finding.importance_score.toFixed(2)}
-            </Typography>
-          </Stack>
-          
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="caption" color="text.secondary">Category</Typography>
-            <Tooltip title={categoryDetail(finding.category) ?? ''} arrow>
-              <Typography variant="body2" sx={{ cursor: categoryDetail(finding.category) ? 'help' : undefined }}>
-                {categoryLabel(finding.category)}
-              </Typography>
-            </Tooltip>
-          </Stack>
-          
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="caption" color="text.secondary">Evidence</Typography>
-            <Typography variant="body2">{matchedSignals.length} supporting signal{matchedSignals.length !== 1 ? 's' : ''}</Typography>
-          </Stack>
-
-          {matchedSignals.length > 0 ? (
-            <Stack spacing={0.5}>
-              <Typography variant="caption" color="text.secondary">Signals used</Typography>
-              <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
-                {signalGroups.map((group) => (
-                  <Tooltip key={group.key} title={<span style={{ whiteSpace: 'pre-line' }}>{signalGroupTooltip(group)}</span>} arrow>
-                    <Chip
-                      label={signalGroupChipLabel(group)}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </Tooltip>
-                ))}
-              </Stack>
-            </Stack>
-          ) : null}
-          
-          <Stack>
-            <Typography variant="caption" color="text.secondary">Metric</Typography>
-            <Typography variant="body2">{finding.metric_name}</Typography>
-          </Stack>
-        </Stack>
       </CardContent>
       <CardActions sx={{ gap: 1 }}>
         <Button 

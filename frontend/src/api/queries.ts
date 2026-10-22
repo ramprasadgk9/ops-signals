@@ -327,6 +327,8 @@ export const api = {
       `/api/cases/${caseId}/memory/status`
     ),
   findingSeenBefore: (findingId: number) => getJson<SeenBeforeResponse>(`/api/findings/${findingId}/seen-before`),
+  findingsSeenBefore: (findingIds: number[]) =>
+    postJson<{ finding_ids: number[] }, SeenBeforeResponse[]>('/api/findings/seen-before', { finding_ids: findingIds }),
   getSimilarCases: (caseId: number, topK?: number, minimumScore?: number) =>
     getJson<SimilarCasesResponse>(
       `/api/cases/${caseId}/similar?top_k=${topK ?? 5}&minimum_score=${minimumScore ?? 0.7}`

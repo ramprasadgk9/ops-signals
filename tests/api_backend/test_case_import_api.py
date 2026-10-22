@@ -385,3 +385,26 @@ def test_seen_before_says_why_when_memory_is_off() -> None:
     assert body["available"] is False
     assert "not enabled" in body["reason"]
     assert body["matches"] == []
+
+
+def test_seen_before_for_a_page_of_findings_in_one_request() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[memory_module.get_memory_config] = lambda: MemoryConfig(enabled=False)
+    with TestClient(app) as client:
+        with get_session_local()() as db:
+            for finding_id in (5, 6):
+                db.add(
+                    FindingEntity(
+                        id=finding_id, analysis_run_id="run-5", service="checkout", metric_name="cpu_usage", title="CPU up",
+                        summary="CPU up", category="baseline_shift", health_status="critical", importance_score=0.9,
+                        investigation_priority=1, signal_ids=[], comparison_json={}, created_at=datetime.utcnow(),
+                    )
+                )
+            db.commit()
+        body = client.post("/api/findings/seen-before", json={"finding_ids": [6, 999, 5, 6]}).json()
+        too_many = client.post("/api/findings/seen-before", json={"finding_ids": list(range(51))})
+
+    # In the order asked, each once; an unknown finding is left out.
+    assert [item["finding_id"] for item in body] == [6, 5]
+    assert all(item["available"] is False and "not enabled" in item["reason"] for item in body)
+    assert too_many.status_code == 422

@@ -418,6 +418,9 @@ export type Novelty = {
   best_score?: number | null;
 };
 
+/** A part of the finding details drawer that a card can open it at. */
+export type FindingDetailsSection = 'seen-before';
+
 export type SeenBeforeResponse = {
   finding_id: number;
   available: boolean;

@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select
 
@@ -227,6 +228,29 @@ def finding_seen_before(
     if finding is None:
         raise HTTPException(status_code=404, detail="finding not found")
     return _seen_before_or_unavailable(db, finding, service, embedder, config)
+
+
+# The most findings one page of the Findings list asks about at once (its PAGE_SIZE is 20).
+SEEN_BEFORE_BATCH_MAX = 50
+
+
+class SeenBeforeBatchRequest(BaseModel):
+    finding_ids: list[int] = Field(default_factory=list, max_length=SEEN_BEFORE_BATCH_MAX)
+
+
+@router.post("/findings/seen-before", response_model=list[SeenBeforeResponse])
+def findings_seen_before(
+    body: SeenBeforeBatchRequest,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> list[SeenBeforeResponse]:
+    """Seen before? for a page of finding cards in one request, in the order asked; findings that
+    don't exist are left out."""
+    ids = list(dict.fromkeys(body.finding_ids))
+    findings = {finding.id: finding for finding in db.execute(select(FindingEntity).where(FindingEntity.id.in_(ids))).scalars()} if ids else {}
+    return [_seen_before_or_unavailable(db, findings[finding_id], service, embedder, config) for finding_id in ids if finding_id in findings]
 
 
 def _seen_before_or_unavailable(db: Session, finding: FindingEntity, service, embedder, config) -> SeenBeforeResponse:
