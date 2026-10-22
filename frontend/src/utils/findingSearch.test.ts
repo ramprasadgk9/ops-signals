@@ -40,6 +40,12 @@ describe('searchFindings', () => {
     expect(ids(searchFindings(all, '#95', 'latest'))).toEqual([95]);
   });
 
+  it('also matches the extra words given for a finding', () => {
+    const extra = (finding: Finding) => (finding.id === 12 ? 'Consumer falling behind consumer_falling_behind' : '');
+    expect(ids(searchFindings(all, 'consumer_falling_behind', 'latest', extra))).toEqual([12]);
+    expect(ids(searchFindings(all, 'falling checkout', 'latest', extra))).toEqual([12]);
+  });
+
   it('sorts by time, importance or priority', () => {
     expect(ids(searchFindings(all, '', 'latest'))).toEqual([95, 57, 12]);
     expect(ids(searchFindings(all, '', 'oldest'))).toEqual([12, 57, 95]);

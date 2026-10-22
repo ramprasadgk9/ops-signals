@@ -564,10 +564,13 @@ describe('FindingsPage combined patterns', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('only=patterns');
   });
 
-  it('finds a pattern by its rule id', async () => {
+  it('finds a pattern and its findings by the rule id', async () => {
     vi.mocked(api.behaviorFindings).mockResolvedValue([pool()]);
     renderAt('/findings?q=pool_exhaustion');
     expect(await screen.findByText('Combined patterns (1)')).toBeInTheDocument();
+    // The findings it was made from match too: the card in the list plus the "Made from" chip.
+    expect(screen.getAllByText('Wait time is climbing')).toHaveLength(2);
+    expect(screen.queryByText('CPU is climbing')).not.toBeInTheDocument();
   });
 
   it('hides the kind filter when no finding is part of a pattern', async () => {

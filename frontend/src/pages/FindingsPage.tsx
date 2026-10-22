@@ -156,7 +156,10 @@ export function FindingsPage() {
   const patternLinks = patternsByFinding(behaviorsQuery.data ?? [], findings);
   const onlyPatterns = searchParams.get('only') === 'patterns';
   const kindFindings = onlyPatterns ? sourceFindings.filter((finding) => finding.id !== undefined && patternLinks.has(finding.id)) : sourceFindings;
-  const visibleFindings = searchFindings(kindFindings, searchQuery, sort);
+  // Searching a pattern's name or rule id also finds the findings it was made from.
+  const patternText = (finding: Finding) =>
+    (finding.id !== undefined ? patternLinks.get(finding.id) ?? [] : []).map((behavior) => `${behavior.title} ${behavior.definition_id}`).join(' ');
+  const visibleFindings = searchFindings(kindFindings, searchQuery, sort, patternText);
   const visibleGroups = groupRepeatedFindings(visibleFindings, groupRepeats);
   // Context findings (single-check spikes, patterns, forecasts) were no better than chance in tests:
   // they stay one click away instead of crowding the list that asks for attention.
@@ -307,7 +310,7 @@ export function FindingsPage() {
             size="small"
             value={searchQuery}
             onChange={(event) => setParam('q', event.target.value)}
-            placeholder="Search by service, metric, cluster or #finding"
+            placeholder="Search by service, metric, cluster, pattern or #finding"
             inputProps={{ 'aria-label': 'Search findings' }}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
             sx={{ flex: 1, bgcolor: 'var(--os-surface)' }}
