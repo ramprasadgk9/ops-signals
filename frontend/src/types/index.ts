@@ -295,8 +295,9 @@ export type FindingTrust = {
     fits_metric: boolean;
     measured_at?: string | null;
   } | null;
-  /** This service's own "Was this real?" answers on findings in the same group. */
-  service: { real: number; answered: number; min_answers: number };
+  /** This service's own "Was this real?" answers on findings in the same group; per metric (`scope`
+   * "metric") when the finding has no service label. An older backend sends no scope. */
+  service: { real: number; answered: number; min_answers: number; scope?: 'service' | 'metric' };
   your_answer: FindingVerdict | null;
   /** Who gave that answer, when it came through Grafana, and when. */
   answered_by?: string | null;

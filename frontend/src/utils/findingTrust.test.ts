@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Finding, FindingTrust } from '../types';
-import { answerLine, movedNote, needsAttention, serviceCaption, serviceHeadline, serviceRateLeads, testedCaption, testedHeadline, testedTooltip, trustBadge } from './findingTrust';
+import { answerLine, movedNote, needsAttention, serviceCaption, serviceHeadline, serviceLabel, serviceProgress, serviceRateLeads, testedCaption, testedHeadline, testedTooltip, trustBadge } from './findingTrust';
 
 const base: FindingTrust = {
   group: 'level_change_agree', tier: 'needs_attention', badge: 'strong', checks: ['change', 'pyod_outlier'],
@@ -28,13 +28,27 @@ describe('findingTrust wording', () => {
   });
 
   it('shows the service count, and says when it is too few to lead', () => {
-    expect(serviceHeadline(base)).toBe('Not yet');
-    expect(serviceCaption(base, 'cart')).toContain('on 5 findings like this on cart');
+    expect(serviceHeadline(base)).toBe('0 of 5 answers');
+    expect(serviceCaption(base, 'cart')).toBe('5 more "Real problem" or "Not a problem" answers on findings like this on cart, and your team\'s own rate shows here.');
     const few = { ...base, service: { real: 2, answered: 3, min_answers: 5 } };
-    expect(serviceHeadline(few)).toBe('2 of 3 were real');
-    expect(serviceCaption(few)).toContain('Too few yet');
+    expect(serviceHeadline(few)).toBe('3 of 5 answers');
+    expect(serviceCaption(few)).toContain('2 more');
+    expect(serviceProgress(few)).toBe(0.6);
     expect(serviceRateLeads(few)).toBe(false);
-    expect(serviceRateLeads({ ...base, service: { real: 5, answered: 6, min_answers: 5 } })).toBe(true);
+    const enough = { ...base, service: { real: 5, answered: 6, min_answers: 5 } };
+    expect(serviceHeadline(enough)).toBe('5 of 6 were real');
+    expect(serviceProgress(enough)).toBeCloseTo(5 / 6);
+    expect(serviceRateLeads(enough)).toBe(true);
+  });
+
+  it('says "this metric" when a finding has no service label', () => {
+    const unlabeled: FindingTrust = { ...base, service: { real: 1, answered: 2, min_answers: 5, scope: 'metric' } };
+    expect(serviceLabel(unlabeled)).toBe('On this metric');
+    expect(serviceLabel(base)).toBe('On your service');
+    expect(serviceCaption(unlabeled, 'unknown')).toBe(
+      '3 more "Real problem" or "Not a problem" answers on findings like this on this metric, and your team\'s own rate shows here. It has no service label, so answers count per metric.',
+    );
+    expect(movedNote({ ...unlabeled, moved: 'up', service: { real: 4, answered: 5, min_answers: 5, scope: 'metric' } }, 'unknown')).toContain('on this metric were real');
   });
 
   it('keeps findings without trust in the main list', () => {

@@ -85,23 +85,44 @@ export function testedTooltip(trust: FindingTrust): string {
   );
 }
 
+/** Answers on a finding with no service label count per metric (backend finding_trust.py). */
+function byMetric(trust: FindingTrust): boolean {
+  return trust.service.scope === 'metric';
+}
+
+function placeName(trust: FindingTrust, service?: string | null): string {
+  return byMetric(trust) ? 'this metric' : service ?? 'this service';
+}
+
+export function serviceLabel(trust: FindingTrust): string {
+  return byMetric(trust) ? 'On this metric' : 'On your service';
+}
+
 export function serviceHeadline(trust: FindingTrust): string {
-  const { real, answered } = trust.service;
-  return answered ? `${real} of ${answered} were real` : 'Not yet';
+  const { real, answered, min_answers: needed } = trust.service;
+  return answered < needed ? `${answered} of ${needed} answers` : `${real} of ${answered} were real`;
 }
 
 export function serviceCaption(trust: FindingTrust, service?: string | null): string {
   const { answered, min_answers: needed } = trust.service;
-  const where = service ?? 'this service';
-  if (!answered) return `Appears after your team answers "Was this real?" on ${needed} findings like this on ${where}.`;
-  if (answered < needed) return `Too few yet: your own number takes over after ${needed} answers.`;
-  return `Findings like this on ${where} that your team answered.`;
+  const where = placeName(trust, service);
+  const why = byMetric(trust) ? ' It has no service label, so answers count per metric.' : '';
+  if (answered < needed) {
+    return `${needed - answered} more "Real problem" or "Not a problem" answers on findings like this on ${where}, and your team's own rate shows here.${why}`;
+  }
+  return `Findings like this on ${where} that your team answered.${why}`;
+}
+
+/** The bar under the headline: progress towards enough answers, then the share that were real. */
+export function serviceProgress(trust: FindingTrust): number {
+  const { real, answered, min_answers: needed } = trust.service;
+  return answered < needed ? answered / needed : real / answered;
 }
 
 /** Why the team's answers moved this kind of finding to the other list; null when they didn't. */
 export function movedNote(trust: FindingTrust, service?: string | null): string | null {
   const { real, answered } = trust.service;
-  const where = service ?? 'this service';
+  const where = placeName(trust, service);
   if (trust.moved === 'up') return `Moved to Needs attention: your team said ${real} of ${answered} findings like this on ${where} were real.`;
   if (trust.moved === 'down') return `Moved to Context only: your team said only ${real} of ${answered} findings like this on ${where} were real.`;
   return null;

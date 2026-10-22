@@ -421,7 +421,7 @@ describe('FindingsPage trust', () => {
     expect(screen.getByText('Strong evidence')).toBeInTheDocument();
     expect(screen.getByText('91% were real')).toBeInTheDocument();
     expect(screen.getByText('266 checked in tests')).toBeInTheDocument();
-    expect(screen.getByText('Not yet')).toBeInTheDocument();
+    expect(screen.getByText('0 of 5 answers')).toBeInTheDocument();
     expect(screen.getByText('Showing 1 of 1 · 1 context only')).toBeInTheDocument();
     expect(screen.queryByText('CPU looked unusual')).not.toBeInTheDocument();
 

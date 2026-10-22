@@ -32,7 +32,7 @@ describe('PluginFindingTrust', () => {
     expect(screen.getByText('Strong evidence')).toBeInTheDocument();
     expect(screen.getByText('On your service')).toBeInTheDocument();
     expect(screen.getByText('62% were real')).toBeInTheDocument();
-    expect(screen.getByText('Not yet')).toBeInTheDocument();
+    expect(screen.getByText('0 of 5 answers')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Real problem' })).toHaveAttribute('aria-pressed', 'false');
   });
 
@@ -51,7 +51,7 @@ describe('PluginFindingTrust', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Real problem' }));
 
     expect(feedback).toHaveBeenCalledWith('http://backend', 42, 'real_problem');
-    expect(await screen.findByText('1 of 1 were real')).toBeInTheDocument();
+    expect(await screen.findByText('1 of 5 answers')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Real problem' })).toHaveAttribute('aria-pressed', 'true');
   });
 
