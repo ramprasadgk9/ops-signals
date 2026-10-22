@@ -18,6 +18,7 @@ import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel'
 import { asGrafanaRole, grafanaUserRole, LockReason, LOCK_REASONS, PermissionsProvider, usePermissions } from './permissions';
 import { behaviorAnchor, PluginBehaviorFindings } from './PluginBehaviorFindings';
 import { WebUiContext } from './webUiLink';
+import { useSectionShown } from './sectionToggle';
 import { patternParts, patternsByFinding } from '../utils/combinedPatterns';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
@@ -2488,6 +2489,12 @@ export function GrafanaAutonomousOverview({
     for (const run of symptom.runs) for (const behavior of patternsOfFinding.get(run.id ?? -1) ?? []) seen.set(behavior.id, behavior);
     return [...seen.values()];
   };
+  const [behaviorsShown, setBehaviorsShown] = useSectionShown('behavior-findings');
+  // A "Part of" chip opens Behavior findings if it was hidden, then scrolls to the match.
+  const showBehavior = (id: number) => {
+    if (!behaviorsShown) setBehaviorsShown(true);
+    window.setTimeout(() => document.getElementById(behaviorAnchor(id))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }), 0);
+  };
   const linkedBehaviorIds = useMemo(
     () => [...new Set(triage.attention.flatMap((row) => row.lead.runs.flatMap((run) => (patternsOfFinding.get(run.id ?? -1) ?? []).map((behavior) => behavior.id))))],
     [triage, patternsOfFinding],
@@ -2789,6 +2796,7 @@ export function GrafanaAutonomousOverview({
               onOpenScope={(finding) => onOpenInvestigation(finding, 'evidence')}
               renderCase={(symptom) => caseButton(symptom.finding, caseForSymptom(symptom, caseByFinding), true)}
               patternsOf={patternsOf}
+              onShowBehavior={showBehavior}
             />
           </div>
         </div>
@@ -2816,7 +2824,7 @@ export function GrafanaAutonomousOverview({
       <CurrentRunSummaryPanel data={data} />
 
       {(servicePriorities.length > 1 || data.behaviorDistribution.length > 1) ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.65fr)', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.65fr)', gap: 12, alignItems: 'start' }}>
           {servicePriorities.length > 1 ? (
             <ServicePrioritiesPanel
               servicePriorities={servicePriorities}
@@ -2830,7 +2838,7 @@ export function GrafanaAutonomousOverview({
         </div>
       ) : null}
 
-      <BehaviorFindingsPanel behaviorFindings={behaviorFindings} backendUrl={backendUrl} onCasesChanged={onRetry} include={linkedBehaviorIds} />
+      <BehaviorFindingsPanel behaviorFindings={behaviorFindings} backendUrl={backendUrl} onCasesChanged={onRetry} include={linkedBehaviorIds} shown={behaviorsShown} onShownChange={setBehaviorsShown} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.95fr) minmax(280px, 1fr) minmax(260px, 0.85fr)', gap: 12, alignItems: 'start' }}>
         <CoverageDetailsPanel selection={data.selection} onEnableCategory={onEnableCategory} onPreviewNow={onPreviewNow} isPreviewingNow={isPreviewingNow} previewNowError={previewNowError} />
@@ -2871,10 +2879,23 @@ function CurrentRunSummaryPanel({ data }: { data: AutonomousDashboardData }) {
     { label: 'finding', value: data.summary.findingsGenerated, tone: '#b877d9', detail: 'generated' },
     { label: 'cases', value: data.summary.casesOpen, tone: '#3fcf8e', detail: 'created / open' },
   ];
+  const [shown, setShown] = useSectionShown('run-summary');
+  const count = (value: number | null) => (value === null ? '—' : value.toLocaleString());
   return (
     <div style={panelStyle('#68707f')}>
-      <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none' }}>Current Run Summary</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+      <div style={styles.rowBetween}>
+        <h3 style={{ ...sectionTitleStyle, color: '#f5f7ff', fontSize: 16, textTransform: 'none', margin: 0 }}>Current Run Summary</h3>
+        <div style={{ ...styles.row, gap: 10 }}>
+          {shown ? null : (
+            <span style={{ ...styles.helperText, margin: 0 }}>
+              {count(data.summary.executed)} executed · {count(data.summary.skipped)} skipped · {count(data.summary.findingsGenerated)} findings · {count(data.summary.casesOpen)} cases
+            </span>
+          )}
+          <PanelToggle isOpen={shown} tone="#68707f" label="current run summary" onClick={() => setShown(!shown)} />
+        </div>
+      </div>
+      {shown ? (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginTop: 12 }}>
         {summaryItems.map((item) => (
           <div key={item.label} style={{ border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 14, background: 'rgba(17, 18, 23, 0.55)' }}>
             <div style={{ color: item.tone, fontSize: 24, fontWeight: 900 }}>{item.value === null ? '—' : item.value.toLocaleString()}</div>
@@ -2883,6 +2904,7 @@ function CurrentRunSummaryPanel({ data }: { data: AutonomousDashboardData }) {
           </div>
         ))}
       </div>
+      ) : null}
     </div>
   );
 }
@@ -2897,12 +2919,19 @@ function ServicePrioritiesPanel({
   /** Shows the service's top finding under the overview's top card. */
   onInvestigate: (finding: Finding) => void;
 }) {
+  const [shown, setShown] = useSectionShown('service-priorities');
   return (
     <div id="top-findings" style={panelStyle('#ffb357')}>
       <div style={styles.rowBetween}>
         <h3 style={sectionTitleStyle}>Service Priorities <InfoTip title="Services are ranked by their highest-importance current-run symptom. Multiple symptoms on one service are grouped to avoid creating duplicate incident candidates." /></h3>
-        <span style={styles.helperText}>{servicePriorities.length} service{servicePriorities.length === 1 ? '' : 's'} shown</span>
+        <div style={{ ...styles.row, gap: 10 }}>
+          <span style={{ ...styles.helperText, margin: 0 }}>
+            {servicePriorities.length} service{servicePriorities.length === 1 ? '' : 's'}{shown ? ' shown' : servicePriorities[0] ? ` · top: ${serviceLabel(servicePriorities[0].service)}` : ''}
+          </span>
+          <PanelToggle isOpen={shown} tone="#ffb357" label="service priorities" onClick={() => setShown(!shown)} />
+        </div>
       </div>
+      {shown ? (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr 1fr 1fr 1fr', gap: '10px 14px', fontSize: 12, overflowX: 'auto', alignItems: 'center' }}>
         {['Service', 'Symptoms', 'Metrics affected', 'Highest importance', 'Recommended action'].map((header) => <div key={header} style={styles.tableHeader}>{header}</div>)}
         {servicePriorities.slice(0, 5).map((service, index) => (
@@ -2927,15 +2956,28 @@ function ServicePrioritiesPanel({
           </React.Fragment>
         ))}
       </div>
+      ) : null}
     </div>
   );
 }
 
 function ObservedChangesPanel({ data }: { data: AutonomousDashboardData }) {
+  const [shown, setShown] = useSectionShown('observed-changes');
+  const total = data.summary.findingsGenerated;
+  const top = [...data.behaviorDistribution].sort((a, b) => b.count - a.count)[0];
   return (
     <div style={panelStyle('#ffb357')}>
-      <h3 style={sectionTitleStyle}>Observed Changes <InfoTip title="Observed changes are analyzer-detected metric patterns, such as spikes or baseline shifts. They are not root cause." /></h3>
-      <BehaviorDonut items={data.behaviorDistribution} total={data.summary.findingsGenerated} />
+      <div style={styles.rowBetween}>
+        <h3 style={sectionTitleStyle}>Observed Changes <InfoTip title="Observed changes are analyzer-detected metric patterns, such as spikes or baseline shifts. They are not root cause." /></h3>
+        <PanelToggle isOpen={shown} tone="#ffb357" label="observed changes" onClick={() => setShown(!shown)} />
+      </div>
+      {shown ? (
+        <BehaviorDonut items={data.behaviorDistribution} total={total} />
+      ) : (
+        <span style={{ ...styles.helperText, margin: 0 }}>
+          {total.toLocaleString()} change{total === 1 ? '' : 's'}{top && total ? ` · mostly ${top.label} (${Math.round((top.count / total) * 100)}%)` : ''}
+        </span>
+      )}
     </div>
   );
 }
@@ -3107,10 +3149,13 @@ export function CasesPanel({ data, backendUrl, onCasesChanged }: { data: Autonom
 }
 
 /** Recent behavior findings with Create Case / Open Case; the case opens in the investigation drawer. */
-export function BehaviorFindingsPanel({ behaviorFindings, backendUrl, onCasesChanged, include = [] }: {
+export function BehaviorFindingsPanel({ behaviorFindings, backendUrl, onCasesChanged, include = [], shown = true, onShownChange }: {
   behaviorFindings: BehaviorFinding[];
   backendUrl: string;
   onCasesChanged?: () => void;
+  /** Hidden by the viewer: a one-line count stays, with Show. Without onShownChange it can't be hidden. */
+  shown?: boolean;
+  onShownChange?: (shown: boolean) => void;
   /** Shown even when older than the five most recent: the matches a symptom's "Part of" chip points at. */
   include?: number[];
 }) {
@@ -3144,7 +3189,25 @@ export function BehaviorFindingsPanel({ behaviorFindings, backendUrl, onCasesCha
 
   return (
     <div style={panelStyle('#5794f2')}>
-      <PluginBehaviorFindings backendUrl={backendUrl} findings={recent} onOpenCase={openCaseById} frame={{ border: 0, padding: 0 }} />
+      {shown ? (
+        <PluginBehaviorFindings
+          backendUrl={backendUrl}
+          findings={recent}
+          onOpenCase={openCaseById}
+          frame={{ border: 0, padding: 0 }}
+          headerAction={onShownChange ? <PanelToggle isOpen tone="#5794f2" label="behavior findings" onClick={() => onShownChange(false)} /> : null}
+        />
+      ) : (
+        <div style={styles.rowBetween}>
+          <span>
+            <strong>Behavior findings</strong>{' '}
+            <span style={{ ...styles.helperText, margin: 0 }}>
+              {behaviorFindings.length} match{behaviorFindings.length === 1 ? '' : 'es'} · {behaviorFindings.filter((item) => !item.case_id).length} without a case
+            </span>
+          </span>
+          <PanelToggle isOpen={false} tone="#5794f2" label="behavior findings" onClick={() => onShownChange?.(true)} />
+        </div>
+      )}
       {openError ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{openError}</div> : null}
       <InvestigationDrawer
         open={openCase !== null}
@@ -3347,7 +3410,7 @@ function symptomTiming(symptom: ServiceSymptom, latestSeen: string | null) {
 /** A service's symptoms sorted into what to act on (one row per metric, with what changed, for how
  * long, and its case), data problems to fix first, and folded background signals. Clicking a row
  * shows it in the finding panel below. */
-function SymptomTriagePanel({ service, sourceOf: sourceOfAll, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase, patternsOf = () => [] }: {
+function SymptomTriagePanel({ service, sourceOf: sourceOfAll, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase, patternsOf = () => [], onShowBehavior }: {
   service: string;
   /** "us · Team A": the cluster and connection, when there are several. */
   sourceOf: (finding: Finding) => string | null;
@@ -3361,6 +3424,8 @@ function SymptomTriagePanel({ service, sourceOf: sourceOfAll, triage, selected, 
   onOpenScope: (finding: Finding) => void;
   /** The behavior matches (several metrics together) a symptom is part of. */
   patternsOf?: (symptom: ServiceSymptom) => BehaviorFinding[];
+  /** Brings that match into view in the Behavior findings panel, opening it when hidden. */
+  onShowBehavior?: (id: number) => void;
   renderCase: (symptom: ServiceSymptom) => React.ReactNode;
 }) {
   const [showBackground, setShowBackground] = useState(false);
@@ -3447,7 +3512,7 @@ function SymptomTriagePanel({ service, sourceOf: sourceOfAll, triage, selected, 
                   <div style={{ ...styles.row, gap: 6, marginTop: 3 }}>
                     <span style={{ ...styles.helperText, margin: 0 }}>{symptomTiming(row.lead, triage.latestSeen)}</span>
                     <span onClick={(event) => event.stopPropagation()}><SymptomScopeChip finding={row.lead.finding} onOpen={onOpenScope} /></span>
-                    {patternsOf(row.lead).map((behavior) => <PartOfChip key={behavior.id} behavior={behavior} />)}
+                    {patternsOf(row.lead).map((behavior) => <PartOfChip key={behavior.id} behavior={behavior} onShow={onShowBehavior} />)}
                   </div>
                   {row.others.length ? (
                     <div style={{ ...styles.helperText, marginTop: 2 }}>
@@ -3515,7 +3580,7 @@ function SymptomTriagePanel({ service, sourceOf: sourceOfAll, triage, selected, 
 }
 
 /** "Part of: <match> · N metrics": scrolls to that match in the Behavior findings panel. */
-function PartOfChip({ behavior }: { behavior: BehaviorFinding }) {
+function PartOfChip({ behavior, onShow }: { behavior: BehaviorFinding; onShow?: (id: number) => void }) {
   const metrics = patternParts(behavior).length;
   return (
     <button
@@ -3524,7 +3589,8 @@ function PartOfChip({ behavior }: { behavior: BehaviorFinding }) {
       title="This symptom is one of the metrics a behavior pattern matched together: one problem, not several."
       onClick={(event) => {
         event.stopPropagation();
-        document.getElementById(behaviorAnchor(behavior.id))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        if (onShow) onShow(behavior.id);
+        else document.getElementById(behaviorAnchor(behavior.id))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
       }}
       onKeyDown={(event) => event.stopPropagation()}
       style={{ ...styles.chip, padding: '2px 9px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#9ab8ff', borderColor: 'rgba(110, 159, 255, 0.55)', background: 'rgba(110, 159, 255, 0.08)' }}

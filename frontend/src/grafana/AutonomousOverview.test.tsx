@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAutonomousDashboardData } from '../autonomous/dashboardModel';
 import type { BehaviorFinding, Finding, FindingTrust } from '../types';
 import { getCase, listCases, listPrometheusConnections } from './backendClient';
@@ -277,7 +277,7 @@ describe('GrafanaAutonomousOverview behavior matches', () => {
     ]);
 
     fireEvent.click(within(rows[1]).getByTestId('symptom-part-of'));
-    expect(scrolled).toHaveBeenCalled();
+    await vi.waitFor(() => expect(scrolled).toHaveBeenCalled());
     // The chip is not the row: clicking it does not select that symptom.
     expect(rows[1]).toHaveAttribute('aria-pressed', 'false');
 
@@ -346,5 +346,69 @@ describe('GrafanaAutonomousOverview layout of what is going on', () => {
     render(<Harness onCreateCase={vi.fn()} findings={[finding({ id: 1, service: undefined, importance_score: 0.9, trust: SHIFT })]} />);
     expect(await screen.findByText("No service label: what's going on")).toBeInTheDocument();
     expect(screen.getByText(/These metrics have no/)).toBeInTheDocument();
+  });
+});
+
+// Node 25's own (file-less, non-functional) localStorage shadows jsdom's, so use a plain in-memory one.
+function memoryStorage(): Storage {
+  const items = new Map<string, string>();
+  return {
+    get length() {
+      return items.size;
+    },
+    clear: () => items.clear(),
+    getItem: (key) => items.get(key) ?? null,
+    key: (index) => [...items.keys()][index] ?? null,
+    removeItem: (key) => void items.delete(key),
+    setItem: (key, value) => void items.set(key, String(value)),
+  };
+}
+
+describe('GrafanaAutonomousOverview sections that can be hidden', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    cases.mockReset().mockResolvedValue([grafanaCase(31, 6519)]);
+    connections.mockReset().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] });
+  });
+
+  it('hides the run summary to one line, and remembers it in this browser', async () => {
+    const { unmount } = render(<Harness onCreateCase={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+    expect(screen.getByText('executed')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide current run summary' }));
+    expect(screen.queryByText('executed')).not.toBeInTheDocument();
+    expect(screen.getByText(/^\S+ executed · \S+ skipped · \S+ findings · \S+ cases$/)).toBeInTheDocument();
+    unmount();
+
+    render(<Harness onCreateCase={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+    expect(screen.getByRole('button', { name: 'Show current run summary' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens hidden Behavior findings when a "Part of" chip points there', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<Harness onCreateCase={vi.fn()} behaviorFindings={[LATENCY_AND_ERRORS]} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide behavior findings' }));
+    expect(screen.queryByTestId('plugin-behavior-finding')).not.toBeInTheDocument();
+    expect(screen.getByText('1 match · 1 without a case')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTestId('symptom-part-of')[0]);
+    expect(await screen.findByTestId('plugin-behavior-finding')).toBeInTheDocument();
+  });
+
+  it('still works when the browser keeps nothing', async () => {
+    const blocked = () => { throw new Error('blocked'); };
+    vi.stubGlobal('localStorage', { ...memoryStorage(), getItem: blocked, setItem: blocked });
+    render(<Harness onCreateCase={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide current run summary' }));
+    expect(screen.queryByText('executed')).not.toBeInTheDocument();
   });
 });

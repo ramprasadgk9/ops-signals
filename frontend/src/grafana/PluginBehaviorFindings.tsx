@@ -84,12 +84,14 @@ function OpenInWebUi({ finding }: { finding: PluginBehaviorFindingRow }) {
 
 const LEVEL_TONE = { error: '#f2495c', warning: '#ffb357', default: '#8a95a5' } as const;
 
-export function PluginBehaviorFindings({ backendUrl, findings, onOpenCase, frame }: {
+export function PluginBehaviorFindings({ backendUrl, findings, onOpenCase, frame, headerAction }: {
   backendUrl: string;
   findings: PluginBehaviorFindingRow[];
   onOpenCase: (caseId: number) => void;
   /** Replaces the default bordered box, e.g. with styles.card where it sits among the page's cards. */
   frame?: React.CSSProperties;
+  /** Shown at the end of the heading row, e.g. the overview's Hide button. */
+  headerAction?: React.ReactNode;
 }) {
   const { canEdit } = usePermissions();
   const managePatterns = useWebUiHref('/behavior-intelligence?tab=patterns');
@@ -123,7 +125,10 @@ export function PluginBehaviorFindings({ backendUrl, findings, onOpenCase, frame
             Patterns across several metrics, such as a memory leak driving resource exhaustion. Usually closer to the cause than a single-metric finding.
           </div>
         </div>
-        {managePatterns ? <a href={managePatterns} target="_blank" rel="noreferrer" style={{ color: '#6e9fff', fontSize: 12 }}>Manage patterns in Ops Signals ↗</a> : null}
+        <div style={{ ...styles.row, gap: 10 }}>
+          {managePatterns ? <a href={managePatterns} target="_blank" rel="noreferrer" style={{ color: '#6e9fff', fontSize: 12 }}>Manage patterns in Ops Signals ↗</a> : null}
+          {headerAction}
+        </div>
       </div>
       {findings.map((finding) => {
         const caseId = createdCases[finding.id] ?? finding.case_id ?? null;
