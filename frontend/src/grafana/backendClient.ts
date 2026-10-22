@@ -377,6 +377,16 @@ function toGrafanaBehaviorFinding(finding: BehaviorFinding): GrafanaBehaviorFind
     correlation: finding.correlation_json,
     service: finding.service ?? null,
     case_id: finding.case_id ?? null,
+    // What the card shows of the match: each metric, its change, the timing and the rule.
+    definition_id: finding.definition_id,
+    definition_version: finding.definition_version,
+    analysis_run_id: finding.analysis_run_id,
+    input_metrics_json: finding.input_metrics_json,
+    facts_json: finding.facts_json,
+    matched_conditions_json: finding.matched_conditions_json,
+    correlation_json: finding.correlation_json,
+    occurrence_count: finding.occurrence_count,
+    last_seen_at: finding.last_seen_at,
   };
 }
 

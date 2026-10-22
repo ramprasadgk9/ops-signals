@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAutonomousDashboardData } from '../autonomous/dashboardModel';
-import type { Finding, FindingTrust } from '../types';
+import type { BehaviorFinding, Finding, FindingTrust } from '../types';
 import { getCase, listCases, listPrometheusConnections } from './backendClient';
 import type { GrafanaCase } from './contracts';
 import { GrafanaAutonomousOverview } from './PluginApp';
@@ -68,8 +68,9 @@ function grafanaCase(id: number, findingId: number): GrafanaCase {
   };
 }
 
-function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter }: {
+function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter, behaviorFindings = [] }: {
   onCreateCase: (finding: Finding) => Promise<number | null>;
+  behaviorFindings?: BehaviorFinding[];
   findings?: Finding[];
   onInvestigateInteractive?: (finding: Finding) => void;
   clusters?: string[];
@@ -86,7 +87,7 @@ function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive =
       clusters={clusters}
       clusterFilter={null}
       onClusterFilter={onClusterFilter}
-      behaviorFindings={[]}
+      behaviorFindings={behaviorFindings}
       state="ready"
       context={{}}
       endpointErrors={[]}
@@ -240,5 +241,174 @@ describe('GrafanaAutonomousOverview symptom triage', () => {
     await renderOverview();
 
     expect(screen.queryByRole('group', { name: 'Cluster' })).not.toBeInTheDocument();
+  });
+});
+
+// A rule that matched error_rate and p95 latency together in run-1 on trend-lab.
+const LATENCY_AND_ERRORS: BehaviorFinding = {
+  id: 77, behavior_id: 'b', definition_id: 'latency_error_cascade', definition_version: 1,
+  title: 'Possible cascading failure', summary: 'Latency and errors rose together.', category: 'availability', severity: 'high',
+  service: 'trend-lab', analysis_run_id: 'run-1',
+  input_metrics_json: { latency: 'p95_latency_ms', errors: 'error_rate' },
+  facts_json: {
+    latency: { ruptures: { present: true, signed_change_percent: 7.4 } },
+    errors: { ruptures: { present: true, signed_change_percent: 671 } },
+  },
+  evidence_json: [], matched_conditions_json: [{ passed: true }, { passed: true }], confidence: 1,
+  correlation_json: { matched: true, overlap_minutes: 42 }, case_id: null, occurrence_count: 1,
+  last_seen_at: '2026-10-09T05:00:00Z', created_at: '2026-10-09T05:00:00Z',
+};
+
+describe('GrafanaAutonomousOverview behavior matches', () => {
+  beforeEach(() => {
+    cases.mockReset().mockResolvedValue([grafanaCase(31, 6519)]);
+    connections.mockReset().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] });
+  });
+
+  it('says which symptoms are one problem, and jumps to the match', async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    await renderOverview({ behaviorFindings: [LATENCY_AND_ERRORS] });
+
+    const rows = within(screen.getByTestId('symptom-triage')).getAllByTestId('triage-attention');
+    expect(rows.map((row) => within(row).queryByTestId('symptom-part-of')?.textContent ?? null)).toEqual([
+      'Part of: Possible cascading failure · 2 metrics',
+      'Part of: Possible cascading failure · 2 metrics',
+    ]);
+
+    fireEvent.click(within(rows[1]).getByTestId('symptom-part-of'));
+    await vi.waitFor(() => expect(scrolled).toHaveBeenCalled());
+    // The chip is not the row: clicking it does not select that symptom.
+    expect(rows[1]).toHaveAttribute('aria-pressed', 'false');
+
+    const match = screen.getByTestId('plugin-behavior-finding');
+    expect(match).toHaveAttribute('id', 'plugin-behavior-77');
+    expect(within(match).getAllByTestId('plugin-behavior-metric').map((metric) => metric.textContent)).toEqual([
+      expect.stringContaining('p95_latency_ms'),
+      expect.stringContaining('error_rate'),
+    ]);
+  });
+
+  it('gives no chip to a symptom from another run', async () => {
+    await renderOverview({ behaviorFindings: [{ ...LATENCY_AND_ERRORS, analysis_run_id: 'run-9' }] });
+    expect(screen.queryByTestId('symptom-part-of')).not.toBeInTheDocument();
+  });
+});
+
+describe('GrafanaAutonomousOverview layout of what is going on', () => {
+  beforeEach(() => {
+    cases.mockReset().mockResolvedValue([]);
+    loadCase.mockReset();
+  });
+
+  const stopped = (id: number, metric: string, at: string, overrides: Partial<Finding> = {}) => finding({
+    id, metric_name: metric, title: `${metric} stopped reporting data`, category: 'data_quality', importance_score: 0.7,
+    trust: trust('data_problem', 'needs_attention', 'data_problem'), created_at: at, ...overrides,
+  });
+
+  it('lists a metric that stopped several times as one chip, and the connection once', async () => {
+    connections.mockReset().mockResolvedValue({ connections: [
+      { id: 'default', name: 'Default Prometheus', configured: true, is_default: true },
+      { id: 'labs', name: 'Local Prometheus (labs)', configured: true },
+    ] });
+    const labs = { connection_id: 'labs', analysis_run_id: undefined } as Partial<Finding>;
+    render(<Harness onCreateCase={vi.fn()} findings={[
+      finding({ id: 1, importance_score: 0.9, trust: SHIFT, ...labs, analysis_run_id: 'run-a' }),
+      stopped(2, 'up', '2026-10-21T08:00:00Z', { ...labs, analysis_run_id: 'run-b' }),
+      stopped(3, 'up', '2026-10-21T20:40:00Z', { ...labs, analysis_run_id: 'run-c', title: 'up froze at one value' }),
+      stopped(4, 'process_cpu_seconds_total', '2026-10-21T20:57:00Z', { ...labs, analysis_run_id: 'run-d' }),
+    ]} />);
+
+    const data = await screen.findByTestId('triage-data');
+    expect(data).toHaveTextContent('2 metrics stopped reporting or froze');
+    expect(await screen.findByText('All from Local Prometheus (labs)')).toBeInTheDocument();
+    const chips = within(data).getAllByTestId('triage-data-metric');
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      expect.stringMatching(/^process_cpu_seconds_total · /),
+      expect.stringMatching(/^up · 2 episodes, latest · /),
+    ]);
+    expect(screen.queryByText(/\(Local Prometheus \(labs\)\)/)).not.toBeInTheDocument();
+  });
+
+  it('leads with a named service, and calls metrics with no service label that', async () => {
+    connections.mockReset().mockResolvedValue({ connections: [] });
+    render(<Harness onCreateCase={vi.fn()} findings={[
+      finding({ id: 1, service: undefined, metric_name: 'process_resident_memory_bytes', importance_score: 0.95, trust: SHIFT }),
+      finding({ id: 2, service: 'orders-consumer', metric_name: 'kafka_consumergroup_lag', importance_score: 0.6, trust: SHIFT }),
+    ]} />);
+    expect(await screen.findByText("orders-consumer: what's going on")).toBeInTheDocument();
+    expect(screen.getByText('No service label')).toBeInTheDocument();
+    expect(screen.queryByText(/^unknown$/)).not.toBeInTheDocument();
+  });
+
+  it('explains a service-less lead when nothing has a service', async () => {
+    connections.mockReset().mockResolvedValue({ connections: [] });
+    render(<Harness onCreateCase={vi.fn()} findings={[finding({ id: 1, service: undefined, importance_score: 0.9, trust: SHIFT })]} />);
+    expect(await screen.findByText("No service label: what's going on")).toBeInTheDocument();
+    expect(screen.getByText(/These metrics have no/)).toBeInTheDocument();
+  });
+});
+
+// Node 25's own (file-less, non-functional) localStorage shadows jsdom's, so use a plain in-memory one.
+function memoryStorage(): Storage {
+  const items = new Map<string, string>();
+  return {
+    get length() {
+      return items.size;
+    },
+    clear: () => items.clear(),
+    getItem: (key) => items.get(key) ?? null,
+    key: (index) => [...items.keys()][index] ?? null,
+    removeItem: (key) => void items.delete(key),
+    setItem: (key, value) => void items.set(key, String(value)),
+  };
+}
+
+describe('GrafanaAutonomousOverview sections that can be hidden', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    cases.mockReset().mockResolvedValue([grafanaCase(31, 6519)]);
+    connections.mockReset().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] });
+  });
+
+  it('hides the run summary to one line, and remembers it in this browser', async () => {
+    const { unmount } = render(<Harness onCreateCase={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+    expect(screen.getByText('executed')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide current run summary' }));
+    expect(screen.queryByText('executed')).not.toBeInTheDocument();
+    expect(screen.getByText(/^\S+ executed · \S+ skipped · \S+ findings · \S+ cases$/)).toBeInTheDocument();
+    unmount();
+
+    render(<Harness onCreateCase={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+    expect(screen.getByRole('button', { name: 'Show current run summary' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens hidden Behavior findings when a "Part of" chip points there', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<Harness onCreateCase={vi.fn()} behaviorFindings={[LATENCY_AND_ERRORS]} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide behavior findings' }));
+    expect(screen.queryByTestId('plugin-behavior-finding')).not.toBeInTheDocument();
+    expect(screen.getByText('1 match · 1 without a case')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTestId('symptom-part-of')[0]);
+    expect(await screen.findByTestId('plugin-behavior-finding')).toBeInTheDocument();
+  });
+
+  it('still works when the browser keeps nothing', async () => {
+    const blocked = () => { throw new Error('blocked'); };
+    vi.stubGlobal('localStorage', { ...memoryStorage(), getItem: blocked, setItem: blocked });
+    render(<Harness onCreateCase={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Open case #31 ▸' });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide current run summary' }));
+    expect(screen.queryByText('executed')).not.toBeInTheDocument();
   });
 });

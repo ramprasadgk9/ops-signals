@@ -6,6 +6,7 @@ import { ApiTokenField } from './ApiTokenField';
 import {
   activeBackendUrl,
   configuredBackendUrl,
+  configuredWebUiUrl,
   connectMode,
   isValidBackendUrl,
   normalizeBackendUrl,
@@ -93,6 +94,7 @@ export function AppConfig({
   // A new install starts on Grafana; one saved before the choice existed keeps calling directly.
   const [mode, setMode] = useState<ConnectMode>(meta.jsonData?.connectMode ?? (savedUrl ? 'direct' : 'grafana'));
   const [backendUrl, setBackendUrl] = useState(savedUrl ?? '');
+  const [webUiUrl, setWebUiUrl] = useState(configuredWebUiUrl(meta.jsonData) ?? '');
   const [secureToken, setSecureToken] = useState('');
   const [tokenReset, setTokenReset] = useState(false);
   const [error, setError] = useState('');
@@ -102,6 +104,7 @@ export function AppConfig({
   const viaGrafana = mode === 'grafana';
   const tokenConfigured = Boolean(meta.secureJsonFields?.apiToken) && !tokenReset;
   const invalid = backendUrl.trim() !== '' && !isValidBackendUrl(backendUrl);
+  const invalidWebUi = webUiUrl.trim() !== '' && !isValidBackendUrl(webUiUrl);
   const missingUrl = viaGrafana && backendUrl.trim() === '';
   // The Setup check runs against what is saved, which is what the app uses.
   const checkedUrl = activeBackendUrl(meta.jsonData, import.meta.env.VITE_OPS_SIGNALS_BACKEND_URL);
@@ -116,7 +119,7 @@ export function AppConfig({
         enabled,
         pinned: enabled,
         // Grafana merges jsonData into what it has, so clearing must send '' rather than drop the key.
-        jsonData: { ...(meta.jsonData ?? {}), backendUrl: normalizeBackendUrl(backendUrl), connectMode: mode },
+        jsonData: { ...(meta.jsonData ?? {}), backendUrl: normalizeBackendUrl(backendUrl), connectMode: mode, webUiUrl: normalizeBackendUrl(webUiUrl) },
         // Only sent when it changes: Grafana keeps an encrypted value it isn't sent, and '' removes it.
         ...(token ? { secureJsonData: { apiToken: token } } : tokenReset ? { secureJsonData: { apiToken: '' } } : {}),
       });
@@ -225,11 +228,27 @@ export function AppConfig({
         )}
       </div>
 
+      <div style={{ maxWidth: 560 }}>
+        <Field label="Ops Signals web UI address (optional)">
+          <input
+            aria-label="Web UI address"
+            style={styles.input}
+            value={webUiUrl}
+            onChange={(event) => setWebUiUrl(event.target.value)}
+            placeholder="http://localhost:5174"
+          />
+        </Field>
+        <p style={{ ...styles.helperText, marginTop: 4 }}>
+          As people's browsers reach it. Behavior findings then link to it, where admins write and change the patterns. Leave empty for no links.
+        </p>
+      </div>
+
       {invalid && <p role="alert" style={{ margin: 0 }}>Enter an http:// or https:// URL.</p>}
+      {invalidWebUi && <p role="alert" style={{ margin: 0 }}>Enter the web UI address as an http:// or https:// URL.</p>}
       {missingUrl && <p style={{ margin: 0, color: '#ffb357' }}>Enter the backend URL Grafana should call.</p>}
       {error && <p role="alert" style={{ margin: 0 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" style={styles.button} disabled={saving || invalid || missingUrl} onClick={() => submit(true)}>
+        <button type="button" style={styles.button} disabled={saving || invalid || invalidWebUi || missingUrl} onClick={() => submit(true)}>
           {meta.enabled ? 'Save settings' : 'Enable and save'}
         </button>
         {meta.enabled && (

@@ -6,7 +6,8 @@
 // the backend at backendUrl with the API token from the plugin's encrypted settings and says who the
 // user is. "direct" (the default for installs set up before it existed): the browser calls backendUrl.
 export type ConnectMode = 'grafana' | 'direct';
-export type PluginJsonData = { backendUrl?: string; connectMode?: ConnectMode } | undefined | null;
+/** webUiUrl: where people open the Ops Signals web UI, for links to it; optional. */
+export type PluginJsonData = { backendUrl?: string; connectMode?: ConnectMode; webUiUrl?: string } | undefined | null;
 
 export const PLUGIN_ID = 'breezypoppy3596-opssignals-app';
 // Must match the route's path in plugin.json ("backend/*").
@@ -36,6 +37,12 @@ export function isValidBackendUrl(value: string): boolean {
 
 export function configuredBackendUrl(jsonData: PluginJsonData): string | undefined {
   const value = normalizeBackendUrl(jsonData?.backendUrl ?? '');
+  return value && isValidBackendUrl(value) ? value : undefined;
+}
+
+/** The web UI's address, when one is set and valid: the plugin only links there. */
+export function configuredWebUiUrl(jsonData: PluginJsonData): string | undefined {
+  const value = normalizeBackendUrl(jsonData?.webUiUrl ?? '');
   return value && isValidBackendUrl(value) ? value : undefined;
 }
 

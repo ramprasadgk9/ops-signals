@@ -51,7 +51,7 @@ function shapeOf(facts: Facts): { shape: string; change: number | null } {
 }
 
 /** One entry per rule input, in the rule's order. */
-export function patternParts(behavior: BehaviorFinding): PatternPart[] {
+export function patternParts(behavior: Pick<BehaviorFinding, 'input_metrics_json' | 'facts_json'>): PatternPart[] {
   return Object.entries(behavior.input_metrics_json ?? {}).map(([alias, metric]) => {
     const facts: Facts = (behavior.facts_json?.[alias] as Facts) ?? {};
     return {
@@ -70,19 +70,19 @@ export function formatChange(change: number | null): string | null {
   return `${rounded > 0 ? '+' : ''}${rounded}%`;
 }
 
-export function conditionsPassed(behavior: BehaviorFinding): { passed: number; total: number } {
+export function conditionsPassed(behavior: Pick<BehaviorFinding, 'matched_conditions_json'>): { passed: number; total: number } {
   const conditions = behavior.matched_conditions_json ?? [];
   return { passed: conditions.filter((item) => item.passed === true).length, total: conditions.length };
 }
 
 /** How long the metrics' windows overlapped, when the rule checked timing and it passed. */
-export function overlapMinutes(behavior: BehaviorFinding): number | null {
+export function overlapMinutes(behavior: Pick<BehaviorFinding, 'correlation_json'>): number | null {
   const correlation = behavior.correlation_json ?? {};
   if (correlation.matched !== true || typeof correlation.overlap_minutes !== 'number') return null;
   return Math.round(correlation.overlap_minutes);
 }
 
-export function inWindow(behavior: BehaviorFinding, window: PatternWindow, now = Date.now()): boolean {
+export function inWindow(behavior: Pick<BehaviorFinding, 'last_seen_at'>, window: PatternWindow, now = Date.now()): boolean {
   const seen = parseUtc(behavior.last_seen_at);
   return Number.isFinite(seen) && now - seen <= WINDOW_HOURS[window] * 3600_000;
 }
@@ -128,12 +128,12 @@ export function patternStatus(behavior: BehaviorFinding, now = Date.now()): 'act
 }
 
 /** The smallest Findings window that still lists the pattern; null when it is older than all of them. */
-export function findingsWindowFor(behavior: BehaviorFinding, now = Date.now()): PatternWindow | null {
+export function findingsWindowFor(behavior: Pick<BehaviorFinding, 'last_seen_at'>, now = Date.now()): PatternWindow | null {
   return (['6h', '24h', '7d'] as PatternWindow[]).find((window) => inWindow(behavior, window, now)) ?? null;
 }
 
 /** Where "View details" opens the pattern: its card on the Findings page. */
-export function patternFindingsHref(behavior: BehaviorFinding, now = Date.now()): string | null {
+export function patternFindingsHref(behavior: Pick<BehaviorFinding, 'id' | 'last_seen_at'>, now = Date.now()): string | null {
   const window = findingsWindowFor(behavior, now);
   return window ? `/findings?window=${window}&pattern=${behavior.id}` : null;
 }

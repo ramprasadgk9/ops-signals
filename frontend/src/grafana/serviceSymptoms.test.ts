@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Finding } from '../types';
-import { caseForSymptom, caseIdsByFinding, serviceSymptoms, stillShowing, symptomChange, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms } from './serviceSymptoms';
+import { caseForSymptom, caseIdsByFinding, dataProblemsByMetric, serviceLabel, serviceSymptoms, stillShowing, symptomChange, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms } from './serviceSymptoms';
 
 function finding(overrides: Partial<Finding>): Finding {
   return {
@@ -102,5 +102,29 @@ describe('triageSymptoms across clusters', () => {
     ], 'trend-lab'));
 
     expect(triage.attention.map((row) => row.lead.finding.cluster)).toEqual(['us', 'eu']);
+  });
+});
+
+describe('dataProblemsByMetric', () => {
+  it('lists a metric that stopped several times once, newest first, with how many times', () => {
+    const symptom = (id: number, metric: string, lastSeen: string) => ({ finding: finding({ id, metric_name: metric }), runs: [finding({ id, metric_name: metric })], lastSeen });
+    const grouped = dataProblemsByMetric([
+      symptom(1, 'up', '2026-10-21T08:00:00Z'),
+      symptom(2, 'process_cpu_seconds_total', '2026-10-21T20:57:00Z'),
+      symptom(3, 'up', '2026-10-21T20:40:00Z'),
+      symptom(4, 'process_cpu_seconds_total', '2026-10-21T02:43:00Z'),
+      symptom(5, 'up', '2026-10-21T19:17:00Z'),
+    ], (item) => item.finding.metric_name);
+    expect(grouped.map((item) => [item.key, item.episodes, item.latest.finding.id])).toEqual([
+      ['process_cpu_seconds_total', 2, 2],
+      ['up', 3, 3],
+    ]);
+  });
+});
+
+describe('serviceLabel', () => {
+  it('says what "unknown" is', () => {
+    expect(serviceLabel('unknown')).toBe('No service label');
+    expect(serviceLabel('orders-consumer')).toBe('orders-consumer');
   });
 });

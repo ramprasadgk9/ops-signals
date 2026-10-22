@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCaseFromBehavior } from './backendClient';
 import { PluginBehaviorFindings, type PluginBehaviorFindingRow } from './PluginBehaviorFindings';
+import { WebUiContext } from './webUiLink';
 
 vi.mock('./backendClient', () => ({ createCaseFromBehavior: vi.fn() }));
 const createCase = vi.mocked(createCaseFromBehavior);
@@ -52,5 +53,48 @@ describe('PluginBehaviorFindings', () => {
   it('renders nothing without behavior findings', () => {
     const { container } = render(<PluginBehaviorFindings backendUrl="http://backend" findings={[]} onOpenCase={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('shows what the match saw: each metric with its change, the timing and the rule', () => {
+    render(
+      <PluginBehaviorFindings
+        backendUrl="http://backend"
+        onOpenCase={vi.fn()}
+        findings={[row({
+          title: 'Consumer falling behind', definition_id: 'consumer_falling_behind', definition_version: 1,
+          input_metrics_json: { lag: 'kafka_consumergroup_lag', produced: 'kafka_topic_messages_in_rate' },
+          facts_json: {
+            lag: { trend: { present: true, direction: 'upward', change_percent: 235.4 } },
+            produced: { trend: { present: true, direction: 'upward', change_percent: 91.8 } },
+          },
+          matched_conditions_json: [{ passed: true }, { passed: true }],
+          correlation_json: { matched: true, overlap_minutes: 235 },
+          occurrence_count: 1,
+        })]}
+      />
+    );
+    const card = screen.getByTestId('plugin-behavior-finding');
+    expect(card).toHaveTextContent('2 metrics combined');
+    expect(screen.getAllByTestId('plugin-behavior-metric').map((metric) => metric.textContent)).toEqual([
+      '● kafka_consumergroup_lagSlowly rising +235%',
+      '● kafka_topic_messages_in_rateSlowly rising +92%',
+    ]);
+    expect(card).toHaveTextContent('Both at the same time · 235 min');
+    expect(card).toHaveTextContent('2 of 2 conditions passed');
+    expect(card).toHaveTextContent('Seen once');
+    expect(card).toHaveTextContent('checkout · Confidence 82% · rule consumer_falling_behind v1');
+    // No web UI address set: no links to it.
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('links to the web UI when its address is set', () => {
+    const lastSeen = new Date(Date.now() - 2 * 3600_000).toISOString();
+    render(
+      <WebUiContext.Provider value="http://ops.example">
+        <PluginBehaviorFindings backendUrl="http://backend" findings={[row({ last_seen_at: lastSeen })]} onOpenCase={vi.fn()} />
+      </WebUiContext.Provider>
+    );
+    expect(screen.getByRole('link', { name: 'Manage patterns in Ops Signals ↗' })).toHaveAttribute('href', 'http://ops.example/behavior-intelligence?tab=patterns');
+    expect(screen.getByRole('link', { name: 'Open in Ops Signals ↗' })).toHaveAttribute('href', 'http://ops.example/findings?window=6h&pattern=5');
   });
 });

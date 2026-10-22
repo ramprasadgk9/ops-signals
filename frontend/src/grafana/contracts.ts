@@ -1,4 +1,4 @@
-import type { AnalysisRun, FindingPlain, FindingTrust, TimeseriesPoint } from '../types';
+import type { AnalysisRun, BehaviorFinding, FindingPlain, FindingTrust, TimeseriesPoint } from '../types';
 
 export type GrafanaQueryTarget = {
   datasource: string;
@@ -81,7 +81,9 @@ export type GrafanaBehaviorFinding = {
   service?: string | null;
   /** The case already opened from this behavior, if any. */
   case_id?: number | null;
-};
+} & Partial<Pick<BehaviorFinding,
+  'definition_id' | 'definition_version' | 'analysis_run_id' | 'input_metrics_json' | 'facts_json' | 'matched_conditions_json'
+  | 'correlation_json' | 'occurrence_count' | 'last_seen_at'>>;
 
 export type GrafanaAnalysisResult = {
   runId: string;

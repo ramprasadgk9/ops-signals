@@ -276,6 +276,10 @@ Mac and Windows reaches a backend on `127.0.0.1` too.
 To pick a backend in the app instead (:8002 or :8001), choose **Connect through: Browser, directly**
 on the Configuration page. That lasts until Grafana restarts and provisioning applies again.
 
+Provisioning also sets the optional **Ops Signals web UI address** to `http://localhost:5174` (the
+web UI `scripts/run_all.sh` starts), so behavior findings in the plugin link to the web UI, where
+patterns are written. Leave it empty on the Configuration page for no links.
+
 In the Ops Signals app:
 
 - `Data source`: choose a configured Prometheus datasource from Grafana.
