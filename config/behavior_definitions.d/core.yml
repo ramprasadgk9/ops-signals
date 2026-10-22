@@ -1,7 +1,7 @@
 behavior_definitions:
   cpu_throttling:
     enabled: true
-    version: 1
+    version: 2
     title: Possible CPU throttling
     description: >
       Detects abnormal CPU usage occurring together with increased
@@ -23,19 +23,22 @@ behavior_definitions:
           - anomaly_zscore
           - pyod_outlier
           - trend
+          - baseline_shift
+          - ruptures
     conditions:
       all:
         - fact: cpu.anomaly.present
           operator: equals
           value: true
-        - fact: throttling.trend.direction
+        # "Went up", whichever of trend, baseline_shift or ruptures the router ran.
+        - fact: throttling.change.upward
           operator: equals
-          value: upward
+          value: true
       any:
         - fact: throttling.anomaly.present
           operator: equals
           value: true
-        - fact: throttling.trend.change_percent
+        - fact: throttling.change.change_percent
           operator: greater_than
           value: 20
     correlation:
@@ -54,11 +57,11 @@ behavior_definitions:
         - cpu.anomaly.max_score
         - cpu.trend.direction
         - throttling.anomaly.count
-        - throttling.trend.change_percent
+        - throttling.change.signed_change_percent
 
   server_slow:
     enabled: true
-    version: 1
+    version: 2
     title: Possible server performance degradation
     description: >
       Detects related CPU and memory degradation that may contribute
@@ -90,18 +93,12 @@ behavior_definitions:
           operator: equals
           value: true
       any:
-        - fact: memory.trend.direction
+        # Upward only - memory freed is not degradation. change.upward is a trend up, a baseline
+        # shift up, or a ruptures change of more than +25% (ruptures runs in default router mode on
+        # a level change; baseline_shift does not).
+        - fact: memory.change.upward
           operator: equals
-          value: upward
-        # Level changes count only upward - memory freed is not degradation. baseline_shift
-        # already requires a 25% change; ruptures doesn't, so its condition adds the same 25.
-        # ruptures runs in default (router) mode on a level change; baseline_shift does not.
-        - fact: memory.baseline_shift.signed_change_percent
-          operator: greater_than
-          value: 0
-        - fact: memory.ruptures.signed_change_percent
-          operator: greater_than
-          value: 25
+          value: true
     correlation:
       same_analysis_context: true
       max_time_gap: 20m
@@ -116,13 +113,12 @@ behavior_definitions:
       evidence:
         - cpu.anomaly.count
         - cpu.anomaly.max_score
-        - memory.trend.direction
-        - memory.baseline_shift.signed_change_percent
-        - memory.ruptures.signed_change_percent
+        - memory.change.direction
+        - memory.change.signed_change_percent
 
   memory_leak:
     enabled: true
-    version: 1
+    version: 2
     title: Memory leak causing degradation
     description: >
       Detects sustained upward memory trend occurring alongside CPU
@@ -137,6 +133,7 @@ behavior_definitions:
         analyzers:
           - trend
           - baseline_shift
+          - ruptures
       - alias: throttling
         metric_name: cpu_throttled_seconds
         analyzers:
@@ -145,20 +142,15 @@ behavior_definitions:
           - ruptures
     conditions:
       all:
-        - fact: memory.trend.direction
+        # A steady climb often reaches the router as a ruptures level change, not a trend.
+        - fact: memory.change.upward
           operator: equals
-          value: upward
+          value: true
       any:
-        - fact: throttling.trend.direction
+        # Upward only, as in server_slow.
+        - fact: throttling.change.upward
           operator: equals
-          value: upward
-        # Upward level changes only, as in server_slow.
-        - fact: throttling.baseline_shift.signed_change_percent
-          operator: greater_than
-          value: 0
-        - fact: throttling.ruptures.signed_change_percent
-          operator: greater_than
-          value: 25
+          value: true
     correlation:
       same_analysis_context: true
       max_time_gap: 30m
@@ -171,14 +163,13 @@ behavior_definitions:
         Sustained upward memory trend was accompanied by increased CPU throttling,
         indicating a memory leak driving resource exhaustion.
       evidence:
-        - memory.trend.direction
-        - memory.trend.change_percent
-        - throttling.baseline_shift.signed_change_percent
-        - throttling.ruptures.signed_change_percent
+        - memory.change.direction
+        - memory.change.signed_change_percent
+        - throttling.change.signed_change_percent
 
   pool_exhaustion:
     enabled: true
-    version: 1
+    version: 2
     title: Database connection pool exhaustion
     description: >
       Detects high database connection utilization and connection wait times
@@ -190,19 +181,23 @@ behavior_definitions:
         metric_name: db_connection_wait_seconds
         analyzers:
           - trend
+          - baseline_shift
+          - ruptures
       - alias: db_pool
         metric_name: db_connections_active
         analyzers:
           - trend
+          - baseline_shift
+          - ruptures
     conditions:
       all:
-        - fact: db_wait.trend.direction
+        - fact: db_wait.change.upward
           operator: equals
-          value: upward
+          value: true
       any:
-        - fact: db_pool.trend.direction
+        - fact: db_pool.change.upward
           operator: equals
-          value: upward
+          value: true
     correlation:
       same_analysis_context: true
       max_time_gap: 30m
@@ -214,12 +209,12 @@ behavior_definitions:
       summary: >
         Database connection pool reached saturation with surging connection wait times.
       evidence:
-        - db_wait.trend.direction
-        - db_pool.trend.direction
+        - db_wait.change.signed_change_percent
+        - db_pool.change.signed_change_percent
 
   benign_maintenance:
     enabled: true
-    version: 1
+    version: 2
     title: Scheduled maintenance or batch processing
     description: >
       Detects batch job activity causing temporary CPU or resource rise.
@@ -230,19 +225,23 @@ behavior_definitions:
         metric_name: batch_jobs_active
         analyzers:
           - trend
+          - baseline_shift
+          - ruptures
       - alias: cpu
         metric_name: cpu_usage
         # OpenTelemetry names for the same metric (Kubernetes kubelet and Docker receivers), as sent over OTLP
         aliases: [container.cpu.usage, container.cpu.utilization, k8s.pod.cpu.usage]
         analyzers:
           - trend
+          - baseline_shift
+          - ruptures
     conditions:
       all:
-        - fact: batch.trend.present
+        - fact: batch.change.upward
           operator: equals
           value: true
       any:
-        - fact: cpu.trend.present
+        - fact: cpu.change.upward
           operator: equals
           value: true
     correlation:
@@ -256,5 +255,5 @@ behavior_definitions:
       summary: >
         Active batch jobs correlated with temporary CPU load, consistent with scheduled maintenance.
       evidence:
-        - batch.trend.present
-        - cpu.trend.present
+        - batch.change.signed_change_percent
+        - cpu.change.signed_change_percent

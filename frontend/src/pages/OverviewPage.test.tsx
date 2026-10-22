@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { OverviewPage } from './OverviewPage';
 import { api } from '../api/queries';
-import type { Finding, IngestionStatus, OperationalCase } from '../types';
+import type { BehaviorFinding, Finding, IngestionStatus, OperationalCase } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -469,5 +469,54 @@ describe('OverviewPage integration resilience', () => {
       expect(screen.queryByText(/Alert: /)).not.toBeInTheDocument();
       expect(screen.queryByRole('region', { name: 'Incoming Alerts' })).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('OverviewPage combined patterns', () => {
+  beforeEach(() => {
+    vi.mocked(api.ingestionStatus).mockRejectedValue(new Error('not mocked'));
+    vi.mocked(api.alerts).mockRejectedValue(new Error('not mocked'));
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('lists a combined pattern first in Needs Attention, marked with its metric count', async () => {
+    const pattern = {
+      id: 3,
+      behavior_id: 'pool_exhaustion:1:run-1',
+      definition_id: 'pool_exhaustion',
+      definition_version: 1,
+      title: 'Database connection pool exhaustion',
+      summary: 'Pool filling up.',
+      category: 'resource_constraint',
+      severity: 'critical',
+      service: 'checkout-api',
+      analysis_run_id: 'run-1',
+      input_metrics_json: { db_wait: 'db_connection_wait_seconds', db_pool: 'db_connections_active' },
+      facts_json: {},
+      evidence_json: [],
+      matched_conditions_json: [],
+      confidence: 1,
+      correlation_json: {},
+      case_id: null,
+      occurrence_count: 1,
+      last_seen_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    } satisfies BehaviorFinding;
+    vi.mocked(api.findings).mockResolvedValue([]);
+    vi.mocked(api.cases).mockResolvedValue([]);
+    vi.mocked(api.behaviorFindings).mockResolvedValue([pattern]);
+    vi.mocked(api.overviewSummary).mockResolvedValue(emptySummary);
+    vi.mocked(api.memoryStats).mockResolvedValue(healthyMemory);
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([]);
+
+    renderOverview();
+
+    expect(await screen.findByText('checkout-api / 2 metrics')).toBeInTheDocument();
+    expect(screen.getByText('Combined pattern')).toBeInTheDocument();
+    expect(screen.getByText('Database connection pool exhaustion')).toBeInTheDocument();
+    expect(screen.queryByText('No findings need attention in this window.')).not.toBeInTheDocument();
   });
 });

@@ -8,7 +8,6 @@ import { QuestionAnswerPage } from '../pages/QuestionAnswerPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SignalDetailPage } from '../pages/SignalDetailPage';
 import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
-import { BehaviorLabPage } from '../pages/BehaviorLabPage';
 import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
 import { MemoryChatPage } from '../pages/MemoryChatPage';
 import { DOCS_CHECK_PATH, DocsCheckPage } from '../pages/DocsCheckPage';
@@ -41,7 +40,8 @@ export function AppRoutes() {
       <Route path="/questions/:questionId" element={<QuestionAnswerPage />} />
       <Route path="/capabilities" element={<CapabilitiesPage />} />
       <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
-      <Route path="/behavior-intelligence/lab" element={<AdminArea><BehaviorLabPage /></AdminArea>} />
+      {/* The Lab is now the builder panel on Behavior Intelligence; old links and bookmarks land there. */}
+      <Route path="/behavior-intelligence/lab" element={<Navigate to="/behavior-intelligence?tab=patterns&builder=new" replace />} />
       <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
       <Route path="/validate-data" element={<ValidateDataPage />} />
       {/* The experiment results page was removed; old links land on the closest replacement. */}

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { useConnectionName } from '../api/useConnectionName';
-import type { Finding, MetricUsageItem, Signal } from '../types';
+import type { BehaviorFinding, Finding, MetricUsageItem, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
@@ -36,13 +36,15 @@ type Props = {
   repeats?: FindingRepeats;
   /** Which dashboards and alerts read this finding's metric, from the latest metric usage check. */
   usage?: MetricUsageItem;
+  /** Combined patterns (behavior rules) this finding is one of the metrics of. */
+  partOf?: BehaviorFinding[];
 };
 
 function seenAt(value?: string): string {
   return value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'unknown';
 }
 
-export function FindingCard({ finding, onViewDetails, signals = [], repeats, usage }: Props) {
+export function FindingCard({ finding, onViewDetails, signals = [], repeats, usage, partOf = [] }: Props) {
   const { canEdit } = useWebPermissions();
   const navigate = useNavigate();
   const connectionName = useConnectionName(finding.connection_id);
@@ -116,6 +118,19 @@ export function FindingCard({ finding, onViewDetails, signals = [], repeats, usa
           </Stack>
         )}
 
+        {partOf.map((behavior) => (
+          <Tooltip key={behavior.id} title="This metric is one of several that matched a combined pattern together. Click to see the pattern." arrow>
+            <Chip
+              label={`Part of: ${behavior.title}`}
+              size="small"
+              color="success"
+              variant="outlined"
+              clickable
+              onClick={() => document.getElementById(`combined-pattern-${behavior.id}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })}
+              sx={{ mb: 1, mr: 1 }}
+            />
+          </Tooltip>
+        ))}
         {watchedBy && (
           <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{watchedBy.detail}</span>} arrow>
             <Chip

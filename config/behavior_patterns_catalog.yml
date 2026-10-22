@@ -1,0 +1,145 @@
+# Known behavior patterns, in plain words, for the Patterns tab on Behavior Intelligence.
+#
+# Two kinds of entry:
+#   - rule: the id of a shipped definition in behavior_definitions.d. The page shows its proof:
+#     "Tested here" when `scenarios` lists benchmark scenarios that require the rule to match
+#     (tests/test_behavior_catalog.py checks each one), otherwise "Shipped rule".
+#   - a template (no rule): a well-known pattern, not tested here. "Use this pattern" opens the
+#     builder with a draft made from its signals; the user picks their own metric for each.
+#
+# A signal's shape is one the engine can check today:
+#   rising  -> <alias>.change.upward   (trend, baseline_shift or ruptures)
+#   falling -> <alias>.change.downward (trend, baseline_shift or ruptures)
+#   unusual -> <alias>.anomaly.present (anomaly_zscore or pyod_outlier)
+# Not "stays flat" or "an event at that moment": an input with no signal at all makes the whole
+# rule skip, so a metric that did not change can't be part of a pattern.
+#
+# keywords: words to look for in the user's stored metric names when suggesting one.
+
+patterns:
+  # ---- Shipped rules -------------------------------------------------------------------------
+  - rule: server_slow
+    scenarios: [behavior_server_slow_v1, behavior_server_slow_memory_step_v1]
+  - rule: latency_error_cascade
+    scenarios: [behavior_latency_error_cascade_v1]
+  - rule: cpu_throttling
+  - rule: memory_leak
+  - rule: pool_exhaustion
+  - rule: benign_maintenance
+  - rule: memory_pressure_with_errors
+
+  # ---- Templates ------------------------------------------------------------------------------
+  - key: consumer_falling_behind
+    name: Consumer falling behind
+    area: Queues
+    meaning: Messages arrive faster than your consumers can process them (Kafka, RabbitMQ or any queue).
+    why: >
+      Lag jumps during every traffic burst and then clears. Lag rising while more messages keep
+      arriving means the consumers are not keeping up.
+    check_first: Consumer restarts or rebalances, a slow downstream call, too few partitions or workers.
+    severity: high
+    category: saturation
+    signals:
+      - alias: lag
+        label: Consumer lag rising
+        shape: rising
+        metric_hint: consumer_lag
+        keywords: [consumer, lag, backlog]
+      - alias: produced
+        label: Incoming messages rising
+        shape: rising
+        metric_hint: messages_in_rate
+        keywords: [messages, produce, produced, incoming, publish]
+
+  - key: cache_stopped_helping
+    name: Cache stopped helping
+    area: Database
+    meaning: The cache misses more often, so the database does the work instead and requests slow down.
+    why: >
+      The hit ratio dips after every cache flush or restart. Database load and latency rising with it
+      mean users feel it.
+    check_first: Cache evictions or restarts, key changes in a deploy, cache size against the data.
+    severity: medium
+    category: performance
+    signals:
+      - alias: hits
+        label: Cache hit ratio falling
+        shape: falling
+        metric_hint: cache_hit_ratio
+        keywords: [cache, hit, hits, ratio]
+      - alias: db_load
+        label: Database load rising
+        shape: rising
+        metric_hint: db_queries_per_second
+        keywords: [db, database, query, queries, sql]
+      - alias: latency
+        label: Latency rising
+        shape: rising
+        metric_hint: request_latency_p95
+        keywords: [latency, duration, response, time]
+
+  - key: disk_filling_up
+    name: Disk filling up
+    area: Storage
+    meaning: Disk usage is growing fast enough to run out.
+    why: >
+      A disk that is 85% full but stable is fine. Usage and writes both growing means it will fill;
+      the question is when.
+    check_first: Log volume, old files not cleaned up, a job writing more than usual.
+    severity: high
+    category: resource_constraint
+    signals:
+      - alias: usage
+        label: Disk usage rising
+        shape: rising
+        metric_hint: disk_used_percent
+        keywords: [disk, filesystem, fs, used, usage]
+      - alias: writes
+        label: Write rate rising
+        shape: rising
+        metric_hint: disk_write_bytes_rate
+        keywords: [disk, write, writes, written, bytes]
+
+  - key: workers_cannot_keep_up
+    name: Workers can't keep up
+    area: Compute
+    meaning: Work is queuing up faster than the workers finish it, so every request waits longer.
+    why: >
+      A queue grows with healthy traffic too. Latency rising with it means the work is waiting, not
+      just arriving.
+    check_first: Worker or thread pool size, a slow dependency, a recent change in traffic.
+    severity: high
+    category: saturation
+    signals:
+      - alias: queue
+        label: Queue depth rising
+        shape: rising
+        metric_hint: queue_depth
+        keywords: [queue, depth, pending, backlog, waiting]
+      - alias: latency
+        label: Latency rising
+        shape: rising
+        metric_hint: request_latency_p95
+        keywords: [latency, duration, response, time]
+
+  - key: retry_storm
+    name: Retry storm
+    area: Requests
+    meaning: Failing requests are retried, which adds load and causes more failures.
+    why: >
+      A traffic spike on its own may be real users. Unusual traffic and unusual errors at the same
+      time point to callers retrying.
+    check_first: Retry and backoff settings of the callers, which callers grew, the failing dependency.
+    severity: high
+    category: availability
+    signals:
+      - alias: requests
+        label: Request rate unusual
+        shape: unusual
+        metric_hint: request_rate
+        keywords: [request, requests, rps, rate, http]
+      - alias: errors
+        label: Error rate unusual
+        shape: unusual
+        metric_hint: error_rate
+        keywords: [error, errors, 5xx, failed, failures]

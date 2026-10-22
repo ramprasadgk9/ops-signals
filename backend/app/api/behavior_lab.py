@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, Depends
-from sqlalchemy import distinct, select
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from fastapi import HTTPException
@@ -12,12 +13,15 @@ from fastapi import HTTPException
 from backend.app.behavior_intelligence.fact_catalog import FACT_DESCRIPTORS
 from backend.app.behavior_intelligence.finding_builder import build_evaluation
 from backend.app.behavior_intelligence.fact_extractor import input_facts
+from backend.app.behavior_intelligence.history import judge_run, summarize
 from backend.app.behavior_intelligence.models import BehaviorCondition, BehaviorDefinition, BehaviorInput, BehaviorOutput
 from backend.app.behavior_intelligence.pattern_miner import mine_and_store
 from backend.app.behavior_intelligence.schemas import (
     BehaviorEvaluationOut,
     BehaviorPatternSuggestionOut,
     DryRunRequest,
+    HistoryPreviewOut,
+    HistoryPreviewRequest,
     FactDescriptorOut,
     PromoteSuggestionRequest,
     SaveDraftRequest,
@@ -27,7 +31,7 @@ from backend.app.behavior_intelligence.schemas import (
 )
 from backend.app.behavior_intelligence.validator import BehaviorDefinitionValidator
 from backend.app.models.db import get_db
-from backend.app.models.entities import BehaviorPatternSuggestionEntity, NormalizedPoint, SignalEntity
+from backend.app.models.entities import AnalysisRunEntity, BehaviorPatternSuggestionEntity, NormalizedPoint, SignalEntity
 from backend.app.security import require_file_writes
 
 router = APIRouter(prefix="/api/behavior-definitions", tags=["behavior-definitions"])
@@ -99,6 +103,151 @@ def validate_definition(draft: BehaviorDefinitionDraftIn) -> ValidationResultOut
     return ValidationResultOut(valid=not errors, errors=errors, warnings=warnings)
 
 
+def _signal_dict(row: SignalEntity) -> dict:
+    return {
+        "id": row.signal_id,
+        "signal_type": row.signal_type,
+        "analyzer_id": row.analyzer_id,
+        "metric_name": row.metric_name,
+        "service": row.service,
+        "severity": row.severity,
+        "confidence": row.confidence,
+        "start_time": row.start_time,
+        "end_time": row.end_time,
+        "summary": row.summary,
+        "evidence": row.evidence_json or {},
+        "importance_score": row.importance_score,
+        "analysis_run_id": row.analysis_run_id,
+    }
+
+
+# The chart reads at most this many stored points (newest first) and draws at most HISTORY_BUCKETS
+# averages per metric: the points table can hold tens of millions of rows.
+HISTORY_POINT_LIMIT = 20_000
+HISTORY_BUCKETS = 240
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """Stored times are UTC; SQLite returns them without a zone, Postgres with one."""
+    return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
+
+
+def _bucketed(points: list[tuple[datetime, float]], since: datetime, until: datetime) -> list[tuple[datetime, float]]:
+    """Averages of the points in HISTORY_BUCKETS equal slices of [since, until], oldest first."""
+    if not points:
+        return []
+    span = max((until - since).total_seconds(), 1.0)
+    sums: dict[int, list[float]] = {}
+    for timestamp, value in points:
+        index = min(int((timestamp - since).total_seconds() / span * HISTORY_BUCKETS), HISTORY_BUCKETS - 1)
+        sums.setdefault(index, []).append(value)
+    return [
+        (since + timedelta(seconds=span * (index + 0.5) / HISTORY_BUCKETS), sum(values) / len(values))
+        for index, values in sorted(sums.items())
+    ]
+
+
+@router.get("/history-services")
+def list_history_services(metric: list[str] = Query(default=[]), db: Session = Depends(get_db)) -> list[str]:
+    """Services with recent analysis runs, most recent first, for the history preview. Read from the
+    runs table: a DISTINCT over the points table scans every stored point (tens of millions).
+
+    With `metric`: only services where analyzers found a change on one of those metrics in the
+    last 30 days, those with the most of them first - by the (metric_name, start_time) index."""
+    if metric:
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        found = func.count(distinct(SignalEntity.metric_name))
+        rows = db.execute(
+            select(SignalEntity.service, found, func.max(SignalEntity.start_time))
+            .where(SignalEntity.metric_name.in_(metric), SignalEntity.start_time >= since, SignalEntity.service.is_not(None))
+            .group_by(SignalEntity.service)
+            .order_by(found.desc(), func.max(SignalEntity.start_time).desc())
+            .limit(200)
+        ).all()
+        return [service for service, _, _ in rows]
+    rows = db.execute(
+        select(AnalysisRunEntity.service, func.max(AnalysisRunEntity.end_time).label("last"))
+        .group_by(AnalysisRunEntity.service)
+        .order_by(func.max(AnalysisRunEntity.end_time).desc())
+        .limit(200)
+    ).all()
+    return [service for service, _ in rows if service]
+
+
+@router.post("/history-preview", response_model=HistoryPreviewOut)
+def preview_on_history(payload: HistoryPreviewRequest, db: Session = Depends(get_db)) -> HistoryPreviewOut:
+    """What a draft definition would have said on each of a service's recent analysis runs: fired,
+    never (and the condition that stopped it), or can't check (an input had no signals from its
+    analyzers). Reads by the (service, time) indexes only - there is no index on analysis_run_id -
+    and saves nothing."""
+    definition = _draft_to_definition(payload.definition)
+    errors = BehaviorDefinitionValidator.validate(definition, known_analyzer_ids=_known_analyzer_ids())
+    if errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=payload.hours)
+    metric_names = sorted({name for item in definition.inputs for name in item.metric_names})
+
+    signal_rows = db.execute(
+        select(SignalEntity).where(
+            SignalEntity.service == payload.service,
+            SignalEntity.start_time >= since,
+            SignalEntity.metric_name.in_(metric_names),
+        )
+    ).scalars().all()
+    by_run: dict[str, list[dict]] = {}
+    last_seen: dict[str, datetime] = {}
+    for row in signal_rows:
+        if not row.analysis_run_id:
+            continue
+        by_run.setdefault(row.analysis_run_id, []).append(_signal_dict(row))
+        stamp = _utc(row.end_time or row.start_time)
+        if stamp and (row.analysis_run_id not in last_seen or stamp > last_seen[row.analysis_run_id]):
+            last_seen[row.analysis_run_id] = stamp
+    # Runs that found nothing on these metrics leave no signals; the runs table still lists them.
+    run_rows = db.execute(
+        select(AnalysisRunEntity.id, AnalysisRunEntity.end_time).where(
+            AnalysisRunEntity.service == payload.service,
+            AnalysisRunEntity.end_time >= since,
+        )
+    ).all()
+    for run_id, end_time in run_rows:
+        by_run.setdefault(run_id, [])
+        last_seen.setdefault(run_id, _utc(end_time))
+
+    newest = sorted(by_run, key=lambda run_id: last_seen.get(run_id) or since, reverse=True)[: payload.max_runs]
+    runs = [judge_run(definition, run_id, last_seen.get(run_id), by_run[run_id]) for run_id in newest]
+    summary = summarize(definition, runs)
+
+    point_rows = db.execute(
+        select(NormalizedPoint.metric_name, NormalizedPoint.timestamp, NormalizedPoint.value)
+        .where(
+            NormalizedPoint.service == payload.service,
+            NormalizedPoint.timestamp >= since,
+            NormalizedPoint.metric_name.in_(metric_names),
+        )
+        .order_by(NormalizedPoint.timestamp.desc())
+        .limit(HISTORY_POINT_LIMIT)
+    ).all()
+    by_metric: dict[str, list[tuple[datetime, float]]] = {}
+    for metric_name, timestamp, value in point_rows:
+        by_metric.setdefault(metric_name, []).append((_utc(timestamp), float(value)))
+    series = []
+    for item in definition.inputs:
+        name = next((candidate for candidate in item.metric_names if candidate in by_metric), item.metric_name)
+        series.append({"alias": item.alias, "metric_name": name, "points": _bucketed(sorted(by_metric.get(name, [])), since, now)})
+
+    return HistoryPreviewOut(
+        service=payload.service,
+        since=since,
+        runs=runs,
+        series=series,
+        series_truncated=len(point_rows) >= HISTORY_POINT_LIMIT,
+        **summary,
+    )
+
+
 @router.post("/dry-run", response_model=BehaviorEvaluationOut)
 def dry_run_definition(payload: DryRunRequest, db: Session = Depends(get_db)) -> BehaviorEvaluationOut:
     """Runs a draft definition against real signals for one analysis_run_id, without saving the
@@ -121,24 +270,7 @@ def dry_run_definition(payload: DryRunRequest, db: Session = Depends(get_db)) ->
     if payload.service:
         query = query.where(SignalEntity.service == payload.service)
     signals = db.execute(query).scalars().all()
-    signal_dicts = [
-        {
-            "id": row.signal_id,
-            "signal_type": row.signal_type,
-            "analyzer_id": row.analyzer_id,
-            "metric_name": row.metric_name,
-            "service": row.service,
-            "severity": row.severity,
-            "confidence": row.confidence,
-            "start_time": row.start_time,
-            "end_time": row.end_time,
-            "summary": row.summary,
-            "evidence": row.evidence_json or {},
-            "importance_score": row.importance_score,
-            "analysis_run_id": row.analysis_run_id,
-        }
-        for row in signals
-    ]
+    signal_dicts = [_signal_dict(row) for row in signals]
 
     matched_inputs: dict[str, dict] = {}
     for item in definition.inputs:

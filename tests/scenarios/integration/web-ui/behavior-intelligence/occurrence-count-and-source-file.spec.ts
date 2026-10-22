@@ -10,10 +10,9 @@ import { seedBehaviorFinding, cleanupBehaviorFinding } from '../../shared/db';
  * workers: 1 — the freshly seeded row lands first, same assumption toBehaviorRows/selected[0]
  * relies on.
  *
- * Also covers "show which pack file a rule came from" — the Rules tab's Source column and the
- * Patterns Library tab's source_file pill, both reading definition.source_file from the real
- * multi-file config/behavior_definitions.d loader (confirmed live earlier: core.yml, plus this
- * suite's own latency_and_errors.yml / memory_pressure.yml pack files all show up distinctly).
+ * Also covers "show which pack file a rule came from" — the Patterns tab's Pack column, reading
+ * definition.source_file from the real multi-file config/behavior_definitions.d loader
+ * (core.yml, latency_and_errors.yml and memory_pressure.yml all show up distinctly).
  */
 test.describe('Behavior Intelligence — occurrence count and source file', () => {
   test('Detected Behaviors table shows occurrence count and last-seen for a seeded finding', async ({ page }) => {
@@ -38,24 +37,16 @@ test.describe('Behavior Intelligence — occurrence count and source file', () =
     }
   });
 
-  test('Rules tab and Patterns Library tab show which pack file each rule came from', async ({ page }) => {
+  test('Patterns tab shows which pack file each rule came from', async ({ page }) => {
     await page.goto('/behavior-intelligence');
-    await page.getByRole('tab', { name: 'Rules' }).click();
+    await page.getByRole('tab', { name: /^Patterns/ }).click();
 
     const cpuThrottlingRow = page.locator('tr', { hasText: 'Possible CPU throttling' });
     await expect(cpuThrottlingRow).toBeVisible({ timeout: 15_000 });
-    await expect(cpuThrottlingRow.getByText('core.yml')).toBeVisible();
+    await expect(cpuThrottlingRow.getByText(/core\.yml · v\d+/)).toBeVisible();
 
     const cascadeRow = page.locator('tr', { hasText: 'Possible cascading failure' });
     await expect(cascadeRow).toBeVisible();
-    await expect(cascadeRow.getByText('latency_and_errors.yml')).toBeVisible();
-
-    await page.getByRole('tab', { name: 'Patterns Library' }).click();
-    await expect(page.getByText('Possible cascading failure', { exact: true })).toBeVisible({ timeout: 15_000 });
-    // Patterns Library renders the source file through the shared Pill component, which
-    // title-cases its label (see standalone/components.tsx) — "latency_and_errors.yml" renders
-    // as "Latency And Errors.yml", not the raw filename.
-    await expect(page.getByText('Latency And Errors.yml').first()).toBeVisible();
-    await expect(page.getByText('Core.yml').first()).toBeVisible();
+    await expect(cascadeRow.getByText(/latency_and_errors\.yml · v\d+/)).toBeVisible();
   });
 });

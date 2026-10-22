@@ -44,6 +44,62 @@ export type BehaviorDefinition = {
   source_file?: string | null;
 };
 
+/** One analysis run as a draft rule would have judged it (POST /api/behavior-definitions/history-preview). */
+export type HistoryRun = {
+  analysis_run_id: string;
+  at: string | null;
+  matched: boolean;
+  missing_inputs: string[];
+  blocked_by: string[];
+  /** Each condition with the value it was checked against; empty when an input had no signal. */
+  conditions: Array<{ group: string; fact: string; operator: string; value: unknown; passed: boolean; actual: unknown }>;
+  confidence: number | null;
+  changes: Array<{ alias: string; signed_change_percent: number | null }>;
+  overlap_minutes: number | null;
+  start: string | null;
+  end: string | null;
+};
+
+export type HistoryPreview = {
+  service: string;
+  since: string;
+  verdict: 'fired' | 'never' | 'cant_check' | 'no_runs';
+  reason: string | null;
+  runs_checked: number;
+  runs_judged: number;
+  runs_matched: number;
+  conditions: Array<{ group: string; fact: string; operator: string; value: unknown; passed_runs: number }>;
+  inputs: Array<{ alias: string; metric_name: string; analyzers: string[]; runs_with_signals: number }>;
+  runs: HistoryRun[];
+  series: Array<{ alias: string; metric_name: string; points: Array<[string, number]> }>;
+  series_truncated: boolean;
+};
+
+/** A signal of a catalog template: what to look for, and words to find the user's metric by. */
+export type CatalogSignal = {
+  alias: string;
+  label: string;
+  shape: 'rising' | 'falling' | 'unusual';
+  metric_hint: string;
+  keywords: string[];
+  analyzers: string[];
+};
+
+/** A known pattern (config/behavior_patterns_catalog.yml): a shipped rule with its proof, or a template. */
+export type CatalogPattern = {
+  key: string;
+  rule: string | null;
+  name: string;
+  area?: string | null;
+  meaning: string;
+  why: string;
+  check_first: string;
+  proof: 'tested' | 'shipped' | 'common';
+  scenarios: string[];
+  signals: CatalogSignal[];
+  draft: Record<string, unknown> | null;
+};
+
 export type FactDescriptor = {
   key: string;
   description: string;
@@ -110,6 +166,8 @@ export type BehaviorFinding = {
   definition_version: number;
   title: string;
   summary: string;
+  /** Plain-words rewrite of the facts, written by the backend on first read; null until then. */
+  ai_explanation?: string | null;
   category: string;
   severity: string;
   service?: string;
