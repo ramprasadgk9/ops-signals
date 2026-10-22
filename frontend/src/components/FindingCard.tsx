@@ -1,5 +1,4 @@
 import { Box, Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
-import HistoryIcon from '@mui/icons-material/History';
 import { findingSourceLabel } from '../utils/findingSource';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
@@ -9,7 +8,7 @@ import type { BehaviorFinding, Finding, FindingDetailsSection, MetricUsageItem, 
 import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { problemTiming } from '../utils/findingProblem';
-import { trustBadge } from '../utils/findingTrust';
+import { testedSentence, trustBadge } from '../utils/findingTrust';
 import { FindingTrustPanel } from './FindingTrustPanel';
 import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
@@ -36,7 +35,7 @@ type Props = {
   usage?: MetricUsageItem;
   /** Combined patterns (behavior rules) this finding is one of the metrics of. */
   partOf?: BehaviorFinding[];
-  /** Past cases that look like this finding: shown as one chip when there are any. */
+  /** Past cases that look like this finding, for the Seen before column. */
   seenBefore?: SeenBeforeResponse;
 };
 
@@ -72,7 +71,6 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
   const watchedBy = usage ? watchedByTag(usage) : null;
   // Trust replaces the importance-based level: importance didn't separate real problems from noise in tests.
   const badge = trustBadge(finding.trust);
-  const pastCases = seenBefore?.available && seenBefore.novelty && seenBefore.matches.length ? seenBefore : null;
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -86,7 +84,7 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
             </Typography>
           </Stack>
           {badge ? (
-            <Tooltip title={badge.detail} arrow>
+            <Tooltip title={[badge.detail, testedSentence(finding.trust)].filter(Boolean).join(' ')} arrow>
               <Chip label={badge.label} color={badge.color} size="small" variant={badge.color === 'default' ? 'outlined' : 'filled'} sx={{ flexShrink: 0 }} />
             </Tooltip>
           ) : (
@@ -129,20 +127,6 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
             />
           </Tooltip>
         ))}
-        {pastCases?.novelty && (
-          <Tooltip title={`${pastCases.novelty.explanation} Closest: "${pastCases.matches[0].title}". Click to see past cases and what fixed them.`} arrow>
-            <Chip
-              icon={<HistoryIcon />}
-              label={pastCases.novelty.label}
-              size="small"
-              color={pastCases.novelty.level === 'recurring' ? 'warning' : 'info'}
-              variant="outlined"
-              onClick={onViewDetails ? () => onViewDetails(finding, 'seen-before') : undefined}
-              data-testid="finding-seen-before"
-              sx={{ mb: 1, mr: 1 }}
-            />
-          </Tooltip>
-        )}
         {watchedBy && (
           <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{watchedBy.detail}</span>} arrow>
             <Chip
@@ -214,7 +198,14 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
           </Tooltip>
         )}
 
-        {finding.trust ? <FindingTrustPanel finding={finding} answerOnly={finding.trust.tier === 'context' && !finding.trust.moved} /> : null}
+        {finding.trust ? (
+          <FindingTrustPanel
+            finding={finding}
+            answerOnly={finding.trust.tier === 'context' && !finding.trust.moved}
+            seenBefore={seenBefore}
+            onSeePastCases={onViewDetails ? () => onViewDetails(finding, 'seen-before') : undefined}
+          />
+        ) : null}
 
       </CardContent>
       <CardActions sx={{ gap: 1 }}>

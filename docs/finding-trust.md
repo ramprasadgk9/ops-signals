@@ -23,7 +23,7 @@ Each finding carries a badge:
 | **Data problem** | The metric stopped reporting or froze at one value | A fact, not a guess, so no rate |
 | **Context only** | A single unusual value, a pattern, a trend or a forecast | Spikes were real 60% of the time, the same as a random alert |
 
-Findings in "Needs attention" show two numbers side by side:
+Findings in "Needs attention" show two columns side by side:
 
 - **On your service**: how many findings like this, on this service, your team said were real.
   Until there are 5 "Real problem" or "Not a problem" answers it shows how many there are so far
@@ -32,9 +32,13 @@ Findings in "Needs attention" show two numbers side by side:
   **On this metric** instead: its answers are counted per metric, so answers on one unlabeled
   metric don't decide another's. Adding a service label (Prometheus `job`/`service`, OpenTelemetry
   `service.name`) gives it a per-service number.
-- **In testing**: how often findings like this were real on public test data. The ⓘ next to it
-  says which data and what a random alert would have scored. When the finding's metric is unlike
-  the tested ones (a service's CPU, memory and latency), the card says so.
+- **Seen before**: whether past cases (detected or imported from postmortems) look like this
+  finding, the closest one and what fixed it. "See past cases" opens the finding's details there.
+  The column is hidden when past cases can't be searched (operational memory off).
+
+The tested rate ("In testing": how often findings like this were real on public test data, and
+what a random alert would have scored) is on the evidence badge's tooltip and in the finding's
+details. It still decides the badge and which list a finding goes to.
 
 ## "Was this real?"
 

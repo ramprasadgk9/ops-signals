@@ -17,6 +17,7 @@ import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { changeChipLabel, findingChanges, findingWhatChanged } from '../utils/findingChanges';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
+import { testedCaption, testedHeadline, testedTooltip } from '../utils/findingTrust';
 
 type Props = {
   open: boolean;
@@ -142,6 +143,17 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
             </Stack>
           )}
         </Box>
+
+        {finding.trust ? (
+          <Box sx={{ mb: 3 }} data-testid="finding-tested">
+            <Typography variant="h6" sx={{ mb: 0.5 }}>In testing</Typography>
+            <Typography sx={{ fontWeight: 800 }}>{testedHeadline(finding.trust)}</Typography>
+            <Typography variant="body2" color="text.secondary">{testedCaption(finding.trust)}</Typography>
+            {testedTooltip(finding.trust) ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{testedTooltip(finding.trust)}</Typography>
+            ) : null}
+          </Box>
+        ) : null}
 
         {typeof finding.id === 'number' ? (
           <Box id="finding-details-seen-before" sx={{ mb: 3, scrollMarginTop: 16 }} data-testid="seen-before">
