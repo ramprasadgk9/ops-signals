@@ -21,6 +21,7 @@ import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
 import { leadSignal, leadSignalText, plainParagraph } from '../utils/findingPlain';
 import { PluginSameFix } from './PluginSameFix';
 import { PluginSeenBefore } from './PluginSeenBefore';
+import { PluginCaseRecurrence } from './PluginCaseRecurrence';
 import type {
   GrafanaAnalysisFinding,
   GrafanaAnalysisResult,
@@ -1019,6 +1020,7 @@ export function InvestigationDrawer({
           </div>
         ) : null}
         {canEdit ? null : <div role="note" style={{ ...styles.alert, borderColor: 'rgba(255, 179, 87, 0.4)', background: 'rgba(255, 179, 87, 0.07)' }}>{LOCK_REASONS.workCase}</div>}
+        <PluginCaseRecurrence backendUrl={backendUrl} caseId={caseId} />
 
         <div style={styles.stepList}>
           {steps.map((step, index) => {

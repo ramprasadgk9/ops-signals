@@ -187,6 +187,20 @@ def test_an_llm_names_the_groups_and_a_bad_reply_falls_back(db_session, memory, 
     assert unnamed.problems[0].named_by == "central_case"
 
 
+def test_groups_can_be_found_without_asking_the_llm(db_session, memory, monkeypatch):
+    _remember(db_session, memory, ["db_pool", "db_pool_2", "db_pool_3"], monkeypatch)
+
+    class _Refuses:
+        def generate(self, request):
+            raise AssertionError("the LLM should not be asked")
+
+    response = find_recurring_problems(
+        db_session, memory.similarity.vector_store, ai_services=OptionalAIServices(client=_Refuses(), structured=None), name_groups=False,
+    )
+    assert response.problems[0].occurrences == 3
+    assert response.problems[0].named_by == "central_case"
+
+
 def test_without_memory_there_is_nothing_to_compare(db_session):
     response = find_recurring_problems(db_session, None)
 

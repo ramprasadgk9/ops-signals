@@ -111,6 +111,7 @@ def find_recurring_problems(
     min_occurrences: int = 3,
     group_by: GroupBy = "symptom",
     ai_services: OptionalAIServices | None = None,
+    name_groups: bool = True,
     now: datetime | None = None,
 ) -> RecurringProblemsResponse:
     threshold = GROUP_SIMILARITY[group_by]
@@ -162,7 +163,8 @@ def find_recurring_problems(
     ]
     problems.sort(key=lambda problem: (-problem.occurrences, -(problem.last_seen or since_naive).timestamp()))
     response.problems = problems[:MAX_PROBLEMS]
-    _name_with_ai(response.problems, ai_services)
+    if name_groups:
+        _name_with_ai(response.problems, ai_services)
     response.available = True
     return response
 

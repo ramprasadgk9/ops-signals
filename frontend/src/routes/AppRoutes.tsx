@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { CaseDetailsPage } from '../pages/CaseDetailsPage';
 import { CapabilitiesPage } from '../pages/CapabilitiesPage';
 import { FindingsPage } from '../pages/FindingsPage';
@@ -11,7 +11,7 @@ import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
 import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
 import { MemoryChatPage } from '../pages/MemoryChatPage';
 import { DOCS_CHECK_PATH, DocsCheckPage } from '../pages/DocsCheckPage';
-import { OperationalMemoryPage } from '../pages/OperationalMemoryPage';
+import { RecurringProblemsPage } from '../pages/RecurringProblemsPage';
 import { ValidateDataPage } from '../pages/ValidateDataPage';
 import { AnalyzerRouterExperimentPage } from '../pages/AnalyzerRouterExperimentPage';
 import { AddAnalyzerPage } from '../pages/analyzer-labs/AddAnalyzerPage';
@@ -56,7 +56,8 @@ export function AppRoutes() {
       <Route path="/analyzer-router" element={<AnalyzerRouterExperimentPage />} />
       <Route path="/assistant" element={<MemoryChatPage />} />
       <Route path={DOCS_CHECK_PATH} element={<DocsCheckPage />} />
-      <Route path="/operational-memory" element={<OperationalMemoryPage />} />
+      <Route path="/recurring-problems" element={<RecurringProblemsPage />} />
+      <Route path="/operational-memory" element={<RedirectKeepingQuery to="/recurring-problems" />} />
       <Route path="/memory-chat" element={<MemoryChatPage />} />
       <Route path="/findings" element={<FindingsPage />} />
       <Route path="/metric-usage" element={<MetricUsagePage />} />
@@ -69,4 +70,10 @@ export function AppRoutes() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/** An old page address, kept working for bookmarks and links: same query string, new path. */
+function RedirectKeepingQuery({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search}`} replace />;
 }

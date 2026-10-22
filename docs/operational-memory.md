@@ -4,6 +4,11 @@
 
 Operational memory captures a case document, embeds it, and stores it in Qdrant for semantic retrieval.
 
+In the web UI it shows up on the **Recurring problems** page (`/recurring-problems`, formerly
+Operational Memory): past cases grouped into problems that keep coming back, monitoring coverage of
+imported incidents, and - folded away for admins - the indexing details and the alert-context
+preview. Case Details shows **Seen before** when the case belongs to one of those groups.
+
 ## Flow
 
 ```mermaid

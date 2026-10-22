@@ -62,7 +62,8 @@ describe('RecurringProblemsPanel', () => {
     expect(await screen.findByText('Checkout latency from DB pool exhaustion')).toBeInTheDocument();
     expect(screen.getByText('3 times in 90 days')).toBeInTheDocument();
     expect(screen.getByText('AI-named')).toBeInTheDocument();
-    expect(screen.getByText(/Connection pool exhausted/)).toBeInTheDocument();
+    expect(screen.getByText(/Raised pool size/)).toHaveTextContent('Cause (verified): Connection pool exhausted — Fix: Raised pool size');
+    expect(screen.getByTestId('recurring-next-step')).toHaveTextContent('Worth a lasting fix. Same verified cause each time it was checked: Connection pool exhausted');
     expect(screen.queryByText('checkout-api pool saturated')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Show 3 cases' }));
@@ -84,25 +85,45 @@ describe('RecurringProblemsPanel', () => {
     expect(within(legend).queryByText('Fixed, cause not verified')).not.toBeInTheDocument();
   });
 
-  it('ranks problems against each other only when there are two or more', async () => {
+  const problems = (count: number) => {
     const [first] = response().problems;
-    const second = { ...first, name: 'Disk filling on inventory', central_case_id: 9, occurrences: 4 };
-    vi.mocked(api.recurringProblems).mockResolvedValue(response({ problems: [first, second] }));
+    return Array.from({ length: count }, (_, index) =>
+      index === 1 ? { ...first, name: 'Disk filling on inventory', central_case_id: 9, occurrences: 4 } : { ...first, name: `Problem ${index}`, central_case_id: 20 + index },
+    );
+  };
+
+  it('ranks problems against each other as a jump list once there are four or more', async () => {
+    vi.mocked(api.recurringProblems).mockResolvedValue(response({ problems: problems(4) }));
     renderWithProviders(<RecurringProblemsPanel />);
 
     const ranking = await screen.findByTestId('problem-ranking');
     expect(within(ranking).getByRole('button', { name: /Disk filling on inventory/ })).toHaveTextContent('4');
-    expect(within(ranking).getAllByRole('button')).toHaveLength(2);
-
-    vi.mocked(api.recurringProblems).mockResolvedValue(response());
+    expect(within(ranking).getAllByRole('button')).toHaveLength(4);
   });
 
-  it('shows no ranking for a single problem', async () => {
-    vi.mocked(api.recurringProblems).mockResolvedValue(response());
+  it('shows no ranking for fewer than four problems: each card shows its count', async () => {
+    vi.mocked(api.recurringProblems).mockResolvedValue(response({ problems: problems(3) }));
     renderWithProviders(<RecurringProblemsPanel />);
 
-    await screen.findByTestId('occurrence-timeline');
+    expect(await screen.findAllByTestId('recurring-problem')).toHaveLength(3);
     expect(screen.queryByTestId('problem-ranking')).not.toBeInTheDocument();
+  });
+
+  it('links a problem with no cause to its latest open case, to record one', async () => {
+    const problem = response().problems[0];
+    vi.mocked(api.recurringProblems).mockResolvedValue(response({ problems: [{ ...problem, causes: [], verified_root_causes: 0 }] }));
+    renderWithProviders(<RecurringProblemsPanel />);
+
+    const step = await screen.findByTestId('recurring-next-step');
+    expect(step).toHaveTextContent('No cause recorded yet.');
+    expect(within(step).getByRole('link', { name: 'Add a cause' })).toHaveAttribute('href', '/cases/1');
+  });
+
+  it('says which window the compared cases came from', async () => {
+    vi.mocked(api.recurringProblems).mockResolvedValue(response({ cases_considered: 21 }));
+    renderWithProviders(<RecurringProblemsPanel />);
+
+    expect(await screen.findByText(/21 cases from the last 90 days compared/)).toBeInTheDocument();
   });
 
   it('keeps causes beyond the first two one click away', async () => {

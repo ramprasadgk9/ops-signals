@@ -340,8 +340,9 @@ export const api = {
       '/api/memory/health'
     ),
   memoryStats: () => getJson<MemoryStatsResponse>('/api/memory/stats'),
-  recurringProblems: (days = 90, minOccurrences = 3, groupBy: 'symptom' | 'cause' = 'symptom') =>
-    getJson<RecurringProblemsResponse>(`/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}`),
+  // name=false skips the LLM naming the groups, for callers that only need which group a case is in.
+  recurringProblems: (days = 90, minOccurrences = 3, groupBy: 'symptom' | 'cause' = 'symptom', name = true) =>
+    getJson<RecurringProblemsResponse>(`/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}${name ? '' : '&name=false'}`),
   monitoringCoverage: (days = 365) => getJson<CoverageReport>(`/api/memory/coverage?days=${days}`),
   suggestedFixes: (findingId: number) => getJson<SuggestedFixesResponse>(`/api/findings/${findingId}/suggested-fixes`),
   runbookDraft: (findingId: number) =>

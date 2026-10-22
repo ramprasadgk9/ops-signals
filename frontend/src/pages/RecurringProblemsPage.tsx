@@ -1,5 +1,7 @@
-import { Alert, Box, Button, Chip, CircularProgress, Grid2 as Grid, IconButton, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
-import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
+import { Alert, Box, Button, Chip, CircularProgress, Collapse, Grid2 as Grid, IconButton, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
@@ -15,10 +17,10 @@ import { RecurringProblemsPanel } from '../components/RecurringProblemsPanel';
 import { CoveragePanel } from '../components/CoveragePanel';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
-import { formatDateTime, relativeTime, statusTone, ui } from '../standalone/theme';
+import { formatDateTime, relativeTime, ui } from '../standalone/theme';
 import { toCaseRows } from '../standalone/casesService';
 import { buildMemorySummaryFromStats } from '../standalone/memoryService';
-import type { AlertContextResponse } from '../types';
+import type { AlertContextResponse, MemoryStatsResponse } from '../types';
 
 const filters = [
   { id: 'indexed', label: 'Indexed' },
@@ -28,11 +30,17 @@ const filters = [
   { id: 'all', label: 'All' },
 ];
 
-export function OperationalMemoryPage() {
+/** Recurring problems: past cases grouped into the problems that keep coming back, whether your
+ * monitoring caught imported past incidents, and - folded away - the memory those come from. */
+export function RecurringProblemsPage() {
   const casesQuery = useQuery({ queryKey: ['operational-memory-cases'], queryFn: () => api.cases(200) });
   const memoryStatsQuery = useQuery({ queryKey: ['memory-stats'], queryFn: api.memoryStats });
+  const [searchParams] = useSearchParams();
+  // A case page's "See the pattern" link names the group's central case.
+  const highlightId = Number(searchParams.get('problem')) || null;
   const [activeFilter, setActiveFilter] = React.useState('indexed');
   const [importOpen, setImportOpen] = React.useState(false);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
 
   if (casesQuery.isLoading || memoryStatsQuery.isLoading) return <LoadingSkeleton />;
 
@@ -43,75 +51,81 @@ export function OperationalMemoryPage() {
   }));
   const memorySummary = buildMemorySummaryFromStats(memoryStatsQuery.data);
   const memoryUnavailable = Boolean(memoryStatsQuery.error || memorySummary?.availability === 'unavailable');
+  const stats = memoryStatsQuery.data;
   const visibleRows = rows
     .filter((row) => activeFilter === 'all' || row.memoryStatus === activeFilter)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const retry = () => {
+    void casesQuery.refetch();
+    void memoryStatsQuery.refetch();
+  };
+  const showDetails = () => {
+    setDetailsOpen(true);
+    window.setTimeout(() => document.getElementById(INDEXING_DETAILS_ID)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   return (
     <Stack spacing={3}>
       <PageHeader
-        title="Operational Memory"
-        subtitle="Case knowledge indexed for retrieval, grounded in the existing cases and memory statistics APIs."
+        title="Recurring problems"
+        subtitle="Problems that keep coming back. Fix these for good instead of firefighting them again."
         action={
-          <Stack direction="row" spacing={1}>
-            <Button
-              onClick={() => setImportOpen(true)}
-              startIcon={<UploadFileRoundedIcon />}
-              variant="contained"
-              sx={{ textTransform: 'none', fontWeight: 800 }}
-            >
-              Import past incidents
-            </Button>
-            <Button
-              onClick={() => {
-                void casesQuery.refetch();
-                void memoryStatsQuery.refetch();
-              }}
-              startIcon={<RefreshRoundedIcon />}
-              variant="outlined"
-              sx={{ textTransform: 'none', fontWeight: 800 }}
-            >
-              Retry
-            </Button>
-          </Stack>
+          <Button
+            onClick={() => setImportOpen(true)}
+            startIcon={<UploadFileRoundedIcon />}
+            variant="contained"
+            sx={{ textTransform: 'none', fontWeight: 800 }}
+          >
+            Import past incidents
+          </Button>
         }
       />
       <ImportIncidentsDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <MemoryStat label="Indexed Cases" value={memoryUnavailable ? 'Unavailable' : memoryStatsQuery.data?.indexed_cases ?? 0} />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <MemoryStat label="Stale Cases" value={memoryUnavailable ? 'Unavailable' : memoryStatsQuery.data?.stale_cases ?? 0} />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <MemoryStat label="Failed Cases" value={memoryUnavailable ? 'Unavailable' : memoryStatsQuery.data?.error_cases ?? 0} />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <MemoryStat label="Total Cases" value={memoryUnavailable ? 'Unavailable' : memoryStatsQuery.data?.total_cases ?? rows.length} />
-        </Grid>
-      </Grid>
-
       {memoryUnavailable ? (
         <WorkspacePanel sx={{ p: 2.5, borderColor: '#fecaca', bgcolor: '#fff7f7' }}>
-          <Typography sx={{ fontWeight: 900, color: ui.red }}>Memory unavailable</Typography>
-          <Typography sx={{ mt: 0.75, color: ui.muted }}>
-            The memory statistics endpoint did not return an authoritative status, so counts are not replaced with zero.
-          </Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+            <Box>
+              <Typography sx={{ fontWeight: 900, color: ui.red }}>Memory unavailable</Typography>
+              <Typography sx={{ mt: 0.75, color: ui.muted }}>
+                The memory statistics endpoint did not return an authoritative status, so counts are not replaced with zero.
+              </Typography>
+            </Box>
+            <RetryButton onClick={retry} />
+          </Stack>
         </WorkspacePanel>
+      ) : stats ? (
+        <MemoryStatusLine stats={stats} onRetry={retry} onShowDetails={showDetails} />
       ) : null}
 
-      {memoryUnavailable ? null : <RecurringProblemsPanel />}
-      {memoryUnavailable ? null : <CoveragePanel />}
+      {!memoryUnavailable && !casesQuery.error && !rows.length ? (
+        <Box sx={{ py: 5, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
+          <Typography sx={{ fontWeight: 900 }}>Memory is empty, so "have we seen this before?" has nothing to search yet.</Typography>
+          <Typography sx={{ mt: 0.75, color: ui.muted, maxWidth: 560, mx: 'auto' }}>
+            Import postmortems or incidents from Jira, PagerDuty, incident.io or a folder of CSV and Markdown files. They become resolved cases that similar-case search can match from day one.
+          </Typography>
+          <Button onClick={() => setImportOpen(true)} startIcon={<UploadFileRoundedIcon />} variant="contained" sx={{ mt: 2, textTransform: 'none', fontWeight: 800 }}>
+            Import past incidents
+          </Button>
+        </Box>
+      ) : null}
 
-      <WorkspacePanel sx={{ p: 2.5 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2} sx={{ mb: 2 }}>
-          <Box>
-            <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 900 }}>Memory Inventory</Typography>
-            <Typography sx={{ color: ui.muted, fontSize: 13 }}>Case rows from `/api/cases?limit=200`; authoritative counts from `/api/memory/stats`.</Typography>
-          </Box>
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+      {memoryUnavailable ? null : <RecurringProblemsPanel highlightId={highlightId} />}
+      {/* With memory empty, the prompt above already asks for imports. */}
+      {memoryUnavailable || !rows.length ? null : <CoveragePanel onImport={() => setImportOpen(true)} />}
+
+      <Box id={INDEXING_DETAILS_ID}>
+        <FoldedSection
+          title="Indexing details"
+          summary={
+            stats && !memoryUnavailable
+              ? `${stats.indexed_cases} indexed · ${stats.stale_cases} changed since indexing · ${stats.error_cases} failed · for admins`
+              : 'Which cases are in memory, for admins'
+          }
+          open={detailsOpen}
+          onToggle={() => setDetailsOpen(!detailsOpen)}
+        >
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
             {filters.map((filter) => (
               <Chip
                 key={filter.id}
@@ -123,65 +137,114 @@ export function OperationalMemoryPage() {
               />
             ))}
           </Stack>
-        </Stack>
 
-        {casesQuery.error ? (
-          <Typography color="error">Cases unavailable. Memory inventory could not be loaded.</Typography>
-        ) : !rows.length ? (
-          <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
-            <Typography sx={{ fontWeight: 900 }}>Memory is empty, so "have we seen this before?" has nothing to search yet.</Typography>
-            <Typography sx={{ mt: 0.75, color: ui.muted, maxWidth: 560, mx: 'auto' }}>
-              Import postmortems or incidents from Jira, PagerDuty, incident.io or a folder of CSV and Markdown files. They become resolved cases that similar-case search can match from day one.
-            </Typography>
-            <Button onClick={() => setImportOpen(true)} startIcon={<UploadFileRoundedIcon />} variant="contained" sx={{ mt: 2, textTransform: 'none', fontWeight: 800 }}>
-              Import past incidents
-            </Button>
-          </Box>
-        ) : !visibleRows.length ? (
-          <Box sx={{ py: 7, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
-            <Typography sx={{ fontWeight: 900 }}>No {filters.find((filter) => filter.id === activeFilter)?.label.toLowerCase()} cases returned.</Typography>
-            <Typography sx={{ mt: 0.75, color: ui.muted }}>This is an empty backend result, not sample data.</Typography>
-          </Box>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Case</TableCell>
-                <TableCell>Service</TableCell>
-                <TableCell>Metric</TableCell>
-                <TableCell>Memory Status</TableCell>
-                <TableCell>Updated</TableCell>
-                <TableCell align="right">Action</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {visibleRows.map((row) => (
-                <TableRow key={row.id} hover>
-                  <TableCell>
-                    <Typography sx={{ fontWeight: 850 }}>{row.title}</Typography>
-                    <Typography sx={{ color: ui.muted, fontSize: 12 }}>{row.caseId} • {row.summary}</Typography>
-                  </TableCell>
-                  <TableCell>{row.service}</TableCell>
-                  <TableCell>{row.imported ? <CaseOriginBadge source={row.source} sourceId={row.sourceId} sourceUrl={row.sourceUrl} /> : row.metric}</TableCell>
-                  <TableCell><Pill label={row.memoryStatus} /></TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontWeight: 750 }}>{relativeTime(row.updatedAt)}</Typography>
-                    <Typography sx={{ color: ui.muted, fontSize: 12 }}>{formatDateTime(row.updatedAt)}</Typography>
-                  </TableCell>
-                  <TableCell align="right">
-                    <Button component={RouterLink} to={`/cases/${row.id}`} endIcon={<OpenInNewRoundedIcon />} size="small" sx={{ textTransform: 'none', fontWeight: 800 }}>
-                      Open Case
-                    </Button>
-                  </TableCell>
+          {casesQuery.error ? (
+            <Typography color="error">Cases unavailable. Memory inventory could not be loaded.</Typography>
+          ) : !visibleRows.length ? (
+            <Box sx={{ py: 5, textAlign: 'center', border: `1px dashed ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
+              <Typography sx={{ fontWeight: 900 }}>No {filters.find((filter) => filter.id === activeFilter)?.label.toLowerCase()} cases returned.</Typography>
+              <Typography sx={{ mt: 0.75, color: ui.muted }}>This is an empty backend result, not sample data.</Typography>
+            </Box>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Case</TableCell>
+                  <TableCell>Service</TableCell>
+                  <TableCell>Metric</TableCell>
+                  <TableCell>Memory Status</TableCell>
+                  <TableCell>Updated</TableCell>
+                  <TableCell align="right">Action</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </WorkspacePanel>
+              </TableHead>
+              <TableBody>
+                {visibleRows.map((row) => (
+                  <TableRow key={row.id} hover>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 850 }}>{row.title}</Typography>
+                      <Typography sx={{ color: ui.muted, fontSize: 12 }}>{row.caseId} • {row.summary}</Typography>
+                    </TableCell>
+                    <TableCell>{row.service}</TableCell>
+                    <TableCell>{row.imported ? <CaseOriginBadge source={row.source} sourceId={row.sourceId} sourceUrl={row.sourceUrl} /> : row.metric}</TableCell>
+                    <TableCell><Pill label={row.memoryStatus} /></TableCell>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 750 }}>{relativeTime(row.updatedAt)}</Typography>
+                      <Typography sx={{ color: ui.muted, fontSize: 12 }}>{formatDateTime(row.updatedAt)}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button component={RouterLink} to={`/cases/${row.id}`} endIcon={<OpenInNewRoundedIcon />} size="small" sx={{ textTransform: 'none', fontWeight: 800 }}>
+                        Open Case
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </FoldedSection>
+      </Box>
 
       <AlertContextPanel />
     </Stack>
+  );
+}
+
+const INDEXING_DETAILS_ID = 'indexing-details';
+
+function RetryButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button onClick={onClick} startIcon={<RefreshRoundedIcon />} variant="outlined" size="small" sx={{ textTransform: 'none', fontWeight: 800, flexShrink: 0 }}>
+      Retry
+    </Button>
+  );
+}
+
+/** One line in place of four count cards: how many past cases can be searched, and only the
+ * counts that need attention. Retry shows only when something is stale or failed. */
+function MemoryStatusLine({ stats, onRetry, onShowDetails }: { stats: MemoryStatsResponse; onRetry: () => void; onShowDetails: () => void }) {
+  const trouble = stats.stale_cases + stats.error_cases;
+  const parts = [
+    `${stats.indexed_cases} past ${stats.indexed_cases === 1 ? 'case' : 'cases'} searchable`,
+    stats.not_indexed_cases ? `${stats.not_indexed_cases} not indexed yet` : null,
+    stats.stale_cases ? `${stats.stale_cases} changed since indexing` : null,
+    stats.error_cases ? `${stats.error_cases} failed to index` : null,
+    trouble ? null : 'all up to date',
+  ].filter(Boolean);
+  return (
+    <Box data-testid="memory-status-line">
+    <WorkspacePanel sx={{ px: 2, py: 1.25 }}>
+      <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
+        {trouble ? <WarningAmberRoundedIcon fontSize="small" sx={{ color: ui.yellow }} /> : <CheckCircleRoundedIcon fontSize="small" sx={{ color: ui.green }} />}
+        <Typography sx={{ fontSize: 13.5 }}>{parts.join(' · ')}</Typography>
+        {trouble ? <RetryButton onClick={onRetry} /> : null}
+        <Button onClick={onShowDetails} size="small" sx={{ ml: 'auto', textTransform: 'none', fontWeight: 800 }}>
+          Indexing details
+        </Button>
+      </Stack>
+    </WorkspacePanel>
+    </Box>
+  );
+}
+
+/** A section kept to one line until opened: for admins and integrators, not the everyday reader. */
+function FoldedSection({ title, summary, open, onToggle, children }: { title: string; summary: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <WorkspacePanel sx={{ p: 0, borderStyle: open ? 'solid' : 'dashed' }}>
+      <Box
+        component="button"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', px: 2.5, py: 1.5, border: 0, background: 'none', cursor: 'pointer', textAlign: 'left', color: 'inherit', font: 'inherit' }}
+      >
+        <Typography sx={{ fontWeight: 900 }}>{title}</Typography>
+        <Typography sx={{ color: ui.muted, fontSize: 13, flex: 1 }}>{summary}</Typography>
+        <ExpandMoreRoundedIcon sx={{ color: ui.muted, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }} />
+      </Box>
+      <Collapse in={open} unmountOnExit>
+        <Box sx={{ px: 2.5, pb: 2.5 }}>{children}</Box>
+      </Collapse>
+    </WorkspacePanel>
   );
 }
 
@@ -219,17 +282,23 @@ function AlertContextPanel() {
 
   const result = mutation.data;
   const tone = result ? recommendationTone(result.recommendation, result.similar_cases.length) : null;
+  // Folded for the everyday reader; opened when the import wizard links here to check an import.
+  const [open, setOpen] = React.useState(prefilled);
 
   return (
     <Box id={ALERT_CONTEXT_PANEL_ID}>
-    <WorkspacePanel sx={{ p: 2.5 }}>
+    <FoldedSection
+      title="Alert context preview"
+      summary="What an external alert manager sees before firing an alert, for integrators"
+      open={open}
+      onToggle={() => setOpen(!open)}
+    >
       {prefilled ? (
         <Alert severity="info" sx={{ mb: 2 }}>
           Filled in from your import. Click <b>Check Alert Context</b>: imported incidents on this service should appear under similar cases.
         </Alert>
       ) : null}
       <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 900 }}>Alert Context Preview</Typography>
         <Typography sx={{ color: ui.muted, fontSize: 13 }}>
           This is the same lookup an external alert manager can call before firing a Prometheus alert: has this
           service/metric fired before, was it real, and what did we do about it last time. Backed by{' '}
@@ -415,24 +484,7 @@ function AlertContextPanel() {
           </Box>
         </Stack>
       ) : null}
-    </WorkspacePanel>
+    </FoldedSection>
     </Box>
-  );
-}
-
-function MemoryStat({ label, value }: { label: string; value: number | string }) {
-  const tone = statusTone(String(label));
-  return (
-    <WorkspacePanel sx={{ p: 2.25 }}>
-      <Stack direction="row" spacing={1.5} alignItems="center">
-        <Box sx={{ width: 44, height: 44, borderRadius: '8px', bgcolor: tone.bg, color: ui.green, display: 'grid', placeItems: 'center' }}>
-          <StorageRoundedIcon />
-        </Box>
-        <Box>
-          <Typography sx={{ fontSize: 24, fontWeight: 900, lineHeight: 1 }}>{value}</Typography>
-          <Typography sx={{ color: ui.muted, fontWeight: 800 }}>{label}</Typography>
-        </Box>
-      </Stack>
-    </WorkspacePanel>
   );
 }

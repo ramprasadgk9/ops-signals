@@ -6,6 +6,7 @@ import { api } from '../api/queries';
 import { WorkspacePanel } from '../standalone/components';
 import { formatDateTime, relativeTime, ui } from '../standalone/theme';
 import type { RecurringProblem } from '../types';
+import { caseToRecordCauseOn, recurringNextStep, type NextStepTone } from '../utils/recurringNextStep';
 import { OCCURRENCE_STATES, OccurrenceTimeline, ProblemRanking, occurrenceState } from './RecurringCharts';
 
 const WINDOWS = [30, 90, 180, 365];
@@ -21,8 +22,9 @@ const GROUPINGS: { id: 'symptom' | 'cause'; label: string }[] = [
 ];
 
 /** Problems that keep coming back: past cases grouped by how alike they are, with the causes and
- * fixes found each time. A problem seen many times is a candidate for a lasting fix. */
-export function RecurringProblemsPanel() {
+ * fixes found each time and what to do next. The page header carries the title. `highlightId` is a
+ * group's central case: a case page's "See the pattern" link opens this panel on that group. */
+export function RecurringProblemsPanel({ highlightId }: { highlightId?: number | null }) {
   const [days, setDays] = React.useState(90);
   const [groupBy, setGroupBy] = React.useState<'symptom' | 'cause'>('symptom');
   const query = useQuery({
@@ -31,16 +33,14 @@ export function RecurringProblemsPanel() {
     retry: false,
   });
   const data = query.data;
+  const highlighted = data?.problems.some((problem) => problem.central_case_id === highlightId) ? highlightId : null;
+  React.useEffect(() => {
+    if (highlighted) document.getElementById(`recurring-problem-${highlighted}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }, [highlighted]);
 
   return (
     <WorkspacePanel sx={{ p: 2.5 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2} sx={{ mb: 2 }}>
-        <Box>
-          <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 900 }}>Recurring problems</Typography>
-          <Typography sx={{ color: ui.muted, fontSize: 13 }}>
-            Past cases that look alike, grouped. A problem that keeps coming back is worth a lasting fix, not another incident.
-          </Typography>
-        </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {GROUPINGS.map((grouping) => (
             <Chip
@@ -52,6 +52,8 @@ export function RecurringProblemsPanel() {
               sx={{ fontWeight: 800 }}
             />
           ))}
+        </Stack>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {WINDOWS.map((window) => (
             <Chip
               key={window}
@@ -81,11 +83,18 @@ export function RecurringProblemsPanel() {
             onSelect={(id) => document.getElementById(`recurring-problem-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
           />
           {data.problems.map((problem) => (
-            <ProblemCard key={problem.central_case_id} problem={problem} days={data.window_days} />
+            <ProblemCard
+              key={problem.central_case_id}
+              problem={problem}
+              days={data.window_days}
+              groupBy={data.group_by}
+              highlighted={problem.central_case_id === highlighted}
+            />
           ))}
           <Typography sx={{ color: ui.muted, fontSize: 12 }}>
-            {data.cases_considered} cases compared{data.sampled ? ' (a sample of them)' : ''}. Every case in a group is at least{' '}
-            {Math.round(data.group_similarity * 100)}% like its central case in {data.group_by === 'cause' ? 'cause and fix' : 'symptom'}.
+            {data.cases_considered} {data.group_by === 'cause' ? 'cases with a recorded cause' : 'cases'} from the last {data.window_days} days compared
+            {data.sampled ? ' (a sample of them)' : ''}. Every case in a group is at least {Math.round(data.group_similarity * 100)}% like its central case in{' '}
+            {data.group_by === 'cause' ? 'cause and fix' : 'symptom'}.
           </Typography>
         </Stack>
       ) : null}
@@ -93,13 +102,42 @@ export function RecurringProblemsPanel() {
   );
 }
 
-function ProblemCard({ problem, days }: { problem: RecurringProblem; days: number }) {
+const NEXT_STEP_COLORS: Record<NextStepTone, string> = {
+  fix: '#0d9488',
+  mixed: ui.blue,
+  verify: ui.yellow,
+  record: ui.yellow,
+};
+
+function NextStepBox({ problem, groupBy }: { problem: RecurringProblem; groupBy: 'symptom' | 'cause' }) {
+  const step = recurringNextStep(problem, groupBy);
+  const color = NEXT_STEP_COLORS[step.tone];
+  return (
+    <Box data-testid="recurring-next-step" sx={{ borderLeft: `3px solid ${color}`, bgcolor: 'var(--os-surface-alt)', borderRadius: '6px', px: 1.5, py: 1 }}>
+      <Typography sx={{ fontSize: 13 }}>
+        <Box component="b" sx={{ color }}>{step.title}</Box> {step.detail}
+      </Typography>
+      {step.tone === 'record' || step.tone === 'verify' ? (
+        <Link component={RouterLink} to={`/cases/${caseToRecordCauseOn(problem)}`} underline="hover" sx={{ fontSize: 13, fontWeight: 700 }}>
+          {step.tone === 'record' ? 'Add a cause' : 'Confirm a cause'}
+        </Link>
+      ) : null}
+    </Box>
+  );
+}
+
+function ProblemCard({ problem, days, groupBy, highlighted }: { problem: RecurringProblem; days: number; groupBy: 'symptom' | 'cause'; highlighted: boolean }) {
   const [showCases, setShowCases] = React.useState(false);
   const [showAllCauses, setShowAllCauses] = React.useState(false);
   const hiddenCauses = Math.max(problem.causes.length - CAUSES_SHOWN, 0);
   const causes = showAllCauses ? problem.causes : problem.causes.slice(0, CAUSES_SHOWN);
   return (
-    <Box id={`recurring-problem-${problem.central_case_id}`} sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px' }} data-testid="recurring-problem">
+    <Box
+      id={`recurring-problem-${problem.central_case_id}`}
+      sx={{ p: 1.5, border: `1px solid ${highlighted ? ui.yellow : ui.border}`, borderRadius: '8px', boxShadow: highlighted ? `0 0 0 2px ${ui.yellow}33` : undefined }}
+      data-testid="recurring-problem"
+      data-highlighted={highlighted || undefined}
+    >
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Typography sx={{ fontWeight: 900 }}>{problem.name}</Typography>
         <Chip size="small" color="warning" label={`${problem.occurrences} times in ${days} days`} sx={{ fontWeight: 800 }} />
@@ -114,7 +152,10 @@ function ProblemCard({ problem, days }: { problem: RecurringProblem; days: numbe
           problem.open_cases ? `${problem.open_cases} still open` : null,
         ].filter(Boolean).join(' · ')}
       </Typography>
-      <OccurrenceTimeline cases={problem.cases} days={days} />
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 300px' }, gap: 2, alignItems: 'center' }}>
+        <OccurrenceTimeline cases={problem.cases} days={days} />
+        <NextStepBox problem={problem} groupBy={groupBy} />
+      </Box>
       {problem.causes.length ? (
         <Stack spacing={0.5} sx={{ mt: 1 }}>
           {causes.map((cause) => (
@@ -129,9 +170,7 @@ function ProblemCard({ problem, days }: { problem: RecurringProblem; days: numbe
             </Button>
           ) : null}
         </Stack>
-      ) : (
-        <Typography sx={{ fontSize: 13, color: ui.muted, mt: 1 }}>No root cause recorded yet for any of these cases.</Typography>
-      )}
+      ) : null}
       <Button size="small" onClick={() => setShowCases(!showCases)} sx={{ textTransform: 'none', px: 0, mt: 0.5, fontWeight: 700 }}>
         {showCases ? 'Hide' : 'Show'} {problem.occurrences} cases
       </Button>

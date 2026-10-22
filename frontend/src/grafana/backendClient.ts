@@ -704,8 +704,9 @@ export async function getMemoryStats(baseUrl: string) {
   return fetchJson<MemoryStatsResponse>(baseUrl, '/api/memory/stats');
 }
 
-export async function getRecurringProblems(baseUrl: string, days = 90, groupBy: 'symptom' | 'cause' = 'symptom', minOccurrences = 3) {
-  return fetchJson<RecurringProblemsResponse>(baseUrl, `/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}`);
+// name=false skips the LLM naming the groups, for callers that only need which group a case is in.
+export async function getRecurringProblems(baseUrl: string, days = 90, groupBy: 'symptom' | 'cause' = 'symptom', minOccurrences = 3, name = true) {
+  return fetchJson<RecurringProblemsResponse>(baseUrl, `/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}${name ? '' : '&name=false'}`);
 }
 
 /** Which imported past incidents were detected while they happened. */

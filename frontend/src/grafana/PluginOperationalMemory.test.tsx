@@ -61,15 +61,17 @@ describe('PluginOperationalMemory', () => {
     coverage.mockReset().mockResolvedValue(report());
   });
 
-  it('shows memory counts, a recurring problem with its cause and fix, and coverage gaps', async () => {
+  it('shows memory in one line, a recurring problem with its cause, fix and next step, and coverage gaps', async () => {
     render(<PluginOperationalMemory backendUrl="http://backend" onOpenCase={vi.fn()} />);
 
-    const memory = await screen.findByTestId('plugin-memory-stats');
-    expect(within(memory).getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('Recurring problems')).toBeInTheDocument();
+    expect(await screen.findByTestId('plugin-memory-stats')).toHaveTextContent('12 past cases published · 3 not published · 1 changed since publishing');
     const problem = await screen.findByTestId('plugin-recurring-problem');
     expect(problem).toHaveTextContent('Checkout connection pool exhaustion');
     expect(problem).toHaveTextContent('4 times in 90 days');
     expect(problem).toHaveTextContent('Cause (verified): Pool size too small — Fix: Raised pool to 50');
+    expect(within(problem).getByTestId('plugin-recurring-next-step')).toHaveTextContent('Worth a lasting fix.');
+    expect(screen.getByText(/40 cases from the last 90 days compared/)).toBeInTheDocument();
     const gaps = await screen.findAllByTestId('plugin-coverage-incident');
     expect(gaps).toHaveLength(1);
     expect(gaps[0]).toHaveTextContent('Payments outage March');
@@ -106,5 +108,25 @@ describe('PluginOperationalMemory', () => {
     expect(await screen.findByText('Memory is turned off on this backend.')).toBeInTheDocument();
     expect(await screen.findByText('Operational memory is turned off.')).toBeInTheDocument();
     expect(await screen.findByText('Import past incidents to see coverage.')).toBeInTheDocument();
+  });
+
+  it('says all is up to date when nothing needs attention', async () => {
+    stats.mockResolvedValue({ generated_at: '', enabled: true, status: 'healthy', indexed_cases: 26, not_indexed_cases: 0, stale_cases: 0, error_cases: 0, total_cases: 26, source: 'qdrant' });
+    render(<PluginOperationalMemory backendUrl="http://backend" onOpenCase={vi.fn()} />);
+
+    expect(await screen.findByTestId('plugin-memory-stats')).toHaveTextContent('✓ 26 past cases published · all up to date');
+  });
+
+  it('asks for imports in one line when no past incident is imported, and opens a case to record a missing cause', async () => {
+    const onOpenCase = vi.fn();
+    const [problem] = problems().problems;
+    recurring.mockResolvedValue(problems({ problems: [{ ...problem, causes: [], cases: [{ ...problem.cases[0], case_status: 'open' }] }] }));
+    coverage.mockResolvedValue(report({ reason: 'No past incidents imported in this window.', incidents: [], incidents_considered: 0, counts: {} }));
+    render(<PluginOperationalMemory backendUrl="http://backend" onOpenCase={onOpenCase} />);
+
+    expect(await screen.findByTestId('plugin-monitoring-coverage')).toHaveTextContent('Did your monitoring catch past incidents?');
+    expect(screen.queryByText('Monitoring coverage')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a cause' }));
+    expect(onOpenCase).toHaveBeenCalledWith(3);
   });
 });

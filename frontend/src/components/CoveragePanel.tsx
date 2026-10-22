@@ -26,15 +26,50 @@ const WINDOWS = [
   { days: 3650, label: 'All' },
 ];
 
+function WindowChips({ days, onChange }: { days: number; onChange: (days: number) => void }) {
+  return (
+    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+      {WINDOWS.map((window) => (
+        <Chip
+          key={window.days}
+          label={window.label}
+          onClick={() => onChange(window.days)}
+          color={days === window.days ? 'primary' : 'default'}
+          variant={days === window.days ? 'filled' : 'outlined'}
+          sx={{ fontWeight: 800 }}
+        />
+      ))}
+    </Stack>
+  );
+}
+
 /** What your monitoring caught of your real past incidents, and what it missed. Built from
- * imported postmortems, so it only appears once some are imported. */
-export function CoveragePanel() {
+ * imported postmortems; until some are imported in the window it is one line asking for them. */
+export function CoveragePanel({ onImport }: { onImport?: () => void }) {
   const [days, setDays] = React.useState(365);
   const query = useQuery({ queryKey: ['monitoring-coverage', days], queryFn: () => api.monitoringCoverage(days), retry: false });
   const data = query.data;
   const [showDetected, setShowDetected] = React.useState(false);
   const gaps = data?.incidents.filter((incident) => GAPS.has(incident.status)) ?? [];
   const detected = data?.incidents.filter((incident) => incident.status === 'detected') ?? [];
+
+  if (data?.available && !data.incidents.length) {
+    return (
+      <Box
+        data-testid="coverage-empty"
+        sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, alignItems: { md: 'center' }, gap: 1.5, p: 2, border: `1px dashed ${ui.border}`, borderRadius: '8px' }}
+      >
+        <Typography sx={{ fontSize: 14, flex: 1 }}>
+          <b>Did your monitoring catch past incidents?</b>{' '}
+          <Box component="span" sx={{ color: ui.muted }}>{data.reason}</Box>
+        </Typography>
+        <WindowChips days={days} onChange={setDays} />
+        {onImport ? (
+          <Button variant="outlined" onClick={onImport} sx={{ textTransform: 'none', fontWeight: 800, flexShrink: 0 }}>Import past incidents</Button>
+        ) : null}
+      </Box>
+    );
+  }
 
   return (
     <WorkspacePanel sx={{ p: 2.5 }}>
@@ -45,23 +80,12 @@ export function CoveragePanel() {
             Your imported past incidents, checked against what Ops Signals analysed and flagged while each one happened.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          {WINDOWS.map((window) => (
-            <Chip
-              key={window.days}
-              label={window.label}
-              onClick={() => setDays(window.days)}
-              color={days === window.days ? 'primary' : 'default'}
-              variant={days === window.days ? 'filled' : 'outlined'}
-              sx={{ fontWeight: 800 }}
-            />
-          ))}
-        </Stack>
+        <WindowChips days={days} onChange={setDays} />
       </Stack>
 
       {query.isLoading ? <CircularProgress size={20} /> : null}
       {query.isError ? <Typography sx={{ color: ui.muted, fontSize: 14 }}>Coverage could not be loaded.</Typography> : null}
-      {data && (!data.available || !data.incidents.length) ? <Typography sx={{ color: ui.muted, fontSize: 14 }}>{data.reason}</Typography> : null}
+      {data && !data.available ? <Typography sx={{ color: ui.muted, fontSize: 14 }}>{data.reason}</Typography> : null}
       {data?.available && data.incidents.length ? (
         <Stack spacing={2.5}>
           <Grid container spacing={1.5} data-testid="coverage-tiles">
