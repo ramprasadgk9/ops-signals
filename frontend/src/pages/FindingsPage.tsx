@@ -131,7 +131,7 @@ export function FindingsPage() {
   useEffect(() => {
     setShown(PAGE_SIZE);
     setContextShown(PAGE_SIZE);
-  }, [searchQuery, sort, groupRepeats, window, searchParams.get('cluster'), searchParams.get('source')]);
+  }, [searchQuery, sort, groupRepeats, window, searchParams.get('cluster'), searchParams.get('source'), searchParams.get('only')]);
   const showRuns = (finding: Finding) => {
     const next = new URLSearchParams(searchParams);
     next.set('q', [finding.service, finding.metric_name, finding.cluster].filter(Boolean).join(' '));
@@ -151,7 +151,12 @@ export function FindingsPage() {
   const sources = [...new Set(findings.map((finding) => finding.source).filter((source): source is string => Boolean(source)))].sort();
   const sourceFilter = searchParams.get('source');
   const sourceFindings = sourceFilter ? clusterFindings.filter((finding) => finding.source === sourceFilter) : clusterFindings;
-  const visibleFindings = searchFindings(sourceFindings, searchQuery, sort);
+  // ?only=patterns keeps the findings a behavior rule used in a combined pattern (the "Part of" ones).
+  // Not ?pattern=, which is the deep link to one pattern's card.
+  const patternLinks = patternsByFinding(behaviorsQuery.data ?? [], findings);
+  const onlyPatterns = searchParams.get('only') === 'patterns';
+  const kindFindings = onlyPatterns ? sourceFindings.filter((finding) => finding.id !== undefined && patternLinks.has(finding.id)) : sourceFindings;
+  const visibleFindings = searchFindings(kindFindings, searchQuery, sort);
   const visibleGroups = groupRepeatedFindings(visibleFindings, groupRepeats);
   // Context findings (single-check spikes, patterns, forecasts) were no better than chance in tests:
   // they stay one click away instead of crowding the list that asks for attention.
@@ -159,7 +164,6 @@ export function FindingsPage() {
   const contextGroups = visibleGroups.filter((group) => !needsAttention(group.finding));
   // A pattern has no cluster or source of its own: with either filter on, keep the patterns made
   // from a finding the filter kept.
-  const patternLinks = patternsByFinding(behaviorsQuery.data ?? [], findings);
   const filteredIds = new Set(sourceFindings.map((finding) => finding.id));
   const visiblePatterns = searchPatterns(
     (behaviorsQuery.data ?? []).filter((behavior) => inWindow(behavior, window)),
@@ -167,6 +171,7 @@ export function FindingsPage() {
   ).filter((behavior) => !(clusterFilter || sourceFilter) || partFindings(behavior, patternLinks, findings).some((finding) => filteredIds.has(finding.id)));
   const setClusterFilter = (cluster: string | null) => setParam('cluster', cluster);
   const setSourceFilter = (source: string | null) => setParam('source', source);
+  const setOnlyPatterns = (on: boolean) => setParam('only', on ? 'patterns' : null);
   // "#57" for a finding outside this window: offer to open it directly, as the deep link does.
   const searchedId = findingIdFromQuery(searchQuery);
   const searchedIdMissing = searchedId !== null && !visibleFindings.some((finding) => finding.id === searchedId);
@@ -353,6 +358,18 @@ export function FindingsPage() {
             ))}
           </Stack>
         ) : null}
+        {patternLinks.size || onlyPatterns ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 2 }} aria-label="Filter by kind">
+            <Typography variant="body2" sx={{ fontWeight: 750, color: ui.muted }}>Show</Typography>
+            <Chip label="All findings" color={onlyPatterns ? 'default' : 'primary'} variant={onlyPatterns ? 'outlined' : 'filled'} onClick={() => setOnlyPatterns(false)} />
+            <Chip
+              label="Part of a pattern"
+              color={onlyPatterns ? 'primary' : 'default'}
+              variant={onlyPatterns ? 'filled' : 'outlined'}
+              onClick={() => setOnlyPatterns(true)}
+            />
+          </Stack>
+        ) : null}
         {linkedFindingQuery.isError ? (
           <Typography role="status" color="text.secondary" sx={{ mb: 1.5 }}>
             Finding #{linkedFindingId} could not be found.
@@ -424,6 +441,8 @@ export function FindingsPage() {
           </Stack>
         ) : searchQuery ? (
           <Typography color="text.secondary">No findings in this window match "{searchQuery}".</Typography>
+        ) : onlyPatterns ? (
+          <Typography color="text.secondary">No findings in this window are part of a combined pattern.</Typography>
         ) : (
           <Typography color="text.secondary">No findings returned for this window.</Typography>
         )}

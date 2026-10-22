@@ -91,8 +91,9 @@ describe('window and search', () => {
     expect(inWindow(pool, '24h', parseUtc('2026-10-22T02:00:00Z'))).toBe(true);
   });
 
-  it('matches title, service and the metrics used', () => {
+  it('matches title, service, rule id and the metrics used', () => {
     expect(searchPatterns([pool], 'checkout wait')).toHaveLength(1);
+    expect(searchPatterns([pool], 'pool_exhaustion')).toHaveLength(1);
     expect(searchPatterns([pool], 'db_connections_active')).toHaveLength(1);
     expect(searchPatterns([pool], 'payments')).toHaveLength(0);
   });
