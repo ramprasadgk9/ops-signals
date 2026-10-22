@@ -28,10 +28,11 @@ export function occurrenceState(item: RecurringCase): OccurrenceState {
   return item.rca_verified ? 'verified' : 'unverified';
 }
 
-/** Problems ranked by how often they happened: one bar each, count at the tip. Only worth drawing
- * for two or more problems; clicking a row jumps to that problem's card. */
+/** Problems ranked by how often they happened: one bar each, count at the tip. A jump list for a
+ * long page, so only drawn for four or more problems - for fewer, each card's badge already shows
+ * the count; clicking a row jumps to that problem's card. */
 export function ProblemRanking({ problems, days, onSelect }: { problems: RecurringProblem[]; days: number; onSelect: (centralCaseId: number) => void }) {
-  if (problems.length < 2) return null;
+  if (problems.length < 4) return null;
   const most = Math.max(...problems.map((problem) => problem.occurrences));
   return (
     <Box sx={{ mb: 2 }} data-testid="problem-ranking">

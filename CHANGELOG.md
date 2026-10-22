@@ -4,6 +4,23 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Operational Memory is now the Recurring problems page.** The name says when to open it: what
+  keeps breaking, and is it worth a lasting fix. `/operational-memory` redirects to
+  `/recurring-problems`, query string included. The four count cards and the Retry button became one
+  line ("26 past cases searchable · all up to date"), naming only the counts that need attention,
+  with Retry shown only then. Each group now says what to do next: a lasting fix when every
+  verified cause is the same, a look at the causes when they differ, or recording or confirming a
+  cause (with a link to the case) when none is. The ranking bar chart shows only as a jump list for
+  four or more groups, since each card's badge already carries its count. The footer says the cases
+  compared are the window's ("21 cases from the last 90 days compared"), which explains why that
+  number can be below the total. Monitoring coverage is one line until a past incident is imported,
+  and is left out entirely while memory is empty. The memory inventory and the alert-context preview
+  are folded away; the import wizard's check link still opens the preview. Case Details shows
+  **Seen before** when the case is one of a recurring problem: how often it happened, the cause found
+  on another case, and a link that opens the page on that group. The Grafana plugin's Memory & Alerts
+  section and case drawer show the same. `GET /api/memory/recurring-problems` takes `name=false` so
+  that lookup skips the LLM naming the groups.
+
 - **Behavior Lab, Analyzer Recommendation and Add Analyzer no longer hang on a large database.**
   Their sample list summarised every stored metric point on each page load; with tens of millions
   of points one call ran for 15 minutes or more, and a few at once used up the backend's database

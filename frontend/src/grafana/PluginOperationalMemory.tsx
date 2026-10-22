@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import type { CoverageReport, CoverageStatus, MemoryStatsResponse, RecurringProblem, RecurringProblemsResponse } from '../types';
 import { getMemoryStats, getMonitoringCoverage, getRecurringProblems } from './backendClient';
 import { styles } from './plainUi';
+import { caseToRecordCauseOn, recurringNextStep, type NextStepTone } from '../utils/recurringNextStep';
 
-// Operational memory in the Grafana plugin's own styling: what is indexed, problems that keep coming
-// back, and which imported past incidents monitoring caught. Same endpoints and wording as the web
-// UI's OperationalMemoryPage, RecurringProblemsPanel and CoveragePanel. Case titles open the case
+// Recurring problems in the Grafana plugin's own styling: problems that keep coming back, which
+// imported past incidents monitoring caught, and one line on what is in memory. Same endpoints and
+// wording as the web UI's RecurringProblemsPage, RecurringProblemsPanel and CoveragePanel. Case titles open the case
 // through `onOpenCase`, in the investigation drawer the parent owns.
 
 type Load<T> = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: T };
@@ -68,9 +69,9 @@ export function PluginOperationalMemory({ backendUrl, onOpenCase }: { backendUrl
   return (
     <section data-testid="plugin-operational-memory" style={{ ...styles.stack, gap: 12 }}>
       <div>
-        <strong style={{ fontSize: 16 }}>Operational Memory</strong>
+        <strong style={{ fontSize: 16 }}>Recurring problems</strong>
         <div style={{ ...styles.helperText, marginTop: 2 }}>
-          Resolved cases published to memory, so similar problems later show what was found and what fixed them.
+          Problems that keep coming back. Fix these for good instead of firefighting them again.
         </div>
       </div>
       <MemoryStats backendUrl={backendUrl} />
@@ -86,15 +87,19 @@ function MemoryStats({ backendUrl }: { backendUrl: string }) {
   if (state.status === 'error') return <div style={styles.muted}>Memory status could not be loaded. Check the backend connection.</div>;
   const stats = state.data;
   const availability = !stats.enabled ? 'Memory is turned off on this backend.' : stats.status === 'healthy' ? null : `Memory is ${stats.status}: search and publishing may not work until it recovers.`;
+  if (availability) return <div data-testid="plugin-memory-stats" style={styles.alert}>{availability}</div>;
+  // One line, naming only the counts that need attention.
+  const trouble = stats.stale_cases + stats.error_cases;
+  const parts = [
+    `${stats.indexed_cases} past ${stats.indexed_cases === 1 ? 'case' : 'cases'} published`,
+    stats.not_indexed_cases ? `${stats.not_indexed_cases} not published` : null,
+    stats.stale_cases ? `${stats.stale_cases} changed since publishing` : null,
+    stats.error_cases ? `${stats.error_cases} failed to publish` : null,
+    trouble ? null : 'all up to date',
+  ].filter(Boolean);
   return (
-    <div data-testid="plugin-memory-stats" style={{ ...styles.stack, gap: 8 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
-        <Tile value={stats.indexed_cases} label="Published" tone="#3fcf8e" />
-        <Tile value={stats.not_indexed_cases} label="Not published" />
-        <Tile value={stats.stale_cases} label="Changed since publishing" tone={stats.stale_cases ? '#ffb357' : undefined} />
-        <Tile value={stats.error_cases} label="Publish failed" tone={stats.error_cases ? '#f2495c' : undefined} />
-      </div>
-      {availability ? <div style={styles.alert}>{availability}</div> : null}
+    <div data-testid="plugin-memory-stats" style={{ fontSize: 13 }}>
+      <span style={{ color: trouble ? '#ffb357' : '#3fcf8e', fontWeight: 700 }}>{trouble ? '⚠' : '✓'}</span> {parts.join(' · ')}
     </div>
   );
 }
@@ -116,14 +121,8 @@ function RecurringProblems({ backendUrl, onOpenCase }: { backendUrl: string; onO
   return (
     <div data-testid="plugin-recurring-problems" style={PANEL}>
       <div style={styles.rowBetween}>
-        <div>
-          <strong>Recurring problems</strong>
-          <div style={{ ...styles.helperText, marginTop: 2 }}>Past cases that look alike, grouped. A problem that keeps coming back is worth a lasting fix, not another incident.</div>
-        </div>
-        <div style={{ ...styles.row, gap: 10 }}>
-          <Choices label="Group by" options={GROUPINGS} value={groupBy} onChange={setGroupBy} />
-          <Choices label="Window" options={PROBLEM_WINDOWS} value={days} onChange={setDays} />
-        </div>
+        <Choices label="Group by" options={GROUPINGS} value={groupBy} onChange={setGroupBy} />
+        <Choices label="Window" options={PROBLEM_WINDOWS} value={days} onChange={setDays} />
       </div>
       {state.status === 'loading' ? <div style={styles.muted}>Grouping past cases...</div> : null}
       {state.status === 'error' ? <div style={styles.muted}>Recurring problems could not be loaded.</div> : null}
@@ -133,9 +132,10 @@ function RecurringProblems({ backendUrl, onOpenCase }: { backendUrl: string; onO
       ) : null}
       {data?.available && data.problems.length ? (
         <>
-          {data.problems.map((problem) => <ProblemCard key={problem.central_case_id} problem={problem} days={data.window_days} onOpenCase={onOpenCase} />)}
+          {data.problems.map((problem) => <ProblemCard key={problem.central_case_id} problem={problem} days={data.window_days} groupBy={data.group_by} onOpenCase={onOpenCase} />)}
           <div style={styles.helperText}>
-            {data.cases_considered} cases compared{data.sampled ? ' (a sample of them)' : ''}. Every case in a group is at least{' '}
+            {data.cases_considered} {data.group_by === 'cause' ? 'cases with a recorded cause' : 'cases'} from the last {data.window_days} days compared
+            {data.sampled ? ' (a sample of them)' : ''}. Every case in a group is at least{' '}
             {Math.round(data.group_similarity * 100)}% like its central case in {data.group_by === 'cause' ? 'cause and fix' : 'symptom'}.
           </div>
         </>
@@ -144,7 +144,26 @@ function RecurringProblems({ backendUrl, onOpenCase }: { backendUrl: string; onO
   );
 }
 
-function ProblemCard({ problem, days, onOpenCase }: { problem: RecurringProblem; days: number; onOpenCase: (caseId: number) => void }) {
+const NEXT_STEP_TONES: Record<NextStepTone, string> = { fix: '#3fcf8e', mixed: '#5794f2', verify: '#ffb357', record: '#ffb357' };
+
+function NextStep({ problem, groupBy, onOpenCase }: { problem: RecurringProblem; groupBy: 'symptom' | 'cause'; onOpenCase: (caseId: number) => void }) {
+  const step = recurringNextStep(problem, groupBy);
+  const tone = NEXT_STEP_TONES[step.tone];
+  return (
+    <div data-testid="plugin-recurring-next-step" style={{ borderLeft: `3px solid ${tone}`, paddingLeft: 10, fontSize: 13 }}>
+      <b style={{ color: tone }}>{step.title}</b> {step.detail}
+      {step.tone === 'record' || step.tone === 'verify' ? (
+        <div>
+          <button type="button" style={LINK_BUTTON} onClick={() => onOpenCase(caseToRecordCauseOn(problem))}>
+            {step.tone === 'record' ? 'Add a cause' : 'Confirm a cause'}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProblemCard({ problem, days, groupBy, onOpenCase }: { problem: RecurringProblem; days: number; groupBy: 'symptom' | 'cause'; onOpenCase: (caseId: number) => void }) {
   const [showCases, setShowCases] = useState(false);
   const [showAllCauses, setShowAllCauses] = useState(false);
   const hiddenCauses = Math.max(problem.causes.length - CAUSES_SHOWN, 0);
@@ -179,9 +198,8 @@ function ProblemCard({ problem, days, onOpenCase }: { problem: RecurringProblem;
             </button>
           ) : null}
         </div>
-      ) : (
-        <div style={{ ...styles.muted, fontSize: 13 }}>No root cause recorded yet for any of these cases.</div>
-      )}
+      ) : null}
+      <NextStep problem={problem} groupBy={groupBy} onOpenCase={onOpenCase} />
       <button type="button" style={LINK_BUTTON} onClick={() => setShowCases(!showCases)}>
         {showCases ? 'Hide' : 'Show'} {problem.occurrences} cases
       </button>
@@ -225,6 +243,17 @@ function MonitoringCoverage({ backendUrl, onOpenCase }: { backendUrl: string; on
   const gaps = data?.incidents.filter((incident) => GAPS.has(incident.status)) ?? [];
   const detected = data?.incidents.filter((incident) => incident.status === 'detected') ?? [];
 
+  if (data?.available && !data.incidents.length) {
+    return (
+      <div data-testid="plugin-monitoring-coverage" style={{ ...PANEL, ...styles.rowBetween, borderStyle: 'dashed' }}>
+        <div style={{ fontSize: 13 }}>
+          <strong>Did your monitoring catch past incidents?</strong> <span style={styles.muted}>{data.reason}</span>
+        </div>
+        <Choices label="Coverage window" options={COVERAGE_WINDOWS} value={days} onChange={setDays} />
+      </div>
+    );
+  }
+
   return (
     <div data-testid="plugin-monitoring-coverage" style={PANEL}>
       <div style={styles.rowBetween}>
@@ -236,7 +265,7 @@ function MonitoringCoverage({ backendUrl, onOpenCase }: { backendUrl: string; on
       </div>
       {state.status === 'loading' ? <div style={styles.muted}>Checking past incidents...</div> : null}
       {state.status === 'error' ? <div style={styles.muted}>Coverage could not be loaded.</div> : null}
-      {data && (!data.available || !data.incidents.length) ? <div style={styles.muted}>{data.reason}</div> : null}
+      {data && !data.available ? <div style={styles.muted}>{data.reason}</div> : null}
       {data?.available && data.incidents.length ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>

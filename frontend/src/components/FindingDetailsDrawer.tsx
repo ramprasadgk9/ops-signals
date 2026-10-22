@@ -150,7 +150,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
               <PastCaseMatches
                 matches={seenBeforeQuery.data.matches}
                 service={finding.service}
-                emptyText="Nothing like this in memory yet. Import past incidents from Operational Memory to give it history."
+                emptyText="Nothing like this in memory yet. Import past incidents from the Recurring problems page to give it history."
               />
             ) : null}
           </Box>

@@ -19,7 +19,7 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import CrisisAlertRoundedIcon from '@mui/icons-material/CrisisAlertRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import HubRoundedIcon from '@mui/icons-material/HubRounded';
-import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
+import LoopRoundedIcon from '@mui/icons-material/LoopRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import ScienceRoundedIcon from '@mui/icons-material/ScienceRounded';
 import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded';
@@ -50,6 +50,8 @@ type NavItem = {
   icon: ReactNode;
   match?: (pathname: string) => boolean;
   badge?: string;
+  /** Shown on hover: when to open the page, for a name that doesn't say it all. */
+  hint?: string;
   /** Feature id (backend/app/capabilities/availability.py) the page needs a source for. While it
    * is off, the item moves to the "More with Prometheus / Grafana" group. */
   feature?: string;
@@ -67,7 +69,7 @@ const navItems: NavItem[] = [
   { label: 'Metric Usage', to: '/metric-usage', icon: <VisibilityOutlinedIcon />, feature: 'metric_usage' },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
   { label: 'Behavior Intelligence', to: '/behavior-intelligence', icon: <HubRoundedIcon /> },
-  { label: 'Operational Memory', to: '/operational-memory', icon: <StorageRoundedIcon /> },
+  { label: 'Recurring problems', to: '/recurring-problems', icon: <LoopRoundedIcon />, hint: 'What keeps breaking, and is it worth a lasting fix?' },
   { label: 'Ask Ops Signals', to: '/assistant', icon: <ChatBubbleOutlineRoundedIcon />, badge: 'Beta' },
   { label: 'New Analysis', to: '/validate-data', icon: <AddRoundedIcon /> },
 ];
@@ -99,6 +101,7 @@ function NavButton({ item, nested = false, needsSource = false }: { item: NavIte
     <Button
       component={RouterLink}
       to={item.to}
+      title={item.hint}
       startIcon={item.icon}
       fullWidth
       sx={{

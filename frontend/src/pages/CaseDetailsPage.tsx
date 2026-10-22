@@ -38,6 +38,7 @@ import { ApiError, retryUnlessClientError } from '../api/client';
 import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
+import { CaseRecurrenceBanner } from '../components/CaseRecurrenceBanner';
 import { RootCauseUnconfirmedBadge, isRootCauseUnconfirmed } from '../components/RootCauseUnconfirmedBadge';
 import { NoveltyBadge } from '../components/NoveltyBadge';
 import { SameFixElsewhere } from '../components/FixHistory';
@@ -339,6 +340,8 @@ export function CaseDetailsPage() {
             </Stack>
           </Stack>
         </Box>
+
+        <CaseRecurrenceBanner caseId={caseData.id} />
 
         <JiraTicketingHint subject="case" />
 

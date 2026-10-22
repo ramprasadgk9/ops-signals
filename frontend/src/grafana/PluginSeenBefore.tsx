@@ -63,7 +63,7 @@ function SeenBeforeBody({ data, service }: { data: SeenBeforeResponse; service?:
     <>
       {data.novelty ? <NoveltyLine novelty={data.novelty} /> : null}
       {!ranked.length ? (
-        <div style={styles.muted}>Nothing like this in memory yet. Publish resolved cases, or import past incidents from Operational Memory in the Ops Signals web app, to give it history.</div>
+        <div style={styles.muted}>Nothing like this in memory yet. Publish resolved cases, or import past incidents from the Recurring problems page in the Ops Signals web app, to give it history.</div>
       ) : (
         <>
           {sameService.length ? (

@@ -15,8 +15,8 @@ resolved case that similar-case search, alert enrichment and the assistant can m
 
 ## Where to find it
 
-- **Operational Memory page:** the **Import past incidents** button. When memory is empty, the
-  inventory offers the same button.
+- **Recurring problems page:** the **Import past incidents** button. When memory is empty, the
+  page offers the same button.
 - **Integrations page:** the **Incident history** card lists past imports, with **Import again** and
   **Undo**.
 - **Command line**, for bulk imports or a mounted folder:
@@ -206,7 +206,7 @@ The uploaded files themselves are not kept; only the mapped fields are stored.
 
 - They are **resolved**, with the root cause marked confirmed, and their dates are the incident's
   own, not the import time.
-- They show an **Imported** badge on Cases, Case Details and Operational Memory, linking back to the
+- They show an **Imported** badge on Cases, Case Details and the Recurring problems page's indexing details, linking back to the
   original when a URL was imported. The Cases page can filter to imported or detected only.
 - They have no metric signals, linked alerts or analysis run.
 - **Recall:** similar-case search and alert enrichment normally only consider past cases on the
@@ -219,20 +219,23 @@ The uploaded files themselves are not kept; only the mapped fields are stored.
 - **Findings:** open any finding. Its **Seen before?** section lists past cases that look like it,
   imported ones included, without opening a case first.
 - **Case Details → Similar Cases:** the same for a case.
-- **Operational Memory → Alert Context Preview**, and the Slack message for incoming alerts: when
+- **Recurring problems → Alert context preview** (folded at the bottom of the page; the import wizard's check link opens it), and the Slack message for incoming alerts: when
   there are no resolved outcomes for the service and metric but past incidents match, the verdict
   reads **Seen before** and quotes the closest incident's cause and fix.
 - **Ask Ops Signals:** questions like "have we seen high CPU on checkout before?"
-- **Operational Memory → Monitoring coverage:** each imported incident checked against what Ops
+- **Recurring problems → Monitoring coverage:** each imported incident checked against what Ops
   Signals analysed and flagged while it happened: **Detected**, **Flagged something else**,
   **Missed** (the service was analysed, nothing was flagged) or **Not watched** (nothing analysed
   that service then). This needs the postmortem's service and start time, and the service named as
   it is in your metrics - use aliases when importing. Analyzer findings are worded generically, so a
   different problem on the same service can score close; anything under the 60% bar is listed as
   flagged something else, by title, for you to judge.
-- **Operational Memory → Recurring problems:** imported and detected cases grouped into problems
-  that happened three or more times in the chosen window, by symptom or by cause. Postmortems group
-  with the detected cases of the same problem, because both are compared on what was seen.
+- **Recurring problems:** imported and detected cases grouped into problems that happened three or
+  more times in the chosen window, by symptom or by cause. Postmortems group with the detected cases
+  of the same problem, because both are compared on what was seen. Each group says what to do next:
+  a lasting fix when every verified cause is the same, a look at the causes when they differ, or
+  recording or confirming a cause when none is. A case that belongs to a group shows **Seen before**
+  at the top of Case Details (and in the Grafana plugin's case drawer), with a link to the group.
 - **Case Details → Similar Cases → Same fix elsewhere:** other incidents, imported or detected, that
   the same cause and fix resolved, and whether the fix held.
 

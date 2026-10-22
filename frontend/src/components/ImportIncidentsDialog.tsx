@@ -446,7 +446,7 @@ export function recallCheckLink(records: CaseImportRecord[]) {
   const service = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
   const example = written.find((record) => record.service === service)!;
   const params = new URLSearchParams({ service, message: example.title });
-  return { service, to: `/operational-memory?${params.toString()}` };
+  return { service, to: `/recurring-problems?${params.toString()}` };
 }
 
 function ImportDone({

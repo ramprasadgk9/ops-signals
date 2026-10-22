@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { OperationalMemoryPage } from './OperationalMemoryPage';
+import { RecurringProblemsPage } from './RecurringProblemsPage';
 import { api } from '../api/queries';
 
 vi.mock('../api/queries', () => ({
@@ -10,15 +10,17 @@ vi.mock('../api/queries', () => ({
     cases: vi.fn(),
     memoryStats: vi.fn(),
     alertContext: vi.fn(),
+    recurringProblems: vi.fn(() => Promise.resolve({ available: true, window_days: 90, min_occurrences: 3, group_by: 'symptom', group_similarity: 0.8, cases_considered: 0, sampled: false, problems: [] })),
+    monitoringCoverage: vi.fn(() => Promise.resolve({ available: true, reason: 'No past incidents imported in this window.', window_days: 365, incidents_considered: 0, counts: {}, services: [], incidents: [] })),
   },
 }));
 
-function renderPage(path = '/operational-memory') {
+function renderPage(path = '/recurring-problems') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
-        <OperationalMemoryPage />
+        <RecurringProblemsPage />
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -66,12 +68,12 @@ const baseCase = {
   updated_at: '2026-07-26T01:00:00Z',
 };
 
-describe('OperationalMemoryPage', () => {
+describe('RecurringProblemsPage', () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it('shows authoritative memory stats and indexed case inventory', async () => {
+  it('says in one line how much memory is searchable, with the inventory folded away', async () => {
     vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
     vi.mocked(api.cases).mockResolvedValue([
       baseCase,
@@ -80,11 +82,56 @@ describe('OperationalMemoryPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Operational Memory')).toBeInTheDocument();
-    expect(screen.getByText('Indexed Cases')).toBeInTheDocument();
-    expect(screen.getByText('CPU usage behavior changed')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Recurring problems' })).toBeInTheDocument();
+    expect(screen.getByTestId('memory-status-line')).toHaveTextContent('1 past case searchable · 1 not indexed yet · all up to date');
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByText('CPU usage behavior changed')).not.toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByTestId('memory-status-line')).getByRole('button', { name: 'Indexing details' }));
+
+    expect(await screen.findByText('CPU usage behavior changed')).toBeInTheDocument();
     expect(screen.queryByText('Disk saturation')).not.toBeInTheDocument();
     expect(api.cases).toHaveBeenCalledWith(200);
+  });
+
+  it('names what needs attention and offers Retry only then', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue({ ...memoryStats, indexed_cases: 20, not_indexed_cases: 0, stale_cases: 2, error_cases: 1, total_cases: 23 });
+    vi.mocked(api.cases).mockResolvedValue([baseCase]);
+
+    renderPage();
+
+    const line = await screen.findByTestId('memory-status-line');
+    expect(line).toHaveTextContent('20 past cases searchable · 2 changed since indexing · 1 failed to index');
+    expect(line).not.toHaveTextContent('all up to date');
+    expect(within(line).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('asks for imports in one line when monitoring coverage has nothing to check', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([baseCase]);
+
+    renderPage();
+
+    expect(await screen.findByTestId('coverage-empty')).toHaveTextContent('Did your monitoring catch past incidents?');
+    expect(screen.queryByText('Monitoring coverage')).not.toBeInTheDocument();
+  });
+
+  it('opens on the group a case page linked to', async () => {
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([baseCase]);
+    vi.mocked(api.recurringProblems).mockResolvedValue({
+      available: true, window_days: 90, min_occurrences: 3, group_by: 'symptom', group_similarity: 0.8, cases_considered: 3, sampled: false,
+      problems: [
+        {
+          name: 'Checkout latency', named_by: 'central_case', central_case_id: 7, occurrences: 3, services: ['checkout'], verified_root_causes: 0, open_cases: 3, causes: [],
+          cases: [7, 8, 9].map((id) => ({ case_id: id, title: `Case ${id}`, origin: 'detected', case_status: 'open', rca_verified: false, similarity_to_central: 1 })),
+        },
+      ],
+    });
+
+    renderPage('/recurring-problems?problem=7');
+
+    expect(await screen.findByTestId('recurring-problem')).toHaveAttribute('data-highlighted', 'true');
   });
 
   it('offers to import past incidents when memory has no cases', async () => {
@@ -94,7 +141,9 @@ describe('OperationalMemoryPage', () => {
     renderPage();
 
     expect(await screen.findByText(/Memory is empty/)).toBeInTheDocument();
+    // Page header and the empty-memory prompt; the coverage prompt would only repeat them.
     expect(screen.getAllByRole('button', { name: /Import past incidents/ })).toHaveLength(2);
+    expect(screen.queryByTestId('coverage-empty')).not.toBeInTheDocument();
   });
 
   it('labels imported cases with their source instead of a metric', async () => {
@@ -104,6 +153,7 @@ describe('OperationalMemoryPage', () => {
     ]);
 
     renderPage();
+    fireEvent.click(within(await screen.findByTestId('memory-status-line')).getByRole('button', { name: 'Indexing details' }));
 
     expect(await screen.findByText('Imported · jira OPS-412')).toBeInTheDocument();
   });
@@ -125,8 +175,10 @@ describe('OperationalMemoryPage', () => {
 
     renderPage();
 
-    expect(await screen.findAllByText('Unavailable')).not.toHaveLength(0);
-    expect(screen.getByText('Memory unavailable')).toBeInTheDocument();
+    expect(await screen.findByText('Memory unavailable')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-status-line')).not.toBeInTheDocument();
+    expect(screen.queryByText(/past cases? searchable/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('checks alert context and renders history, outcomes, and similar cases', async () => {
@@ -181,7 +233,7 @@ describe('OperationalMemoryPage', () => {
     });
 
     renderPage();
-    await screen.findByText('Operational Memory');
+    fireEvent.click(await screen.findByRole('button', { name: /Alert context preview/ }));
 
     fireEvent.change(screen.getByLabelText('Metric name'), { target: { value: 'cpu_usage' } });
     fireEvent.change(screen.getByLabelText('Service (optional)'), { target: { value: 'payments-service' } });
@@ -219,7 +271,7 @@ describe('OperationalMemoryPage', () => {
     });
 
     renderPage();
-    await screen.findByText('Operational Memory');
+    fireEvent.click(await screen.findByRole('button', { name: /Alert context preview/ }));
 
     fireEvent.change(screen.getByLabelText('Metric name'), { target: { value: 'cpu_usage' } });
     fireEvent.click(screen.getByRole('button', { name: 'Check Alert Context' }));
@@ -230,7 +282,7 @@ describe('OperationalMemoryPage', () => {
   });
 });
 
-describe('OperationalMemoryPage alert preview with only similar cases', () => {
+describe('RecurringProblemsPage alert preview with only similar cases', () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -256,6 +308,7 @@ describe('OperationalMemoryPage alert preview with only similar cases', () => {
     } as never);
 
     renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Alert context preview/ }));
     fireEvent.change(await screen.findByLabelText(/Alert message/), { target: { value: 'checkout CPU high' } });
     fireEvent.click(screen.getByRole('button', { name: 'Check Alert Context' }));
 

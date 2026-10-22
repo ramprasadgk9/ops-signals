@@ -92,7 +92,7 @@ describe('ImportIncidentsDialog', () => {
     expect(screen.getByRole('link', { name: 'OPS-412 · Checkout 500s' })).toHaveAttribute('href', '/cases/1');
     expect(screen.getByRole('link', { name: 'Try an alert' })).toHaveAttribute(
       'href',
-      '/operational-memory?service=checkout-api&message=Checkout+500s'
+      '/recurring-problems?service=checkout-api&message=Checkout+500s'
     );
     expect(screen.getByRole('link', { name: 'Open Integrations' })).toHaveAttribute('href', '/integrations');
     const form = vi.mocked(api.runCaseImport).mock.calls[0][0] as FormData;
@@ -140,7 +140,7 @@ describe('recallCheckLink', () => {
 
   it('picks the most common imported service and one of its titles', () => {
     const link = recallCheckLink([record('payments', 'Payments slow', 1), record('checkout', 'Checkout CPU', 2), record('checkout', 'Checkout errors', 3)]);
-    expect(link).toEqual({ service: 'checkout', to: '/operational-memory?service=checkout&message=Checkout+CPU' });
+    expect(link).toEqual({ service: 'checkout', to: '/recurring-problems?service=checkout&message=Checkout+CPU' });
   });
 
   it('returns nothing when no case was written', () => {

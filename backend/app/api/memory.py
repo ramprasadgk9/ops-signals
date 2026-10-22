@@ -586,6 +586,7 @@ def get_recurring_problems(
     days: Annotated[int, Query(ge=7, le=730)] = 90,
     min_occurrences: Annotated[int, Query(ge=2, le=20)] = 3,
     group_by: Literal["symptom", "cause"] = "symptom",
+    name: bool = True,
     db: Session = Depends(get_db),
     store: VectorStore | None = Depends(get_vector_store),
     config: MemoryConfig | None = Depends(get_memory_config),
@@ -594,11 +595,14 @@ def get_recurring_problems(
     """Past cases from the last `days` grouped into problems that happened at least
     `min_occurrences` times, with the causes and fixes found each time - grouped by what was seen
     (`symptom`) or by root cause and fix (`cause`). Groups are named by the configured LLM when
-    there is one, otherwise after their central case."""
+    there is one and `name` is on, otherwise after their central case. A caller that only needs
+    the groups (a case page asking "has this happened before?") turns `name` off to skip the LLM."""
     if not config or not config.enabled:
         store = None
     ai_services = assistant.services.ai_services if assistant else None
-    return find_recurring_problems(db, store, days=days, min_occurrences=min_occurrences, group_by=group_by, ai_services=ai_services)
+    return find_recurring_problems(
+        db, store, days=days, min_occurrences=min_occurrences, group_by=group_by, ai_services=ai_services, name_groups=name,
+    )
 
 
 @router.get("/memory/coverage", response_model=CoverageReport)
