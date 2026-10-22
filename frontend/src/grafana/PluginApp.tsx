@@ -2586,7 +2586,9 @@ export function GrafanaAutonomousOverview({
     );
   }
 
-  const topFinding = data.topFindings[0] ?? null;
+  // The card is about the lead service, so its chips and default finding are that service's own top
+  // finding - not the top across services, which can be on one ranked after it (no service label).
+  const topFinding = primaryService?.symptoms.reduce((best, item) => (item.importance > best.importance ? item : best)) ?? data.topFindings[0] ?? null;
   const topRawFinding = topFinding ? matchingFinding(findings, topFinding) : null;
   const hasFindings = data.topFindings.length > 0;
   const disabledActionStyle = {
