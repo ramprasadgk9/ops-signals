@@ -59,15 +59,15 @@ def test_shipped_trust_config_has_tested_numbers_for_the_needs_attention_groups(
         assert tested["real"] > tested["random"]
 
 
-def _seed_finding(db, finding_id: int, service: str, signals: list[tuple[str, str]], category: str = "behavior_change") -> None:
+def _seed_finding(db, finding_id: int, service: str | None, signals: list[tuple[str, str]], category: str = "behavior_change", metric: str = "cpu_usage") -> None:
     now = datetime.now(timezone.utc)
     signal_ids = []
     for index, (analyzer, signal_type) in enumerate(signals):
         signal_id = f"sig-{finding_id}-{index}"
         signal_ids.append(signal_id)
-        db.add(SignalEntity(signal_id=signal_id, signal_type=signal_type, analyzer_id=analyzer, metric_name="cpu_usage", service=service,
+        db.add(SignalEntity(signal_id=signal_id, signal_type=signal_type, analyzer_id=analyzer, metric_name=metric, service=service,
                             severity="high", start_time=now, end_time=now, evidence_json={}, importance_score=0.7, analysis_run_id="run-1"))
-    db.add(FindingEntity(id=finding_id, analysis_run_id="run-1", service=service, metric_name="cpu_usage", title=f"finding {finding_id}",
+    db.add(FindingEntity(id=finding_id, analysis_run_id="run-1", service=service, metric_name=metric, title=f"finding {finding_id}",
                          summary="s", category=category, health_status="significant", importance_score=0.7, investigation_priority=2,
                          signal_ids=signal_ids, comparison_json={}, created_at=now))
 
@@ -89,7 +89,7 @@ def test_findings_carry_trust_with_tested_numbers(seeded: TestClient) -> None:
     strong = by_id[1]
     assert (strong["group"], strong["tier"], strong["badge"], strong["moved"]) == ("level_change_agree", "needs_attention", "strong", None)
     assert strong["tested"]["checked"] >= 30 and strong["tested"]["fits_metric"] is True
-    assert strong["service"] == {"real": 0, "answered": 0, "min_answers": 5}
+    assert strong["service"] == {"real": 0, "answered": 0, "min_answers": 5, "scope": "service"}
     assert strong["your_answer"] is None
 
     spike = by_id[20]
@@ -108,7 +108,7 @@ def test_feedback_builds_the_services_own_rate_per_group(seeded: TestClient) -> 
 
     trust = response.json()["trust"]
     assert trust["your_answer"] == "not_a_problem"
-    assert trust["service"] == {"real": 5, "answered": 6, "min_answers": 5}
+    assert trust["service"] == {"real": 5, "answered": 6, "min_answers": 5, "scope": "service"}
 
     by_id = {item["id"]: item["trust"] for item in seeded.get("/api/findings").json()}
     assert by_id[6]["your_answer"] == "expected_change"
@@ -170,6 +170,29 @@ def test_answers_move_a_kind_of_finding_between_lists_for_that_service_only(clie
         client.post(f"/api/findings/{finding_id}/feedback", json={"verdict": "real_problem"})
     trust = {item["id"]: item["trust"] for item in client.get("/api/findings").json()}[15]
     assert (trust["tier"], trust["badge"], trust["moved"]) == ("needs_attention", "strong", None)
+
+
+def test_findings_without_a_service_count_answers_per_metric(client: TestClient) -> None:
+    with get_session_local()() as db:
+        for finding_id in range(1, 7):
+            _seed_finding(db, finding_id, "unknown", [("data_health", "data_gap")], category="data_quality", metric="process_cpu_seconds_total")
+        _seed_finding(db, 7, "unknown", [("data_health", "data_gap")], category="data_quality", metric="request_latency_p95")
+        _seed_finding(db, 8, None, [("data_health", "data_gap")], category="data_quality", metric="process_cpu_seconds_total")
+        _seed_finding(db, 9, "cart", [("data_health", "data_gap")], category="data_quality", metric="request_latency_p95")
+        _seed_finding(db, 10, "cart", [("data_health", "data_gap")], category="data_quality", metric="process_cpu_seconds_total")
+        db.commit()
+
+    for finding_id in range(1, 4):
+        client.post(f"/api/findings/{finding_id}/feedback", json={"verdict": "real_problem"})
+    client.post("/api/findings/9/feedback", json={"verdict": "not_a_problem"})
+
+    services = {item["id"]: item["trust"]["service"] for item in client.get("/api/findings").json()}
+    # Answers on unlabeled CPU gaps count for unlabeled CPU gaps, "unknown" or no service at all...
+    assert services[6] == {"real": 3, "answered": 3, "min_answers": 5, "scope": "metric"}
+    assert services[8]["answered"] == 3
+    # ...not for an unlabeled latency gap, nor for a service that has a label.
+    assert services[7] == {"real": 0, "answered": 0, "min_answers": 5, "scope": "metric"}
+    assert services[10] == {"real": 0, "answered": 1, "min_answers": 5, "scope": "service"}
 
 
 def test_resetting_operational_data_also_clears_the_answers(monkeypatch: pytest.MonkeyPatch) -> None:

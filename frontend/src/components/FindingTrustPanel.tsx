@@ -3,7 +3,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { Finding, FindingVerdict } from '../types';
-import { answerLine, movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, VERDICTS } from '../utils/findingTrust';
+import { answerLine, movedNote, serviceCaption, serviceHeadline, serviceLabel, serviceProgress, serviceRateLeads, testedCaption, testedHeadline, testedTooltip, VERDICTS } from '../utils/findingTrust';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { LockNote } from './LockNote';
 
@@ -54,7 +54,6 @@ export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
   const trust = finding.trust;
   if (!trust) return null;
   const chosen = answer.variables && answer.isPending ? answer.variables : trust.your_answer;
-  const { real, answered } = trust.service;
   const note = movedNote(trust, finding.service);
 
   return (
@@ -62,11 +61,11 @@ export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
       {note ? <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>{note}</Typography> : null}
       {answerOnly ? null : <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
         <Column
-          label="On your service"
+          label={serviceLabel(trust)}
           headline={serviceHeadline(trust)}
           caption={serviceCaption(trust, finding.service)}
-          value={answered ? real / answered : null}
-          color="success"
+          value={serviceProgress(trust)}
+          color={serviceRateLeads(trust) ? 'success' : 'inherit'}
         />
         <Column
           label="In testing"

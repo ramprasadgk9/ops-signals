@@ -13,7 +13,7 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { TopFindingsList } from '../components/TopFindingsList';
 import { WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
-import type { Finding } from '../types';
+import type { Finding, FindingDetailsSection } from '../types';
 import { categoryDetail, categoryLabel, categoryShortDescription } from '../utils/findingCategories';
 import { findingIdFromQuery, findingSortFromParam, findingSorts, groupRepeatedFindings, searchFindings } from '../utils/findingSearch';
 import { needsAttention } from '../utils/findingTrust';
@@ -65,6 +65,7 @@ export function FindingsPage() {
   const behaviorsQuery = useQuery({ queryKey: ['behavior-findings'], queryFn: () => api.behaviorFindings(), retry: false });
 
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
+  const [drawerSection, setDrawerSection] = useState<FindingDetailsSection | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Re-fetches this one finding on open so ai_summary (computed and cached lazily, on first
   // detail view, by the backend) has a chance to populate - the list endpoint above never
@@ -109,8 +110,9 @@ export function FindingsPage() {
     }
   };
 
-  const handleViewDetails = (finding: Finding) => {
+  const handleViewDetails = (finding: Finding, section?: FindingDetailsSection) => {
     setSelectedFinding(finding);
+    setDrawerSection(section ?? null);
     setDrawerOpen(true);
   };
 
@@ -409,7 +411,7 @@ export function FindingsPage() {
             </Typography>
             <Typography sx={{ fontSize: 16, fontWeight: 900 }}>Needs attention ({attentionGroups.length})</Typography>
             {attentionGroups.length ? (
-              <TopFindingsList groups={attentionGroups.slice(0, shown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} patternsByFinding={patternLinks} />
+              <TopFindingsList groups={attentionGroups.slice(0, shown)} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} patternsByFinding={patternLinks} />
             ) : (
               <Typography color="text.secondary">Nothing needs attention in this window.</Typography>
             )}
@@ -433,7 +435,7 @@ export function FindingsPage() {
                 </Typography>
                 {contextOpen ? (
                   <Stack spacing={2}>
-                    <TopFindingsList groups={contextGroups.slice(0, contextShown)} signals={signalsQuery.data ?? []} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} patternsByFinding={patternLinks} />
+                    <TopFindingsList groups={contextGroups.slice(0, contextShown)} onViewDetails={handleViewDetails} onShowRuns={showRuns} usageByMetric={usageQuery.data} patternsByFinding={patternLinks} />
                     {contextGroups.length > contextShown ? (
                       <Button variant="outlined" onClick={() => setContextShown((current) => current + PAGE_SIZE)} sx={{ alignSelf: 'center', textTransform: 'none', fontWeight: 800 }}>
                         Show {Math.min(PAGE_SIZE, contextGroups.length - contextShown)} more
@@ -462,6 +464,7 @@ export function FindingsPage() {
         open={drawerOpen}
         finding={findingDetailQuery.data ?? selectedFinding}
         signals={signalsQuery.data ?? []}
+        section={drawerSection}
         onClose={handleCloseDrawer}
       />
     </Stack>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { FindingTrust, FindingVerdict } from '../types';
-import { answerLine, movedNote, serviceCaption, serviceHeadline, testedCaption, testedHeadline, testedTooltip, trustBadge, VERDICTS } from '../utils/findingTrust';
+import { answerLine, movedNote, serviceCaption, serviceHeadline, serviceLabel, serviceProgress, serviceRateLeads, testedCaption, testedHeadline, testedTooltip, trustBadge, VERDICTS } from '../utils/findingTrust';
 import { sendFindingFeedback } from './backendClient';
 import { LockReason, LOCK_REASONS, usePermissions } from './permissions';
 import { styles } from './plainUi';
@@ -60,7 +60,6 @@ export function PluginFindingTrust({ backendUrl, findingId, trust, service }: { 
   const note = movedNote(current, service);
   const answerOnly = current.tier === 'context' && !current.moved;
   const chosen = pending ?? current.your_answer;
-  const { real, answered } = current.service;
 
   return (
     <section data-testid="plugin-finding-trust" style={{ ...styles.stack, gap: 10, borderTop: '1px solid rgba(204, 204, 220, 0.12)', paddingTop: 12 }}>
@@ -74,11 +73,11 @@ export function PluginFindingTrust({ backendUrl, findingId, trust, service }: { 
       {answerOnly ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
           <Column
-            label="On your service"
+            label={serviceLabel(current)}
             headline={serviceHeadline(current)}
             caption={serviceCaption(current, service)}
-            value={answered ? real / answered : null}
-            tone="#3fcf8e"
+            value={serviceProgress(current)}
+            tone={serviceRateLeads(current) ? '#3fcf8e' : 'rgba(204, 204, 220, 0.6)'}
           />
           <Column
             label="In testing"

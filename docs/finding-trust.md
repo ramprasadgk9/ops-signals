@@ -26,8 +26,12 @@ Each finding carries a badge:
 Findings in "Needs attention" show two numbers side by side:
 
 - **On your service**: how many findings like this, on this service, your team said were real.
-  It appears once anyone answers "Was this real?" and takes over from the tested number after
-  5 answers.
+  Until there are 5 "Real problem" or "Not a problem" answers it shows how many there are so far
+  ("2 of 5 answers"); after that it shows your team's own rate. "Expected change" answers don't
+  count either way. A finding whose metric has no service label (shown as `unknown`) says
+  **On this metric** instead: its answers are counted per metric, so answers on one unlabeled
+  metric don't decide another's. Adding a service label (Prometheus `job`/`service`, OpenTelemetry
+  `service.name`) gives it a per-service number.
 - **In testing**: how often findings like this were real on public test data. The ⓘ next to it
   says which data and what a random alert would have scored. When the finding's metric is unlike
   the tested ones (a service's CPU, memory and latency), the card says so.
@@ -128,7 +132,8 @@ A finding whose signals weren't stored falls back to its category.
 
 - `GET /api/findings` and `GET /api/findings/{id}` return a `trust` object on each finding:
   `group`, `tier` (`needs_attention` or `context`), `badge`, `checks`, `tested` (or null),
-  `service` (`real`, `answered`, `min_answers`), `your_answer`, and `moved` (`up`, `down` or null,
+  `service` (`real`, `answered`, `min_answers`, `scope`: `service`, or `metric` when the finding
+  has no service label), `your_answer`, and `moved` (`up`, `down` or null,
   when your answers moved it to the other list; the badge is then `team_confirmed` or null).
 - `POST /api/findings/{id}/feedback` with `{"verdict": "real_problem" | "expected_change" |
   "not_a_problem"}` stores the answer and returns the finding with its trust recomputed.

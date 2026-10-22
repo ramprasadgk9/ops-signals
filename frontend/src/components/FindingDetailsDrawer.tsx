@@ -1,4 +1,5 @@
 import { Box, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
@@ -8,7 +9,7 @@ import { FindingBreakdown } from './FindingBreakdown';
 import { NoveltyBadge } from './NoveltyBadge';
 import { SuggestedFixes } from './FixHistory';
 import { PastCaseMatches } from './PastCaseMatches';
-import type { Finding, Signal } from '../types';
+import type { Finding, FindingDetailsSection, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
 import { breakdownMissingForSource, findingSourceLabel } from '../utils/findingSource';
@@ -21,6 +22,8 @@ type Props = {
   open: boolean;
   finding: Finding | null;
   signals?: Signal[];
+  /** Scrolls to this part once open, e.g. Seen before? when its chip on the card was clicked. */
+  section?: FindingDetailsSection | null;
   onClose: () => void;
 };
 
@@ -55,7 +58,14 @@ function providerColor(provider?: string | null): string {
   return PROVIDER_COLORS[provider] ?? 'var(--os-muted)';
 }
 
-export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: Props) {
+export function FindingDetailsDrawer({ open, finding, signals = [], section = null, onClose }: Props) {
+  useEffect(() => {
+    if (!open || section !== 'seen-before') return;
+    // After the drawer has slid in and laid out its sections.
+    const timer = window.setTimeout(() => document.getElementById('finding-details-seen-before')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 250);
+    return () => window.clearTimeout(timer);
+  }, [open, section, finding?.id]);
+
   const analysisRunId = finding?.analysis_run_id;
 
   const connectionName = useConnectionName(finding?.connection_id);
@@ -134,7 +144,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], onClose }: P
         </Box>
 
         {typeof finding.id === 'number' ? (
-          <Box sx={{ mb: 3 }} data-testid="seen-before">
+          <Box id="finding-details-seen-before" sx={{ mb: 3, scrollMarginTop: 16 }} data-testid="seen-before">
             <Typography variant="h6" sx={{ mb: 0.5 }}>Seen before?</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
               Past cases that look like this finding, including incidents imported from postmortems. No case needed.

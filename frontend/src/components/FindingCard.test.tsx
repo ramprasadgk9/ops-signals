@@ -4,7 +4,7 @@ import { api } from '../api/queries';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { FindingCard } from './FindingCard';
-import type { Finding } from '../types';
+import type { Finding, SeenBeforeResponse } from '../types';
 
 vi.mock('../api/queries', () => ({ api: { createCase: vi.fn(), prometheusConnections: vi.fn() } }));
 
@@ -254,5 +254,48 @@ describe('FindingCard plain wording', () => {
 
     fireEvent.mouseOver(screen.getByTestId('finding-plain-hint'));
     expect(await screen.findByRole('tooltip')).toHaveTextContent('within 10 minutes of this change');
+  });
+});
+
+describe('FindingCard seen before', () => {
+  const seenBefore: SeenBeforeResponse = {
+    finding_id: 7,
+    available: true,
+    service: 'drill-cart',
+    matches: [{ case_id: 3, title: 'Cart errors after a bad deploy', similarity_score: 0.9 }],
+    novelty: { level: 'recurring', label: 'Recurring · 3 past cases', explanation: 'Like 3 past cases on drill-cart.', matching_cases: 3, all_matching_cases: 3 },
+  };
+
+  function renderWith(answer?: SeenBeforeResponse) {
+    const onViewDetails = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <FindingCard finding={newPodsFinding} onViewDetails={onViewDetails} seenBefore={answer} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    return onViewDetails;
+  }
+
+  it('shows one chip for past cases and opens the details at them', () => {
+    const onViewDetails = renderWith(seenBefore);
+
+    fireEvent.click(screen.getByText('Recurring · 3 past cases'));
+
+    expect(onViewDetails).toHaveBeenCalledWith(newPodsFinding, 'seen-before');
+  });
+
+  it('shows nothing for a new pattern or when past cases cannot be searched', () => {
+    renderWith({ ...seenBefore, matches: [], novelty: { ...seenBefore.novelty!, level: 'new', label: 'New pattern' } });
+    expect(screen.queryByTestId('finding-seen-before')).not.toBeInTheDocument();
+  });
+
+  it('leaves importance, category and signal details to the details drawer', () => {
+    renderWith(seenBefore);
+
+    expect(screen.queryByText('Importance')).not.toBeInTheDocument();
+    expect(screen.queryByText('Category')).not.toBeInTheDocument();
+    expect(screen.queryByText('Evidence')).not.toBeInTheDocument();
   });
 });

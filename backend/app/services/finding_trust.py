@@ -19,6 +19,9 @@ A service's own answers move a group between the lists, for that service only, o
 SERVICE_MIN_ANSWERS of them: a context group whose findings were real at least PROMOTE_RATE of the
 time moves up to needs attention; a needs-attention group real less than DEMOTE_RATE of the time
 moves down to context. Data problems never move down: a metric that stopped reporting is a fact.
+
+A finding with no service label (stored as "unknown", or none at all) has no service to learn for:
+its answers are counted per metric instead, so a CPU gap and a latency gap don't share one bucket.
 """
 
 from __future__ import annotations
@@ -59,6 +62,8 @@ TIERS = {
 }
 
 _CHUNK = 500
+# What the pipeline stores for a series with no service label.
+UNLABELED_SERVICES = frozenset({"unknown", "none", "null", "n/a", "-", ""})
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +147,8 @@ def finding_trust(db: Session, rows: list[FindingEntity]) -> dict[int, dict[str,
         if row.id is None:
             continue
         group, checks = groups[row.id]
-        real, answered = history.get((row.service, group), (0, 0))
+        scope = "metric" if is_unlabeled(row.service) else "service"
+        real, answered = history.get(_bucket(row.service, row.metric_name, group), (0, 0))
         tier, badge, moved = placement(group, real, answered)
         result[row.id] = {
             "group": group,
@@ -151,12 +157,21 @@ def finding_trust(db: Session, rows: list[FindingEntity]) -> dict[int, dict[str,
             "moved": moved,
             "checks": checks,
             "tested": tested_evidence(group, row.metric_name, config),
-            "service": {"real": real, "answered": answered, "min_answers": SERVICE_MIN_ANSWERS},
+            "service": {"real": real, "answered": answered, "min_answers": SERVICE_MIN_ANSWERS, "scope": scope},
             "your_answer": answer[0] if (answer := answers.get(row.id)) else None,
             "answered_by": answer[1] if answer else None,
             "answered_at": _iso(answer[2]) if answer else None,
         }
     return result
+
+
+def is_unlabeled(service: str | None) -> bool:
+    return service is None or service.strip().lower() in UNLABELED_SERVICES
+
+
+def _bucket(service: str | None, metric_name: str, group: str) -> tuple[str | None, str | None, str]:
+    """Where a finding's answers are counted: per service and group, or per metric for no service."""
+    return (None, metric_name, group) if is_unlabeled(service) else (service, None, group)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -214,21 +229,22 @@ def _answers(db: Session, finding_ids: list[int]) -> dict[int, tuple[str, str | 
     return answers
 
 
-def _service_history(db: Session, services: set[str | None]) -> dict[tuple[str | None, str], tuple[int, int]]:
-    """(real, answered) per (service, group). An expected change is neither: the change was real,
+def _service_history(db: Session, services: set[str | None]) -> dict[tuple[str | None, str | None, str], tuple[int, int]]:
+    """(real, answered) per bucket (see _bucket). An expected change is neither: the change was real,
     but it wasn't a problem, so it counts for or against nothing."""
     named = [service for service in services if service is not None]
     query = (
-        select(FindingFeedbackEntity.service, FindingFeedbackEntity.trust_group, FindingFeedbackEntity.verdict, func.count())
+        select(FindingFeedbackEntity.service, FindingFeedbackEntity.metric_name, FindingFeedbackEntity.trust_group, FindingFeedbackEntity.verdict, func.count())
         .where(FindingFeedbackEntity.verdict.in_(("real_problem", "not_a_problem")))
-        .group_by(FindingFeedbackEntity.service, FindingFeedbackEntity.trust_group, FindingFeedbackEntity.verdict)
+        .group_by(FindingFeedbackEntity.service, FindingFeedbackEntity.metric_name, FindingFeedbackEntity.trust_group, FindingFeedbackEntity.verdict)
     )
     if None in services:
         query = query.where((FindingFeedbackEntity.service.in_(named)) | (FindingFeedbackEntity.service.is_(None)))
     else:
         query = query.where(FindingFeedbackEntity.service.in_(named))
-    history: dict[tuple[str | None, str], tuple[int, int]] = {}
-    for service, group, verdict, count in db.execute(query).all():
-        real, answered = history.get((service, group), (0, 0))
-        history[(service, group)] = (real + (count if verdict == "real_problem" else 0), answered + count)
+    history: dict[tuple[str | None, str | None, str], tuple[int, int]] = {}
+    for service, metric_name, group, verdict, count in db.execute(query).all():
+        key = _bucket(service, metric_name, group)
+        real, answered = history.get(key, (0, 0))
+        history[key] = (real + (count if verdict == "real_problem" else 0), answered + count)
     return history
