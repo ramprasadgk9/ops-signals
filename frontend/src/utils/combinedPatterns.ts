@@ -87,12 +87,12 @@ export function inWindow(behavior: Pick<BehaviorFinding, 'last_seen_at'>, window
   return Number.isFinite(seen) && now - seen <= WINDOW_HOURS[window] * 3600_000;
 }
 
-/** Same words the Findings search matches: title, service, and every metric the rule used. */
+/** Same words the Findings search matches: title, service, rule id, and every metric the rule used. */
 export function searchPatterns(behaviors: BehaviorFinding[], query: string): BehaviorFinding[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return behaviors;
   return behaviors.filter((behavior) => {
-    const text = [behavior.title, behavior.service, ...patternParts(behavior).map((part) => part.metric)].join(' ').toLowerCase();
+    const text = [behavior.title, behavior.service, behavior.definition_id, ...patternParts(behavior).map((part) => part.metric)].join(' ').toLowerCase();
     return terms.every((term) => text.includes(term));
   });
 }

@@ -550,6 +550,36 @@ describe('FindingsPage combined patterns', () => {
     expect(screen.queryByText(/Combined patterns/)).not.toBeInTheDocument();
   });
 
+  it('shows only Behavior Intelligence findings, and keeps the choice in the URL', async () => {
+    vi.mocked(api.behaviorFindings).mockResolvedValue([pool()]);
+    renderAt('/findings');
+
+    expect(await screen.findByText('CPU is climbing')).toBeInTheDocument();
+    fireEvent.click(within(screen.getByLabelText('Filter by kind')).getByText('Behavior Intelligence'));
+
+    await waitFor(() => expect(screen.queryByText('CPU is climbing')).not.toBeInTheDocument());
+    // The card in the list plus the pattern's "Made from" chip.
+    expect(screen.getAllByText('Wait time is climbing')).toHaveLength(2);
+    expect(screen.getByText('Combined patterns (1)')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('only=patterns');
+  });
+
+  it('finds a pattern and its findings by the rule id', async () => {
+    vi.mocked(api.behaviorFindings).mockResolvedValue([pool()]);
+    renderAt('/findings?q=pool_exhaustion');
+    expect(await screen.findByText('Combined patterns (1)')).toBeInTheDocument();
+    // The findings it was made from match too: the card in the list plus the "Made from" chip.
+    expect(screen.getAllByText('Wait time is climbing')).toHaveLength(2);
+    expect(screen.queryByText('CPU is climbing')).not.toBeInTheDocument();
+  });
+
+  it('hides the kind filter when no finding is part of a pattern', async () => {
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+    renderAt('/findings');
+    expect(await screen.findByText('Wait time is climbing')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Filter by kind')).not.toBeInTheDocument();
+  });
+
   it('renders the page as before when the behaviors read fails', async () => {
     vi.mocked(api.behaviorFindings).mockRejectedValue(new Error('down'));
     renderAt('/findings');

@@ -45,12 +45,15 @@ const comparators: Record<FindingSort, (a: Finding, b: Finding) => number> = {
   priority: (a, b) => a.investigation_priority - b.investigation_priority || b.importance_score - a.importance_score,
 };
 
-/** Findings matching every word of `query` (service, metric, title, cluster, connection or #number), sorted. */
-export function searchFindings(findings: Finding[], query: string, sort: FindingSort): Finding[] {
+/**
+ * Findings matching every word of `query` (service, metric, title, cluster, connection or #number), sorted.
+ * `extraText` adds words a finding should also match, e.g. the patterns it is part of.
+ */
+export function searchFindings(findings: Finding[], query: string, sort: FindingSort, extraText?: (finding: Finding) => string): Finding[] {
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   const matching = tokens.length
     ? findings.filter((finding) => {
-        const text = searchableText(finding);
+        const text = extraText ? `${searchableText(finding)} ${extraText(finding).toLowerCase()}` : searchableText(finding);
         return tokens.every((token) => tokenMatches(finding, token, text));
       })
     : findings;
