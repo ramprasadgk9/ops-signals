@@ -294,3 +294,57 @@ describe('GrafanaAutonomousOverview behavior matches', () => {
     expect(screen.queryByTestId('symptom-part-of')).not.toBeInTheDocument();
   });
 });
+
+describe('GrafanaAutonomousOverview layout of what is going on', () => {
+  beforeEach(() => {
+    cases.mockReset().mockResolvedValue([]);
+    loadCase.mockReset();
+  });
+
+  const stopped = (id: number, metric: string, at: string, overrides: Partial<Finding> = {}) => finding({
+    id, metric_name: metric, title: `${metric} stopped reporting data`, category: 'data_quality', importance_score: 0.7,
+    trust: trust('data_problem', 'needs_attention', 'data_problem'), created_at: at, ...overrides,
+  });
+
+  it('lists a metric that stopped several times as one chip, and the connection once', async () => {
+    connections.mockReset().mockResolvedValue({ connections: [
+      { id: 'default', name: 'Default Prometheus', configured: true, is_default: true },
+      { id: 'labs', name: 'Local Prometheus (labs)', configured: true },
+    ] });
+    const labs = { connection_id: 'labs', analysis_run_id: undefined } as Partial<Finding>;
+    render(<Harness onCreateCase={vi.fn()} findings={[
+      finding({ id: 1, importance_score: 0.9, trust: SHIFT, ...labs, analysis_run_id: 'run-a' }),
+      stopped(2, 'up', '2026-10-21T08:00:00Z', { ...labs, analysis_run_id: 'run-b' }),
+      stopped(3, 'up', '2026-10-21T20:40:00Z', { ...labs, analysis_run_id: 'run-c', title: 'up froze at one value' }),
+      stopped(4, 'process_cpu_seconds_total', '2026-10-21T20:57:00Z', { ...labs, analysis_run_id: 'run-d' }),
+    ]} />);
+
+    const data = await screen.findByTestId('triage-data');
+    expect(data).toHaveTextContent('2 metrics stopped reporting or froze');
+    expect(await screen.findByText('All from Local Prometheus (labs)')).toBeInTheDocument();
+    const chips = within(data).getAllByTestId('triage-data-metric');
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      expect.stringMatching(/^process_cpu_seconds_total · /),
+      expect.stringMatching(/^up · 2 episodes, latest · /),
+    ]);
+    expect(screen.queryByText(/\(Local Prometheus \(labs\)\)/)).not.toBeInTheDocument();
+  });
+
+  it('leads with a named service, and calls metrics with no service label that', async () => {
+    connections.mockReset().mockResolvedValue({ connections: [] });
+    render(<Harness onCreateCase={vi.fn()} findings={[
+      finding({ id: 1, service: undefined, metric_name: 'process_resident_memory_bytes', importance_score: 0.95, trust: SHIFT }),
+      finding({ id: 2, service: 'orders-consumer', metric_name: 'kafka_consumergroup_lag', importance_score: 0.6, trust: SHIFT }),
+    ]} />);
+    expect(await screen.findByText("orders-consumer: what's going on")).toBeInTheDocument();
+    expect(screen.getByText('No service label')).toBeInTheDocument();
+    expect(screen.queryByText(/^unknown$/)).not.toBeInTheDocument();
+  });
+
+  it('explains a service-less lead when nothing has a service', async () => {
+    connections.mockReset().mockResolvedValue({ connections: [] });
+    render(<Harness onCreateCase={vi.fn()} findings={[finding({ id: 1, service: undefined, importance_score: 0.9, trust: SHIFT })]} />);
+    expect(await screen.findByText("No service label: what's going on")).toBeInTheDocument();
+    expect(screen.getByText(/These metrics have no/)).toBeInTheDocument();
+  });
+});

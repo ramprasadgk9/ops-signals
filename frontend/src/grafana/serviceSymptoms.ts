@@ -13,9 +13,30 @@ export function symptomKey(symptom: ServiceSymptom): string {
   return String(symptom.finding.id ?? `${symptom.finding.metric_name}:${symptom.finding.title}`);
 }
 
+/** What findings with no service label are grouped under, as the overview's service list does. */
+export const NO_SERVICE = 'unknown';
+
+/** A service as people read it: "unknown" is metrics with no service label, not a service. */
+export function serviceLabel(service: string): string {
+  return service === NO_SERVICE ? 'No service label' : service;
+}
+
+/**
+ * The data problems ("stopped reporting or froze") one per metric: a metric that stopped several
+ * times is one chip, not one per episode. Newest first; `latest` is the one a chip selects.
+ */
+export function dataProblemsByMetric(symptoms: ServiceSymptom[], keyOf: (symptom: ServiceSymptom) => string): Array<{ key: string; latest: ServiceSymptom; episodes: number }> {
+  const byMetric = new Map<string, ServiceSymptom[]>();
+  for (const symptom of symptoms) byMetric.set(keyOf(symptom), [...(byMetric.get(keyOf(symptom)) ?? []), symptom]);
+  const seen = (symptom: ServiceSymptom) => symptom.lastSeen ?? symptom.finding.created_at ?? '';
+  return [...byMetric.entries()]
+    .map(([key, group]) => ({ key, latest: [...group].sort((a, b) => seen(b).localeCompare(seen(a)))[0], episodes: group.length }))
+    .sort((a, b) => seen(b.latest).localeCompare(seen(a.latest)));
+}
+
 /** Findings with no service are grouped under "unknown", as the overview's service list does. */
 export function serviceSymptoms(findings: Finding[], service: string): ServiceSymptom[] {
-  const onService = findings.filter((finding) => (finding.service || 'unknown') === service);
+  const onService = findings.filter((finding) => (finding.service || NO_SERVICE) === service);
   const worstFirst = [...onService].sort((a, b) => (b.importance_score ?? 0) - (a.importance_score ?? 0));
   return groupRepeatedFindings(worstFirst);
 }

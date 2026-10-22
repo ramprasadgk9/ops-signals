@@ -24,7 +24,7 @@ import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
 import { PluginMemoryAlertsView } from './PluginMemoryAlertsView';
 import { connectionName, findingClusters, findingSource, findingsInCluster } from './findingSource';
-import { caseForSymptom, caseIdsByFinding, serviceSymptoms, stillShowing, symptomChange, symptomKey, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms, type ServiceSymptom, type SymptomTriage } from './serviceSymptoms';
+import { caseForSymptom, caseIdsByFinding, dataProblemsByMetric, NO_SERVICE, serviceLabel, serviceSymptoms, stillShowing, symptomChange, symptomKey, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms, type ServiceSymptom, type SymptomTriage } from './serviceSymptoms';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
 import { findingBreakdown } from '../utils/findingBreakdown';
@@ -2603,17 +2603,16 @@ export function GrafanaAutonomousOverview({
     : investigationFinding?.id !== undefined ? caseByFinding.get(investigationFinding.id) ?? null : null;
   const headline = primaryService
     ? attentionCount > 1
-      ? `Likely incident candidate: ${primaryService.service}`
-      : `Important finding detected: ${primaryService.service}`
+      ? `Likely incident candidate: ${serviceLabel(primaryService.service)}`
+      : `Important finding detected: ${serviceLabel(primaryService.service)}`
     : 'No important findings detected';
   const summaryText = primaryService && leadSymptom
     ? attentionCount
-      ? `${attentionCount} metric${attentionCount === 1 ? '' : 's'} on ${primaryService.service} need${attentionCount === 1 ? 's' : ''} attention. Primary concern: ${leadSymptom.finding.metric_name}${leadChange ? ` ${leadChange.text}${leadChange.percent ? ` (${leadChange.percent})` : ''}` : ''}.`
-      : `Nothing on ${primaryService.service} needs attention: ${triage.data.length ? `${triage.data.length} data problem${triage.data.length === 1 ? '' : 's'}` : ''}${triage.data.length && triage.background.length ? ' and ' : ''}${triage.background.length ? `${triage.background.length} background signal${triage.background.length === 1 ? '' : 's'}` : ''}.`
+      ? `${attentionCount} metric${attentionCount === 1 ? '' : 's'} on ${serviceLabel(primaryService.service)} need${attentionCount === 1 ? 's' : ''} attention. Primary concern: ${leadSymptom.finding.metric_name}${leadChange ? ` ${leadChange.text}${leadChange.percent ? ` (${leadChange.percent})` : ''}` : ''}.`
+      : `Nothing on ${serviceLabel(primaryService.service)} needs attention: ${triage.data.length ? `${triage.data.length} data problem${triage.data.length === 1 ? '' : 's'}` : ''}${triage.data.length && triage.background.length ? ' and ' : ''}${triage.background.length ? `${triage.background.length} background signal${triage.background.length === 1 ? '' : 's'}` : ''}.`
     : `${formatNullableCount(data.summary.executed)} metric${data.summary.executed === 1 ? '' : 's'} executed with no current-run findings.`;
   const roleLabel = (symptom: ServiceSymptom) => ({ attention: 'Needs attention', data: 'Data problem', background: 'Background signal' })[symptomRole(symptom.finding)];
   const sourceOf = (finding: Finding) => findingSource(finding, connections);
-  const metricIn = (finding: Finding) => (finding.cluster ? `${finding.metric_name} in ${finding.cluster}` : finding.metric_name);
 
   /** Opens the finding's case in the drawer, creating it first when there is none. */
   async function openOrCreateCase(finding: Finding, knownCaseId: number | null) {
@@ -2725,18 +2724,25 @@ export function GrafanaAutonomousOverview({
 
       <div style={panelStyle(hasFindings ? '#b877d9' : '#3fcf8e')}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 0.85fr)', gap: 18, alignItems: 'stretch' }}>
-          <div style={{ display: 'grid', gap: 14 }}>
+          {/* Packed at the top and kept in view while the symptom list on the right scrolls past. */}
+          <div style={{ display: 'grid', gap: 14, alignContent: 'start', alignSelf: 'start', position: 'sticky', top: 16 }}>
             <div style={styles.row}>
               <span style={{ display: 'grid', placeItems: 'center', width: 40, height: 40, borderRadius: 999, border: `1px solid ${hasFindings ? '#b877d9' : '#3fcf8e'}`, color: hasFindings ? '#b877d9' : '#3fcf8e', fontSize: 22 }}>△</span>
               <div>
                 <h3 style={{ margin: 0 }}>{headline}</h3>
                 <p style={{ ...styles.muted, margin: '6px 0 0' }}>{summaryText}</p>
+                {primaryService?.service === NO_SERVICE ? (
+                  <p style={{ ...styles.helperText, margin: '6px 0 0' }}>
+                    These metrics have no <code>service</code> label, often the monitoring system's own (Prometheus, exporters). Add one at the
+                    scrape target to tie them to what they measure.
+                  </p>
+                ) : null}
               </div>
             </div>
             <div style={styles.row}>
               <span title="Importance combines analyzer confidence, severity, signal count, and observed change size. Higher values should be reviewed first." style={styles.chip}>Highest importance {topFinding ? topFinding.importance.toFixed(2) : '—'} <InfoTip /></span>
               {primaryService ? (
-                <span title={`${symptomCount} symptom${symptomCount === 1 ? '' : 's'} on ${primaryService.service} (a symptom seen in several runs counts once): ${attentionCount} need attention, ${triage.data.length} data problem${triage.data.length === 1 ? '' : 's'}, ${triage.background.length} background. ${data.summary.findingsGenerated} findings in this window, counting every run.`} style={styles.chip}>{attentionCount} need{attentionCount === 1 ? 's' : ''} attention on {primaryService.service} <InfoTip /></span>
+                <span title={`${symptomCount} symptom${symptomCount === 1 ? '' : 's'} on ${serviceLabel(primaryService.service)} (a symptom seen in several runs counts once): ${attentionCount} need attention, ${triage.data.length} data problem${triage.data.length === 1 ? '' : 's'}, ${triage.background.length} background. ${data.summary.findingsGenerated} findings in this window, counting every run.`} style={styles.chip}>{attentionCount} need{attentionCount === 1 ? 's' : ''} attention on {serviceLabel(primaryService.service)} <InfoTip /></span>
               ) : null}
               <span title="Affected metrics are unique metrics with symptoms on this service." style={styles.chip}>{symptomMetrics.length} metric{symptomMetrics.length === 1 ? '' : 's'} affected <InfoTip /></span>
               <span title="First observed is taken from finding comparison data or creation time." style={styles.chip}>First observed {formatCompactDate(topFinding?.firstObserved)} <InfoTip /></span>
@@ -2793,7 +2799,7 @@ export function GrafanaAutonomousOverview({
           backendUrl={backendUrl}
           finding={investigationFinding}
           mode={investigationMode}
-          position={panelSymptom ? `${roleLabel(panelSymptom)} · ${metricIn(panelSymptom.finding)} on ${primaryService?.service ?? ''}` : null}
+          position={panelSymptom ? `${roleLabel(panelSymptom)} · ${metricIn(panelSymptom.finding)} on ${serviceLabel(primaryService?.service ?? '')}` : null}
           connection={connectionName(connections, investigationFinding.connection_id)}
           caseAction={caseButton(investigationFinding, panelCaseId)}
           caseId={panelCaseId}
@@ -2902,7 +2908,7 @@ function ServicePrioritiesPanel({
         {servicePriorities.slice(0, 5).map((service, index) => (
           <React.Fragment key={service.service}>
             <div style={{ borderLeft: `4px solid ${index === 0 ? '#b877d9' : index === 1 ? '#5794f2' : '#3fcf8e'}`, paddingLeft: 10 }}>
-              <strong>{service.service}</strong>
+              <strong>{serviceLabel(service.service)}</strong>
               <div style={styles.helperText}>{service.symptoms.length > 1 ? 'Likely incident candidate' : 'Single symptom'}</div>
             </div>
             <div style={styles.row}>{service.behaviors.slice(0, 3).map((behavior) => <BehaviorPill key={behavior} label={behavior} />)}</div>
@@ -2916,7 +2922,7 @@ function ServicePrioritiesPanel({
                 if (finding) onInvestigate(finding);
               }}
             >
-              Investigate {service.service}
+              {service.service === NO_SERVICE ? 'Investigate these metrics' : `Investigate ${service.service}`}
             </button>
           </React.Fragment>
         ))}
@@ -3304,6 +3310,8 @@ function GrafanaFindingsLookupPanel({ lookupState }: { lookupState: AutonomousFi
 }
 
 const METRIC_ROWS_SHOWN = 5;
+const DATA_CHIPS_SHOWN = 8;
+const metricIn = (finding: Finding) => (finding.cluster ? `${finding.metric_name} in ${finding.cluster}` : finding.metric_name);
 
 /** The cluster (and connection) a finding came from; nothing for single-cluster data. */
 function SourceChip({ source }: { source: string | null }) {
@@ -3339,7 +3347,7 @@ function symptomTiming(symptom: ServiceSymptom, latestSeen: string | null) {
 /** A service's symptoms sorted into what to act on (one row per metric, with what changed, for how
  * long, and its case), data problems to fix first, and folded background signals. Clicking a row
  * shows it in the finding panel below. */
-function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase, patternsOf = () => [] }: {
+function SymptomTriagePanel({ service, sourceOf: sourceOfAll, triage, selected, caseByFinding, showAll, onToggleAll, onSelect, onOpenScope, renderCase, patternsOf = () => [] }: {
   service: string;
   /** "us · Team A": the cluster and connection, when there are several. */
   sourceOf: (finding: Finding) => string | null;
@@ -3356,6 +3364,14 @@ function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding
   renderCase: (symptom: ServiceSymptom) => React.ReactNode;
 }) {
   const [showBackground, setShowBackground] = useState(false);
+  const [showAllData, setShowAllData] = useState(false);
+  // Every symptom from one cluster/connection: say it once in the heading, not on each one.
+  const allSymptoms = [...triage.attention.flatMap((row) => [row.lead, ...row.others]), ...triage.data, ...triage.background];
+  const sources = new Set(allSymptoms.map((symptom) => sourceOfAll(symptom.finding)));
+  const sharedSource = sources.size === 1 ? [...sources][0] : null;
+  const sourceOf = (finding: Finding) => (sharedSource ? null : sourceOfAll(finding));
+  const dataByMetric = dataProblemsByMetric(triage.data, (symptom) => `${symptom.finding.metric_name}|${sourceOfAll(symptom.finding) ?? ''}|${symptom.finding.cluster ?? ''}`);
+  const dataShown = showAllData ? dataByMetric : dataByMetric.slice(0, DATA_CHIPS_SHOWN);
   const rows = showAll ? triage.attention : triage.attention.slice(0, METRIC_ROWS_SHOWN);
   const withCase = triage.attention.filter((row) => caseForSymptom(row.lead, caseByFinding) !== null).length;
   const firstSeen = triage.attention.map((row) => row.lead.firstSeen).filter((value): value is string => Boolean(value)).sort()[0];
@@ -3394,7 +3410,8 @@ function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding
   return (
     <div data-testid="symptom-triage">
       <div style={{ ...styles.rowBetween, marginBottom: 4 }}>
-        <h3 style={{ ...sectionTitleStyle, margin: 0 }}>{service ? `${service}: what's going on` : 'Related Symptoms'} <InfoTip title="This service's findings in the window, sorted by what to do with them. A finding seen in several runs is listed once." /></h3>
+        <h3 style={{ ...sectionTitleStyle, margin: 0 }}>{service ? `${serviceLabel(service)}: what's going on` : 'Related Symptoms'} <InfoTip title="This service's findings in the window, sorted by what to do with them. A finding seen in several runs is listed once." /></h3>
+        {sharedSource ? <span style={{ ...styles.helperText, margin: 0 }}>All from {sharedSource}</span> : null}
       </div>
       {nothing ? <p style={styles.muted}>No symptoms were detected in this run.</p> : null}
       {triage.attention.length ? (
@@ -3454,18 +3471,26 @@ function SymptomTriagePanel({ service, sourceOf, triage, selected, caseByFinding
         <>
           {groupTitle('Fix the data first', 'monitoring, not the service')}
           <div data-testid="triage-data" style={{ border: '1px solid rgba(255, 179, 87, 0.4)', background: 'rgba(255, 179, 87, 0.07)', borderRadius: 8, padding: '10px 12px' }}>
-            <strong style={{ color: '#ffb357' }}>{triage.data.length} metric{triage.data.length === 1 ? '' : 's'} stopped reporting or froze</strong>
+            <strong style={{ color: '#ffb357' }}>{dataByMetric.length} metric{dataByMetric.length === 1 ? '' : 's'} stopped reporting or froze</strong>
             <div style={{ fontSize: 12, marginTop: 2 }}>
-              {triage.data.length > 1
+              {dataByMetric.length > 1
                 ? 'When several metrics on one service stop together, the cause is usually collection (the scrape target or exporter), not the service. '
                 : ''}
               Until it is fixed, gaps can hide changes or fake them.
             </div>
             <div style={{ ...styles.row, gap: 6, marginTop: 8 }}>
-              {triage.data.map((symptom) => selectable(symptom, (
-                <span>{symptom.finding.metric_name}{sourceOf(symptom.finding) ? ` (${sourceOf(symptom.finding)})` : ''} <span style={styles.muted}>· {symptomTiming(symptom, triage.latestSeen).replace(/^Ongoing for [^,]+, /, '')}</span></span>
+              {dataShown.map(({ latest, episodes }) => selectable(latest, (
+                <span>
+                  {metricIn(latest.finding)}{sourceOf(latest.finding) ? ` (${sourceOf(latest.finding)})` : ''}
+                  <span style={styles.muted}>{episodes > 1 ? ` · ${episodes} episodes, latest` : ''} · {symptomTiming(latest, triage.latestSeen).replace(/^Ongoing for [^,]+, /, '')}</span>
+                </span>
               ), { ...styles.chip, fontSize: 12 }, 'triage-data-metric'))}
             </div>
+            {dataByMetric.length > DATA_CHIPS_SHOWN ? (
+              <button type="button" style={{ ...styles.tableRowButton, fontWeight: 600, marginTop: 6 }} onClick={() => setShowAllData(!showAllData)}>
+                {showAllData ? `Show the latest ${DATA_CHIPS_SHOWN}` : `Show ${dataByMetric.length - DATA_CHIPS_SHOWN} more`}
+              </button>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -3820,7 +3845,8 @@ function buildServicePriorities(findings: AutonomousDashboardData['topFindings']
     return acc;
   }, {});
 
-  return Object.values(grouped).sort((a, b) => b.highestImportance - a.highestImportance);
+  // Metrics with no service label (often the monitoring system's own) go after every named service.
+  return Object.values(grouped).sort((a, b) => Number(a.service === NO_SERVICE) - Number(b.service === NO_SERVICE) || b.highestImportance - a.highestImportance);
 }
 
 function BehaviorPill({ label }: { label: string }) {
