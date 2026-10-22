@@ -550,12 +550,12 @@ describe('FindingsPage combined patterns', () => {
     expect(screen.queryByText(/Combined patterns/)).not.toBeInTheDocument();
   });
 
-  it('shows only the findings that are part of a pattern, and keeps the choice in the URL', async () => {
+  it('shows only Behavior Intelligence findings, and keeps the choice in the URL', async () => {
     vi.mocked(api.behaviorFindings).mockResolvedValue([pool()]);
     renderAt('/findings');
 
     expect(await screen.findByText('CPU is climbing')).toBeInTheDocument();
-    fireEvent.click(within(screen.getByLabelText('Filter by kind')).getByText('Part of a pattern'));
+    fireEvent.click(within(screen.getByLabelText('Filter by kind')).getByText('Behavior Intelligence'));
 
     await waitFor(() => expect(screen.queryByText('CPU is climbing')).not.toBeInTheDocument());
     // The card in the list plus the pattern's "Made from" chip.

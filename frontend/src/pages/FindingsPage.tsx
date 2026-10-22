@@ -362,12 +362,14 @@ export function FindingsPage() {
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 2 }} aria-label="Filter by kind">
             <Typography variant="body2" sx={{ fontWeight: 750, color: ui.muted }}>Show</Typography>
             <Chip label="All findings" color={onlyPatterns ? 'default' : 'primary'} variant={onlyPatterns ? 'outlined' : 'filled'} onClick={() => setOnlyPatterns(false)} />
-            <Chip
-              label="Part of a pattern"
-              color={onlyPatterns ? 'primary' : 'default'}
-              variant={onlyPatterns ? 'filled' : 'outlined'}
-              onClick={() => setOnlyPatterns(true)}
-            />
+            <MuiTooltip title="Findings a Behavior Intelligence rule combined into a pattern (tagged “Part of”)">
+              <Chip
+                label="Behavior Intelligence"
+                color={onlyPatterns ? 'primary' : 'default'}
+                variant={onlyPatterns ? 'filled' : 'outlined'}
+                onClick={() => setOnlyPatterns(true)}
+              />
+            </MuiTooltip>
           </Stack>
         ) : null}
         {linkedFindingQuery.isError ? (
@@ -442,7 +444,7 @@ export function FindingsPage() {
         ) : searchQuery ? (
           <Typography color="text.secondary">No findings in this window match "{searchQuery}".</Typography>
         ) : onlyPatterns ? (
-          <Typography color="text.secondary">No findings in this window are part of a combined pattern.</Typography>
+          <Typography color="text.secondary">No Behavior Intelligence findings in this window.</Typography>
         ) : (
           <Typography color="text.secondary">No findings returned for this window.</Typography>
         )}
