@@ -20,6 +20,20 @@ call. With these metrics, a finding can go through those same routes:
 The metrics say *that* something is wrong and where. The finding in Ops Signals still says *what*
 happened, what changed, and how it was fixed last time.
 
+### How it differs from the UI, the plugin, the REST API and MCP
+
+They all show the same findings, to different readers:
+
+| | Findings page, Grafana plugin, `GET /api/findings`, MCP | `GET /api/metrics` |
+| --- | --- | --- |
+| Read by | A person, a script or an AI client, when they ask | Prometheus, by itself, on every scrape (every 15-30 s) |
+| Gives | Each finding in full: what happened, what changed, seen before | Counts per service, metric, evidence and severity |
+| Then | Someone reads it | Prometheus keeps the history; alert rules check it; Alertmanager pages the person on call |
+
+Prometheus can only read its own text format from a scrape target. It can't call the REST API or
+MCP, so without this endpoint an alert rule can't see findings. Typically both are used: the alert
+rule pages someone at 03:00, and they open the finding to see why.
+
 ## The metrics
 
 ```
@@ -49,6 +63,33 @@ There is no finding id or pod label, on purpose: those would make a new series f
 To keep the number of series small, at most 500 are emitted, the ones most worth alerting on first
 (strong evidence, then critical). Findings beyond that are counted in
 `ops_signals_active_findings_dropped`.
+
+## Reading it in Prometheus
+
+In Prometheus's **Graph** page, run `ops_signals_active_findings`. The **Table** tab has one row per
+combination of labels. A row such as
+
+```
+ops_signals_active_findings{service="checkout", metric="cpu_usage", evidence="data_problem", severity="significant", job="ops-signals", instance="..."}  3
+```
+
+reads: "checkout's `cpu_usage` has 3 open problems where the metric stopped reporting or froze, and
+they matter (significant)". `job` and `instance` are added by Prometheus and say where it read the
+line. A service and metric can have several rows, one per evidence and severity. Labels with an
+empty value (such as `cluster` when findings have none) aren't shown.
+
+Queries that are easier to read than the full table:
+
+| Question | Query |
+| --- | --- |
+| How many active findings in all (the Overview page's number) | `sum(ops_signals_active_findings)` |
+| How many per service, most first | `sort_desc(sum by (service) (ops_signals_active_findings))` |
+| How many of each evidence | `sum by (evidence) (ops_signals_active_findings)` |
+| Only the ones that need attention | `sum by (service) (ops_signals_active_findings{evidence!="context"})` |
+| What the example alert below pages on | `sum by (service) (ops_signals_active_findings{evidence="strong"}) > 0` |
+
+The **Graph** tab of `sum by (service) (ops_signals_active_findings)` shows the count per service over
+time: it goes up as problems are found and down as cases are closed.
 
 ## Set it up
 
@@ -94,6 +135,25 @@ To keep the number of series small, at most 500 are emitted, the ones most worth
 
 3. On a dashboard, `sum by (service, evidence) (ops_signals_active_findings)` charts active findings
    per service.
+
+### On the local stack
+
+The Prometheus that `./scripts/run_all.sh` starts (http://localhost:9090) doesn't scrape Ops Signals
+by default. To try it, add this job under `scrape_configs:` in
+`grafana/prometheus/prometheus.alerting.yml` (the file `run_all.sh` uses; `prometheus.yml` when you run
+`docker-compose.yml` alone):
+
+```yaml
+  - job_name: ops-signals
+    metrics_path: /api/metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8001
+```
+
+Then reload Prometheus with `curl -X POST http://localhost:9090/-/reload`. If the change isn't picked
+up (some editors replace the file, and the container keeps the old one), restart the container. The
+**ops-signals** target on http://localhost:9090/targets should be **UP**.
 
 ## Settings
 

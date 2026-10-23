@@ -54,7 +54,8 @@ e.g. "100% of the increase comes from 2 of 6 pods: cart-8c2-q1, cart-8c2-w7".
 "After deploy v1.4.2" means deploy v1.4.2 was the nearest change recorded for the service before
 the finding's change started. It is a timing match, not proof of cause. Other change types read
 "After config …", "After feature_flag …". It comes from the events your CI
-sends to `POST /api/events`, for the finding's service or its aliases (`OPS_SIGNALS_SERVICE_ALIASES`),
+sends to `POST /api/events`, or from deploys Ops Signals found in Prometheus
+([deploy-discovery.md](deploy-discovery.md)), for the finding's service or its aliases (`OPS_SIGNALS_SERVICE_ALIASES`),
 from 30 min before the change (`OPS_SIGNALS_ALERT_CHANGE_WINDOW_BEFORE`).
 
 There is no chip when no event came before the change, when the only events came after it, or when
@@ -136,8 +137,10 @@ step points at that version. The finding also gets an "After deploy v1.4.2" chip
 changed** line in its details.
 
 It is looked up when the finding is shown, from the deploy events your CI sends to `POST
-/api/events` (see [alert-enrichment.md](alert-enrichment.md), "Send deploy events from CI"). So a
-deploy that arrives after the run still shows up, and older findings get the deploy line too.
+/api/events` (see [alert-enrichment.md](alert-enrichment.md), "Send deploy events from CI") and the
+deploys Ops Signals finds in Prometheus itself ([deploy-discovery.md](deploy-discovery.md)). Both are
+rows in the same `ops_change_events` table, told apart by `source`, and are matched the same way. So
+a deploy that arrives after the run still shows up, and older findings get the deploy line too.
 
 ### How is deploy data received from CI (the webhook)?
 
@@ -153,7 +156,9 @@ Only `service` and `type` are required; send `cluster` (the value of the metrics
 such as `cluster="us"`) when several clusters share one Prometheus, Mimir or Thanos; `type` is `deploy`, `config`, `feature_flag`, `scale`,
 `rollback` or `other`, and a missing `timestamp` means now. Each event is one row in the
 `ops_change_events` table. Nothing is joined when the event arrives: deploy data and metric data
-stay separate until a finding or an alert is shown. With `OPS_SIGNALS_EVENTS_TOKEN` set, CI must
+stay separate until a finding or an alert is shown. A deploy sent here replaces one Ops Signals
+found in Prometheus for the same service within 10 minutes, since CI's says who deployed and links
+the run. A `source` starting with `ops-signals:` is reserved for found deploys and rejected. With `OPS_SIGNALS_EVENTS_TOKEN` set, CI must
 send `Authorization: Bearer <token>`.
 
 ### How are deploy events joined to metrics and findings?
