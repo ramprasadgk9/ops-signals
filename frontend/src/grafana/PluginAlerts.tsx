@@ -120,7 +120,16 @@ function Insight({ alert }: { alert: AlertItem }) {
       {changed ? (
         <div>
           <b>What changed</b>
-          {changed.lines.map((line) => <div key={line}>{line}</div>)}
+          {changed.lines.map((line, index) => (
+            <div key={line}>
+              {line}
+              {changed.found?.[index] ? (
+                <span title={changed.found[index] ?? undefined} tabIndex={0} aria-label={`Found automatically. ${changed.found[index]}`} style={{ ...styles.chip, marginLeft: 6, color: '#73bf69', borderColor: '#73bf6966' }}>
+                  Found automatically
+                </span>
+              ) : null}
+            </div>
+          ))}
           {changed.note ? <div style={{ ...styles.helperText, marginTop: 2 }}>{changed.note}</div> : null}
         </div>
       ) : null}

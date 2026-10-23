@@ -185,10 +185,12 @@ def test_deploy_far_from_the_change_is_none_in_window(client, seed) -> None:
     assert changes["window_before_minutes"] == 30
 
 
-def test_service_without_any_events_says_so(client, seed) -> None:
+def test_service_without_any_events_says_so_and_whether_prometheus_was_searched(client, seed, monkeypatch) -> None:
     seed(lambda db: (_add_finding(db, 1, breakdown=_breakdown(NEW_PODS)), _add_event(db, service="payments")))
 
-    assert _changes(client, 1) == {"status": "no_events_for_service", "service": "cart"}
+    assert _changes(client, 1) == {"status": "no_events_for_service", "service": "cart", "deploy_discovery": True}
+    monkeypatch.setenv("OPS_SIGNALS_DEPLOY_DISCOVERY_ENABLED", "false")
+    assert _changes(client, 1)["deploy_discovery"] is False
 
 
 def test_finding_without_service_is_unavailable(client, seed) -> None:

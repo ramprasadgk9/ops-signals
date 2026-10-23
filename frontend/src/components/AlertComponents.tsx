@@ -7,6 +7,7 @@ import { relativeTime, ui } from '../standalone/theme';
 import type { AlertItem } from '../types';
 import { whatChanged } from '../utils/alertChanges';
 import { breakdownNextStep, breakdownScopeLabel, breakdownSentence, findingBreakdown } from '../utils/findingBreakdown';
+import { FoundDeployTag } from './FoundDeployTag';
 
 const FIRING = '#ea580c';
 
@@ -57,7 +58,12 @@ export function AlertInsight({ alert, compact = false }: { alert: AlertItem; com
       {changed ? (
         <Box>
           <Typography sx={{ fontSize: 12, fontWeight: 800 }}>What changed</Typography>
-          {changed.lines.map((line) => <Typography key={line} sx={{ fontSize: 13 }}>{line}</Typography>)}
+          {changed.lines.map((line, index) => (
+            <Typography key={line} sx={{ fontSize: 13 }}>
+              {line}
+              {changed.found?.[index] ? <FoundDeployTag hint={changed.found[index]} /> : null}
+            </Typography>
+          ))}
           {changed.note ? <Typography sx={{ fontSize: 12, color: ui.muted }}>{changed.note}</Typography> : null}
         </Box>
       ) : null}

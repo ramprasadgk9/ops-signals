@@ -516,6 +516,62 @@ def get_drilldown_config() -> DrillDownConfig:
     return config
 
 
+class FindingMetricsConfig(BaseModel):
+    """Active findings on GET /api/metrics (services/finding_metrics.py), so Prometheus can scrape
+    them and alert rules and dashboards can use them (docs/finding-metrics.md)."""
+
+    enabled: bool = True
+    # Findings created this recently count, like the Overview page's default window.
+    window_hours: int = 24
+    # At most this many series; the rest are counted in ops_signals_active_findings_dropped.
+    max_series: int = 500
+    # Scrapes within this many seconds reuse the last answer instead of querying the database again.
+    cache_seconds: float = 30.0
+
+
+def get_finding_metrics_config() -> FindingMetricsConfig:
+    return FindingMetricsConfig(
+        enabled=_parse_bool(_env("OPS_SIGNALS_FINDING_METRICS_ENABLED"), True),
+        window_hours=max(1, int(_env("OPS_SIGNALS_FINDING_METRICS_WINDOW_HOURS") or "24")),
+        max_series=max(1, int(_env("OPS_SIGNALS_FINDING_METRICS_MAX_SERIES") or "500")),
+        cache_seconds=max(0.0, float(_env("OPS_SIGNALS_FINDING_METRICS_CACHE_SECONDS") or "30")),
+    )
+
+
+class DeployDiscoveryConfig(BaseModel):
+    """Deploys found in Prometheus without CI sending them (backend/app/deploy_discovery/,
+    docs/deploy-discovery.md): a new value of a version label on a `*_build_info` metric, or a new
+    Kubernetes ReplicaSet from kube-state-metrics. They are stored as change events like CI's."""
+
+    enabled: bool = True
+    interval_minutes: float = 5.0
+    # Each run looks this far back; versions already there at the start are not deploys.
+    lookback_hours: float = 6.0
+    step_seconds: int = 60
+    # The first of these labels a build_info series has is its version.
+    version_labels: list[str] = Field(default_factory=lambda: ["version", "app_version", "service_version"])
+    kube_replicasets: bool = True
+    # A deploy already recorded for the service this close in time (from CI, or found the other
+    # way) means this one is the same deploy.
+    merge_minutes: int = 10
+    max_series: int = 500
+
+
+def get_deploy_discovery_config() -> DeployDiscoveryConfig:
+    config = DeployDiscoveryConfig(
+        enabled=_parse_bool(_env("OPS_SIGNALS_DEPLOY_DISCOVERY_ENABLED"), True),
+        kube_replicasets=_parse_bool(_env("OPS_SIGNALS_DEPLOY_DISCOVERY_KUBE_REPLICASETS"), True),
+    )
+    if _env("OPS_SIGNALS_DEPLOY_DISCOVERY_INTERVAL_MINUTES"):
+        config.interval_minutes = max(1.0, float(os.environ["OPS_SIGNALS_DEPLOY_DISCOVERY_INTERVAL_MINUTES"]))
+    if _env("OPS_SIGNALS_DEPLOY_DISCOVERY_LOOKBACK_HOURS"):
+        config.lookback_hours = max(1.0, float(os.environ["OPS_SIGNALS_DEPLOY_DISCOVERY_LOOKBACK_HOURS"]))
+    labels = _parse_list(_env("OPS_SIGNALS_DEPLOY_DISCOVERY_VERSION_LABELS"))
+    if labels:
+        config.version_labels = labels
+    return config
+
+
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",

@@ -268,6 +268,21 @@ describe('FindingDetailsDrawer deploys', () => {
     expect(screen.getByTestId('finding-what-changed').textContent).toContain('Started 4 min after deploy v1.4.2');
   });
 
+  it('tags a deploy Ops Signals found in Prometheus, and explains it on hover', async () => {
+    const found = { ...changes.matches[0], source: 'ops-signals:build_info', description: 'Found automatically: version changed from 1.4.1 to 1.4.2 (build_info metric).' };
+    renderDrawer({ ...otlpFinding, service: 'cart', analysis_run_id: undefined, comparison_json: { breakdown }, changes: { ...changes, matches: [found] } });
+
+    const whatChangedItem = screen.getByTestId('finding-what-changed');
+    const tag = within(whatChangedItem).getByLabelText(/^Found automatically\. Ops Signals found this deploy in Prometheus: version changed from 1\.4\.1 to 1\.4\.2/);
+    expect(tag).toHaveTextContent('Found automatically');
+    expect(screen.getByText('After deploy v1.4.2')).toBeInTheDocument();
+  });
+
+  it('has no tag for a deploy CI sent', () => {
+    renderDrawer({ ...otlpFinding, service: 'cart', analysis_run_id: undefined, comparison_json: { breakdown }, changes });
+    expect(screen.queryByText('Found automatically')).not.toBeInTheDocument();
+  });
+
   it('says no deploys were recorded instead of showing nothing', () => {
     renderDrawer({ ...otlpFinding, service: 'cart', analysis_run_id: undefined, comparison_json: { breakdown }, changes: { status: 'no_events_for_service', service: 'cart' } });
 

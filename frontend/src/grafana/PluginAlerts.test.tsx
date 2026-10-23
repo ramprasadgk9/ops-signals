@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AlertItem } from '../types';
 import { listAlerts } from './backendClient';
@@ -67,6 +67,26 @@ describe('PluginAlerts', () => {
     expect(groups[1]).toHaveTextContent('DiskFilling');
     expect(groups[1]).toHaveTextContent('RESOLVED');
     expect(groups[1]).toHaveTextContent('no matching finding yet');
+  });
+
+  it('tags a deploy Ops Signals found in Prometheus', async () => {
+    alerts.mockResolvedValue([
+      alert({
+        id: 2,
+        service_has_change_events: true,
+        timing: { basis: 'alert_time', time: null, analyzer_id: null, trend_direction: null },
+        changes: [{
+          id: 5, event_type: 'deploy', version: '1.0.1', author: null, url: null, timestamp: new Date().toISOString(), minutes_before_anchor: 4,
+          source: 'ops-signals:build_info', description: 'Found automatically: version changed from 1.0.0 to 1.0.1 (build_info metric).',
+        }],
+      }),
+    ]);
+    render(<PluginAlerts backendUrl="http://backend" onOpenCase={vi.fn()} />);
+
+    const [group] = await screen.findAllByTestId('plugin-alert-group');
+    const tag = within(group).getByLabelText(/^Found automatically\. Ops Signals found this deploy in Prometheus/);
+    expect(tag).toHaveTextContent('Found automatically');
+    expect(tag).toHaveAttribute('title', expect.stringContaining('version changed from 1.0.0 to 1.0.1'));
   });
 
   it('opens the linked case and lists every occurrence on request', async () => {

@@ -18,7 +18,7 @@ from backend.app.alerts.alertmanager import from_alertmanager, from_generic
 from backend.app.alerts.auth import check_bearer_token
 from backend.app.alerts.enrichment import AlertEnrichmentService
 from backend.app.alerts.schemas import AlertmanagerWebhook, AlertReceiptOut, GenericAlertRequest, NormalizedAlert
-from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config, get_prometheus_connections
+from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config, get_deploy_discovery_config, get_prometheus_connections
 from backend.app.alerts.correlation import as_utc
 from backend.app.models.db import get_db, get_session_local
 from backend.app.models.entities import AlertEnrichmentEntity, OperationalCaseEntity
@@ -130,6 +130,8 @@ class AlertChangeOut(BaseModel):
     timestamp: datetime | None = None
     minutes_before_anchor: float | None = None
     cluster: str | None = None
+    # `ops-signals:...` for a deploy found in Prometheus (backend/app/deploy_discovery/).
+    source: str | None = None
 
 
 class AlertOut(BaseModel):
@@ -159,6 +161,8 @@ class AlertOut(BaseModel):
     changes: list[AlertChangeOut] = Field(default_factory=list)
     change_window_before_minutes: int | None = None
     service_has_change_events: bool | None = None
+    # Whether Ops Signals also looks for deploys in Prometheus, so "none recorded" can say it looked.
+    deploy_discovery: bool = False
     breakdown: dict | None = None
 
 
@@ -171,6 +175,7 @@ def _enrichment_fields(row: AlertEnrichmentEntity) -> dict:
         "changes": [AlertChangeOut(**{key: match.get(key) for key in AlertChangeOut.model_fields}) for match in changes.get("matches") or []],
         "change_window_before_minutes": changes.get("window_before_minutes"),
         "service_has_change_events": changes.get("service_has_any_events") if changes else None,
+        "deploy_discovery": get_deploy_discovery_config().enabled,
         "breakdown": (analysis.get("finding") or {}).get("breakdown"),
     }
 

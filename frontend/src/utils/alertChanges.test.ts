@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AlertItem } from '../types';
-import { changeLabel, whatChanged } from './alertChanges';
+import { changeLabel, foundChangeHint, whatChanged } from './alertChanges';
 
 function alert(overrides: Partial<AlertItem>): AlertItem {
   return {
@@ -65,5 +65,38 @@ describe('changeLabel', () => {
     expect(changeLabel({ ...deploy('v2.4.38', 1), cluster: 'us' })).toBe('deploy v2.4.38 to us by demo');
     expect(changeLabel({ ...deploy('v2.4.38', 1), cluster: null })).toBe('deploy v2.4.38 by demo');
     expect(changeLabel(deploy('v2.4.38', 1))).toBe('deploy v2.4.38 by demo');
+  });
+});
+
+describe('deploys found in Prometheus', () => {
+  const found = {
+    ...deploy('1.0.1', 4),
+    author: null,
+    source: 'ops-signals:build_info',
+    timestamp: '2026-10-01T21:29:00Z',
+    description: 'Found automatically: version changed from 1.0.0 to 1.0.1 (build_info metric).',
+  };
+
+  it('explains how a found deploy was found, and has nothing to say about one CI sent', () => {
+    const hint = foundChangeHint(found)!;
+    expect(hint).toMatch(/^Ops Signals found this deploy in Prometheus: version changed from 1\.0\.0 to 1\.0\.1 \(build_info metric\), first seen at .+\. Send deploys from CI to add who deployed and a link\.$/);
+    expect(foundChangeHint(deploy('v2', 1))).toBeNull();
+    expect(foundChangeHint({ ...deploy('v2', 1), source: 'github-actions' })).toBeNull();
+    expect(foundChangeHint({ ...found, description: null, timestamp: null })).toBe('Ops Signals found this deploy in Prometheus. Send deploys from CI to add who deployed and a link.');
+  });
+
+  it('marks the found line only, and adds nothing when no deploy was found', () => {
+    const timing = { basis: 'step_change' as const, time: '2026-10-01T21:33:00Z', analyzer_id: 'ruptures', trend_direction: null };
+    const result = whatChanged(alert({ timing, changes: [found, deploy('v2', 10)] }))!;
+    expect(result.lines).toEqual(['Started 4 min after deploy 1.0.1', 'Started 10 min after deploy v2 by demo']);
+    expect(result.found?.[0]).toContain('found this deploy in Prometheus');
+    expect(result.found?.[1]).toBeNull();
+    expect(whatChanged(alert({ timing, changes: [deploy('v2', 10)] }))).not.toHaveProperty('found');
+  });
+
+  it('says Ops Signals looked in Prometheus when nothing is recorded and discovery is on', () => {
+    const on = whatChanged(alert({ service_has_change_events: false, deploy_discovery: true }))!;
+    expect(on.note).toMatch(/^Ops Signals also looks in Prometheus .+ found none for this service\. Send them from your CI/);
+    expect(whatChanged(alert({ service_has_change_events: false }))!.note).toBe('Send them from your CI to see them here: Integrations → Send deploy events.');
   });
 });

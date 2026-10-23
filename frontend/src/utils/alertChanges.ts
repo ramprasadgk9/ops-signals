@@ -10,6 +10,9 @@ export type WhatChanged = {
   lines: string[];
   /** Where the start time came from, or why there is none. */
   note: string | null;
+  /** Per line: how Ops Signals found that deploy in Prometheus, for a "Found automatically" tag;
+   * null for a change CI sent. Absent when no line is a found deploy. */
+  found?: (string | null)[];
 };
 
 const ANALYZER_LABEL: Record<string, string> = {
@@ -32,6 +35,30 @@ export function clock(iso: string | null): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+const FOUND_SOURCE = 'ops-signals:';
+
+/** Hover text for a deploy Ops Signals found in Prometheus (docs/deploy-discovery.md); null for a
+ * change CI sent. */
+export function foundChangeHint(change: AlertChange): string | null {
+  if (!change.source?.startsWith(FOUND_SOURCE)) return null;
+  const how = (change.description ?? '').replace(/^Found automatically:\s*/, '').replace(/\.$/, '');
+  const at = change.timestamp ? `, first seen at ${clock(change.timestamp)}` : '';
+  const what = how ? `: ${how}${at}` : at;
+  return `Ops Signals found this deploy in Prometheus${what}. Send deploys from CI to add who deployed and a link.`;
+}
+
+/** The `found` field of WhatChanged for these changes, or nothing when none was found. */
+export function foundHints(changes: AlertChange[]): { found?: (string | null)[] } {
+  const found = changes.map(foundChangeHint);
+  return found.some(Boolean) ? { found } : {};
+}
+
+/** The note under "nothing recorded for this service yet". */
+export function noChangesNote(deployDiscovery: boolean | undefined, ciStep: string): string {
+  if (!deployDiscovery) return ciStep;
+  return `Ops Signals also looks in Prometheus for new versions on *_build_info metrics and new Kubernetes ReplicaSets, and found none for this service. ${ciStep}`;
+}
+
 export function changeLabel(change: AlertChange): string {
   const what = `${change.event_type ?? 'change'} ${change.version ?? change.description ?? 'unversioned'}`;
   const where = change.cluster ? `${what} to ${change.cluster}` : what;
@@ -42,7 +69,10 @@ export function changeLabel(change: AlertChange): string {
 export function whatChanged(alert: AlertItem): WhatChanged | null {
   if (!alert.service || alert.service_has_change_events == null) return null;
   if (!alert.service_has_change_events) {
-    return { lines: [`No deploys or other changes have been recorded for ${alert.service} yet.`], note: 'Send them from your CI to see them here: Integrations → Send deploy events.' };
+    return {
+      lines: [`No deploys or other changes have been recorded for ${alert.service} yet.`],
+      note: noChangesNote(alert.deploy_discovery, 'Send them from your CI to see them here: Integrations → Send deploy events.'),
+    };
   }
   const timing = alert.timing ?? { basis: 'alert_time', time: null, analyzer_id: null, trend_direction: null };
   const changes = alert.changes ?? [];
@@ -63,6 +93,7 @@ export function whatChanged(alert: AlertItem): WhatChanged | null {
         return `${verb} ${minutes(when)} ${when >= 0 ? 'after' : 'before'} ${changeLabel(change)}`;
       }),
       note,
+      ...foundHints(changes),
     };
   }
 
@@ -74,5 +105,6 @@ export function whatChanged(alert: AlertItem): WhatChanged | null {
       return `${changeLabel(change)}, ${minutes(when)} ${when >= 0 ? 'before' : 'after'} the alert fired`;
     }),
     note: `${intro} Changes near when the alert fired, listed for reference${timing.basis === 'trend' ? '; a slow trend is rarely explained by a single change' : ''}.`,
+    ...foundHints(changes),
   };
 }

@@ -6,6 +6,9 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Found automatically.** On the Alerts page, a deploy Ops Signals found in Prometheus (a new
+  version on a `*_build_info` metric or a new Kubernetes ReplicaSet) carries a "Found automatically"
+  tag under What changed; hovering it says how it was found. Deploys sent by CI don't get the tag.
 - **Findings in plain words.** The analysis result, the investigation panel, the "Needs attention"
   rows and the finding lookup show a finding's badge (Worse, Better, Monitoring gap...) and plain
   headline, then what changed, why it matters and what to check, with the stored text under

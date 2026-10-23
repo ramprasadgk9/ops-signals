@@ -57,6 +57,11 @@ How the pieces fit together, what talks to what, and why the two storage layers 
   Alertmanager alerts analyzed on arrival and posted to Slack with what happened, what changed, and
   similar past cases. Why it matters, how it fits the pipeline, and setup. Design details:
   [`design/alert-enrichment-plan.md`](design/alert-enrichment-plan.md).
+- [`deploy-discovery.md`](deploy-discovery.md) - deploys found in Prometheus without CI: a new
+  version on a `*_build_info` metric or a new Kubernetes ReplicaSet, and how duplicates with CI's
+  deploys are avoided.
+- [`finding-metrics.md`](finding-metrics.md) - active findings on `GET /api/metrics`, so alert rules,
+  Alertmanager routes and dashboards can use them; scrape config and example alert rules.
 - [`mcp-server.md`](mcp-server.md) - the MCP server over stdio: read-only and write modes, the
   tools each exposes, testing it, and client configuration.
 

@@ -62,11 +62,15 @@ resampled with `.last()` rather than averaged, to preserve spikes instead of smo
 
 Two event inputs sit alongside the metrics: **change events** (deploys, config changes, feature flags)
 posted by CI/CD to `POST /api/events` and stored as-is, and **alerts** from Alertmanager, which start
-an on-demand analysis — see [Alert Enrichment](#alert-enrichment-alertmanager--slack).
+an on-demand analysis — see [Alert Enrichment](#alert-enrichment-alertmanager--slack). Deploys are
+also found in Prometheus by a scheduler job (a new version on a `*_build_info` metric, or a new
+kube-state-metrics ReplicaSet) and stored in the same table with an `ops-signals:` source — see
+[`deploy-discovery.md`](deploy-discovery.md).
 
 - `intelligence/adapters/csv_adapter.py`, `backend/app/api/ingestion.py`
 - `backend/app/api/otlp.py`, `backend/app/otlp/` — see [`design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md)
 - `backend/app/api/events.py`, `ChangeEventEntity`
+- `backend/app/deploy_discovery/` (run from `backend/app/autonomous/scheduler.py`)
 - `intelligence/normalize/normalizer.py`
 
 ### 2. Route & Analyze
@@ -306,6 +310,9 @@ Implemented:
 - alert enrichment — Alertmanager alerts analyzed on arrival and posted to Slack with what happened,
   what changed, and seen before; change events via `POST /api/events`
 - Slack notifications for high-importance findings
+- active findings as Prometheus metrics on `GET /api/metrics`, for alert rules and dashboards
+  ([`finding-metrics.md`](finding-metrics.md))
+- deploys found in Prometheus without CI ([`deploy-discovery.md`](deploy-discovery.md))
 - `POST /api/assistant/chat` — grounded conversational Q&A ("Ask Ops Signals")
 
 Experimental:

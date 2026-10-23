@@ -26,6 +26,8 @@ class ChangeMatch:
     description: str | None
     minutes_before_anchor: float  # positive: the change happened before the anchor
     cluster: str | None = None
+    # Who reported it: CI's own `source`, or `ops-signals:...` for a deploy found in Prometheus.
+    source: str | None = None
 
 
 @dataclass
@@ -110,6 +112,7 @@ def correlate_changes(
             description=row.description,
             minutes_before_anchor=(anchor - as_utc(row.timestamp)).total_seconds() / 60.0,
             cluster=row.cluster or None,
+            source=row.source or None,
         )
         for row in rows
     ]
@@ -138,6 +141,7 @@ def changes_to_dict(changes: ChangeCorrelation | None) -> dict[str, Any] | None:
                 "description": match.description,
                 "minutes_before_anchor": round(match.minutes_before_anchor, 1),
                 "cluster": match.cluster,
+                "source": match.source,
             }
             for match in changes.matches
         ],

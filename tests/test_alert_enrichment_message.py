@@ -163,6 +163,13 @@ def test_spike_on_a_trend_times_the_spike_and_says_the_trend_is_separate() -> No
     assert "from a spike (z-score). It sits on a gradual upward trend, which these changes may not explain." in text
 
 
+def test_a_deploy_found_in_prometheus_says_so() -> None:
+    found = {"id": 2, "event_type": "deploy", "version": "1.0.1", "minutes_before_anchor": 4.0, "source": "ops-signals:build_info"}
+    text = _what_changed_text({"basis": "step_change", "time": "2026-09-23T14:08:00+00:00", "analyzer_id": "baseline_shift"}, [found, DEPLOY])
+    assert "• Started *4 min after* deploy `1.0.1` (found automatically)" in text
+    assert "deploy `v4.1` by bob" in text and "v4.1` (found" not in text
+
+
 def test_trend_lists_changes_for_reference_without_claiming_a_start() -> None:
     text = _what_changed_text({"basis": "trend", "time": None, "trend_direction": "upward"}, [{**DEPLOY, "minutes_before_anchor": 10.0}])
     assert "Gradual upward trend with no clear start time. Changes near when the alert fired, for reference:" in text

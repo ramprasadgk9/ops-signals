@@ -50,7 +50,10 @@ enriched alert's analysis still produces an ordinary finding, so it appears unde
 **Setup check** (bottom of the sidebar; the old `/system` address opens it) tests each part of the
 install: the backend, the database, every metrics connection, memory search, login, and the optional
 extras (alerts, deploy events, notifications, ticketing, Grafana, AI). Anything that isn't green has
-**How to fix**: what was tried, the likely cause, the steps and config to copy. Metrics connections
+**How to fix**: what was tried, the likely cause, the steps and config to copy. **Deploy events**
+counts both deploys from CI and those found in Prometheus ("3 found automatically in the last 7
+days"), and turns yellow when the last look in Prometheus failed
+([`docs/deploy-discovery.md`](deploy-discovery.md)). Metrics connections
 have a **Test** button, and **Copy report** gives a plain-text summary without secrets for an issue
 or an admin. While something needed is broken, Overview shows a reminder linking here. The same
 check is on the Grafana plugin's Configuration page, and at `GET /api/setup/check`.

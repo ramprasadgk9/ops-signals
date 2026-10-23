@@ -588,6 +588,29 @@ class PrometheusQueryService:
                 counts[name] = int(float(row["value"][1]))
         return counts
 
+    def query_result(self, query: str, *, at: datetime | None = None, start: datetime | None = None, end: datetime | None = None,
+                     step_seconds: int | None = None, max_series: int) -> list[dict]:
+        """The raw `result` list of an instant query (`at`, default now) or, with start/end/step, a
+        range query. For background jobs that read a few aggregated series, not for user previews:
+        the only limit is `max_series`."""
+        if not self.config.base_url:
+            raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
+        if start is not None and end is not None and step_seconds:
+            path = "/api/v1/query_range"
+            params: dict[str, object] = {"query": query, "start": _to_utc(start).timestamp(), "end": _to_utc(end).timestamp(), "step": step_seconds}
+        else:
+            path = "/api/v1/query"
+            params = {"query": query, **({"time": _to_utc(at).timestamp()} if at else {})}
+        payload = self._get_json(path, params)
+        if payload.get("status") != "success":
+            raise HTTPException(status_code=502, detail=str(payload.get("error") or "Prometheus query failed"))
+        result = (payload.get("data") or {}).get("result")
+        if not isinstance(result, list):
+            raise HTTPException(status_code=502, detail="Prometheus response is malformed")
+        if len(result) > max_series:
+            raise HTTPException(status_code=400, detail=f"query returned {len(result)} series, which exceeds max_series {max_series}")
+        return result
+
     def rules(self) -> dict:
         """Alerting and recording rules (Prometheus, or the Mimir ruler behind the same base URL)."""
         if not self.config.base_url:

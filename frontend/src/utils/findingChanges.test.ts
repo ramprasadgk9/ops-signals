@@ -71,6 +71,13 @@ describe('findingChanges', () => {
     const none = findingWhatChanged({ status: 'no_events_for_service', service: 'cart' });
     expect(none.lines).toEqual(['No deploys or other changes have been recorded for cart yet.']);
     expect(none.note).toContain('OPS_SIGNALS_SERVICE_ALIASES');
+    expect(none.note).not.toContain('Prometheus');
+    expect(findingWhatChanged({ status: 'no_events_for_service', service: 'cart', deploy_discovery: true }).note)
+      .toMatch(/^Ops Signals also looks in Prometheus for new versions on \*_build_info metrics .+ Send deploys from your CI/);
+    const foundDeploy = { ...matched.matches![0], source: 'ops-signals:kube_replicaset', description: 'Found automatically: Kubernetes rolled out a new ReplicaSet cart-7d9 in namespace shop.' };
+    const withFound = findingWhatChanged({ ...matched, matches: [foundDeploy] });
+    expect(withFound.found?.[0]).toContain('Kubernetes rolled out a new ReplicaSet cart-7d9');
+    expect(findingWhatChanged(matched)).not.toHaveProperty('found');
     expect(findingWhatChanged({ status: 'unavailable', reason: 'no_service' }).lines[0]).toContain('no service');
     expect(findingWhatChanged({ status: 'unavailable', reason: 'no_change_time' }).lines[0]).toContain('no single start time');
     expect(findingWhatChanged({ status: 'unavailable', reason: 'error' }).lines[0]).toContain('Could not check for deploys');
