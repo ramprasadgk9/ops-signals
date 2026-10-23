@@ -95,7 +95,9 @@ See [`docs/vision.md`](docs/vision.md) for the longer narrative behind this.
 - Prometheus, one server or several, including Mimir, Thanos and VictoriaMetrics tenants, pulled on
   demand or on a schedule
 - OTLP pushed from an OTel SDK or Collector, CSV upload, and Alertmanager webhooks
-- Deploy, config and feature-flag events from your CI through `POST /api/events`
+- Deploy, config and feature-flag events from your CI through `POST /api/events`, and deploys
+  found in Prometheus itself: a new version on a `*_build_info` metric, or a new Kubernetes
+  ReplicaSet - see [`docs/deploy-discovery.md`](docs/deploy-discovery.md)
 
 **Explains what changed**
 - A config-driven router picks analyzers for each metric: baseline shift, change point, anomaly and
@@ -679,6 +681,18 @@ findings then name the change that came just before a problem. How events are jo
 (service, environment, time) is in
 [`docs/finding-drilldown.md`](docs/finding-drilldown.md#how-are-deploy-events-joined-to-metrics-and-findings).
 
+Before CI is set up, Ops Signals finds deploys in Prometheus on its own: a service reporting a new
+version on its `*_build_info` metric, or a new ReplicaSet from kube-state-metrics. These show in the
+same places as CI's deploys, and a deploy CI sends later replaces the found one. See
+[`docs/deploy-discovery.md`](docs/deploy-discovery.md).
+
+#### Findings as Prometheus metrics
+
+`GET /api/metrics` includes the active findings as `ops_signals_active_findings{service, metric,
+cluster, evidence, severity}`. Scrape it and an ordinary alert rule can page on "strong evidence on
+checkout" through your existing Alertmanager routes, and any dashboard can chart findings. See
+[`docs/finding-metrics.md`](docs/finding-metrics.md).
+
 ### Autonomous Analysis
 
 Autonomous analysis turns three inputs into concrete Prometheus metric jobs: monitoring intent
@@ -830,7 +844,8 @@ exporters:
 The path is `/api/otlp`, not OTLP's spec-default root path - see
 [`docs/design/otlp-metrics-ingestion-plan.md`](docs/design/otlp-metrics-ingestion-plan.md#3-endpoint) for why.
 The design doc covers the volume and cardinality guardrails and the `GET /api/metrics`
-self-observability endpoint.
+self-observability endpoint, which also serves the active findings
+([`docs/finding-metrics.md`](docs/finding-metrics.md)).
 
 #### Using Ops Signals with OTLP only
 

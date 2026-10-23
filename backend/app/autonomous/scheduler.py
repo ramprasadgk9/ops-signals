@@ -23,6 +23,7 @@ from backend.app.autonomous.execution import execute_autonomous_plan_once
 from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
 from backend.app.autonomous.repository import AutonomousPolicyRepository
 from backend.app.autonomous.schemas import AnalysisScope, AutonomousRunRequest, ExecutionPolicy, MonitoringSelection
+from backend.app.deploy_discovery.service import run_if_due as run_deploy_discovery_if_due
 from backend.app.metric_usage.service import run_scheduled_check_if_due
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import AutonomousPolicyEntity, NormalizedPoint, OtlpPendingPointEntity
@@ -306,6 +307,10 @@ async def run_scheduler_loop() -> None:
                 await asyncio.to_thread(_run_pending_otlp_analysis_once)
             except Exception:
                 logger.exception("OTLP backlog analysis tick failed")
+            try:
+                await asyncio.to_thread(run_deploy_discovery_if_due)
+            except Exception:
+                logger.exception("Deploy discovery tick failed")
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     except asyncio.CancelledError:
         logger.info("Autonomous policy scheduler stopped")

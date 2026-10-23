@@ -4,6 +4,23 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Deploys are found in Prometheus, without CI.** Every 5 minutes Ops Signals looks at the last 6
+  hours for a service reporting a new version on its `*_build_info` metric, and for new
+  kube-state-metrics ReplicaSets. Found deploys are stored with CI's (`source: ops-signals:...`,
+  description "Found automatically ...") and show in What changed, the After deploy chip, enriched
+  alerts and the pod breakdown. One rollout seen both ways is stored once; a deploy CI already sent
+  isn't stored again, and one CI sends later replaces the found one. `POST /api/events` rejects a
+  `source` starting with `ops-signals:`. The Setup check's Deploy events line counts found deploys
+  and says when the last look failed. Off with `OPS_SIGNALS_DEPLOY_DISCOVERY_ENABLED=false`. See
+  `docs/deploy-discovery.md`.
+
+- **Active findings on `GET /api/metrics`.** `ops_signals_active_findings{service, metric, cluster,
+  evidence, severity}` counts active findings the way the Overview page does, so an alert rule can
+  page on strong evidence through your own Alertmanager routes. Capped at 500 series
+  (`ops_signals_active_findings_dropped`), cached for 30 seconds, and `ops_signals_active_findings_up`
+  is 0 when the database can't be read. The Overview page and the metric now share one rule for
+  which findings are active. See `docs/finding-metrics.md`.
+
 - **Operational Memory is now the Recurring problems page.** The name says when to open it: what
   keeps breaking, and is it worth a lasting fix. `/operational-memory` redirects to
   `/recurring-problems`, query string included. The four count cards and the Retry button became one

@@ -80,7 +80,8 @@ Each alert becomes one message with three sections (see the screenshot above):
   e.g. "2 of 6 pods rose: checkout-5, checkout-6 … looks like a rollout in progress"
   ([`finding-drilldown.md`](finding-drilldown.md)).
 - **🚀 What changed**: deploys and config changes for the same service shortly before the change,
-  e.g. "started 7 min after deploy `v2.0.0`". Your CI sends these to `POST /api/events`. See
+  e.g. "started 7 min after deploy `v2.0.0`". Your CI sends these to `POST /api/events`, and Ops
+  Signals finds deploys in Prometheus too ([`deploy-discovery.md`](deploy-discovery.md)). See
   [How changes are timed](#how-changes-are-timed) for how the start time is chosen.
 - **🧠 Seen before**: the existing alert-context lookup. How often this alert fired before, how
   many times it was confirmed real or dismissed as noise, the most common root cause, and the most

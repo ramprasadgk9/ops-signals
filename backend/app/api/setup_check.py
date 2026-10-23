@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.api.ai import ai_status
@@ -30,6 +30,7 @@ from backend.app.config import (
     PrometheusConnectionsError,
     get_alert_enrichment_config,
     get_auth_config,
+    get_deploy_discovery_config,
     get_metric_usage_config,
     get_prometheus_connections,
     get_security_config,
@@ -37,6 +38,8 @@ from backend.app.config import (
     get_slack_config,
     get_ticketing_config,
 )
+from backend.app.deploy_discovery import service as deploy_discovery
+from backend.app.deploy_discovery.detect import SOURCE_PREFIX
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import (
@@ -359,6 +362,37 @@ def activity_checks(db: Session, now: datetime) -> list[SetupCheck]:
     return checks
 
 
+def deploy_events_check(db: Session, now: datetime) -> SetupCheck:
+    """Deploys from CI and deploys found in Prometheus (backend/app/deploy_discovery/)."""
+    base = {"id": "events", "group": "optional", "title": "Deploy events"}
+    found = ChangeEventEntity.source.startswith(SOURCE_PREFIX)
+    ci_last = _as_utc(_scalar(db, select(func.max(ChangeEventEntity.received_at)).where(or_(ChangeEventEntity.source.is_(None), ~found)), "change events"))
+    found_recent = _scalar(db, select(func.count()).select_from(ChangeEventEntity).where(found, ChangeEventEntity.timestamp >= now - timedelta(days=7)), "change events") or 0
+    discovery = get_deploy_discovery_config()
+    errors = [f"{item.connection_id}: {error}" for item in deploy_discovery.LAST_RUN.connections for error in item.errors]
+    found_text = f"{found_recent} found automatically in the last 7 days" if found_recent else None
+
+    failed = {"cause": "; ".join(errors[:3]), "docs": "docs/deploy-discovery.md"} if discovery.enabled and errors else None
+    if ci_last:
+        detail = f"Receiving from CI · last {_ago(ci_last, now)}" + (f" · {found_text}" if found_text else "")
+        if failed:
+            return SetupCheck(**base, status="warn", detail=f"{detail} · looking for deploys in Prometheus failed on the last try", **failed)
+        return SetupCheck(**base, status="ok", detail=detail)
+    if found_recent:
+        detail = f"{found_text[0].upper()}{found_text[1:]} in Prometheus. Send deploys from CI to /api/events as well to add who deployed and a link."
+        if failed:
+            return SetupCheck(**base, status="warn", detail=f"{detail} The last look failed.", **failed)
+        return SetupCheck(**base, status="ok", docs="docs/deploy-discovery.md", detail=detail)
+    if failed:
+        return SetupCheck(**base, status="warn", detail="None yet. Looking for deploys in Prometheus failed on the last try.", **failed)
+    if discovery.enabled:
+        return SetupCheck(**base, status="off", docs="docs/deploy-discovery.md",
+                          detail="None yet. Ops Signals looks in Prometheus for a new version on *_build_info metrics and for new "
+                                 "Kubernetes ReplicaSets, and found none. Send deploys from CI to /api/events so findings show what changed.")
+    return SetupCheck(**base, status="off", docs="docs/alert-enrichment.md",
+                      detail="None received. Send deploys from CI to /api/events so findings show what changed.")
+
+
 def integration_checks(db: Session, now: datetime) -> list[SetupCheck]:
     checks: list[SetupCheck] = []
     alerts = get_alert_enrichment_config()
@@ -375,14 +409,7 @@ def integration_checks(db: Session, now: datetime) -> list[SetupCheck]:
         checks.append(SetupCheck(id="alerts", group="optional", status="ok", title="Alerts receiver",
                                  detail=f"Receiving alerts · last {_ago(alerts_last, now)}", action="send_test_alert"))
 
-    events_last = _as_utc(_scalar(db, select(func.max(ChangeEventEntity.received_at)), "change events"))
-    checks.append(
-        SetupCheck(id="events", group="optional", status="ok", title="Deploy events", detail=f"Receiving · last {_ago(events_last, now)}")
-        if events_last else
-        SetupCheck(id="events", group="optional", status="off", title="Deploy events",
-                   detail="None received. Send deploys from CI to /api/events so findings show what changed.",
-                   docs="docs/alert-enrichment.md")
-    )
+    checks.append(deploy_events_check(db, now))
 
     slack = get_slack_config()
     if slack.enabled and slack.webhook_url:

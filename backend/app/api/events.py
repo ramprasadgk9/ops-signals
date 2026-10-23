@@ -1,4 +1,5 @@
-"""Change events (deploys, config changes, flags) reported by CI/CD, correlated with alerts."""
+"""Change events (deploys, config changes, flags) reported by CI/CD, correlated with alerts. Deploys
+can also be found in Prometheus (backend/app/deploy_discovery/); those carry an `ops-signals:` source."""
 
 from __future__ import annotations
 
@@ -7,12 +8,13 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.alerts.auth import check_bearer_token
-from backend.app.alerts.correlation import as_utc
-from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
+from backend.app.alerts.correlation import as_utc, service_names
+from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config, get_deploy_discovery_config
+from backend.app.deploy_discovery.detect import SOURCE_PREFIX
 from backend.app.models.db import get_db
 from backend.app.models.entities import ChangeEventEntity
 from backend.app.security import receiver_token_or_api_token
@@ -49,6 +51,13 @@ class ChangeEventIn(BaseModel):
         if not value.strip():
             raise ValueError("service must not be blank")
         return value.strip()
+
+    @field_validator("source")
+    @classmethod
+    def source_not_reserved(cls, value: str | None) -> str | None:
+        if value and value.strip().lower().startswith(SOURCE_PREFIX):
+            raise ValueError(f"source must not start with {SOURCE_PREFIX!r}: it marks deploys Ops Signals found itself")
+        return value
 
     @field_validator("url")
     @classmethod
@@ -104,6 +113,7 @@ def create_events(
     payload: ChangeEventIn | list[ChangeEventIn],
     db: Session = Depends(get_db),
     _: None = Depends(require_events_token),
+    config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> list[ChangeEventOut]:
     """Record one change event, or a batch (JSON array, max 100). Always returns a list."""
     events = payload if isinstance(payload, list) else [payload]
@@ -133,9 +143,29 @@ def create_events(
                 received_at=now,
             )
         )
+    for row in rows:
+        _replace_found_deploys(db, row, config)
     db.add_all(rows)
     db.commit()
     return [_to_out(row) for row in rows]
+
+
+def _replace_found_deploys(db: Session, event: ChangeEventEntity, config: AlertEnrichmentConfig) -> None:
+    """A deploy from CI replaces one Ops Signals found for the same service close in time: it is the
+    same deploy, and CI's record says more (author, link)."""
+    if event.event_type not in ("deploy", "rollback"):
+        return
+    merge = timedelta(minutes=get_deploy_discovery_config().merge_minutes)
+    query = delete(ChangeEventEntity).where(
+        ChangeEventEntity.source.startswith(SOURCE_PREFIX),
+        ChangeEventEntity.service.in_(service_names(event.service, config.service_aliases)),
+        ChangeEventEntity.timestamp >= event.timestamp - merge,
+        ChangeEventEntity.timestamp <= event.timestamp + merge,
+    )
+    if event.cluster:
+        cluster = ChangeEventEntity.cluster
+        query = query.where(or_(cluster.is_(None), cluster == "", func.lower(cluster) == event.cluster.lower()))
+    db.execute(query.execution_options(synchronize_session=False))
 
 
 @router.get("", response_model=list[ChangeEventOut])

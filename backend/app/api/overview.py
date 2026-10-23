@@ -10,12 +10,14 @@ from sqlalchemy.orm import Session
 
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
+from backend.app.services.active_findings import active_findings as still_active
+from backend.app.services.active_findings import is_closed as _is_closed
+from backend.app.services.active_findings import problem_of as _problem
 from backend.app.services.finding_trust import finding_trust
 
 router = APIRouter(prefix="/api/overview", tags=["overview"])
 
 Window = Literal["6h", "24h", "7d"]
-CLOSED_STATUSES = {"resolved", "verified", "closed", "completed"}
 SEVERITIES = ("critical", "high", "medium", "low")
 
 
@@ -64,14 +66,6 @@ def _bucket_start(value: datetime, window: Window) -> datetime:
     return value.replace(minute=0, second=0, microsecond=0)
 
 
-def _problem(finding: FindingEntity) -> int | None:
-    return finding.problem_id or finding.id
-
-
-def _is_closed(status: str | None) -> bool:
-    return (status or "").lower() in CLOSED_STATUSES
-
-
 @router.get("/summary", response_model=OverviewSummaryOut)
 def get_overview_summary(
     window: Window = Query(default="24h"),
@@ -82,16 +76,9 @@ def get_overview_summary(
 
     findings = db.execute(select(FindingEntity).where(FindingEntity.created_at >= start_at)).scalars().all()
     cases = db.execute(select(OperationalCaseEntity)).scalars().all()
-    cases_by_finding_id = {case.finding_id: case for case in cases}
-
     # A problem every run sees again is one problem: counted once, closed when a case on any of
     # its findings (or on the first one, even before this window) is closed.
-    def closed(finding_id: int | None) -> bool:
-        case = cases_by_finding_id.get(finding_id)
-        return case is not None and (_is_closed(case.case_status) or _is_closed(case.outcome_status))
-
-    closed_problems = {_problem(finding) for finding in findings if closed(finding.id) or closed(_problem(finding))}
-    active_findings = [finding for finding in findings if _problem(finding) not in closed_problems]
+    active_findings = still_active(db, findings, cases)
     open_cases = [case for case in cases if not _is_closed(case.case_status)]
     behavior_changes = db.scalar(
         select(func.count()).select_from(BehaviorFindingEntity).where(BehaviorFindingEntity.created_at >= start_at)

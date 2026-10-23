@@ -21,7 +21,7 @@ the "an alert fired, now what?" problem, and some of them can run next to Ops Si
 | **How it reaches a conclusion** | An LLM agent queries your tools (HolmesGPT) | Rules and workflows, plus LLM correlation and summaries | Fixed ML checks (Sift); LLM agent (Assistant) | Statistical detectors on the metric itself; no LLM by default |
 | **LLM providers** | OpenAI, Anthropic, Azure, Bedrock, Gemini, and local models through an OpenAI-compatible endpoint (HolmesGPT) | OpenAI, Anthropic, Gemini, Grok, DeepSeek, Ollama, LlamaCPP | Run by Grafana Cloud (Assistant) | Optional: Ollama, any OpenAI-compatible endpoint (vLLM, Azure OpenAI, Bedrock gateways), Anthropic. Never overrides the statistical result |
 | **Past incidents** | Not described in their docs | Not described in their docs | Not described in their docs | Resolved cases are recalled as "seen before"; past incidents can be imported from Jira, PagerDuty, CSV or Markdown |
-| **Finds deploys automatically** | Yes, from Kubernetes changes | Through integrations | Yes, from Kubernetes changes | No; your CI sends deploy events to `POST /api/events` |
+| **Finds deploys automatically** | Yes, from Kubernetes changes | Through integrations | Yes, from Kubernetes changes | Yes, from version labels on `*_build_info` metrics and from kube-state-metrics ReplicaSets ([deploy-discovery.md](deploy-discovery.md)); CI can add author and link through `POST /api/events` |
 | **Logs and traces** | Yes (pod logs; Loki, Elasticsearch, Tempo and more in HolmesGPT) | Through integrations | Yes (Loki, Tempo) | No; metrics only |
 
 ## Robusta and HolmesGPT
@@ -54,7 +54,9 @@ metrics across many tools to propose a root cause.
 
 **Where they are ahead:** Robusta discovers deploys and configuration changes on its own, attaches
 pod logs, and can remediate. HolmesGPT reads logs and traces and covers far more data sources. Ops
-Signals needs your CI to send deploy events, reads metrics only, and doesn't remediate. It can show
+Signals finds deploys only from metrics (a new version on a `*_build_info` metric, or a new
+ReplicaSet), needs your CI to send config and feature-flag changes, reads metrics only, and doesn't
+remediate. It can show
 which pods a change came from and which new pods a deploy started, but only from metrics and only
 when the per-pod drill-down is turned on (see [`finding-drilldown.md`](finding-drilldown.md)).
 
@@ -98,6 +100,6 @@ Kubernetes, and want each alert to say what the metric did, what changed and whe
 happened before. Its results are explainable, repeatable and don't depend on an LLM. When you do
 want AI-written explanations, you can use your own model, local or hosted.
 
-Its gaps compared with the tools above: no automatic deploy discovery, no logs or traces, no
+Its gaps compared with the tools above: deploys found from metrics only (config changes need CI), no logs or traces, no
 remediation, and no alert routing. Its current limitations are listed in
 [Current Limitations](../README.md#current-limitations).

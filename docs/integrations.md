@@ -29,7 +29,7 @@ assistant work with any metrics source, including OTLP or CSV alone. These need 
 | Drill-down by pod | A Prometheus-compatible source | It re-runs the finding's query grouped by pod |
 | Alert enrichment | Alertmanager and a Prometheus-compatible source | It re-runs the alert's PromQL to see what changed |
 | Metric Usage | A Prometheus-compatible source; Grafana makes it complete | Without Grafana it reads Prometheus alert and recording rules only, not dashboards |
-| Deploy correlation | Deploy events (`POST /api/events`) | Findings can't say which deploy came just before |
+| Deploy correlation | Deploy events (`POST /api/events`), or a Prometheus-compatible source with `*_build_info` metrics or kube-state-metrics ([deploy-discovery.md](deploy-discovery.md)) | Findings can't say which deploy came just before |
 | Latency percentiles from OTLP | Not yet | OTLP histograms are rejected; percentiles come from Prometheus or CSV |
 
 The app works this out from what is connected and adapts. Features a source can't run yet move to
