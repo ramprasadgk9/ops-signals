@@ -86,6 +86,7 @@ import type {
   MetricUsageResponse,
   MetricUsageSnapshot,
   MetricUsageItem,
+  MetricUsageDropConfig,
   MetricUsageStatus,
   GrafanaStatus,
 } from '../types';
@@ -133,6 +134,7 @@ export const api = {
     return getJson<Record<string, MetricUsageItem>>(`/api/metric-usage/metrics?${search.toString()}`);
   },
   metricUsageHistory: (limit = 28) => getJson<MetricUsageSnapshot[]>(`/api/metric-usage/history?limit=${limit}`),
+  metricUsageDropConfig: (metrics: string[]) => postJson<{ metrics: string[] }, MetricUsageDropConfig>('/api/metric-usage/drop-config', { metrics }),
   runMetricUsageCheck: () => postJson<Record<string, never>, MetricUsageSnapshot>('/api/metric-usage/run', {}),
   grafanaStatus: () => getJson<GrafanaStatus>('/api/metric-usage/grafana/status'),
   overviewSummary: (window: '6h' | '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),

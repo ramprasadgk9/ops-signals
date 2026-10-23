@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { MetricUsageValuePanel, formatMoney } from './MetricUsageValuePanel';
 import type { MetricUsageItem, MetricUsageSnapshot } from '../types';
 
@@ -15,7 +15,7 @@ const blind = (metric: string, problems: number): MetricUsageItem => ({
 });
 
 describe('MetricUsageValuePanel', () => {
-  it('prices unused storage at the configured rate and says how', () => {
+  it('leads with series and adds the cost at the configured rate as an estimate', () => {
     render(
       <MetricUsageValuePanel
         snapshot={snapshot()}
@@ -25,18 +25,26 @@ describe('MetricUsageValuePanel', () => {
       />
     );
     const tile = screen.getByTestId('value-storage');
-    expect(tile).toHaveTextContent(`${formatMoney(2.6, 'USD')} / month`);
-    expect(tile).toHaveTextContent('spent storing unused metrics');
-    expect(tile).toHaveTextContent('5,200 of 10,000 series (52%) are in metrics nothing watches');
-    expect(screen.getAllByLabelText(/How this is worked out: 5,200 unused series ÷ 1,000 ×/)).toHaveLength(1);
+    expect(tile).toHaveTextContent('5,200 series');
+    expect(tile).toHaveTextContent('on metrics no dashboard or alert uses');
+    expect(tile).toHaveTextContent('52% of all 10,000. Some may still matter: add those to Grafana, drop the rest.');
+    expect(tile).toHaveTextContent(`About ${formatMoney(2.6, 'USD')} / month at your rate`);
+    expect(screen.getAllByLabelText(/How this is worked out: .*5,200 series ÷ 1,000 ×/)).toHaveLength(1);
   });
 
-  it('shows series, not money, until a rate is set', () => {
+  it('shows no money until a rate is set', () => {
     render(<MetricUsageValuePanel snapshot={snapshot()} cost={null} blindSpots={[]} history={[]} />);
     const tile = screen.getByTestId('value-storage');
     expect(tile).toHaveTextContent('5,200 series');
-    expect(tile).toHaveTextContent('Set OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES to see this as monthly cost');
     expect(tile).not.toHaveTextContent('$');
+    expect(screen.getAllByLabelText(/Set OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES to also see an estimated monthly cost/)).toHaveLength(1);
+  });
+
+  it('links to the metrics when the page can open them', () => {
+    const onReview = vi.fn();
+    render(<MetricUsageValuePanel snapshot={snapshot()} cost={null} blindSpots={[]} history={[]} onReviewUnused={onReview} />);
+    fireEvent.click(screen.getByRole('button', { name: 'See these metrics →' }));
+    expect(onReview).toHaveBeenCalled();
   });
 
   it('says when series could not be counted', () => {

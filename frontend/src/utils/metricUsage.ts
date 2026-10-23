@@ -46,3 +46,25 @@ export function watchedByTag(item: MetricUsageItem): { label: string; detail: st
     : `Read through recording rules: ${item.via_recording_rules.join(', ')}`;
   return { label: parts.join(' · ') || 'Watched via recording rules', detail, watched: true };
 }
+
+/** A query to put on a panel or alert for an unwatched metric, by its type: a rate for counters,
+ * the p95 for histogram buckets, the value for anything else. */
+export function watchQuery(item: Pick<MetricUsageItem, 'metric' | 'metric_type'>): { query: string; meaning: string } {
+  const { metric } = item;
+  const histogram = item.metric_type === 'histogram' || item.metric_type === 'gaugehistogram';
+  if (histogram && metric.endsWith('_bucket')) {
+    return { query: `histogram_quantile(0.95, sum by (le, job) (rate(${metric}[5m])))`, meaning: '95th percentile, per job' };
+  }
+  if (item.metric_type === 'counter' || ((histogram || item.metric_type === 'summary') && /_(sum|count)$/.test(metric))) {
+    return { query: `sum by (job) (rate(${metric}[5m]))`, meaning: 'per second, per job' };
+  }
+  if (item.metric_type === 'summary') {
+    return { query: `max by (job) (${metric}{quantile="0.95"})`, meaning: '95th percentile, per job' };
+  }
+  return { query: `max by (job) (${metric})`, meaning: 'current value, highest per job' };
+}
+
+/** The job labels of a metric's series over all connections, without the unlabelled ones. */
+export function jobNames(item: Pick<MetricUsageItem, 'jobs'>): string[] {
+  return [...new Set(Object.values(item.jobs ?? {}).flatMap((byJob) => Object.keys(byJob)).filter(Boolean))].sort();
+}

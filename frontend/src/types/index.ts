@@ -1493,6 +1493,41 @@ export type MetricUsageItem = {
   analyzed: boolean;
   /** Active series, summed over connections; null when they couldn't be counted. */
   series: number | null;
+  /** Active series per job label, per connection ("" for series without one). */
+  jobs?: Record<string, Record<string, number>>;
+  /** Declared type ("counter", "gauge", "histogram"...), or guessed from the name; null when unknown. */
+  metric_type?: string | null;
+  /** Made by a recording rule, not scraped. */
+  recording_rule?: boolean;
+  /** When a check first listed it; null when it was there before checks recorded that. */
+  first_seen?: string | null;
+  /** Why Drop isn't offered for it; null when it is. */
+  drop_blocked?: string | null;
+  /** What to check before dropping it. */
+  drop_warnings?: string[];
+};
+
+/** A recording rule whose output no dashboard, alert or watched rule reads. */
+export type MetricUsageUnreadRule = {
+  name: string;
+  groups: string[];
+  connections: string[];
+  reads: string[];
+  /** Other recording rules that read it, all unread too. */
+  feeds: string[];
+  series: number | null;
+  analyzed: boolean;
+  /** What to check before removing it. */
+  warnings?: string[];
+};
+
+/** Prometheus scrape config that drops the selected metrics: one block per Prometheus. */
+export type MetricUsageDropConfig = {
+  blocks: Array<{ connection: string; name: string; yaml: string }>;
+  metrics: string[];
+  series: number | null;
+  skipped: Array<{ metric: string; reason: string }>;
+  warnings: string[];
 };
 
 export type MetricUsageSnapshot = {
@@ -1528,6 +1563,7 @@ export type MetricUsageResponse = {
   items_total: number;
   /** Only when the operator set a cost per 1,000 series. */
   cost: MetricUsageCost | null;
+  unread_rules?: MetricUsageUnreadRule[];
 };
 
 export type MetricUsageCost = {

@@ -7,7 +7,7 @@ import { api } from '../api/queries';
 import type { IngestionStatus, MetricUsageItem, MetricUsageResponse, MetricUsageSnapshot } from '../types';
 
 vi.mock('../api/queries', () => ({
-  api: { metricUsage: vi.fn(), metricUsageHistory: vi.fn(), grafanaStatus: vi.fn(), runMetricUsageCheck: vi.fn(), createCase: vi.fn(), ingestionStatus: vi.fn() },
+  api: { metricUsage: vi.fn(), metricUsageHistory: vi.fn(), metricUsageDropConfig: vi.fn(), grafanaStatus: vi.fn(), runMetricUsageCheck: vi.fn(), createCase: vi.fn(), ingestionStatus: vi.fn() },
 }));
 
 function renderPage() {
@@ -75,7 +75,13 @@ describe('MetricUsagePage', () => {
     expect(blind.getByText('1,200 series')).toBeInTheDocument();
     expect(screen.getByTestId('metric-usage-value')).toHaveTextContent('26 problemsnobody would have seen');
 
+    // Reference only: last on the page, and closed until opened.
+    const sections = screen.getAllByTestId(/^metric-usage-section-/).map((node) => node.dataset.testid);
+    expect(sections[sections.length - 1]).toBe('metric-usage-section-watched');
     const watched = within(screen.getByTestId('metric-usage-section-watched'));
+    expect(watched.queryByText('Production / API Health / Error rate')).toBeNull();
+    fireEvent.click(watched.getByRole('button', { name: /Watched/ }));
+    expect(watched.getByText(/Check here that your dashboards were found/)).toBeInTheDocument();
     expect(watched.getByText('Production / API Health / Error rate')).toBeInTheDocument();
     expect(watched.getByText('Alert: Checkout error rate high')).toBeInTheDocument();
     expect(watched.queryByRole('button', { name: 'Create case' })).toBeNull();
@@ -122,6 +128,127 @@ describe('MetricUsagePage', () => {
     expect(await within(section).findByText('go_goroutines')).toBeInTheDocument();
     expect(api.metricUsage).toHaveBeenLastCalledWith(['unwatched'], 200);
     expect(within(section).getByText(/Showing the first 1 of 284/)).toBeInTheDocument();
+  });
+
+  it('offers Add to Grafana and Drop on unwatched metrics, and builds the config for the selected ones', async () => {
+    const unwatched = [
+      item('orders_cache_evictions_total', { status: 'unwatched', series: 8240, metric_type: 'counter', jobs: { default: { orders: 8240 } }, drop_blocked: null, drop_warnings: [] }),
+      item('checkout_latency_seconds_bucket', {
+        status: 'unwatched', series: 5000, metric_type: 'histogram', jobs: { default: { checkout: 5000 } }, drop_blocked: null,
+        drop_warnings: ['Ops Signals analyzes this metric. Dropping it stops that analysis.'],
+      }),
+      item('inventory_sync_lag_seconds', {
+        status: 'unwatched', series: 40, jobs: { default: { inventory: 40 } },
+        drop_blocked: 'First seen 2 days ago. Drop is offered in 5 days, so its team has time to build a dashboard.',
+      }),
+    ];
+    vi.mocked(api.metricUsage).mockResolvedValueOnce(response()).mockResolvedValueOnce(response({ items: unwatched, items_total: 3 }));
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: true, url: 'http://grafana:3000', reachable: true, message: 'Connected' });
+    vi.mocked(api.metricUsageDropConfig).mockResolvedValue({
+      blocks: [{ connection: 'default', name: 'Default Prometheus', yaml: 'scrape_configs:\n  - job_name: orders\n' }], metrics: ['orders_cache_evictions_total', 'checkout_latency_seconds_bucket'], series: 13240,
+      skipped: [], warnings: ['checkout_latency_seconds_bucket: Ops Signals analyzes this metric. Dropping it stops that analysis.'],
+    });
+    renderPage();
+
+    // The storage tile opens the section.
+    fireEvent.click(await screen.findByRole('button', { name: 'See these metrics →' }));
+    const section = within(screen.getByTestId('metric-usage-section-unwatched'));
+    expect(await section.findByText('orders_cache_evictions_total')).toBeInTheDocument();
+    expect(section.getByText('Histogram · job checkout')).toBeInTheDocument();
+    expect(section.getByText(/⚠ Ops Signals analyzes this metric/)).toBeInTheDocument();
+    expect(section.getByText(/First seen 2 days ago/)).toBeInTheDocument();
+    expect(section.getByRole('checkbox', { name: 'Select inventory_sync_lag_seconds' })).toBeDisabled();
+    expect(section.getAllByRole('button', { name: 'Drop' })[2]).toBeDisabled();
+
+    fireEvent.click(section.getByRole('checkbox', { name: 'Select orders_cache_evictions_total' }));
+    fireEvent.click(section.getByRole('checkbox', { name: 'Select checkout_latency_seconds_bucket' }));
+    expect(section.getByTestId('drop-selection')).toHaveTextContent('2 selected · 13,240 series');
+    fireEvent.click(section.getByRole('button', { name: 'Drop 2 metrics' }));
+
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(api.metricUsageDropConfig).toHaveBeenCalledWith(['orders_cache_evictions_total', 'checkout_latency_seconds_bucket']);
+    expect(await dialog.findByTestId('drop-config-yaml')).toHaveTextContent('job_name: orders');
+    expect(dialog.getByText('13,240 series stop being stored')).toBeInTheDocument();
+    const note = dialog.getByTestId('metric-usage-checked-note');
+    expect(note).toHaveTextContent('2 dashboards and 2 alert rules in Grafana (http://grafana:3000), and alert and recording rules in Default Prometheus.');
+    expect(note).toHaveTextContent('Not checked: queries people run by hand (Explore), scripts and autoscalers');
+    expect(dialog.getByText(/checkout_latency_seconds_bucket: Ops Signals analyzes/)).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Download .yml' })).toBeInTheDocument();
+
+    // A browser that refuses the clipboard says so instead of claiming "Copied".
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }, configurable: true });
+    fireEvent.click(dialog.getByRole('button', { name: 'Copy drop config' }));
+    expect(await dialog.findByText(/The browser didn't allow copying/)).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Copy drop config' })).toHaveTextContent('Copy');
+  });
+
+  it('drops only the selected rows the filter shows, and gives one block per Prometheus', async () => {
+    const unwatched = ['foo_a_total', 'bar_x_total'].map((metric) => item(metric, { status: 'unwatched', series: 10, jobs: { default: { web: 10 } }, drop_blocked: null }));
+    vi.mocked(api.metricUsage).mockResolvedValueOnce(response()).mockResolvedValueOnce(response({ items: unwatched, items_total: 2 }));
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: true, url: null, reachable: true, message: 'Connected' });
+    vi.mocked(api.metricUsageDropConfig).mockResolvedValue({
+      blocks: [
+        { connection: 'a', name: 'Mimir team-a', yaml: 'scrape_configs: []\n' },
+        { connection: 'b', name: 'Mimir team-b', yaml: 'scrape_configs: []\n' },
+      ],
+      metrics: ['bar_x_total'], series: 10, skipped: [], warnings: [],
+    });
+    renderPage();
+
+    const section = within(await screen.findByTestId('metric-usage-section-unwatched'));
+    fireEvent.click(section.getByRole('button', { name: /Not watched, no problems/ }));
+    fireEvent.click(await section.findByRole('checkbox', { name: 'Select foo_a_total' }));
+    fireEvent.change(section.getByPlaceholderText('Filter metric names'), { target: { value: 'bar' } });
+    fireEvent.click(section.getByRole('checkbox', { name: 'Select bar_x_total' }));
+    expect(section.getByTestId('drop-selection')).toHaveTextContent('1 selected');
+    fireEvent.click(section.getByRole('button', { name: 'Drop 1 metric' }));
+    expect(api.metricUsageDropConfig).toHaveBeenCalledWith(['bar_x_total']);
+
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(await dialog.findAllByTestId('drop-config-block')).toHaveLength(2);
+    expect(dialog.getByText(/each block goes into its own server/)).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Copy drop config for Mimir team-b' })).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Download .yml for Mimir team-a' })).toBeInTheDocument();
+  });
+
+  it('shows a query and the Grafana steps to start watching a metric', async () => {
+    vi.mocked(api.metricUsage).mockResolvedValueOnce(response()).mockResolvedValueOnce(response({
+      items: [item('payment_failures_total', { status: 'unwatched', series: 96, metric_type: 'counter', jobs: { default: { payments: 96 } }, drop_blocked: null })],
+      items_total: 1,
+    }));
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: true, url: 'http://grafana:3000', reachable: true, message: 'Connected' });
+    renderPage();
+
+    const section = within(await screen.findByTestId('metric-usage-section-unwatched'));
+    fireEvent.click(section.getByRole('button', { name: /Not watched, no problems/ }));
+    fireEvent.click(await section.findByRole('button', { name: 'Add to Grafana' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByText('Add payment_failures_total to Grafana')).toBeInTheDocument();
+    expect(dialog.getByText('Counter · job payments · 96 series')).toBeInTheDocument();
+    expect(dialog.getByTestId('watch-query')).toHaveTextContent('sum by (job) (rate(payment_failures_total[5m]))');
+    expect(dialog.getByRole('link', { name: 'New alert rule ↗' })).toHaveAttribute('href', 'http://grafana:3000/alerting/new');
+    expect(dialog.getByRole('link', { name: 'New dashboard ↗' })).toHaveAttribute('href', 'http://grafana:3000/dashboard/new');
+  });
+
+  it('lists recording rules nobody reads with how to remove them', async () => {
+    vi.mocked(api.metricUsage).mockResolvedValue(response({
+      unread_rules: [{
+        name: 'instance:cpu:avg', groups: ['node'], connections: ['default'], reads: ['node_cpu_seconds_total'], feeds: ['cluster:cpu:avg'], series: 240, analyzed: false,
+        warnings: ['A query reads metrics by a name pattern that matches it: Ops / Nodes / CPU. Check it before removing.'],
+      }],
+    }));
+    vi.mocked(api.grafanaStatus).mockResolvedValue({ configured: false, url: null, reachable: false, message: 'Grafana is not connected.' });
+    renderPage();
+
+    const section = within(await screen.findByTestId('metric-usage-section-unread-rules'));
+    fireEvent.click(section.getByRole('button', { name: /Recording rules nobody reads/ }));
+    expect(section.getByText(/Group node · default · reads node_cpu_seconds_total · only feeds cluster:cpu:avg/)).toBeInTheDocument();
+    fireEvent.click(section.getByRole('button', { name: 'How to remove' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByText(/delete the rule/)).toHaveTextContent('delete the rule record: instance:cpu:avg from group node');
+    expect(dialog.getByText(/It only feeds cluster:cpu:avg/)).toBeInTheDocument();
+    expect(dialog.getByText(/name pattern that matches it: Ops \/ Nodes \/ CPU/)).toBeInTheDocument();
+    expect(dialog.getByText(/The metrics it reads \(node_cpu_seconds_total\) are not affected/)).toBeInTheDocument();
   });
 
   it('warns about a failed check while still showing the last good one', async () => {
