@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import fnmatch
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 
 from backend.app.metric_usage.sources import MetricUsage, UsageScan
 
@@ -23,6 +24,8 @@ WATCHING_KINDS = {"dashboard", "alert_rule"}
 # Stored but read by no dashboard or alert: what unused-storage cost is counted from.
 UNUSED_STATUSES = {"blind_spot", "unwatched"}
 _STATUS_ORDER = {"blind_spot": 0, "missing": 1, "watched": 2, "unwatched": 3}
+_FAMILY_SUFFIXES = ("_bucket", "_sum", "_count")
+_FAMILY_TYPES = {"histogram", "gaugehistogram", "summary"}
 
 
 @dataclass(frozen=True)
@@ -38,12 +41,48 @@ class MetricReportItem:
     analyzed: bool = False
     # Active series, summed over connections; None when no connection reported series counts.
     series: int | None = None
+    # Active series per `job` label value, per connection ("" for series without a job label).
+    jobs: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
+    metric_type: str | None = None  # "counter", "gauge", "histogram"...; None when unknown
+    recording_rule: bool = False  # made by a recording rule, not scraped
+    # When a check first listed it; None when it was there before checks recorded this.
+    first_seen: datetime | None = None
+
+
+@dataclass(frozen=True)
+class UnreadRecordingRule:
+    """A recording rule whose output no dashboard, alert or watched rule reads, and that had no
+    recent problem (one with problems is a blind spot: add it to Grafana, don't remove it)."""
+
+    name: str
+    groups: tuple[str, ...]
+    connections: tuple[str, ...]  # where its output exists
+    reads: tuple[str, ...]
+    feeds: tuple[str, ...]  # other recording rules that read it, all of them unread too
+    series: int | None
+    analyzed: bool
 
 
 @dataclass(frozen=True)
 class MetricUsageReport:
     items: list[MetricReportItem]
     totals: dict[str, int | None]
+    unread_rules: list[UnreadRecordingRule] = field(default_factory=list)
+
+
+def metric_type(name: str, types: Mapping[str, str]) -> str | None:
+    """The declared type of a metric (`types` from Prometheus metadata), else a guess from its name.
+    A histogram's _bucket, _sum and _count series are listed under the histogram's base name."""
+    if name in types:
+        return types[name]
+    for suffix in _FAMILY_SUFFIXES:
+        if name.endswith(suffix) and types.get(name[: -len(suffix)]) in _FAMILY_TYPES:
+            return types[name[: -len(suffix)]]
+    if name.endswith("_total"):
+        return "counter"
+    if name.endswith("_bucket"):
+        return "histogram"
+    return None
 
 
 def build_report(
@@ -53,9 +92,14 @@ def build_report(
     analyzed: Iterable[str] = (),
     ignore_metrics: Iterable[str] = (),
     series_by_connection: Mapping[str, Mapping[str, int]] | None = None,
+    jobs_by_connection: Mapping[str, Mapping[str, Mapping[str, int]]] | None = None,
+    types: Mapping[str, str] | None = None,
+    first_seen: Mapping[str, datetime | None] | None = None,
 ) -> MetricUsageReport:
     """`problems` maps a metric to (problem finding count, latest finding id); `series_by_connection`
-    maps a connection to its active series per metric, where the backend could count them."""
+    maps a connection to its active series per metric, where the backend could count them, and
+    `jobs_by_connection` to its active series per metric and job label. `types` are declared metric types and
+    `first_seen` when each metric was first listed."""
     problems = problems or {}
     analyzed = set(analyzed)
     ignore = [pattern for pattern in ignore_metrics if pattern]
@@ -99,6 +143,16 @@ def build_report(
                     changed = True
 
     series_by_connection = series_by_connection or {}
+    jobs_by_connection = jobs_by_connection or {}
+    types = types or {}
+    first_seen = first_seen or {}
+
+    def jobs_of(metric: str) -> dict[str, dict[str, int]]:
+        return {
+            connection: dict(sorted(jobs_by_connection[connection][metric].items()))
+            for connection in connections.get(metric, [])
+            if metric in jobs_by_connection.get(connection, {})
+        }
 
     def series_of(metric: str) -> int | None:
         counts = [series_by_connection[connection].get(metric, 0) for connection in connections.get(metric, []) if connection in series_by_connection]
@@ -127,6 +181,10 @@ def build_report(
                 latest_finding_id=latest,
                 analyzed=metric in analyzed,
                 series=series_of(metric) if present else None,
+                jobs=jobs_of(metric),
+                metric_type=metric_type(metric, types),
+                recording_rule=metric in scan.recording_rules,
+                first_seen=first_seen.get(metric),
             )
         )
 
@@ -138,4 +196,22 @@ def build_report(
     counted = [item for item in items if item.series is not None]
     totals["series_total"] = sum(item.series for item in counted) if counted else None
     totals["series_unwatched"] = sum(item.series for item in counted if item.status in UNUSED_STATUSES) if counted else None
-    return MetricUsageReport(items, totals)
+
+    unread = [
+        name for name in scan.recording_rules
+        if name not in watched and name not in read and not ignored(name) and not (name in connections and problems.get(name, (0, None))[0])
+    ]
+    unread_rules = [
+        UnreadRecordingRule(
+            name=name,
+            groups=tuple(sorted(scan.recording_rule_groups.get(name, ()))),
+            connections=tuple(connections.get(name, [])),
+            reads=tuple(sorted(scan.recording_rules[name])),
+            feeds=tuple(sorted(other for other, sources in scan.recording_rules.items() if name in sources)),
+            series=series_of(name) if name in connections else None,
+            analyzed=name in analyzed,
+        )
+        for name in unread
+    ]
+    unread_rules.sort(key=lambda rule: (-(rule.series or 0), rule.name))
+    return MetricUsageReport(items, totals, unread_rules)

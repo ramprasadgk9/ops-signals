@@ -53,6 +53,7 @@ class UsageScan:
     unresolved: list[UnresolvedQuery] = field(default_factory=list)
     name_patterns: list[tuple[str, str]] = field(default_factory=list)  # (regex, location)
     recording_rules: dict[str, frozenset[str]] = field(default_factory=dict)  # produced name -> metrics it reads
+    recording_rule_groups: dict[str, set[str]] = field(default_factory=dict)  # produced name -> rule groups defining it
     # Datasources (as queries name them) read by queries that were left out, because they match no
     # Prometheus connection.
     skipped_datasources: set[str] = field(default_factory=set)
@@ -62,6 +63,8 @@ class UsageScan:
         self.unresolved.extend(other.unresolved)
         self.name_patterns.extend(other.name_patterns)
         self.recording_rules.update(other.recording_rules)
+        for name, groups in other.recording_rule_groups.items():
+            self.recording_rule_groups.setdefault(name, set()).update(groups)
         self.skipped_datasources |= other.skipped_datasources
         return self
 
@@ -200,6 +203,7 @@ def prometheus_rule_usages(payload: Mapping, connection_id: str | None = None) -
             names = scan._add(expr, location, "recording_rule" if recording else "alert_rule", connections=connections)
             if recording and rule.get("name"):
                 scan.recording_rules[rule["name"]] = frozenset(names)
+                scan.recording_rule_groups.setdefault(rule["name"], set()).add(str(group.get("name")))
     return scan
 
 

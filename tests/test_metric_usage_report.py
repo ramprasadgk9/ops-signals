@@ -145,3 +145,64 @@ def test_a_rule_from_one_tenant_does_not_watch_another_tenants_metric() -> None:
     scan = UsageScan(usages=[MetricUsage("errors_total", "alert_rule", "api / High", connections=frozenset({"team-a"}))])
     report = build_report({"team-a": [], "team-b": ["errors_total"]}, scan)
     assert _statuses(report) == {"errors_total": "missing"}
+
+
+def test_jobs_types_and_first_seen_are_kept_per_metric() -> None:
+    from datetime import datetime, timezone
+
+    from backend.app.metric_usage.report import metric_type
+
+    seen = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    report = build_report(
+        {"a": ["req_total", "lat_bucket"], "b": ["req_total"]},
+        _scan(recording_rules={"lat_bucket": frozenset()}),
+        jobs_by_connection={"a": {"req_total": {"web": 3, "api": 2}}, "b": {"req_total": {"web": 1}}},
+        types={"lat": "histogram"},
+        first_seen={"req_total": seen},
+    )
+    items = {item.metric: item for item in report.items}
+    assert items["req_total"].jobs == {"a": {"api": 2, "web": 3}, "b": {"web": 1}}
+    assert (items["req_total"].metric_type, items["req_total"].first_seen, items["req_total"].recording_rule) == ("counter", seen, False)
+    assert (items["lat_bucket"].jobs, items["lat_bucket"].metric_type, items["lat_bucket"].first_seen) == ({}, "histogram", None)
+    assert items["lat_bucket"].recording_rule is True
+
+    assert metric_type("lat_sum", {"lat": "summary"}) == "summary"
+    assert metric_type("temperature", {"temperature": "gauge"}) == "gauge"
+    assert metric_type("temperature", {}) is None
+    assert metric_type("lat_bucket", {}) == "histogram"
+
+
+def test_recording_rules_nobody_reads_are_listed_through_chains() -> None:
+    scan = _scan(
+        ("job:watched:rate5m", "dashboard"),
+        recording_rules={
+            "job:watched:rate5m": frozenset({"http_requests_total"}),
+            "instance:cpu:avg": frozenset({"node_cpu_seconds_total"}),
+            "cluster:cpu:avg": frozenset({"instance:cpu:avg"}),
+            "job:not_yet:rate5m": frozenset({"http_requests_total"}),
+        },
+    )
+    scan.recording_rule_groups = {"instance:cpu:avg": {"node"}, "cluster:cpu:avg": {"node"}}
+    report = build_report(
+        {"p": ["job:watched:rate5m", "instance:cpu:avg", "cluster:cpu:avg", "http_requests_total", "node_cpu_seconds_total"]},
+        scan,
+        analyzed=["cluster:cpu:avg"],
+        series_by_connection={"p": {"instance:cpu:avg": 240, "cluster:cpu:avg": 40}},
+    )
+    unread = {rule.name: rule for rule in report.unread_rules}
+    assert list(unread) == ["instance:cpu:avg", "cluster:cpu:avg", "job:not_yet:rate5m"]
+    assert unread["instance:cpu:avg"].feeds == ("cluster:cpu:avg",)
+    assert (unread["instance:cpu:avg"].groups, unread["instance:cpu:avg"].reads, unread["instance:cpu:avg"].series) == (("node",), ("node_cpu_seconds_total",), 240)
+    assert unread["cluster:cpu:avg"].analyzed is True
+    # Its output doesn't exist yet: no connection, no series.
+    assert (unread["job:not_yet:rate5m"].connections, unread["job:not_yet:rate5m"].series) == ((), None)
+
+
+def test_a_recording_rule_with_problems_is_a_blind_spot_not_unread() -> None:
+    report = build_report(
+        {"p": ["job:errors:rate5m", "http_errors_total"]},
+        _scan(recording_rules={"job:errors:rate5m": frozenset({"http_errors_total"})}),
+        problems={"job:errors:rate5m": (3, 41)},
+    )
+    assert _statuses(report)["job:errors:rate5m"] == "blind_spot"
+    assert report.unread_rules == []

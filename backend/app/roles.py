@@ -37,6 +37,7 @@ _VIEWER_WRITES = [re.compile(pattern) for pattern in (
     r"^/api/prometheus/(preview|test-connection)$",
     r"^/api/cases/\d+/(rca|resolution)/suggest$",
     r"^/api/findings/\d+/suggested-fixes/runbook-draft$",
+    r"^/api/metric-usage/drop-config$",
 )]
 
 # Set-up, labs and data management: Admins only.
