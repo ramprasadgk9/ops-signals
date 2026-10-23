@@ -1,4 +1,4 @@
-# Same as prometheus.yml, plus demo alert rules and an Alertmanager target.
+# Same as prometheus.yml, plus demo alert rules, an Alertmanager target and the Ops Signals backend.
 # Used only by docker-compose.alerting.yml.
 global:
   scrape_interval: 15s
@@ -32,3 +32,12 @@ scrape_configs:
     static_configs:
       - targets:
           - host.docker.internal:9105
+
+  # The web UI backend's findings metrics (docs/finding-metrics.md). Only one backend: the plugin
+  # backend (8002) shares the database and would count every finding twice. Down while the backend
+  # isn't running, or when OPS_SIGNALS_API_TOKEN is set (this job sends no token).
+  - job_name: ops-signals
+    metrics_path: /api/metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8001

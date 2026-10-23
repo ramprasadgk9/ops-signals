@@ -138,22 +138,16 @@ time: it goes up as problems are found and down as cases are closed.
 
 ### On the local stack
 
-The Prometheus that `./scripts/run_all.sh` starts (http://localhost:9090) doesn't scrape Ops Signals
-by default. To try it, add this job under `scrape_configs:` in
-`grafana/prometheus/prometheus.alerting.yml` (the file `run_all.sh` uses; `prometheus.yml` when you run
-`docker-compose.yml` alone):
+The Prometheus that `./scripts/run_all.sh` starts (http://localhost:9090) already scrapes the web UI
+backend on port 8001: job `ops-signals` in `grafana/prometheus/prometheus.alerting.yml`. Run
+`ops_signals_active_findings` on its **Graph** page. The **ops-signals** target on
+http://localhost:9090/targets is **UP** while the backend runs. It is down when
+`OPS_SIGNALS_API_TOKEN` is set, since the job sends no token; add the `authorization` block from
+step 1 to it then. `prometheus.yml`, used when you run `docker-compose.yml` alone, doesn't have the
+job.
 
-```yaml
-  - job_name: ops-signals
-    metrics_path: /api/metrics
-    static_configs:
-      - targets:
-          - host.docker.internal:8001
-```
-
-Then reload Prometheus with `curl -X POST http://localhost:9090/-/reload`. If the change isn't picked
-up (some editors replace the file, and the container keeps the old one), restart the container. The
-**ops-signals** target on http://localhost:9090/targets should be **UP**.
+A Prometheus started before this job was added picks it up after
+`curl -X POST http://localhost:9090/-/reload`, or a restart of the container.
 
 ## Settings
 
