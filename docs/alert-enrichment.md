@@ -92,6 +92,11 @@ rule X"** line with links back to the rule and Alertmanager, and an "Enriched by
 alertmanager alert" footer with the alert's fingerprint. It can't be confused with Ops Signals' own
 finding notifications. When the alert resolves, a short **✅ [RESOLVED]** follow-up is posted.
 
+If the alert rule has a `runbook_url` annotation (the usual Prometheus place for the team's "what to
+do when this fires" page), a **📘 Runbook: Open the runbook** link sits right under the alert
+summary, so whoever is on call has the next step one click away. Only `http://` and `https://` links
+are shown.
+
 ### Advantages
 
 - **Faster triage.** The first questions on every page are answered in the page itself.
@@ -212,6 +217,7 @@ Design details, decision tables and trade-offs: [`design/alert-enrichment-plan.m
 | `ops_signals_lookback: 24h` | More history before the alert (e.g. for metrics with daily patterns) |
 | `ops_signals_analyze: "false"` / `"true"` | Force analysis off or on for this rule |
 | `ops_signals_notify: "false"` | Enrich and store, but don't post to Slack |
+| `runbook_url: <link>` | Standard Prometheus annotation; shown as a runbook link in the Slack message |
 
 #### Controlling Slack messages
 

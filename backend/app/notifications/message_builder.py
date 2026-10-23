@@ -108,6 +108,15 @@ def _link(url: str | None, label: str) -> str:
     return f"<{url}|{label}>" if url else label
 
 
+def _runbook_link(url: str | None) -> str | None:
+    """The rule's runbook_url annotation as a Slack link. Only http(s) links; the characters that
+    end a Slack link early are percent-encoded so a URL can't change the label or the message."""
+    if not url or not url.lower().startswith(("http://", "https://")):
+        return None
+    safe = "".join({"|": "%7C", "<": "%3C", ">": "%3E", " ": "%20"}.get(ch, ch) for ch in url if ch not in "\r\n\t")
+    return _link(safe, "Open the runbook")
+
+
 def _ui_link(ui_base_url: str | None, path: str, label: str) -> str:
     """A link into the Ops Signals UI, or just the label when OPS_SIGNALS_UI_BASE_URL isn't set:
     the old localhost:3000 default opened nothing for anyone reading the message elsewhere."""
@@ -352,11 +361,17 @@ def build_alert_enrichment_blocks(enrichment: dict, ui_base_url: str | None) -> 
         _link(alert.get("external_url"), "Alertmanager") if alert.get("external_url") else None,
     ]
     origin = " · ".join(origin_parts + [link for link in source_links if link])
+    alert_text = f"*Alert:* {alert.get('summary') or alert.get('name')}"
+    runbook = _runbook_link(alert.get("runbook_url"))
+    if runbook and len(runbook) < _SECTION_MAX_LEN // 2:
+        # Clip the summary, not the link, when the two together are too long for one section.
+        runbook_line = f"\n📘 *Runbook:* {runbook}"
+        alert_text = _clip(alert_text, _SECTION_MAX_LEN - len(runbook_line)) + runbook_line
 
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": header_text[:_HEADER_MAX_LEN], "emoji": True}},
         {"type": "context", "elements": [{"type": "mrkdwn", "text": _clip(origin, 2900)}]},
-        {"type": "section", "text": {"type": "mrkdwn", "text": _clip(f"*Alert:* {alert.get('summary') or alert.get('name')}")}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _clip(alert_text)}},
         {"type": "divider"},
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*📈 What happened*\n" + _what_happened(analysis))}},
         {"type": "section", "text": {"type": "mrkdwn", "text": _clip("*🚀 What changed*\n" + _what_changed(enrichment.get("changes"), service, analysis.get("timing"), ui_base_url))}},
