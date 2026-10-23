@@ -693,6 +693,7 @@ def _alert_dict(alert: NormalizedAlert, metric_key: str | None) -> dict[str, Any
         "fingerprint": alert.fingerprint,
         "generator_url": alert.generator_url,
         "external_url": alert.external_url,
+        "runbook_url": (alert.annotations.get("runbook_url") or "").strip() or None,
         "metric_key": metric_key,
     }
 

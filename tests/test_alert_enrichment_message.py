@@ -81,6 +81,47 @@ def test_message_clearly_identifies_it_came_from_an_alertmanager_alert() -> None
     assert "fingerprint `a1b2c3d4`" in footer
 
 
+def _alert_section(payload: dict) -> str:
+    return payload["blocks"][2]["text"]["text"]
+
+
+def test_runbook_url_is_linked_under_the_alert_summary() -> None:
+    enrichment = _enrichment()
+    enrichment["alert"]["runbook_url"] = "https://wiki.example.com/runbooks/checkout-latency"
+    section = _alert_section(build_alert_enrichment_blocks(enrichment, UI))
+    assert section == (
+        "*Alert:* checkout-api p95 latency above 300ms\n"
+        "📘 *Runbook:* <https://wiki.example.com/runbooks/checkout-latency|Open the runbook>"
+    )
+
+
+def test_no_runbook_url_adds_no_runbook_line() -> None:
+    assert "Runbook" not in _text(build_alert_enrichment_blocks(_enrichment(), UI))
+
+
+def test_runbook_url_that_is_not_a_web_link_is_left_out() -> None:
+    enrichment = _enrichment()
+    enrichment["alert"]["runbook_url"] = "javascript:alert(1)"
+    assert "Runbook" not in _text(build_alert_enrichment_blocks(enrichment, UI))
+
+
+def test_runbook_url_cannot_break_out_of_its_slack_link() -> None:
+    enrichment = _enrichment()
+    enrichment["alert"]["runbook_url"] = "https://wiki.example.com/a b|<!channel>"
+    section = _alert_section(build_alert_enrichment_blocks(enrichment, UI))
+    assert "<https://wiki.example.com/a%20b%7C%3C!channel%3E|Open the runbook>" in section
+    assert "<!channel>" not in section
+
+
+def test_long_summary_is_clipped_but_the_runbook_link_survives() -> None:
+    enrichment = _enrichment()
+    enrichment["alert"]["summary"] = "x" * 5000
+    enrichment["alert"]["runbook_url"] = "https://wiki.example.com/runbooks/checkout-latency"
+    section = _alert_section(build_alert_enrichment_blocks(enrichment, UI))
+    assert len(section) <= 3000
+    assert section.endswith("<https://wiki.example.com/runbooks/checkout-latency|Open the runbook>")
+
+
 def test_generic_source_is_labelled_as_external_alert() -> None:
     payload = build_alert_enrichment_blocks(_enrichment(source="generic"), UI)
     assert "*External alert*" in _text(payload)

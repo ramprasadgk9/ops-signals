@@ -207,6 +207,19 @@ def test_repeat_notification_is_deduplicated_and_resolve_posts_follow_up(harness
     assert len(_rows()) == 2
 
 
+def test_runbook_url_annotation_is_linked_in_the_slack_message(harness) -> None:
+    h = harness()
+    h.client.post(
+        "/api/integrations/alertmanager",
+        json=_payload(runbook_url="https://wiki.example.com/runbooks/checkout-latency"),
+    )
+    assert len(h.posted) == 1
+    assert (
+        "📘 *Runbook:* <https://wiki.example.com/runbooks/checkout-latency|Open the runbook>"
+        in _message_text(h.posted[0])
+    )
+
+
 @pytest.mark.parametrize(
     ("overrides", "annotations", "expected"),
     [
