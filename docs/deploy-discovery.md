@@ -44,7 +44,7 @@ build_info differs from the one on your findings, list both in `OPS_SIGNALS_SERV
 
 ## Check it
 
-**Settings → Setup check → Deploy events** says how many deploys were found in the last 7 days, or
+The **Setup check** page (left menu), line **Deploy events**, says how many deploys were found in the last 7 days, or
 that none were, or that the last search failed and why. `GET /api/events` lists them.
 
 ## Settings
