@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterCaseRows, groupInvestigationRows, toCaseRow } from './casesService';
+import { filterCaseRows, inCaseTab, toCaseRow } from './casesService';
 import type { OperationalCase } from '../types';
 
 function makeCase(overrides: Partial<OperationalCase> = {}): OperationalCase {
@@ -38,23 +38,32 @@ describe('cases service', () => {
     expect(toCaseRow(makeCase()).assignment).toBe('unsupported');
   });
 
-  it('filters case rows by search, status, and severity', () => {
-    const rows = [toCaseRow(makeCase()), toCaseRow(makeCase({ id: 8, case_title: 'Latency spike', case_status: 'resolved' }))];
-    expect(filterCaseRows(rows, { search: 'cpu', status: 'open', severity: 'critical' })).toHaveLength(1);
+  it('filters case rows by search and severity', () => {
+    const rows = [toCaseRow(makeCase()), toCaseRow(makeCase({ id: 8, case_title: 'Latency spike', finding_snapshot: { ...makeCase().finding_snapshot, title: 'Latency spike', summary: 'Slow.', metric_name: 'latency', health_status: 'normal' } }))];
+    expect(filterCaseRows(rows, { search: 'cpu', severity: 'critical' }).map((row) => row.id)).toEqual([7]);
+    expect(filterCaseRows(rows, { search: 'latency', severity: 'all' }).map((row) => row.id)).toEqual([8]);
   });
 
-  it('groups investigations from existing case fields', () => {
-    const groups = groupInvestigationRows([
-      toCaseRow(makeCase()),
-      toCaseRow(makeCase({
-        id: 8,
-        case_status: 'resolved',
-        root_cause_status: 'identified',
-        finding_snapshot: { ...makeCase().finding_snapshot, health_status: 'normal', importance_score: 0.2, investigation_priority: 0.2 },
-      })),
-    ]);
-    expect(groups.attention).toHaveLength(1);
-    expect(groups.all).toHaveLength(2);
+  it('puts each case in the status tabs by where its work stands', () => {
+    const notStarted = toCaseRow(makeCase());
+    const inProgress = toCaseRow(makeCase({ id: 8, investigation_status: 'in_progress' }));
+    const onHold = toCaseRow(makeCase({ id: 9, investigation_status: 'on_hold' }));
+    const resolved = toCaseRow(makeCase({ id: 10, case_status: 'resolved', investigation_status: 'completed' }));
+    const rows = [notStarted, inProgress, onHold, resolved];
+    const ids = (tab: Parameters<typeof inCaseTab>[1]) => rows.filter((row) => inCaseTab(row, tab)).map((row) => row.id);
+
+    expect(rows.map((row) => row.workState)).toEqual(['not_started', 'in_progress', 'on_hold', 'resolved']);
+    expect(ids('open')).toEqual([7, 8]);
+    expect(ids('in-progress')).toEqual([8]);
+    expect(ids('on-hold')).toEqual([9]);
+    expect(ids('resolved')).toEqual([10]);
+    expect(ids('all')).toEqual([7, 8, 9, 10]);
+  });
+
+  it('counts a resolved case as resolved even if its investigation was left on hold', () => {
+    const row = toCaseRow(makeCase({ case_status: 'resolved', investigation_status: 'on_hold' }));
+    expect(row.workState).toBe('resolved');
+    expect(inCaseTab(row, 'on-hold')).toBe(false);
   });
 });
 
@@ -62,19 +71,18 @@ describe('imported cases', () => {
   const imported = makeCase({ id: 8, finding_id: null, source: 'pagerduty', source_id: 'Q1ABC23', case_status: 'resolved', root_cause_status: 'confirmed' });
   const detected = makeCase();
 
-  it('marks imported rows and never flags them as needing attention', () => {
+  it('marks imported rows', () => {
     const row = toCaseRow(imported);
     expect(row.imported).toBe(true);
     expect(row.source).toBe('pagerduty');
-    expect(row.needsAttention).toBe(false);
     expect(toCaseRow(detected).imported).toBe(false);
   });
 
   it('filters by origin and finds imported cases by their source ID', () => {
     const rows = [toCaseRow(imported), toCaseRow(detected)];
-    expect(filterCaseRows(rows, { search: '', status: 'all', severity: 'all', origin: 'imported' }).map((row) => row.id)).toEqual([8]);
-    expect(filterCaseRows(rows, { search: '', status: 'all', severity: 'all', origin: 'detected' }).map((row) => row.id)).toEqual([7]);
-    expect(filterCaseRows(rows, { search: 'q1abc23', status: 'all', severity: 'all' }).map((row) => row.id)).toEqual([8]);
+    expect(filterCaseRows(rows, { search: '', severity: 'all', origin: 'imported' }).map((row) => row.id)).toEqual([8]);
+    expect(filterCaseRows(rows, { search: '', severity: 'all', origin: 'detected' }).map((row) => row.id)).toEqual([7]);
+    expect(filterCaseRows(rows, { search: 'q1abc23', severity: 'all' }).map((row) => row.id)).toEqual([8]);
   });
 
   it('marks a resolved case whose root cause is not verified, and only that one', () => {

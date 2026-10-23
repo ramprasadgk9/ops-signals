@@ -21,10 +21,10 @@ export type CaseRow = {
   rootCause: string | null;
   resolution: string | null;
   notes: Array<{ timestamp?: string; note: string }>;
-  priority: 'Critical' | 'High' | 'Medium';
   isOpen: boolean;
-  needsAttention: boolean;
   isOnHold: boolean;
+  /** Where the work stands: the status pill on the Cases list. */
+  workState: CaseWorkState;
   /** Imported from an incident tool or postmortem rather than opened from a finding. */
   imported: boolean;
   source: string;
@@ -34,15 +34,38 @@ export type CaseRow = {
   rootCauseUnconfirmed: boolean;
 };
 
+export type CaseWorkState = 'not_started' | 'in_progress' | 'on_hold' | 'resolved';
+
+/** Tabs on the Cases page; `open` includes in-progress cases. */
+export const CASE_TABS = [
+  { value: 'open', label: 'Open' },
+  { value: 'in-progress', label: 'In progress' },
+  { value: 'on-hold', label: 'On hold' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'all', label: 'All' },
+] as const;
+
+export type CaseTab = (typeof CASE_TABS)[number]['value'];
+
+export function isCaseTab(value: string | null): value is CaseTab {
+  return CASE_TABS.some((tab) => tab.value === value);
+}
+
 export function isClosedCaseStatus(status?: string | null) {
   return CLOSED_CASE_STATUSES.has(status?.toLowerCase() ?? '');
 }
 
 export function toCaseRow(item: OperationalCase): CaseRow {
   const severity = item.finding_snapshot?.health_status ?? 'unknown';
-  const priorityScore = item.finding_snapshot?.investigation_priority ?? item.finding_snapshot?.importance_score ?? 0;
-  const priority = priorityScore >= 0.8 || severity === 'critical' ? 'Critical' : priorityScore >= 0.6 || severity === 'high' ? 'High' : 'Medium';
-  const isOnHold = item.case_status === 'on_hold' || item.investigation_status === 'on_hold';
+  const isOpen = !isClosedCaseStatus(item.case_status);
+  const isOnHold = isOpen && (item.case_status === 'on_hold' || item.investigation_status === 'on_hold');
+  const workState: CaseWorkState = !isOpen
+    ? 'resolved'
+    : isOnHold
+      ? 'on_hold'
+      : item.investigation_status === 'in_progress' || item.case_status === 'in_progress'
+        ? 'in_progress'
+        : 'not_started';
 
   return {
     id: item.id,
@@ -62,10 +85,9 @@ export function toCaseRow(item: OperationalCase): CaseRow {
     rootCause: item.root_cause_summary ?? null,
     resolution: item.outcome_summary ?? item.corrective_action ?? null,
     notes: item.investigation_notes ?? [],
-    priority,
-    isOpen: !isClosedCaseStatus(item.case_status),
-    needsAttention: !isImportedCase(item) && (severity === 'critical' || item.root_cause_status === 'unknown'),
+    isOpen,
     isOnHold,
+    workState,
     imported: isImportedCase(item),
     source: item.source ?? 'detected',
     sourceId: item.source_id ?? null,
@@ -82,26 +104,24 @@ export function toCaseRows(cases: OperationalCase[]) {
   return cases.map(toCaseRow);
 }
 
+export function inCaseTab(row: CaseRow, tab: CaseTab) {
+  if (tab === 'open') return row.isOpen && !row.isOnHold;
+  if (tab === 'in-progress') return row.workState === 'in_progress';
+  if (tab === 'on-hold') return row.isOnHold;
+  if (tab === 'resolved') return !row.isOpen;
+  return true;
+}
+
 export function filterCaseRows(
   rows: CaseRow[],
-  filters: { search: string; status: string; severity: string; origin?: 'all' | 'detected' | 'imported' }
+  filters: { search: string; severity: string; origin?: 'all' | 'detected' | 'imported' }
 ) {
   const term = filters.search.trim().toLowerCase();
   const origin = filters.origin ?? 'all';
   return rows.filter((row) => {
-    const matchesSearch = !term || [row.caseId, row.title, row.summary, row.service, row.sourceId ?? ''].some((value) => value.toLowerCase().includes(term));
-    const matchesStatus = filters.status === 'all' || row.status === filters.status || row.investigationStatus === filters.status;
+    const matchesSearch = !term || [row.caseId, row.title, row.summary, row.service, row.metric, row.sourceId ?? ''].some((value) => value.toLowerCase().includes(term));
     const matchesSeverity = filters.severity === 'all' || row.severity.toLowerCase() === filters.severity;
     const matchesOrigin = origin === 'all' || (origin === 'imported') === row.imported;
-    return matchesSearch && matchesStatus && matchesSeverity && matchesOrigin;
+    return matchesSearch && matchesSeverity && matchesOrigin;
   });
-}
-
-export function groupInvestigationRows(rows: CaseRow[]) {
-  return {
-    active: rows.filter((row) => row.isOpen && !row.needsAttention && !row.isOnHold),
-    attention: rows.filter((row) => row.needsAttention && !row.isOnHold),
-    onHold: rows.filter((row) => row.isOnHold),
-    all: rows,
-  };
 }

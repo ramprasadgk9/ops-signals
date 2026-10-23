@@ -22,7 +22,6 @@ import { StumpyMotifLabPage } from '../pages/analyzer-labs/StumpyMotifLabPage';
 import { TrendLabPage } from '../pages/analyzer-labs/TrendLabPage';
 import { ZScoreAnomalyLabPage } from '../pages/analyzer-labs/ZScoreAnomalyLabPage';
 import { CasesPage } from '../pages/CasesPage';
-import { InvestigationsPage } from '../pages/InvestigationsPage';
 import { IntegrationsPage } from '../pages/IntegrationsPage';
 import { AlertsPage } from '../pages/AlertsPage';
 import { SetupCheckPage } from '../pages/SetupCheckPage';
@@ -34,7 +33,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<OverviewPage />} />
       <Route path="/autonomous-monitoring" element={<AutonomousMonitoringPage />} />
-      <Route path="/investigations" element={<InvestigationsPage />} />
+      <Route path="/investigations" element={<Navigate to="/cases?tab=in-progress" replace />} />
       <Route path="/cases" element={<CasesPage />} />
       <Route path="/cases/:caseId" element={<CaseDetailsPage />} />
       <Route path="/questions/:questionId" element={<QuestionAnswerPage />} />

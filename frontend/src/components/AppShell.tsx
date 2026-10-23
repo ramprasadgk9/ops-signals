@@ -14,7 +14,6 @@ import {
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import InputRoundedIcon from '@mui/icons-material/InputRounded';
 import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
-import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import CrisisAlertRoundedIcon from '@mui/icons-material/CrisisAlertRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
@@ -64,7 +63,6 @@ const navItems: NavItem[] = [
   { label: 'Alerts', to: '/alerts', icon: <NotificationsActiveOutlinedIcon />, feature: 'alert_enrichment' },
   { label: 'Integrations', to: '/integrations', icon: <InputRoundedIcon /> },
   { label: 'Autonomous Analysis Configure', to: '/autonomous-monitoring', icon: <AutoModeRoundedIcon />, feature: 'autonomous_analysis' },
-  { label: 'Investigations', to: '/investigations', icon: <TravelExploreRoundedIcon /> },
   { label: 'Findings', to: '/findings', icon: <CrisisAlertRoundedIcon /> },
   { label: 'Metric Usage', to: '/metric-usage', icon: <VisibilityOutlinedIcon />, feature: 'metric_usage' },
   { label: 'Cases', to: '/cases', icon: <WorkOutlineRoundedIcon />, match: (path) => path === '/cases' || path.startsWith('/cases/') },
