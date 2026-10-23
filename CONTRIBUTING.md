@@ -7,6 +7,8 @@ Thanks for helping improve Ops Signals.
 - Read the README and the architecture docs
 - Check whether your change affects PostgreSQL, Qdrant, or the React UI
 - Prefer small, focused pull requests
+- Skim [`CLAUDE.md`](CLAUDE.md): the project's conventions, commands and known traps (it's also what
+  AI coding assistants read)
 
 ## Development Workflow
 
