@@ -75,6 +75,12 @@ export function testedCaption(trust: FindingTrust): string {
   return `${tested.checked} checked in tests${fit}`;
 }
 
+/** The tested rate in one sentence, for the evidence badge's tooltip; null when there is none. */
+export function testedSentence(trust?: FindingTrust | null): string | null {
+  if (!trust?.tested) return null;
+  return `In tests, findings like this were real ${pct(trust.tested.real)} of the time (${trust.tested.checked} checked).`;
+}
+
 export function testedTooltip(trust: FindingTrust): string {
   const tested = trust.tested;
   if (!tested) return '';

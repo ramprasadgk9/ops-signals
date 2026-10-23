@@ -266,29 +266,57 @@ describe('FindingCard seen before', () => {
     novelty: { level: 'recurring', label: 'Recurring · 3 past cases', explanation: 'Like 3 past cases on drill-cart.', matching_cases: 3, all_matching_cases: 3 },
   };
 
+  const trusted: Finding = {
+    ...newPodsFinding,
+    trust: {
+      group: 'level_change_agree', tier: 'needs_attention', badge: 'strong', checks: ['change', 'pyod_outlier'],
+      tested: { real: 0.67, checked: 503, random: 0.6, dataset: 'RCAEval RE1', data_kind: 'microservice', fits_metric: true },
+      service: { real: 0, answered: 0, min_answers: 5 }, your_answer: null,
+    },
+  };
+
   function renderWith(answer?: SeenBeforeResponse) {
     const onViewDetails = vi.fn();
     render(
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter>
-          <FindingCard finding={newPodsFinding} onViewDetails={onViewDetails} seenBefore={answer} />
+          <FindingCard finding={trusted} onViewDetails={onViewDetails} seenBefore={answer} />
         </MemoryRouter>
       </QueryClientProvider>
     );
     return onViewDetails;
   }
 
-  it('shows one chip for past cases and opens the details at them', () => {
+  it('shows past cases next to "On your service" and opens the details at them', () => {
     const onViewDetails = renderWith(seenBefore);
 
-    fireEvent.click(screen.getByText('Recurring · 3 past cases'));
+    expect(screen.getByText('Recurring · 3 past cases')).toBeInTheDocument();
+    expect(screen.getByText('Closest: “Cart errors after a bad deploy”')).toBeInTheDocument();
+    expect(screen.getByText('0 of 5 answers')).toBeInTheDocument();
+    expect(screen.queryByText('In testing')).not.toBeInTheDocument();
 
-    expect(onViewDetails).toHaveBeenCalledWith(newPodsFinding, 'seen-before');
+    fireEvent.click(screen.getByRole('button', { name: 'See past cases' }));
+
+    expect(onViewDetails).toHaveBeenCalledWith(trusted, 'seen-before');
   });
 
-  it('shows nothing for a new pattern or when past cases cannot be searched', () => {
+  it('says so when nothing like it was seen', () => {
     renderWith({ ...seenBefore, matches: [], novelty: { ...seenBefore.novelty!, level: 'new', label: 'New pattern' } });
+    expect(screen.getByText('New pattern')).toBeInTheDocument();
+    expect(screen.getByText('No past cases look like this yet.')).toBeInTheDocument();
+  });
+
+  it('hides the column when past cases cannot be searched', () => {
+    renderWith({ ...seenBefore, available: false, matches: [], novelty: null, reason: 'Memory is not enabled.' });
     expect(screen.queryByTestId('finding-seen-before')).not.toBeInTheDocument();
+  });
+
+  it('puts the tested rate on the evidence badge', async () => {
+    renderWith(seenBefore);
+
+    fireEvent.mouseOver(screen.getByText('Strong evidence'));
+
+    expect(await screen.findByText(/In tests, findings like this were real 67% of the time \(503 checked\)\./)).toBeInTheDocument();
   });
 
   it('leaves importance, category and signal details to the details drawer', () => {

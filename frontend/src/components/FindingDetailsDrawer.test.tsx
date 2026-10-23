@@ -326,4 +326,19 @@ describe('FindingDetailsDrawer seen before', () => {
 
     expect(await screen.findByText(/Operational memory is not enabled/)).toBeInTheDocument();
   });
+
+  it('shows the tested rate the card no longer shows', async () => {
+    renderDrawer({
+      ...otlpFinding,
+      trust: {
+        group: 'level_change_single', tier: 'needs_attention', badge: 'moderate', checks: ['change'],
+        tested: { real: 0.67, checked: 503, random: 0.6, dataset: 'RCAEval RE1', data_kind: 'microservice', fits_metric: true },
+        service: { real: 0, answered: 0, min_answers: 5 }, your_answer: null,
+      },
+    });
+
+    expect(await screen.findByText('In testing')).toBeInTheDocument();
+    expect(screen.getByText('67% were real')).toBeInTheDocument();
+    expect(screen.getByText('503 checked in tests')).toBeInTheDocument();
+  });
 });

@@ -1,9 +1,8 @@
-import { Box, Button, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { Box, Button, LinearProgress, Link, Stack, Typography } from '@mui/material';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import type { Finding, FindingVerdict } from '../types';
-import { answerLine, movedNote, serviceCaption, serviceHeadline, serviceLabel, serviceProgress, serviceRateLeads, testedCaption, testedHeadline, testedTooltip, VERDICTS } from '../utils/findingTrust';
+import type { Finding, FindingVerdict, SeenBeforeResponse } from '../types';
+import { answerLine, movedNote, serviceCaption, serviceHeadline, serviceLabel, serviceProgress, serviceRateLeads, VERDICTS } from '../utils/findingTrust';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { LockNote } from './LockNote';
 
@@ -11,26 +10,22 @@ type Props = {
   finding: Finding;
   /** Only the "Was this real?" answer: for context findings, whose tested rate is no better than chance. */
   answerOnly?: boolean;
+  /** Past cases like this finding; the column shows only when past cases can be searched. */
+  seenBefore?: SeenBeforeResponse;
+  /** Opens the finding's details at its past cases. */
+  onSeePastCases?: () => void;
 };
 
-function Column({ label, headline, caption, value, color, info }: {
+function Column({ label, headline, caption, value, color }: {
   label: string;
   headline: string;
   caption: string;
   value: number | null;
-  color: 'success' | 'warning' | 'inherit';
-  info?: string;
+  color: 'success' | 'inherit';
 }) {
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Stack direction="row" spacing={0.5} alignItems="center">
-        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: '.04em', color: 'text.secondary' }}>{label}</Typography>
-        {info ? (
-          <Tooltip title={info} arrow>
-            <InfoOutlinedIcon aria-label={`About ${label.toLowerCase()}`} sx={{ fontSize: 15, color: 'text.secondary', cursor: 'help' }} />
-          </Tooltip>
-        ) : null}
-      </Stack>
+      <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: '.04em', color: 'text.secondary' }}>{label}</Typography>
       <Typography sx={{ fontSize: 20, fontWeight: 800, lineHeight: 1.3 }}>{headline}</Typography>
       {value !== null ? (
         <LinearProgress variant="determinate" value={Math.round(value * 100)} color={color} sx={{ height: 7, borderRadius: 4, my: 0.75 }} />
@@ -40,8 +35,36 @@ function Column({ label, headline, caption, value, color, info }: {
   );
 }
 
-/** "On your service" next to "In testing", and the "Was this real?" answer that feeds the first. */
-export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
+function SeenBeforeColumn({ seenBefore, onSeePastCases }: { seenBefore: SeenBeforeResponse; onSeePastCases?: () => void }) {
+  const closest = seenBefore.matches[0];
+  return (
+    <Box sx={{ minWidth: 0 }} data-testid="finding-seen-before">
+      <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: '.04em', color: 'text.secondary' }}>Seen before</Typography>
+      <Typography sx={{ fontSize: 20, fontWeight: 800, lineHeight: 1.3 }}>{seenBefore.novelty?.label ?? (closest ? 'Seen before' : 'New pattern')}</Typography>
+      {closest ? (
+        <>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4, mt: 0.75 }}>
+            Closest: “{closest.title}”
+          </Typography>
+          {closest.corrective_action ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4 }}>Fixed by: {closest.corrective_action}</Typography>
+          ) : null}
+          {onSeePastCases ? (
+            <Link component="button" type="button" variant="caption" onClick={onSeePastCases} sx={{ fontWeight: 700, mt: 0.5 }}>
+              See past cases
+            </Link>
+          ) : null}
+        </>
+      ) : (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4, mt: 0.75 }}>No past cases look like this yet.</Typography>
+      )}
+    </Box>
+  );
+}
+
+/** "On your service" next to "Seen before", and the "Was this real?" answer that feeds the first. The
+ * tested rate is on the evidence badge and in the finding's details. */
+export function FindingTrustPanel({ finding, answerOnly = false, seenBefore, onSeePastCases }: Props) {
   const { canEdit } = useWebPermissions();
   const queryClient = useQueryClient();
   const answer = useMutation({
@@ -55,29 +78,27 @@ export function FindingTrustPanel({ finding, answerOnly = false }: Props) {
   if (!trust) return null;
   const chosen = answer.variables && answer.isPending ? answer.variables : trust.your_answer;
   const note = movedNote(trust, finding.service);
+  const past = seenBefore?.available ? seenBefore : null;
 
   return (
     <Box data-testid="finding-trust" sx={{ borderTop: 1, borderColor: 'divider', pt: 1.5, mt: 1.5 }}>
       {note ? <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>{note}</Typography> : null}
-      {answerOnly ? null : <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-        <Column
-          label={serviceLabel(trust)}
-          headline={serviceHeadline(trust)}
-          caption={serviceCaption(trust, finding.service)}
-          value={serviceProgress(trust)}
-          color={serviceRateLeads(trust) ? 'success' : 'inherit'}
-        />
-        <Column
-          label="In testing"
-          headline={testedHeadline(trust)}
-          caption={testedCaption(trust)}
-          value={trust.tested ? trust.tested.real : null}
-          color="inherit"
-          info={testedTooltip(trust) || undefined}
-        />
-      </Box>}
+      {answerOnly && !past ? null : (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: answerOnly || !past ? '1fr' : '1fr 1fr' }, gap: 2 }}>
+          {answerOnly ? null : (
+            <Column
+              label={serviceLabel(trust)}
+              headline={serviceHeadline(trust)}
+              caption={serviceCaption(trust, finding.service)}
+              value={serviceProgress(trust)}
+              color={serviceRateLeads(trust) ? 'success' : 'inherit'}
+            />
+          )}
+          {past ? <SeenBeforeColumn seenBefore={past} onSeePastCases={onSeePastCases} /> : null}
+        </Box>
+      )}
       {finding.id ? (
-        <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mt: answerOnly ? 0 : 1.5 }}>
+        <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mt: answerOnly && !past ? 0 : 1.5 }}>
           <Typography variant="caption" color="text.secondary">Was this real?</Typography>
           {VERDICTS.map((verdict) => (
             <Button

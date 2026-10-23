@@ -414,13 +414,13 @@ describe('FindingsPage trust', () => {
     vi.clearAllMocks();
   });
 
-  it('lists findings that need attention with their tested rate, and folds context away', async () => {
+  it('lists findings that need attention with their evidence, and folds context away', async () => {
     renderAt('/findings');
 
     expect(await screen.findByText('Latency moved to a new level')).toBeInTheDocument();
     expect(screen.getByText('Strong evidence')).toBeInTheDocument();
-    expect(screen.getByText('91% were real')).toBeInTheDocument();
-    expect(screen.getByText('266 checked in tests')).toBeInTheDocument();
+    // The tested rate is on the evidence badge's tooltip and in the details, not the card.
+    expect(screen.queryByText('91% were real')).not.toBeInTheDocument();
     expect(screen.getByText('0 of 5 answers')).toBeInTheDocument();
     expect(screen.getByText('Showing 1 of 1 · 1 context only')).toBeInTheDocument();
     expect(screen.queryByText('CPU looked unusual')).not.toBeInTheDocument();
@@ -428,8 +428,8 @@ describe('FindingsPage trust', () => {
     fireEvent.click(screen.getByRole('button', { name: /Context only \(1\)/ }));
 
     expect(await screen.findByText('CPU looked unusual')).toBeInTheDocument();
-    // A context finding can be answered, but shows no tested rate: it was no better than chance.
-    expect(screen.getAllByText('91% were real')).toHaveLength(1);
+    // A context finding can be answered, but shows no "On your service" column.
+    expect(screen.getAllByText('0 of 5 answers')).toHaveLength(1);
     expect(screen.getAllByText('Was this real?')).toHaveLength(2);
   });
 
