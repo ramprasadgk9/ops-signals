@@ -3,7 +3,7 @@ import { env } from '../../shared/env';
 import { makeRunId, seedFinding, createCaseFromFinding, cleanupRun } from '../../shared/db';
 
 /**
- * Search matches caseId/title/summary/service; status matches case_status OR investigation_status;
+ * Search matches caseId/title/summary/service/metric; status is a tab (Open, In progress, ...);
  * severity matches finding_snapshot.health_status exactly (lowercased) — see filterCaseRows() in
  * frontend/src/standalone/casesService.ts. Seeds two cases with deliberately different severities
  * so the severity filter has something real to narrow between.
@@ -42,11 +42,10 @@ test('search and severity filters narrow the cases table to the expected rows', 
     await expect(page.getByText(normalTitle, { exact: true })).not.toBeVisible();
     await page.getByPlaceholder('Search cases...').fill('');
 
-    // Severity filter: first combobox is status, second is severity (neither has an accessible
-    // label tied to its purpose — both are named by their currently-selected option text).
+    // Severity filter: the first combobox (named by its selected option text).
     // Scoped to <main> because the app header's global search is a combobox too.
     await page.getByPlaceholder('Search cases...').fill(runId);
-    const severitySelect = page.getByRole('main').getByRole('combobox').nth(1);
+    const severitySelect = page.getByRole('main').getByRole('combobox').first();
     await severitySelect.click();
     await page.getByRole('option', { name: 'Critical' }).click();
     await expect(page.getByText(criticalTitle, { exact: true })).toBeVisible();

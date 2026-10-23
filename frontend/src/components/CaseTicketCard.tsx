@@ -104,7 +104,6 @@ export function CaseTicketCard({ caseId, readOnly = false }: CaseTicketCardProps
           queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
           queryClient.invalidateQueries({ queryKey: ['case'] });
           queryClient.invalidateQueries({ queryKey: ['cases'] });
-          queryClient.invalidateQueries({ queryKey: ['cases-investigations'] });
         } else if (op.status === 'ambiguous_outcome') {
           setActiveOpId(null);
           setAmbiguousOp(op);
@@ -148,7 +147,6 @@ export function CaseTicketCard({ caseId, readOnly = false }: CaseTicketCardProps
         queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
         queryClient.invalidateQueries({ queryKey: ['case'] });
         queryClient.invalidateQueries({ queryKey: ['cases'] });
-        queryClient.invalidateQueries({ queryKey: ['cases-investigations'] });
       } else {
         setActiveOpId(data.operation_id);
       }
@@ -178,7 +176,6 @@ export function CaseTicketCard({ caseId, readOnly = false }: CaseTicketCardProps
       queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case'] });
       queryClient.invalidateQueries({ queryKey: ['cases'] });
-      queryClient.invalidateQueries({ queryKey: ['cases-investigations'] });
     },
     onError: (err: any) => {
       setErrorMessage(err.message || 'Failed to promote comment to note');
@@ -201,7 +198,6 @@ export function CaseTicketCard({ caseId, readOnly = false }: CaseTicketCardProps
       queryClient.invalidateQueries({ queryKey: ['caseTicketEvents', caseId] });
       queryClient.invalidateQueries({ queryKey: ['case'] });
       queryClient.invalidateQueries({ queryKey: ['cases'] });
-      queryClient.invalidateQueries({ queryKey: ['cases-investigations'] });
     },
     onError: (err: any) => {
       setErrorMessage(err.message || 'Failed to triage comments with AI');
