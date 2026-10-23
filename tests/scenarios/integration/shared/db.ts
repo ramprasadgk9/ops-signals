@@ -277,6 +277,53 @@ export async function cleanupChangeEvents(service: string): Promise<void> {
   await pool.query(`delete from ops_change_events where service = $1`, [service]);
 }
 
+export type SeedMetricUsageItem = {
+  metric: string;
+  status?: string;
+  series?: number;
+  /** Active series per job label, per connection. */
+  jobs?: Record<string, Record<string, number>>;
+  metricType?: string | null;
+  analyzed?: boolean;
+  recordingRule?: boolean;
+  firstSeen?: Date | null;
+};
+
+/** A completed metric usage check, newest of all, so the Metric Usage page shows it. */
+export async function seedMetricUsageSnapshot(params: {
+  id: string;
+  items: SeedMetricUsageItem[];
+  unreadRules?: Array<Record<string, unknown>>;
+}): Promise<void> {
+  const unwatched = params.items.filter((item) => (item.status ?? 'unwatched') === 'unwatched');
+  const series = params.items.reduce((sum, item) => sum + (item.series ?? 0), 0);
+  const sources = {
+    grafana: { configured: true, dashboards_read: 3, alert_rules_read: 2, dashboards_excluded: [] },
+    prometheus: [{ id: 'default', name: 'Local Prometheus', metrics: params.items.length, rule_groups: 1 }],
+    unresolved_queries: [], name_patterns: [], warnings: [],
+  };
+  await pool.query(
+    `insert into metric_usage_snapshots (id, trigger, status, metrics_total, watched, blind_spots, unwatched, missing,
+       series_total, series_unwatched, sources_json, unread_rules_json, created_at)
+     values ($1, 'manual', 'completed', $2, 0, 0, $3, 0, $4, $4, $5, $6, now() + interval '1 minute')`,
+    [params.id, params.items.length, unwatched.length, series, JSON.stringify(sources), JSON.stringify(params.unreadRules ?? [])]
+  );
+  for (const item of params.items) {
+    await pool.query(
+      `insert into metric_usage_items (snapshot_id, metric_name, status, connections_json, usages_json, via_recording_rules_json,
+         problem_findings, analyzed, series, jobs_json, metric_type, recording_rule, first_seen)
+       values ($1, $2, $3, '["default"]', '[]', '[]', 0, $4, $5, $6, $7, $8, $9)`,
+      [params.id, item.metric, item.status ?? 'unwatched', item.analyzed ?? false, item.series ?? null,
+        JSON.stringify(item.jobs ?? {}), item.metricType ?? null, item.recordingRule ?? false, item.firstSeen ?? null]
+    );
+  }
+}
+
+export async function cleanupMetricUsageSnapshot(id: string): Promise<void> {
+  await pool.query(`delete from metric_usage_items where snapshot_id = $1`, [id]);
+  await pool.query(`delete from metric_usage_snapshots where id = $1`, [id]);
+}
+
 export async function closeDb(): Promise<void> {
   await pool.end();
 }

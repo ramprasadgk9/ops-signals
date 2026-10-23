@@ -573,20 +573,39 @@ class PrometheusQueryService:
             warnings=warnings,
         )
 
-    def series_counts_by_name(self) -> dict[str, int]:
-        """Active series per metric name (the ones with a sample in the last few minutes) - the
-        number metrics storage is usually sized and billed by."""
+    def series_counts_by_job(self) -> dict[str, dict[str, int]]:
+        """Active series per metric name and scrape job (the ones with a sample in the last few
+        minutes) - the number metrics storage is usually sized and billed by. Series without a job
+        label count under ""."""
         if not self.config.base_url:
             raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
-        payload = self._get_json("/api/v1/query", {"query": 'count by (__name__) ({__name__=~".+"})'})
+        payload = self._get_json("/api/v1/query", {"query": 'count by (__name__, job) ({__name__=~".+"})'})
         if payload.get("status") != "success":
             raise HTTPException(status_code=502, detail=str(payload.get("error") or "Prometheus series count failed"))
-        counts: dict[str, int] = {}
+        counts: dict[str, dict[str, int]] = {}
         for row in (payload.get("data") or {}).get("result") or []:
-            name = (row.get("metric") or {}).get("__name__")
+            labels = row.get("metric") or {}
+            name = labels.get("__name__")
             if name:
-                counts[name] = int(float(row["value"][1]))
+                jobs = counts.setdefault(name, {})
+                jobs[labels.get("job", "")] = jobs.get(labels.get("job", ""), 0) + int(float(row["value"][1]))
         return counts
+
+    def metric_types(self) -> dict[str, str]:
+        """The type each metric declares ("counter", "gauge", "histogram", "summary"...), from
+        /api/v1/metadata. Histograms and summaries are listed under their base name, without
+        _bucket, _sum or _count."""
+        if not self.config.base_url:
+            raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
+        payload = self._get_json("/api/v1/metadata", {})
+        if payload.get("status") != "success":
+            raise HTTPException(status_code=502, detail=str(payload.get("error") or "Prometheus metadata request failed"))
+        types: dict[str, str] = {}
+        for name, entries in (payload.get("data") or {}).items():
+            kinds = {entry.get("type") for entry in entries or [] if entry.get("type")}
+            if len(kinds) == 1:
+                types[name] = kinds.pop()
+        return types
 
     def query_result(self, query: str, *, at: datetime | None = None, start: datetime | None = None, end: datetime | None = None,
                      step_seconds: int | None = None, max_series: int) -> list[dict]:

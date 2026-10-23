@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Iterable
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.config import get_metric_usage_config
+from backend.app.config import get_metric_usage_config, get_prometheus_connections
 from backend.app.integrations.grafana.client import GrafanaClient, GrafanaError
+from backend.app.metric_usage.drop_rules import DropCheck, build_drop_config, compile_patterns, drop_check, name_pattern_matches
 from backend.app.metric_usage.service import CheckAlreadyRunning, latest_snapshot, run_configured_check
 from backend.app.models.db import get_db
 from backend.app.models.entities import MetricUsageItemEntity, MetricUsageSnapshotEntity
@@ -62,6 +64,45 @@ class MetricItemOut(BaseModel):
     latest_finding_id: int | None
     analyzed: bool
     series: int | None
+    # Active series per job label, per connection ("" for series without one).
+    jobs: dict[str, dict[str, int]] = {}
+    metric_type: str | None = None
+    recording_rule: bool = False
+    first_seen: datetime | None = None
+    # Why Drop isn't offered for it (None when it is), and what to check before dropping it.
+    drop_blocked: str | None = None
+    drop_warnings: list[str] = []
+
+
+class UnreadRuleOut(BaseModel):
+    name: str
+    groups: list[str]
+    connections: list[str]
+    reads: list[str]
+    feeds: list[str]
+    series: int | None
+    analyzed: bool
+    # What to check before removing it.
+    warnings: list[str] = []
+
+
+class DropConfigIn(BaseModel):
+    metrics: list[str] = Field(min_length=1, max_length=1000)
+
+
+class ConfigBlockOut(BaseModel):
+    connection: str
+    name: str
+    yaml: str
+
+
+class DropConfigOut(BaseModel):
+    # One per Prometheus connection: each goes into that server's own config.
+    blocks: list[ConfigBlockOut]
+    metrics: list[str]
+    series: int | None
+    skipped: list[dict[str, str]]
+    warnings: list[str]
 
 
 class MetricUsageOut(BaseModel):
@@ -75,6 +116,7 @@ class MetricUsageOut(BaseModel):
     items_total: int
     # Only when OPS_SIGNALS_METRIC_USAGE_COST_PER_1K_SERIES is set.
     cost: CostOut | None = None
+    unread_rules: list[UnreadRuleOut] = []
 
 
 class GrafanaStatusOut(BaseModel):
@@ -106,7 +148,7 @@ def get_metric_usage(
             query = query.where(MetricUsageItemEntity.metric_name.contains(q.strip()))
         total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
         rows = db.scalars(query.order_by(MetricUsageItemEntity.id).offset(offset).limit(limit)).all()
-        items = [_item_out(row) for row in rows]
+        items = _items_out(rows, snapshot)
     return MetricUsageOut(
         enabled=config.enabled,
         interval_hours=config.interval_hours,
@@ -116,6 +158,7 @@ def get_metric_usage(
         items=items,
         items_total=total,
         cost=_cost(config.cost_per_1k_series_month, config.currency, snapshot),
+        unread_rules=_unread_rules_out(snapshot) if snapshot else [],
     )
 
 
@@ -134,7 +177,34 @@ def lookup_metrics(name: list[str] = Query(default=[]), db: Session = Depends(ge
     rows = db.scalars(
         select(MetricUsageItemEntity).where(MetricUsageItemEntity.snapshot_id == snapshot.id, MetricUsageItemEntity.metric_name.in_(name[:500]))
     ).all()
-    return {row.metric_name: _item_out(row) for row in rows}
+    return {item.metric: item for item in _items_out(rows, snapshot)}
+
+
+@router.post("/drop-config", response_model=DropConfigOut)
+def drop_config(body: DropConfigIn, db: Session = Depends(get_db)) -> DropConfigOut:
+    """Prometheus scrape config that stops storing the given unused metrics. Changes nothing:
+    the user copies it into their own scrape jobs."""
+    snapshot = latest_snapshot(db, completed_only=True)
+    if snapshot is None:
+        raise HTTPException(status_code=409, detail="No metric usage check has completed yet.")
+    wanted = list(dict.fromkeys(body.metrics))
+    rows = db.scalars(
+        select(MetricUsageItemEntity).where(MetricUsageItemEntity.snapshot_id == snapshot.id, MetricUsageItemEntity.metric_name.in_(wanted))
+    ).all()
+    found = {item.metric: item for item in _items_out(rows, snapshot)}
+    selected = []
+    for name in wanted:
+        item = found.get(name)
+        if item is None:
+            selected.append({"metric": name, "check": DropCheck("The latest check didn't list it.")})
+            continue
+        selected.append({"metric": name, "series": item.series, "jobs": item.jobs, "check": DropCheck(item.drop_blocked, tuple(item.drop_warnings))})
+    names = {connection.id: connection.name for connection in get_prometheus_connections().connections}
+    config = build_drop_config(selected, connection_names=names, checked_on=snapshot.created_at)
+    return DropConfigOut(
+        blocks=[ConfigBlockOut(connection=block.connection, name=block.name, yaml=block.yaml) for block in config.blocks],
+        metrics=config.metrics, series=config.series, skipped=config.skipped, warnings=config.warnings,
+    )
 
 
 @router.post("/run", response_model=SnapshotOut)
@@ -193,6 +263,39 @@ def _snapshot_out(row: MetricUsageSnapshotEntity) -> SnapshotOut:
     )
 
 
+def _patterns(snapshot: MetricUsageSnapshotEntity):
+    return compile_patterns((snapshot.sources_json or {}).get("name_patterns") or [])
+
+
+def _unread_rules_out(snapshot: MetricUsageSnapshotEntity) -> list[UnreadRuleOut]:
+    patterns = _patterns(snapshot)
+    rules = []
+    for rule in snapshot.unread_rules_json or []:
+        warnings = []
+        if rule.get("analyzed"):
+            warnings.append("Ops Signals analyzes its output. Removing it stops that analysis.")
+        locations = name_pattern_matches(rule["name"], patterns)
+        if locations:
+            warnings.append(f"A query reads metrics by a name pattern that matches it: {', '.join(locations[:2])}. Check it before removing.")
+        rules.append(UnreadRuleOut(**{key: value for key, value in rule.items() if key != "warnings"}, warnings=warnings))
+    return rules
+
+
+def _items_out(rows: Iterable[MetricUsageItemEntity], snapshot: MetricUsageSnapshotEntity) -> list[MetricItemOut]:
+    patterns = _patterns(snapshot)
+    now = datetime.now(timezone.utc)
+    items = []
+    for row in rows:
+        item = _item_out(row)
+        check = drop_check(
+            metric=item.metric, status=item.status, recording_rule=item.recording_rule, jobs=item.jobs, first_seen=item.first_seen,
+            analyzed=item.analyzed, pattern_locations=name_pattern_matches(item.metric, patterns), now=now,
+        )
+        item.drop_blocked, item.drop_warnings = check.blocked, list(check.warnings)
+        items.append(item)
+    return items
+
+
 def _item_out(row: MetricUsageItemEntity) -> MetricItemOut:
     return MetricItemOut(
         metric=row.metric_name,
@@ -204,4 +307,9 @@ def _item_out(row: MetricUsageItemEntity) -> MetricItemOut:
         latest_finding_id=row.latest_finding_id,
         analyzed=row.analyzed,
         series=row.series,
+        # Checks from before per-job counts stored job names only: unknown until the next check.
+        jobs={connection: jobs for connection, jobs in (row.jobs_json or {}).items() if isinstance(jobs, dict)},
+        metric_type=row.metric_type,
+        recording_rule=bool(row.recording_rule),
+        first_seen=row.first_seen,
     )

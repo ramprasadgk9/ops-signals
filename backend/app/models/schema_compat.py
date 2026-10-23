@@ -306,25 +306,38 @@ def ensure_case_import_schema(engine: Engine) -> None:
 
 
 _METRIC_USAGE_COLUMNS = {
-    "metric_usage_snapshots": {"series_total": "INTEGER", "series_unwatched": "INTEGER"},
-    "metric_usage_items": {"series": "INTEGER"},
+    "metric_usage_snapshots": {"series_total": "INTEGER", "series_unwatched": "INTEGER", "unread_rules_json": "JSON NOT NULL DEFAULT '[]'"},
+    "metric_usage_items": {
+        "series": "INTEGER",
+        "jobs_json": "JSON NOT NULL DEFAULT '{}'",
+        "metric_type": "VARCHAR(32)",
+        "recording_rule": "BOOLEAN NOT NULL DEFAULT FALSE",
+        "first_seen": "TIMESTAMPTZ",
+    },
 }
 
 
 def ensure_metric_usage_schema(engine: Engine) -> None:
-    """Adds the series-count columns to metric usage tables created before they existed."""
-    inspector = inspect(engine)
-    existing_tables = set(inspector.get_table_names())
+    """Adds columns to metric usage tables created before they existed."""
+    existing_tables = set(inspect(engine).get_table_names())
     for table_name, column_sql in _METRIC_USAGE_COLUMNS.items():
-        if table_name not in existing_tables:
-            continue
-        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
-        missing = {name: ddl for name, ddl in column_sql.items() if name not in existing_columns}
-        if not missing:
-            continue
-        with engine.begin() as connection:
-            for name, ddl in missing.items():
-                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {ddl}"))
+        if table_name in existing_tables:
+            _add_missing_columns(engine, table_name, column_sql)
+
+
+def _add_missing_columns(engine: Engine, table_name: str, column_sql: dict[str, str]) -> None:
+    """Postgres DDL, with TIMESTAMPTZ and JSON rewritten for SQLite. IF NOT EXISTS on Postgres: the
+    web UI and plugin dev backends share one database and start together."""
+    existing_columns = {column["name"] for column in inspect(engine).get_columns(table_name)}
+    missing = {name: ddl for name, ddl in column_sql.items() if name not in existing_columns}
+    if not missing:
+        return
+    postgres = engine.dialect.name == "postgresql"
+    with engine.begin() as connection:
+        for name, ddl in missing.items():
+            if not postgres:
+                ddl = ddl.replace("TIMESTAMPTZ", "DATETIME").replace("JSON ", "TEXT ")
+            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {'IF NOT EXISTS ' if postgres else ''}{name} {ddl}"))
 
 
 def ensure_case_memory_schema(engine: Engine) -> None:

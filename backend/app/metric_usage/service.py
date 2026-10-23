@@ -48,6 +48,9 @@ ANALYZED_WINDOW = timedelta(days=7)
 # metrics that no longer exist.
 METRIC_NAMES_WINDOW = timedelta(hours=24)
 
+# Metric names per IN (...) query when reading earlier checks.
+_NAME_BATCH = 1000
+
 _running = threading.Lock()
 
 
@@ -80,14 +83,19 @@ def run_check(
         try:
             scan, sources = _collect_usage(grafana, prometheus, config.exclude_folders)
             metrics_by_connection = _metric_names(prometheus, now, sources)
-            series_by_connection = _series_counts(prometheus, metrics_by_connection, sources)
+            jobs_by_connection = _series_by_job(prometheus, metrics_by_connection, sources)
             report = build_report(
                 metrics_by_connection,
                 scan,
                 problems=_recent_problems(db, now - timedelta(hours=config.problem_window_hours)),
                 analyzed=_analyzed_metrics(db, now - ANALYZED_WINDOW),
                 ignore_metrics=config.ignore_metrics,
-                series_by_connection=series_by_connection,
+                series_by_connection={
+                    connection: {name: sum(jobs.values()) for name, jobs in by_name.items()} for connection, by_name in jobs_by_connection.items()
+                },
+                jobs_by_connection=jobs_by_connection,
+                types=_metric_types(prometheus, metrics_by_connection, sources),
+                first_seen=_first_seen(db, metrics_by_connection, now),
             )
         except (GrafanaError, HTTPException, ValueError) as exc:
             snapshot.status = "failed"
@@ -231,17 +239,62 @@ def _metric_names(prometheus: Mapping[str, PrometheusQueryService], now: datetim
     return names
 
 
-def _series_counts(prometheus: Mapping[str, PrometheusQueryService], metrics_by_connection: Mapping[str, list[str]], sources: dict) -> dict[str, dict[str, int]]:
-    """Active series per metric, per connection. Optional: a backend that refuses the count (too
-    many series for its query limits) leaves that connection's series unknown, with a warning."""
-    counts: dict[str, dict[str, int]] = {}
+def _series_by_job(prometheus: Mapping[str, PrometheusQueryService], metrics_by_connection: Mapping[str, list[str]], sources: dict) -> dict[str, dict[str, dict[str, int]]]:
+    """Active series per metric and scrape job, per connection. Optional: a backend that refuses
+    the count (too many series for its query limits) leaves that connection's series and jobs
+    unknown, with a warning."""
+    counts: dict[str, dict[str, dict[str, int]]] = {}
     for connection_id in metrics_by_connection:
         service = prometheus[connection_id]
         try:
-            counts[connection_id] = service.series_counts_by_name()
+            counts[connection_id] = service.series_counts_by_job()
         except HTTPException as exc:
             sources["warnings"].append(f"Couldn't count series in {service.config.name}: {exc.detail}")
     return counts
+
+
+def _metric_types(prometheus: Mapping[str, PrometheusQueryService], metrics_by_connection: Mapping[str, list[str]], sources: dict) -> dict[str, str]:
+    """Declared metric types from every connection that serves metadata; types are guessed from
+    names where it doesn't."""
+    types: dict[str, str] = {}
+    for connection_id in metrics_by_connection:
+        service = prometheus[connection_id]
+        try:
+            for name, kind in service.metric_types().items():
+                types.setdefault(name, kind)
+        except HTTPException as exc:
+            sources["warnings"].append(f"Couldn't read metric types from {service.config.name} ({exc.detail}); they are guessed from names.")
+    return types
+
+
+def _first_seen(db: Session, metrics_by_connection: Mapping[str, list[str]], now: datetime) -> dict[str, datetime | None]:
+    """When each metric was first listed, carried from the kept checks; a metric none of them
+    listed is new now. With no check yet every metric was there before checks started (None), so
+    nothing looks new just because Ops Signals was installed. Rows where the metric didn't exist
+    (status "missing") don't count, and looking past the latest check keeps the date of metrics a
+    check missed because their connection failed."""
+    names = {name for names in metrics_by_connection.values() for name in names}
+    if latest_snapshot(db, completed_only=True) is None:
+        return dict.fromkeys(names)
+    completed = select(MetricUsageSnapshotEntity.id).where(MetricUsageSnapshotEntity.status == "completed")
+    known: dict[str, datetime | None] = {}
+    ordered = sorted(names)
+    for start in range(0, len(ordered), _NAME_BATCH):
+        rows = db.execute(
+            select(
+                MetricUsageItemEntity.metric_name,
+                func.count(MetricUsageItemEntity.id) - func.count(MetricUsageItemEntity.first_seen),  # rows with no date
+                func.min(MetricUsageItemEntity.first_seen),
+            )
+            .where(
+                MetricUsageItemEntity.snapshot_id.in_(completed),
+                MetricUsageItemEntity.status != "missing",
+                MetricUsageItemEntity.metric_name.in_(ordered[start : start + _NAME_BATCH]),
+            )
+            .group_by(MetricUsageItemEntity.metric_name)
+        ).all()
+        known.update({name: None if undated else earliest for name, undated, earliest in rows})
+    return {name: known[name] if name in known else now for name in names}
 
 
 def _recent_problems(db: Session, since: datetime) -> dict[str, tuple[int, int]]:
@@ -275,6 +328,13 @@ def _fill_snapshot(snapshot: MetricUsageSnapshotEntity, report: MetricUsageRepor
     snapshot.series_total = report.totals["series_total"]
     snapshot.series_unwatched = report.totals["series_unwatched"]
     snapshot.sources_json = sources
+    snapshot.unread_rules_json = [
+        {
+            "name": rule.name, "groups": list(rule.groups), "connections": list(rule.connections), "reads": list(rule.reads),
+            "feeds": list(rule.feeds), "series": rule.series, "analyzed": rule.analyzed,
+        }
+        for rule in report.unread_rules
+    ]
 
 
 def _items(snapshot_id: str, report: MetricUsageReport) -> list[MetricUsageItemEntity]:
@@ -293,6 +353,10 @@ def _items(snapshot_id: str, report: MetricUsageReport) -> list[MetricUsageItemE
             latest_finding_id=item.latest_finding_id,
             analyzed=item.analyzed,
             series=item.series,
+            jobs_json={connection: dict(jobs) for connection, jobs in item.jobs.items()},
+            metric_type=item.metric_type,
+            recording_rule=item.recording_rule,
+            first_seen=item.first_seen,
         )
         for item in report.items
     ]

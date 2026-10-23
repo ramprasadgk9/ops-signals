@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi import HTTPException
 from sqlalchemy import text
 from fastapi.testclient import TestClient
@@ -59,16 +60,22 @@ class FakeGrafana:
 
 
 class FakePrometheus:
-    def __init__(self, names: list[str], *, rules_error: bool = False, series: dict[str, int] | None = None, config: PrometheusConnectionConfig | None = None) -> None:
+    def __init__(self, names: list[str], *, rules_error: bool = False, series: dict[str, int | dict[str, int]] | None = None, config: PrometheusConnectionConfig | None = None,
+                 types: dict[str, str] | None = None, rule_groups: list[dict] | None = None) -> None:
         self.config = config or PrometheusConnectionConfig(name="Local Prometheus", base_url="http://prom:9090")
         self.names = names
         self.rules_error = rules_error
         self.series = series
+        self.types = types or {}
+        self.rule_groups = rule_groups or []
 
-    def series_counts_by_name(self) -> dict[str, int]:
+    def series_counts_by_job(self) -> dict[str, dict[str, int]]:
         if self.series is None:
             raise HTTPException(status_code=422, detail="query too expensive")
-        return self.series
+        return {name: (count if isinstance(count, dict) else {"node": count}) for name, count in self.series.items()}
+
+    def metric_types(self) -> dict[str, str]:
+        return self.types
 
     def label_values(self, label: str, **_: object) -> list[str]:
         assert label == "__name__"
@@ -77,7 +84,7 @@ class FakePrometheus:
     def rules(self) -> dict:
         if self.rules_error:
             raise HTTPException(status_code=404, detail="ruler not enabled")
-        return {"status": "success", "data": {"groups": []}}
+        return {"status": "success", "data": {"groups": self.rule_groups}}
 
 
 def _config(**overrides: object) -> MetricUsageConfig:
@@ -282,8 +289,8 @@ def test_series_columns_are_added_to_tables_created_before_them() -> None:
     ensure_metric_usage_schema(engine)
     ensure_metric_usage_schema(engine)  # a second startup changes nothing
     columns = {table: {column["name"] for column in inspect(engine).get_columns(table)} for table in ("metric_usage_snapshots", "metric_usage_items")}
-    assert {"series_total", "series_unwatched"} <= columns["metric_usage_snapshots"]
-    assert "series" in columns["metric_usage_items"]
+    assert {"series_total", "series_unwatched", "unread_rules_json"} <= columns["metric_usage_snapshots"]
+    assert {"series", "jobs_json", "metric_type", "recording_rule", "first_seen"} <= columns["metric_usage_items"]
 
 
 # The fixture dashboards read Grafana's "ops-signals-prometheus" datasource: the local Prometheus,
@@ -323,3 +330,131 @@ def test_a_datasource_named_in_the_connections_file_is_read_on_that_tenant(app_c
     assert items["http_requests_total"].status == "unwatched"
     # Read by team-b panels, and team-b doesn't have it.
     assert items["request_latency_p95"].status == "missing"
+
+
+UNUSED = ["orders_cache_evictions_total", "checkout_latency_seconds_bucket", "instance:cpu:avg", "scrape_duration_seconds"]
+
+
+def _unused_prometheus(names: list[str] = UNUSED) -> dict[str, FakePrometheus]:
+    return {"default": FakePrometheus(
+        names,
+        series={"orders_cache_evictions_total": {"orders": 8240}, "checkout_latency_seconds_bucket": {"checkout": 5000, "": 10}, "instance:cpu:avg": {"": 240}, "scrape_duration_seconds": {"orders": 3}},
+        types={"checkout_latency_seconds": "histogram"},
+        rule_groups=[{"name": "node", "rules": [{"type": "recording", "name": "instance:cpu:avg", "query": "avg by (instance) (rate(node_cpu_seconds_total[5m]))"}]}],
+    )}
+
+
+def test_unused_metrics_say_whether_drop_is_offered(app_client: TestClient) -> None:
+    with get_session_local()() as db:
+        db.add(_finding("checkout_latency_seconds_bucket", "normal"))  # analyzed, no problem
+        db.commit()
+        _run(db, grafana=FakeGrafana(datasources=[]), prometheus=_unused_prometheus())
+
+    body = app_client.get("/api/metric-usage", params={"status": ["unwatched"]}).json()
+    items = {item["metric"]: item for item in body["items"]}
+    evictions = items["orders_cache_evictions_total"]
+    assert (evictions["jobs"], evictions["metric_type"], evictions["first_seen"], evictions["drop_blocked"]) == ({"default": {"orders": 8240}}, "counter", None, None)
+    latency = items["checkout_latency_seconds_bucket"]
+    assert (latency["metric_type"], latency["drop_blocked"], latency["series"]) == ("histogram", None, 5010)
+    assert latency["drop_warnings"][0].startswith("10 of its 5,010 series have no job label")
+    assert latency["drop_warnings"][1] == "Ops Signals analyzes this metric. Dropping it stops that analysis."
+    assert items["instance:cpu:avg"]["recording_rule"] is True
+    assert "recording rule" in items["instance:cpu:avg"]["drop_blocked"]
+    assert "Prometheus makes it" in items["scrape_duration_seconds"]["drop_blocked"]
+    assert body["unread_rules"] == [{
+        "name": "instance:cpu:avg", "groups": ["node"], "connections": ["default"], "reads": ["node_cpu_seconds_total"],
+        "feeds": [], "series": 240, "analyzed": False, "warnings": [],
+    }]
+
+    config = app_client.post("/api/metric-usage/drop-config", json={"metrics": ["orders_cache_evictions_total", "checkout_latency_seconds_bucket", "scrape_duration_seconds", "nope"]}).json()
+    assert config["metrics"] == ["orders_cache_evictions_total", "checkout_latency_seconds_bucket"]
+    assert config["series"] == 8240 + 5000  # not the 10 series without a job label
+    assert [item["metric"] for item in config["skipped"]] == ["scrape_duration_seconds", "nope"]
+    assert config["skipped"][1]["reason"] == "The latest check didn't list it."
+    assert config["warnings"][1] == "checkout_latency_seconds_bucket: Ops Signals analyzes this metric. Dropping it stops that analysis."
+    [block] = config["blocks"]
+    assert block["connection"] == "default"
+    jobs = {job["job_name"]: job["metric_relabel_configs"][0]["regex"] for job in yaml.safe_load(block["yaml"])["scrape_configs"]}
+    assert jobs == {"checkout": "checkout_latency_seconds_bucket", "orders": "orders_cache_evictions_total"}
+
+
+def test_metrics_new_since_the_last_check_wait_before_drop_is_offered(app_client: TestClient) -> None:
+    # The API judges "new" against the real clock.
+    now = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=6)
+    with get_session_local()() as db:
+        _run(db, grafana=FakeGrafana(datasources=[]), prometheus=_unused_prometheus(), now=now - timedelta(days=1))
+        prometheus = _unused_prometheus(UNUSED + ["inventory_sync_lag_seconds"])
+        prometheus["default"].series["inventory_sync_lag_seconds"] = {"inventory": 40}
+        _run(db, grafana=FakeGrafana(datasources=[]), prometheus=prometheus, now=now)
+        _run(db, grafana=FakeGrafana(datasources=[]), prometheus=prometheus, now=now + timedelta(hours=6))
+
+    items = {item["metric"]: item for item in app_client.get("/api/metric-usage", params={"status": ["unwatched"]}).json()["items"]}
+    # There before the first check: not new.
+    assert items["orders_cache_evictions_total"]["first_seen"] is None
+    # First listed by the second check, and that date is kept by the third.
+    assert items["inventory_sync_lag_seconds"]["first_seen"].startswith(now.isoformat()[:19])
+    assert items["inventory_sync_lag_seconds"]["drop_blocked"].startswith("First seen today. Drop is offered in 7 days")
+
+
+def test_drop_config_needs_a_completed_check_and_some_metrics(app_client: TestClient) -> None:
+    assert app_client.post("/api/metric-usage/drop-config", json={"metrics": ["a"]}).status_code == 409
+    assert app_client.post("/api/metric-usage/drop-config", json={"metrics": []}).status_code == 422
+
+
+def test_viewers_may_build_drop_config_but_not_run_checks() -> None:
+    from backend.app.roles import required_role
+
+    assert required_role("POST", "/api/metric-usage/drop-config") is None
+    assert required_role("POST", "/api/metric-usage/run") == "Admin"
+
+
+def test_first_seen_survives_a_check_where_the_connection_failed(app_client: TestClient) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=12)
+    names = ["orders_cache_evictions_total"]
+    other = PrometheusConnectionConfig(id="b", name="B", base_url="http://b:9090")
+
+    class Down(FakePrometheus):
+        def label_values(self, label: str, **_: object) -> list[str]:
+            raise HTTPException(status_code=503, detail="Prometheus connection failed")
+
+    with get_session_local()() as db:
+        _run(db, grafana=FakeGrafana(datasources=[]), prometheus={"b": FakePrometheus(names, config=other), "a": FakePrometheus(["x_total"])}, now=now - timedelta(days=1))
+        snapshot = _run(db, grafana=FakeGrafana(datasources=[]), prometheus={"b": Down(names, config=other), "a": FakePrometheus(["x_total"])}, now=now)
+        assert snapshot.status == "completed"
+        _run(db, grafana=FakeGrafana(datasources=[]), prometheus={"b": FakePrometheus(names, config=other), "a": FakePrometheus(["x_total"])}, now=now + timedelta(hours=6))
+        latest = db.query(MetricUsageItemEntity).filter_by(snapshot_id=service.latest_snapshot(db).id, metric_name="orders_cache_evictions_total").one()
+    # There before the first check, so still not new after the check that couldn't list it.
+    assert latest.first_seen is None
+
+
+def test_a_metric_that_only_existed_as_missing_is_new_when_it_appears(app_client: TestClient) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=12)
+    with get_session_local()() as db:
+        # The fixture dashboards read request_latency_p95; this Prometheus doesn't have it yet.
+        _run(db, prometheus={"default": FakePrometheus(["up"])}, now=now - timedelta(days=1))
+        _run(db, prometheus={"default": FakePrometheus(["up", "request_latency_p95"])}, now=now)
+        rows = {item.metric_name: item for item in db.query(MetricUsageItemEntity).filter_by(snapshot_id=service.latest_snapshot(db).id).all()}
+    assert rows["request_latency_p95"].first_seen is not None
+    assert rows["up"].first_seen is None
+
+
+def test_unread_rules_warn_when_a_name_pattern_reads_them(app_client: TestClient) -> None:
+    prometheus = _unused_prometheus()
+    with get_session_local()() as db:
+        snapshot = _run(db, grafana=FakeGrafana(datasources=[]), prometheus=prometheus)
+        row = db.get(MetricUsageSnapshotEntity, snapshot.id)
+        row.sources_json = {**row.sources_json, "name_patterns": [{"pattern": "instance:.*", "location": "Ops / Nodes / CPU"}]}
+        db.commit()
+    [rule] = app_client.get("/api/metric-usage").json()["unread_rules"]
+    assert rule["warnings"] == ["A query reads metrics by a name pattern that matches it: Ops / Nodes / CPU. Check it before removing."]
+
+
+def test_checks_from_before_per_job_counts_leave_jobs_unknown(app_client: TestClient) -> None:
+    with get_session_local()() as db:
+        snapshot = _run(db, grafana=FakeGrafana(datasources=[]), prometheus=_unused_prometheus())
+        item = db.query(MetricUsageItemEntity).filter_by(snapshot_id=snapshot.id, metric_name="orders_cache_evictions_total").one()
+        item.jobs_json = {"default": ["orders"]}
+        db.commit()
+    body = app_client.get("/api/metric-usage/metrics", params={"name": ["orders_cache_evictions_total"]}).json()
+    assert body["orders_cache_evictions_total"]["jobs"] == {}
+    assert "scrape job" in body["orders_cache_evictions_total"]["drop_blocked"]

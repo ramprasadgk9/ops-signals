@@ -752,6 +752,8 @@ class MetricUsageSnapshotEntity(Base):
     series_unwatched: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # What was read (dashboards, rules, connections), queries that couldn't be resolved, warnings.
     sources_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # Recording rules whose output nothing reads (metric_usage.report.UnreadRecordingRule).
+    unread_rules_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
@@ -775,6 +777,12 @@ class MetricUsageItemEntity(Base):
     latest_finding_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     analyzed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     series: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Active series per job label per connection, the declared type, whether a recording rule makes
+    # it, and when a check first listed it (None: before checks recorded that).
+    jobs_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    metric_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    recording_rule: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SlackNotificationEntity(Base):
