@@ -683,7 +683,7 @@ findings then name the change that came just before a problem. How events are jo
 
 Before CI is set up, Ops Signals finds deploys in Prometheus on its own: a service reporting a new
 version on its `*_build_info` metric, or a new ReplicaSet from kube-state-metrics. These show in the
-same places as CI's deploys, and a deploy CI sends later replaces the found one. See
+same places as CI's deploys, tagged "Found automatically", and a deploy CI sends later replaces the found one. See
 [`docs/deploy-discovery.md`](docs/deploy-discovery.md).
 
 #### Findings as Prometheus metrics

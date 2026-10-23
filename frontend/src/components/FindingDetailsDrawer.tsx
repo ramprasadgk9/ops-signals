@@ -6,6 +6,7 @@ import { api } from '../api/queries';
 import { useConnectionName } from '../api/useConnectionName';
 import { LinkedAlerts } from './AlertComponents';
 import { FindingBreakdown } from './FindingBreakdown';
+import { FoundDeployTag } from './FoundDeployTag';
 import { NoveltyBadge } from './NoveltyBadge';
 import { SuggestedFixes } from './FixHistory';
 import { PastCaseMatches } from './PastCaseMatches';
@@ -219,8 +220,11 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
                 secondaryTypographyProps={{ component: 'div' }}
                 secondary={
                   <Stack component="span" spacing={0.25} sx={{ mt: 0.5 }}>
-                    {whatChanged.lines.map((line) => (
-                      <Typography key={line} variant="body2" color="text.secondary">{line}</Typography>
+                    {whatChanged.lines.map((line, index) => (
+                      <Typography key={line} variant="body2" color="text.secondary">
+                        {line}
+                        {whatChanged.found?.[index] ? <FoundDeployTag hint={whatChanged.found[index]} /> : null}
+                      </Typography>
                     ))}
                     {whatChanged.note && <Typography variant="caption" color="text.secondary">{whatChanged.note}</Typography>}
                   </Stack>

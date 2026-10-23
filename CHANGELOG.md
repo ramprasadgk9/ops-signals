@@ -12,7 +12,11 @@ Includes Grafana plugin 1.0.35.
   isn't stored again, and one CI sends later replaces the found one. `POST /api/events` rejects a
   `source` starting with `ops-signals:`. The Setup check's Deploy events line counts found deploys
   and says when the last look failed. Off with `OPS_SIGNALS_DEPLOY_DISCOVERY_ENABLED=false`. See
-  `docs/deploy-discovery.md`.
+  `docs/deploy-discovery.md`. On screen, a found deploy under What changed (finding details, the
+  Alerts page, the Grafana plugin's alerts) carries a **Found automatically** tag that says on hover
+  how it was found, and Slack writes "deploy `1.0.1` (found automatically)". When no deploy is
+  recorded for a service, the note says Ops Signals also looked in Prometheus. The alert and finding
+  APIs add `source` to each matched change, and `deploy_discovery` to say whether it's on.
 
 - **Active findings on `GET /api/metrics`.** `ops_signals_active_findings{service, metric, cluster,
   evidence, severity}` counts active findings the way the Overview page does, so an alert rule can

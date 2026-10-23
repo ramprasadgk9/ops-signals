@@ -197,7 +197,9 @@ def test_each_alert_carries_its_deploy_timing_matched_changes_and_pod_breakdown(
             "service_has_any_events": True,
             "window_before_minutes": 30,
             "matches": [{"id": 3, "event_type": "deploy", "version": "v2.4.38", "author": "demo",
-                         "url": "https://example.com/r", "timestamp": "2026-10-01T21:31:00+00:00", "minutes_before_anchor": 1.0}],
+                         "url": "https://example.com/r", "timestamp": "2026-10-01T21:31:00+00:00", "minutes_before_anchor": 1.0},
+                        {"id": 4, "event_type": "deploy", "version": "2.4.39", "timestamp": "2026-10-01T21:30:00+00:00",
+                         "minutes_before_anchor": 2.0, "source": "ops-signals:build_info"}],
         },
     }
     with get_session_local()() as db:
@@ -210,7 +212,9 @@ def test_each_alert_carries_its_deploy_timing_matched_changes_and_pod_breakdown(
     enriched, pending = client.get("/api/alerts").json()
 
     assert enriched["timing"]["basis"] == "step_change"
-    assert [(change["version"], change["minutes_before_anchor"]) for change in enriched["changes"]] == [("v2.4.38", 1.0)]
+    assert [(change["version"], change["minutes_before_anchor"], change["source"]) for change in enriched["changes"]] == [
+        ("v2.4.38", 1.0, None), ("2.4.39", 2.0, "ops-signals:build_info")]
+    assert enriched["deploy_discovery"] is True
     assert (enriched["change_window_before_minutes"], enriched["service_has_change_events"]) == (30, True)
     assert enriched["breakdown"] == breakdown
     assert "message_json" not in enriched and "enrichment_json" not in enriched

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from backend.app.deploy_discovery.detect import SOURCE_PREFIX
 from backend.app.services.finding_plain import render_times
 from intelligence.findings.schema import OperationalFinding
 
@@ -236,7 +237,9 @@ def _change_label(match: dict) -> str:
     label = f"{match.get('event_type', 'change')} `{match.get('version') or match.get('description') or 'unversioned'}`"
     where = f" to `{match['cluster']}`" if match.get("cluster") else ""
     who = f" by {match['author']}" if match.get("author") else ""
-    return f"{_link(match.get('url'), label)}{where}{who}"
+    # Found in Prometheus, not sent by CI (backend/app/deploy_discovery/): no author or link to show.
+    found = " (found automatically)" if (match.get("source") or "").startswith(SOURCE_PREFIX) else ""
+    return f"{_link(match.get('url'), label)}{found}{where}{who}"
 
 
 def _what_changed(changes: dict | None, service: str | None, timing: dict | None = None, ui_base_url: str | None = None) -> str:

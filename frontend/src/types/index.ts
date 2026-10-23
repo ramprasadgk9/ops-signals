@@ -1264,6 +1264,8 @@ export type AlertItem = {
   changes?: AlertChange[];
   change_window_before_minutes?: number | null;
   service_has_change_events?: boolean | null;
+  /** Ops Signals also looks for deploys in Prometheus (docs/deploy-discovery.md). */
+  deploy_discovery?: boolean;
   /** The finding's pod breakdown (see utils/findingBreakdown.ts). */
   breakdown?: Record<string, unknown> | null;
 };
@@ -1287,6 +1289,8 @@ export type AlertChange = {
   minutes_before_anchor: number | null;
   /** Cluster the change went to; absent or null when it went to every cluster. */
   cluster?: string | null;
+  /** Who reported it: CI's own source, or `ops-signals:...` for a deploy found in Prometheus. */
+  source?: string | null;
 };
 
 export type AlertReceipt = {

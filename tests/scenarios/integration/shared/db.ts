@@ -115,6 +115,8 @@ export async function seedFinding(params: {
   healthStatus?: string;
   /** Defaults to now() — override to seed a finding outside the 24h window but inside 7d, etc. */
   createdAt?: Date;
+  /** Signals behind the finding (seedSignal's ids); a placeholder id when not given. */
+  signalIds?: string[];
 }): Promise<number> {
   const findingId = params.findingId ?? makeFindingId();
   await pool.query(
@@ -133,7 +135,7 @@ export async function seedFinding(params: {
       params.healthStatus ?? 'warning',
       0.8,
       2,
-      JSON.stringify(['integration-seed-signal']),
+      JSON.stringify(params.signalIds ?? ['integration-seed-signal']),
       JSON.stringify({ scenario: 'integration' }),
       params.createdAt ?? null,
     ]
@@ -252,6 +254,27 @@ export async function cleanupRun(params: { runId: string; findingId?: number | n
 
 export async function cleanupBehaviorPatternSuggestionsForService(service: string): Promise<void> {
   await pool.query(`delete from behavior_pattern_suggestions where service = $1`, [service]);
+}
+
+/** A row in ops_change_events, as CI's POST /api/events or deploy discovery would store it. Direct
+ * SQL, because the API rejects the `ops-signals:` source that marks a deploy found in Prometheus. */
+export async function seedChangeEvent(params: {
+  service: string;
+  timestamp: Date;
+  version: string;
+  source?: string;
+  description?: string;
+}): Promise<number> {
+  const result = await pool.query(
+    `insert into ops_change_events (service, event_type, timestamp, version, source, description, received_at)
+     values ($1, 'deploy', $2, $3, $4, $5, now()) returning id`,
+    [params.service, params.timestamp, params.version, params.source ?? null, params.description ?? null]
+  );
+  return result.rows[0].id as number;
+}
+
+export async function cleanupChangeEvents(service: string): Promise<void> {
+  await pool.query(`delete from ops_change_events where service = $1`, [service]);
 }
 
 export async function closeDb(): Promise<void> {

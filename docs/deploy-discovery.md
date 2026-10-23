@@ -67,6 +67,10 @@ flowchart LR
 Findings and alerts don't look at `source`: a found deploy is used exactly like one from CI. How a
 deploy is picked for a finding is in [finding-drilldown.md](finding-drilldown.md).
 
+On screen, a found deploy under **What changed** (finding details, the Alerts page, the Grafana
+plugin's alerts) carries a **Found automatically** tag; hovering it says how the deploy was found.
+In Slack it reads "deploy `1.0.1` (found automatically)".
+
 ## Duplicates
 
 One deploy is never shown twice:

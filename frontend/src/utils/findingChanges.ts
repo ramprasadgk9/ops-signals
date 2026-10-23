@@ -1,5 +1,5 @@
 import type { AlertChange, Finding } from '../types';
-import { changeLabel, clock, minutes } from './alertChanges';
+import { changeLabel, clock, foundHints, minutes, noChangesNote } from './alertChanges';
 
 // Deploys and other change events near a finding's change, looked up by the backend when the
 // finding is read (backend/app/services/finding_changes.py). Every status, including "data
@@ -28,9 +28,11 @@ export type FindingChanges = {
   window_after_minutes?: number;
   matches?: AlertChange[];
   pods?: PodLink;
+  /** With no_events_for_service: Ops Signals also looks for deploys in Prometheus. */
+  deploy_discovery?: boolean;
 };
 
-export type FindingWhatChanged = { lines: string[]; note: string | null };
+export type FindingWhatChanged = { lines: string[]; note: string | null; found?: (string | null)[] };
 
 const STATUSES = ['matched', 'none_in_window', 'no_events_for_service', 'unavailable'];
 
@@ -77,7 +79,10 @@ export function findingWhatChanged(changes: FindingChanges): FindingWhatChanged 
   if (changes.status === 'no_events_for_service') {
     return {
       lines: [`No deploys or other changes have been recorded for ${service} yet.`],
-      note: 'Send them from your CI: Integrations → Send deploy events. If CI uses a different name for this service, list both names in OPS_SIGNALS_SERVICE_ALIASES.',
+      note: noChangesNote(
+        changes.deploy_discovery,
+        'Send deploys from your CI: Integrations → Send deploy events. If CI uses a different name for this service, list both names in OPS_SIGNALS_SERVICE_ALIASES.',
+      ),
     };
   }
   const before = changes.window_before_minutes ?? 30;
@@ -95,6 +100,7 @@ export function findingWhatChanged(changes: FindingChanges): FindingWhatChanged 
       return when >= 0 ? `Started ${minutes(when)} after ${changeLabel(match)}` : `${changeLabel(match)} came ${minutes(when)} after the change started`;
     }),
     note: `${started} Changes from ${before} min before to ${after} min after are listed. Close timing is a hint, not proof of cause.`,
+    ...foundHints(changes.matches ?? []),
   };
 }
 

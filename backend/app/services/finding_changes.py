@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.alerts.correlation import as_utc, changes_to_dict, correlate_changes, service_names
-from backend.app.config import AlertEnrichmentConfig
+from backend.app.config import AlertEnrichmentConfig, get_deploy_discovery_config
 from backend.app.models.entities import AutonomousMetricJobEntity, ChangeEventEntity, FindingEntity, SignalEntity
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ def _finding_changes(
     if not finding.service:
         return _unavailable("no_service")
     if finding.service not in with_events:
-        return {"status": "no_events_for_service", "service": finding.service}
+        return {"status": "no_events_for_service", "service": finding.service, "deploy_discovery": get_deploy_discovery_config().enabled}
     anchor = change_time(finding, signals)
     if anchor is None:
         return {**_unavailable("no_change_time"), "service": finding.service}
