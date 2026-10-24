@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { env } from '../../shared/env';
 import { makeRunId, seedFinding, createCaseFromFinding, cleanupRun } from '../../shared/db';
 
@@ -8,6 +8,9 @@ import { makeRunId, seedFinding, createCaseFromFinding, cleanupRun } from '../..
  * frontend/src/standalone/casesService.ts. Seeds two cases with deliberately different severities
  * so the severity filter has something real to narrow between.
  */
+// The table row's link: the side panel repeats the selected case's title as a heading.
+const caseLink = (page: Page, title: string) => page.getByRole('link', { name: title, exact: true });
+
 test('search and severity filters narrow the cases table to the expected rows', async ({ page }) => {
   const runId = makeRunId('cases-list-filter');
   const criticalTitle = `Integration suite critical case ${runId}`;
@@ -35,11 +38,11 @@ test('search and severity filters narrow the cases table to the expected rows', 
 
     // Search narrows to the one matching row by title substring.
     await page.getByPlaceholder('Search cases...').fill(runId);
-    await expect(page.getByText(criticalTitle, { exact: true })).toBeVisible();
-    await expect(page.getByText(normalTitle, { exact: true })).toBeVisible();
+    await expect(caseLink(page, criticalTitle)).toBeVisible();
+    await expect(caseLink(page, normalTitle)).toBeVisible();
     await page.getByPlaceholder('Search cases...').fill(`critical case ${runId}`);
-    await expect(page.getByText(criticalTitle, { exact: true })).toBeVisible();
-    await expect(page.getByText(normalTitle, { exact: true })).not.toBeVisible();
+    await expect(caseLink(page, criticalTitle)).toBeVisible();
+    await expect(caseLink(page, normalTitle)).not.toBeVisible();
     await page.getByPlaceholder('Search cases...').fill('');
 
     // Severity filter: the first combobox (named by its selected option text).
@@ -48,8 +51,8 @@ test('search and severity filters narrow the cases table to the expected rows', 
     const severitySelect = page.getByRole('main').getByRole('combobox').first();
     await severitySelect.click();
     await page.getByRole('option', { name: 'Critical' }).click();
-    await expect(page.getByText(criticalTitle, { exact: true })).toBeVisible();
-    await expect(page.getByText(normalTitle, { exact: true })).not.toBeVisible();
+    await expect(caseLink(page, criticalTitle)).toBeVisible();
+    await expect(caseLink(page, normalTitle)).not.toBeVisible();
   } finally {
     await cleanupRun({ runId, findingId: [criticalFindingId, normalFindingId] });
   }

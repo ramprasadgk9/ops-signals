@@ -24,9 +24,10 @@ test('switching the plugin backend target resets the service/metric selection', 
   await serviceInput.fill('some-service-to-be-cleared');
   await expect(serviceInput).toHaveValue('some-service-to-be-cleared');
 
-  await backendSelect.selectOption({ label: 'Standalone app backend (:8001)' });
+  await backendSelect.selectOption('http://localhost:8001');
   await expect(serviceInput).toHaveValue('');
 
-  await backendSelect.selectOption({ label: 'Grafana stack backend (:8002)' });
+  // By value: in direct mode the build's default :8002 is labelled "Build default (...)".
+  await backendSelect.selectOption('http://localhost:8002');
   await expect(serviceInput).toHaveValue('');
 });
