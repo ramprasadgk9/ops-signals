@@ -29,6 +29,8 @@ Thanks for helping improve Ops Signals.
 
 - `pytest -q`
 - `cd frontend && npm test`
+- `./scripts/backend_test_report.py` - runs the backend tests and writes an HTML list of every test,
+  what it checks and its result to `tmp/reports/backend-tests-<date>.html`
 
 ## Adding a Benchmark Scenario
 
