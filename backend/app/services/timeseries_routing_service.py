@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from experiments.analyzer_router.router import UniversalTimeSeriesRouter
-from intelligence.config import AppConfig, InputConfig, load_config
+from intelligence.config import AppConfig, InputConfig, deep_merge, load_config
 from intelligence.normalize.normalizer import normalize_timeseries
 
 
@@ -138,7 +138,7 @@ def build_csv_routing_config(
         analyzer_config = config.analysis.analyzers.get(override_analyzer_id)
         if analyzer_config is None:
             raise ValueError(f"analyzer '{override_analyzer_id}' is not configured")
-        analyzer_config.params.update(override_params)
+        analyzer_config.params = deep_merge(analyzer_config.params, override_params)
 
     requested_analyzer_id = analyzer_id.strip()
     if requested_analyzer_id.lower() not in {"all", "router"}:

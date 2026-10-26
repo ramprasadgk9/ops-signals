@@ -170,5 +170,7 @@ def test_modular_analyzer_config_supports_nested_baseline_shift_schema() -> None
     assert baseline_params["ruptures"]["n_bkps"] == 1
     assert baseline_params["finding_rules"]["min_change_percent"] == 25
     assert baseline_params["finding_rules"]["min_effect_size"] == 1.5
-    assert baseline_params["statistical_gate"]["min_effect_size"] == 1.5
-    assert baseline_params["operational_significance"]["min_change_percent"] == 25
+    # finding_rules is the one place for these; the older statistical_gate/operational_significance
+    # copies are gone from the shipped file (still read from older configs, finding_rules wins).
+    assert "statistical_gate" not in baseline_params
+    assert "operational_significance" not in baseline_params

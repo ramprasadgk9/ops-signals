@@ -178,7 +178,7 @@ def _build_modular_config(path: Path, provider_config: dict[str, Any]) -> dict[s
 
     base_config = _load_yaml(config_dir / "config.yaml") if (config_dir / "config.yaml").exists() else {}
     analyzer_config = _load_yaml(config_dir / "analyzers.yaml") if (config_dir / "analyzers.yaml").exists() else {}
-    return _deep_merge(base_config, analyzer_config, provider_config)
+    return deep_merge(base_config, analyzer_config, provider_config)
 
 
 def _find_config_dir(path: Path) -> Path | None:
@@ -194,7 +194,9 @@ def _find_config_dir(path: Path) -> Path | None:
     return None
 
 
-def _deep_merge(*configs: dict[str, Any]) -> dict[str, Any]:
+def deep_merge(*configs: dict[str, Any]) -> dict[str, Any]:
+    """Merges dicts left to right, key by key at every level: a later dict changes only the keys
+    it sets, and nested blocks keep the keys it doesn't mention. Inputs are not modified."""
     merged: dict[str, Any] = {}
     for config in configs:
         merged = _merge_two(merged, config)
