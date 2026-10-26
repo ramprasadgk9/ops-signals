@@ -25,6 +25,25 @@ Base config
   never goes through `CSVAdapter`, so it isn't (and shouldn't be) selectable in the upload form.
   See [`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md).
 
+## Analyzer Settings
+
+Each analyzer's defaults live in `config/analyzer_registry.d/builtin.yml` (`runtime_params`). A
+block for it under `analysis.analyzers` in `config/analyzers.yaml` (or a provider file) changes
+only the keys it sets: nested blocks such as `implementation` and `finding_rules` merge key by key,
+so this changes the trend threshold and keeps the rest of the trend settings:
+
+```yaml
+analysis:
+  analyzers:
+    trend:
+      finding_rules:
+        min_slope_percent: 5
+```
+
+Analyzer Labs' "run with custom params" merges the same way. `enabled` turns an analyzer on or off.
+The trend analyzer always fits a straight line by least squares (`model: OLS`); another `model`
+value is ignored with a warning in the log.
+
 ## Operational Memory and Output
 
 Operational memory (the Qdrant index and the embedding model) and what each run saves are set in the
@@ -111,6 +130,8 @@ To receive real-time updates when comments or issue statuses change without wait
 Legacy flat configs still work.
 
 If a config file already contains `analysis`, it is treated as a complete configuration and loaded directly.
+The root `config.yaml` is one: `intelligence.cli run --config config.yaml` uses its own `analysis`
+block, not `config/analyzers.yaml`.
 
 ## Guidance
 

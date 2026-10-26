@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from intelligence.analyzers.base import Analyzer
+from intelligence.config import deep_merge
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +254,7 @@ def instantiate(registration: AnalyzerRegistration, overrides: dict[str, Any] | 
         return HttpAnalyzer(
             analyzer_id=registration.analyzer_id,
             spec=registration.http,
-            params={**registration.runtime_params, **(overrides or {})},
+            params=deep_merge(registration.runtime_params, overrides or {}),
             display_name=registration.display_name,
         )
     if not registration.class_path:
@@ -283,7 +284,8 @@ def instantiate(registration: AnalyzerRegistration, overrides: dict[str, Any] | 
             f"analyzer '{registration.analyzer_id}': '{registration.class_path}' is not an Analyzer subclass"
         )
 
-    params = {**registration.runtime_params, **(overrides or {})}
+    # Key by key: an override of finding_rules.min_slope_percent keeps the rest of finding_rules.
+    params = deep_merge(registration.runtime_params, overrides or {})
     try:
         instance = analyzer_class(**params)
     except TypeError as exc:

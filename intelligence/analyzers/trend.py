@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
@@ -7,6 +9,8 @@ import statsmodels.api as sm
 from intelligence.analyzers.base import Analyzer
 from intelligence.capability import Capability
 from intelligence.signals.schema import OperationalSignal
+
+logger = logging.getLogger(__name__)
 
 
 class TrendAnalyzer(Analyzer):
@@ -27,7 +31,12 @@ class TrendAnalyzer(Analyzer):
         )
         self.min_slope_percent = self.finding_min_slope_percent
         self.library = str(impl.get("library", "statsmodels"))
-        self.model = str(impl.get("model", "OLS"))
+        # The fit is always ordinary least squares (_fit_trend). Say so rather than record a model
+        # that was asked for but never used.
+        requested_model = str(impl.get("model", "OLS"))
+        if requested_model.upper() != "OLS":
+            logger.warning("Trend analyzer only fits OLS; ignoring implementation.model=%r", requested_model)
+        self.model = "OLS"
 
     def capability(self) -> Capability:
         return Capability(

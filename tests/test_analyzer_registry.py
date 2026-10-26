@@ -382,3 +382,55 @@ def test_instantiate_builds_an_http_analyzer_for_http_registrations() -> None:
     from intelligence.analyzers.http_analyzer import HttpAnalyzer
 
     assert isinstance(instantiate(registration), HttpAnalyzer)
+
+
+def _pyod_registration():
+    from intelligence.analyzer_registry import AnalyzerRegistration, RouterSpec
+
+    return AnalyzerRegistration(
+        analyzer_id="pyod_outlier",
+        display_name="PyOD",
+        enabled=True,
+        source_file="test.yml",
+        class_path="intelligence.analyzers.pyod_outlier.PyODOutlierAnalyzer",
+        http=None,
+        router=RouterSpec(),
+        runtime_params={
+            "implementation": {"library": "pyod", "detector_type": "knn", "contamination": 0.01, "grouping_gap": "15m", "min_samples": 75},
+            # Not the analyzer's own defaults, so a lost key would show.
+            "finding_rule": {"min_range_excess": 0.9, "min_sustained_points": 8, "window": "30m"},
+        },
+    )
+
+
+def test_instantiate_merges_nested_overrides_key_by_key() -> None:
+    registration = _pyod_registration()
+
+    instance = instantiate(registration, overrides={"finding_rule": {"min_sustained_points": 12}, "implementation": {"contamination": 0.05}})
+
+    # The keys the override sets change; the ones next to them keep their registered values.
+    assert instance.config.finding_min_sustained_points == 12
+    assert instance.config.finding_min_range_excess == 0.9
+    assert str(instance.config.finding_window) == "0 days 00:30:00"
+    assert instance.config.contamination == 0.05
+    assert instance.config.min_samples == 75
+    assert registration.runtime_params["finding_rule"]["min_sustained_points"] == 8
+
+
+def test_instantiate_merges_http_analyzer_params_key_by_key() -> None:
+    from intelligence.analyzer_registry import AnalyzerRegistration, HttpAnalyzerSpec, RouterSpec
+
+    registration = AnalyzerRegistration(
+        analyzer_id="remote_model",
+        display_name="Remote Model",
+        enabled=True,
+        source_file="test.yml",
+        class_path=None,
+        http=HttpAnalyzerSpec(analyze_url="https://example.com/analyze"),
+        router=RouterSpec(),
+        runtime_params={"finding_rules": {"min_score": 0.8, "min_points": 10}},
+    )
+
+    instance = instantiate(registration, overrides={"finding_rules": {"min_score": 0.6}})
+
+    assert instance.params["finding_rules"] == {"min_score": 0.6, "min_points": 10}

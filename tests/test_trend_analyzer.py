@@ -85,3 +85,11 @@ def test_short_window_fits_every_point_relative_to_the_window_average() -> None:
 
     assert signal.evidence["fit"] == "points"
     assert signal.evidence["slope_percent"] == pytest.approx(29 / 114.5 * 100, abs=0.01)
+
+
+def test_only_ols_is_fitted_and_another_model_is_reported_as_ignored(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING"):
+        analyzer = TrendAnalyzer(implementation={"library": "statsmodels", "model": "RLM"})
+
+    assert analyzer.model == "OLS"
+    assert "ignoring implementation.model='RLM'" in caplog.text

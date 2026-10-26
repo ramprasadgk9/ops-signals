@@ -1,7 +1,11 @@
 analysis:
   mode: batch
   window: entire_dataset
+  # Which analyzers a run uses: the router's best matches (recommendation_execution below).
   selection_mode: recommended_threshold
+  # Which analyzers Analyzer Workbench -> Recommendations and the MCP recommendation tools list:
+  # "all" scores every analyzer. Separate from selection_mode, which picks what actually runs.
+  recommendation_selection_mode: all
   recommendation_execution:
     min_score: 0.80
     max_analyzers: 3
@@ -45,10 +49,6 @@ analysis:
       finding_rules:
         min_change_percent: 25
         min_effect_size: 1.5
-      statistical_gate:
-        min_effect_size: 1.5
-      operational_significance:
-        min_change_percent: 25
     anomaly_zscore:
       enabled: true
       implementation:
@@ -86,6 +86,7 @@ analysis:
       enabled: true
       implementation:
         library: statsmodels
+        # A straight-line least-squares fit; the only model the trend analyzer has.
         model: OLS
       finding_rules:
         min_slope_percent: 10
