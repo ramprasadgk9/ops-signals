@@ -248,7 +248,9 @@ def main() -> None:
     print("Test sign-in provider for trying Ops Signals on this computer only.")
     print("Set these on the backend (with OPS_SIGNALS_API_TOKEN) and restart it:")
     for line in env_lines(issuer):
-        print(f"  {line}")
+        name, _, value = line.partition("=")
+        # Quoted when it has a space: run_all.sh and other scripts load .env as shell lines.
+        print(f'  {name}="{value}"' if " " in value else f"  {line}")
     print("Accounts: " + " · ".join(f"{account.email.split('@')[0]} = {account.role}" for account in ACCOUNTS))
 
     import uvicorn
