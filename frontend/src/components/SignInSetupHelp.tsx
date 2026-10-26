@@ -71,7 +71,7 @@ function SetUpDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
           <li><b>Click Test sign-in</b> on this row. It checks Ops Signals can reach your provider, then you sign in in a new tab and this row shows who you are and the group that gave your role.</li>
         </Box>
         <Typography sx={{ fontSize: 13, color: ui.muted, mt: 1.5 }}>
-          No provider yet? Set OPS_SIGNALS_TEST_SIGN_IN=true in .env and restart scripts/run_all.sh to try sign-in with test accounts on this computer.
+          No provider yet? Try it on this computer first: ./scripts/try_keycloak_sign_in.sh up starts a throwaway one with test users, or set OPS_SIGNALS_TEST_SIGN_IN=true in .env for test accounts.
         </Typography>
       </DialogContent>
       <DialogActions>

@@ -39,7 +39,7 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-# Test sign-in (docs/web-ui-sign-in.md#try-sign-in-before-onboarding): a local OpenID Connect provider with
+# Test sign-in (docs/try-company-sign-in.md): a local OpenID Connect provider with
 # test accounts, for trying the web UI's sign-in and roles before a company provider is set up. Its
 # settings are exported for this script's backend only and never written to .env, so
 # run_grafana_stack.sh and the plugin are not affected. Company sign-in needs an API token: without one

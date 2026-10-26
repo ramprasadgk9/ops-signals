@@ -26,8 +26,10 @@ What the project is, and how to get it running.
   plugin specifically, if that's how you plan to use Ops Signals.
 - [`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md) - signing in through
   Grafana, what Viewers, Editors and Admins can do, who-did-what, and how to check it locally.
-- [`web-ui-sign-in.md`](web-ui-sign-in.md) - signing in to the web UI through your company's
-  sign-in proxy, roles from company groups, and trying it locally with a dev user.
+- [`web-ui-sign-in.md`](web-ui-sign-in.md) - signing in to the web UI with your company's identity
+  provider (OpenID Connect) or sign-in proxy, and roles from company groups.
+- [`try-company-sign-in.md`](try-company-sign-in.md) - trying that sign-in before onboarding a team:
+  a throwaway Keycloak set up by a script or by hand, and what each role should see.
 - [`adoption-roadmap.md`](adoption-roadmap.md) - what's next so companies with many teams can adopt
   it: sign-in through Grafana, roles, login modes, team ownership.
 - [`grafana-plugin-roadmap.md`](grafana-plugin-roadmap.md) - where the Grafana plugin stands and

@@ -1,5 +1,5 @@
 """A local OpenID Connect provider for trying Ops Signals' sign-in before a company provider is set up
-(docs/web-ui-sign-in.md). OPS_SIGNALS_TEST_SIGN_IN=true in .env makes scripts/run_all.sh start it; the
+(docs/try-company-sign-in.md). OPS_SIGNALS_TEST_SIGN_IN=true in .env makes scripts/run_all.sh start it; the
 Playwright sign-in spec and the backend tests use it too.
 
 For this computer only: it listens on 127.0.0.1, its accounts have no passwords, it sends people back

@@ -13,8 +13,8 @@ Admin, and how to try it before a team uses it. For the Grafana plugin, see
   Editor; everyone else who signs in is a Viewer.
 - **The same roles as in the Grafana plugin**, enforced by the backend on every request.
 - **Names are recorded** on what people do in the web UI: "Created by priya", "Resolved by sam".
-- **Try it before onboarding a team** with the [local test provider](#try-sign-in-before-onboarding):
-  one line in `.env`, test accounts for each role.
+- **Try it before onboarding a team** with [`try-company-sign-in.md`](try-company-sign-in.md): a
+  throwaway Keycloak set up by one script, or test accounts for each role.
 - **It's off by default.** With no sign-in set up the web UI works as before: nobody is signed in
   and everyone can change everything.
 
@@ -184,75 +184,12 @@ tokens.
 - **Cutting someone off now:** remove them from `OPS_SIGNALS_OIDC_ALLOWED_GROUPS`, or rotate
   `OPS_SIGNALS_SESSION_SECRET` to sign everyone out. Otherwise a session lasts until it ends.
 
-## Try sign-in before onboarding
+## Try it before onboarding a team
 
-No company provider yet? A local test provider ships with Ops Signals. It is a real OpenID Connect
-provider, so you go through the same sign-in, roles, sign-out and error screens a team will get.
-
-1. Add one line to `.env` (and no other `OPS_SIGNALS_OIDC_*` settings):
-
-   ```bash
-   OPS_SIGNALS_TEST_SIGN_IN=true
-   ```
-
-2. Restart `./scripts/run_all.sh`. It starts the test provider on `127.0.0.1:9400`, sets company
-   sign-in for its own backend only (nothing is written to `.env`, and `run_grafana_stack.sh` and the
-   plugin are not affected), and prints the accounts. Without an API token in `.env` it makes one and
-   keeps it in `tmp/test-sign-in.token` for scripts.
-3. Open http://localhost:5174, click **Sign in with test accounts** and pick an account:
-
-| Account | Groups | Role |
-| --- | --- | --- |
-| `sam@example.com` | `ops-signals-viewers` | Viewer |
-| `priya@example.com` | `ops-signals-editors` | Editor |
-| `ada@example.com` | `ops-signals-admins` | Admin |
-| `lee@example.com` | none sent | Viewer, after "your groups didn't come through" |
-
-Sign out from the chip menu and pick another account to compare roles; use a second browser to be
-two people at once. Setup check → Login warns while the test provider is on. Remove the line and
-restart to turn it off.
-
-It is for this computer only: it listens on `127.0.0.1`, its accounts have no passwords, and the
-backend accepts it only at a `127.0.0.1` address. Another install can start it by hand with
-`python -m backend.devtools.test_sign_in_provider`, which prints the settings to set.
-
-### With a real provider on your machine (Keycloak)
-
-The test provider shows Ops Signals' own screens. To see it work with a real identity provider we
-didn't write, set up the way a company would, `scripts/try_keycloak_sign_in.sh` runs Keycloak (an
-open-source identity provider) in Docker and does the set-up steps above for you. It takes about 15
-minutes; the first run downloads Keycloak (about 500 MB).
-
-**Before you start:** Docker running, `./scripts/setup.sh` done, and `./scripts/run_all.sh` stopped.
-Your `.env` must not set sign-in lines (`OPS_SIGNALS_AUTH_MODE`, `OPS_SIGNALS_OIDC_*`, the group lists,
-`OPS_SIGNALS_PUBLIC_URL`, `OPS_SIGNALS_TEST_SIGN_IN`, `OPS_SIGNALS_DEV_USER`): the script names any it
-finds, to comment out while you try this.
-
-1. Run `./scripts/try_keycloak_sign_in.sh up`. It starts Keycloak on `127.0.0.1:8180`, creates a realm
-   `acme` with three groups and three users, registers Ops Signals as a web app, adds the groups claim
-   with Keycloak's default "Full group path" on, writes the settings to `tmp/keycloak/keycloak.env`, and
-   starts `run_all.sh` with them.
-2. Open http://localhost:5174 and check, in this order:
-
-| # | Do | You should see |
-| --- | --- | --- |
-| 1 | Open the web UI | "Sign in with Acme login" |
-| 2 | Sign in as `john` / `Passw0rd-john` | Keycloak's own login page, then back in Ops Signals as **john · Viewer** |
-| 3 | Open the name chip | "Groups your provider sent: `/ops-signals-admins`": the paths trap from [the set-up steps](#register-ops-signals-with-your-provider) |
-| 4 | In another terminal run `./scripts/try_keycloak_sign_in.sh path-off`, then Sign out from the chip | Keycloak asks "Do you want to log out?", then "You're signed out of Ops Signals" |
-| 5 | Sign in as `john` again | **john · Admin**; the chip shows `ops-signals-admins` |
-| 6 | Setup check → Login | "Company sign-in is on · you are john@acme.example (Admin, group ops-signals-admins) …"; **Test sign-in** says Ops Signals can reach your provider |
-| 7 | Sign out, sign in as `elena` / `Passw0rd-elena` | **Editor**: New Analysis shown; Settings and Setup check hidden |
-| 8 | Sign out, sign in as `vic` / `Passw0rd-vic` | **Viewer** (group `support`): Autonomous Analysis read-only; `/settings` closed |
-
-3. When you're done: Ctrl+C, then `./scripts/try_keycloak_sign_in.sh down` (removes Keycloak and the
-   settings file), and start `./scripts/run_all.sh` as usual.
-
-`./scripts/try_keycloak_sign_in.sh start` starts the stack again with the same settings; `up` again
-starts the realm from scratch. The Keycloak admin console is http://localhost:8180 (`admin` / `admin`,
-realm `acme`), and the API token for scripts is `OPS_SIGNALS_API_TOKEN` in `tmp/keycloak/keycloak.env`.
-Ports in use elsewhere: set `KEYCLOAK_PORT` or `FRONTEND_PORT` before `up`. The made-up addresses
-(`@acme.example`) are never emailed.
+[`try-company-sign-in.md`](try-company-sign-in.md) walks through it end to end: a throwaway Keycloak
+set up by `scripts/try_keycloak_sign_in.sh` or by hand (or the provider you'll really use), what each
+role should see, and clean-up. Without Docker, `OPS_SIGNALS_TEST_SIGN_IN=true` in `.env` gives test
+accounts for each role.
 
 ## Sign-in proxy (proxy-headers)
 

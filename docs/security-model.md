@@ -22,7 +22,8 @@ one-command demo turns on file writes only, and those land inside a throwaway co
 
 ## Turning on authentication
 
-Set one shared token:
+API authentication is one shared token: set `OPS_SIGNALS_API_TOKEN` on the backend, and every caller
+must send it. Make one with:
 
 ```bash
 export OPS_SIGNALS_API_TOKEN="$(openssl rand -hex 32)"

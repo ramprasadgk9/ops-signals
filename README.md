@@ -403,11 +403,8 @@ Ops Signals is meant to run inside a trusted network, next to your Prometheus an
   endpoint that wipes all data. `OPS_SIGNALS_ALLOW_FILE_WRITES=true` lets the analyzer and behavior
   labs write files on the server. The dev scripts turn both on.
 - **CORS** is limited to local dev origins. Add your Grafana URL with `OPS_SIGNALS_CORS_ORIGINS`.
-- **Sign-in and roles (Viewer, Editor, Admin).** The Grafana plugin takes them from Grafana. The web
-  UI signs people in with your company's identity provider over OpenID Connect
-  (`OPS_SIGNALS_AUTH_MODE=oidc`) or trusts a sign-in proxy; `OPS_SIGNALS_TEST_SIGN_IN=true` with
-  `scripts/run_all.sh` tries it with test accounts first. See
-  [`docs/web-ui-sign-in.md`](docs/web-ui-sign-in.md).
+- **Roles (Viewer, Editor, Admin)** come from Grafana in the plugin, and from your company's groups
+  in the web UI: [`docs/web-ui-sign-in.md`](docs/web-ui-sign-in.md).
 
 [`docs/security-model.md`](docs/security-model.md) covers how each client (web UI, Grafana plugin,
 Alertmanager) sends the token, the Helm and Compose settings, and the known limitations.
@@ -419,7 +416,7 @@ Alertmanager) sends the token, the Helm and Compose settings, and the known limi
 | `./scripts/setup.sh` | Installs Python and frontend deps, starts Postgres and Qdrant, and initializes the database. | First-time setup or after a clean checkout. | Postgres `5432`, Qdrant `6333` |
 | `./scripts/run_all.sh` | Starts the standalone backend, frontend, Postgres, Qdrant, and - until `.env` points at your own Prometheus - a bundled Prometheus with mock metrics. | Daily local development outside Grafana. | Backend `8001`, frontend `5174`, Prometheus `9090` |
 | `./scripts/multicluster.sh up`, then `app` | Starts a local Grafana Mimir with several clusters, an HA pair and two tenants, then the app with one connection per tenant. | Testing multi-cluster and multi-tenant behaviour; not for real deployments. See [`docs/testing-multicluster-locally.md`](docs/testing-multicluster-locally.md). | Mimir `9009`, plus the `run_all.sh` ports |
-| `./scripts/try_keycloak_sign_in.sh up` | Starts a throwaway Keycloak (open-source identity provider) with test users and groups, sets the web UI's company sign-in up against it, then starts the app. | Seeing sign-in and roles work with a real provider before onboarding a team; for this computer only. See [`docs/web-ui-sign-in.md`](docs/web-ui-sign-in.md#with-a-real-provider-on-your-machine-keycloak). | Keycloak `8180`, plus the `run_all.sh` ports |
+| `./scripts/try_keycloak_sign_in.sh up` | Starts a throwaway Keycloak (open-source identity provider) with test users and groups, sets the web UI's company sign-in up against it, then starts the app. | Seeing sign-in and roles work with a real provider before onboarding a team; for this computer only. See [`docs/try-company-sign-in.md`](docs/try-company-sign-in.md). | Keycloak `8180`, plus the `run_all.sh` ports |
 | `./scripts/run_grafana_stack.sh` | Builds the Grafana plugin, starts Grafana, Prometheus, mock metrics, and the plugin backend. | Testing the Grafana plugin experience. | Grafana `3000`, Prometheus `9090`, backend `8002` |
 | `./scripts/test_mcp.sh` | Starts the MCP server and verifies `initialize` and `tools/list`. | Checking MCP locally without Codex. | None; stdio only |
 | `MCP_MODE=mcp-write ./scripts/test_mcp.sh` | Verifies the write-enabled MCP tool list. | Confirming write-capable tools are exposed. | None; stdio only |

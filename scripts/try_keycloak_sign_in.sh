@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Try the web UI's company sign-in against a real, throwaway identity provider (Keycloak, open source)
-# on this computer, following the same set-up steps a company would (docs/web-ui-sign-in.md).
+# on this computer, following the same set-up steps a company would (docs/try-company-sign-in.md).
 #
 #   ./scripts/try_keycloak_sign_in.sh up            Keycloak, realm, groups, users, the app, the groups
 #                                                   claim and the settings, then starts run_all.sh with them
