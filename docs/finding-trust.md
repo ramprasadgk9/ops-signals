@@ -125,6 +125,9 @@ A finding whose signals weren't stored falls back to its category.
 - **98% real still means about 1 in 50 isn't.** Take a quick look before you act, especially
   before you page someone.
 - **Test data isn't your system.** Your team's answers replace the tested number for your service.
+- **Tested with the default settings.** A finding made with per-service analyzer settings
+  ([configuration](configuration.md#per-service-analyzer-settings)) shows "Custom settings · not
+  tested" instead of a tested rate; your team's answers still count.
 - **No early warnings yet.** A finding says something has changed, not that something will break.
   Forecasts stay in "Context only" until they're tested against problems that built up slowly.
 - **Missing a problem is possible.** In the tests, slow-network faults were caught less often than
@@ -139,6 +142,8 @@ A finding whose signals weren't stored falls back to its category.
   `service` (`real`, `answered`, `min_answers`, `scope`: `service`, or `metric` when the finding
   has no service label), `your_answer`, and `moved` (`up`, `down` or null,
   when your answers moved it to the other list; the badge is then `team_confirmed` or null).
+  A finding made with per-service settings has `tested: null` and `custom_settings: true` in
+  `trust`, and a `custom_settings` object (`settings`, `overrides`) on the finding itself.
 - `POST /api/findings/{id}/feedback` with `{"verdict": "real_problem" | "expected_change" |
   "not_a_problem"}` stores the answer and returns the finding with its trust recomputed.
 

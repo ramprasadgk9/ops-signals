@@ -7,6 +7,7 @@ import {
   SETUP_GROUPS,
   checksIn,
   connectionTestText,
+  fixLabel,
   hasFixDetails,
   setupBanner,
   setupChips,
@@ -120,8 +121,8 @@ function CheckRow({ check, backendUrl }: { check: SetupCheck; backendUrl: string
         </span>
         <span style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {details ? (
-            <button type="button" style={local.smallButton} aria-expanded={open} aria-label={`${open ? 'Hide' : 'How to fix'}: ${check.title}`} onClick={() => setOpen(!open)}>
-              {open ? 'Hide' : 'How to fix'}
+            <button type="button" style={local.smallButton} aria-expanded={open} aria-label={`${open ? 'Hide' : fixLabel(check)}: ${check.title}`} onClick={() => setOpen(!open)}>
+              {open ? 'Hide' : fixLabel(check)}
             </button>
           ) : check.docs && check.status !== 'ok' ? (
             <a style={{ ...local.smallButton, textDecoration: 'none' }} href={setupDocsUrl(check.docs)} target="_blank" rel="noreferrer">Guide</a>
@@ -168,7 +169,7 @@ function CheckRow({ check, backendUrl }: { check: SetupCheck; backendUrl: string
             </div>
           )}
           <div>
-            <div style={local.label}>How to fix</div>
+            <div style={local.label}>{fixLabel(check)}</div>
             <ol style={{ margin: '4px 0 0', paddingLeft: 18 }}>
               {(check.fix ?? []).map((step) => <li key={step} style={{ margin: '3px 0' }}>{step}</li>)}
             </ol>

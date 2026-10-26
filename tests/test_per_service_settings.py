@@ -85,6 +85,18 @@ def test_an_override_changes_the_setting_for_its_service_only(overrides_dir: Pat
             "applied": ["payments_memory"],
             "params": {"trend": {"finding_rules": {"min_slope_percent": 3}}},
             "disabled": [],
+            "overrides": [{"id": "payments_memory", "file": "payments-team.yml", "reason": "Memory grows slowly before an outage here."}],
+            # In words, with the default at the time of the run, for the finding's details.
+            "settings": [
+                {
+                    "analyzer_id": "trend",
+                    "analyzer": "Trend Analysis",
+                    "path": "finding_rules.min_slope_percent",
+                    "label": "Smallest steady climb or drop that counts, as % of the metric's usual level",
+                    "value": 3,
+                    "default": 10,
+                }
+            ],
         }
     ]
 

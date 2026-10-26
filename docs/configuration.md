@@ -77,10 +77,17 @@ overrides:
 - **When several match:** they all apply, least specific first, so the most specific wins on a
   setting they share: service and metric, then service, then metric; an exact name beats a wildcard.
 - **Mistakes:** a file with any problem (a setting that can't be changed, a value out of range, a
-  missing `reason`, invalid YAML) is skipped whole and the reason is written to the backend log;
-  the other files still apply, and that file's services run on the defaults.
-- **Where it shows:** each analyzer's record in the analysis run (`executed_analyzers_json`) lists
-  under `settings_overrides` which overrides applied to which series and what they set.
+  missing `reason`, invalid YAML) is skipped whole; the other files still apply, and that file's
+  services run on the defaults. **Setup check** (web UI and Grafana plugin) lists skipped files with
+  the reason, and overrides that matched nothing analyzed in the last 7 days, with a close service
+  or metric name when there is one (usually a typo). Its **How to set** button lists every setting
+  you can change, with its range, and the example file.
+- **Where it shows:** a finding made with custom settings has a **Custom settings · not tested** tag;
+  its details show each changed setting next to the default, the override, its file and its reason.
+  The tested rate ("real 7 in 10 times in tests") was measured with the default settings, so these
+  findings don't show it; "Was this real?" answers still count toward the service's own rate. Each
+  analyzer's record in the analysis run (`executed_analyzers_json`) keeps the same under
+  `settings_overrides`, so a finding shows what was used even after the file changes.
 
 Files are read at the start of every run, so a change takes effect on the next run without a
 restart. Benchmarks ignore them and measure the shipped settings.

@@ -15,7 +15,7 @@ from intelligence.analyzer_registry import (
     library_installed,
     load_registrations,
 )
-from intelligence.analyzer_overrides import OverrideResolution, OverrideSet, load_overrides
+from intelligence.analyzer_overrides import OverrideResolution, OverrideSet, _leaves, load_overrides
 from intelligence.analyzers.base import Analyzer
 from intelligence.config import AnalyzerConfig, AppConfig, deep_merge
 from intelligence.findings.schema import OperationalFinding
@@ -136,6 +136,36 @@ class RegistryAnalyzerSelection:
             failed_by_series.append(failed)
         return signals, executed_by_series, failed_by_series
 
+    def _setting_changes(
+        self,
+        analyzer_ids: list[str],
+        resolution: OverrideResolution,
+        registrations: dict[str, AnalyzerRegistration],
+    ) -> list[dict[str, object]]:
+        """Each changed setting in words: its tunable label, the value used and the default at the
+        time of the run (this run's own config, else the registration), so a finding can show what
+        was used even after the overrides file changes."""
+        changes: list[dict[str, object]] = []
+        for analyzer_id in analyzer_ids:
+            registration = registrations.get(analyzer_id)
+            configured = self.config.analysis.analyzers.get(analyzer_id)
+            for path, value in _leaves(resolution.params.get(analyzer_id, {})):
+                default = _dotted(configured.params if configured else {}, path)
+                if default is None and registration is not None:
+                    default = _dotted(registration.runtime_params, path)
+                spec = registration.tunable.get(path, {}) if registration else {}
+                changes.append(
+                    {
+                        "analyzer_id": analyzer_id,
+                        "analyzer": registration.display_name if registration else analyzer_id,
+                        "path": path,
+                        "label": spec.get("label") or path,
+                        "value": value,
+                        "default": default,
+                    }
+                )
+        return changes
+
     def _config_with(self, resolution: OverrideResolution) -> AppConfig:
         """This run's config with one series' overrides merged in, key by key, over
         config/analyzers.yaml. The run's own config is not modified."""
@@ -153,8 +183,8 @@ class RegistryAnalyzerSelection:
             config.analysis.recommendation_execution.max_analyzers = resolution.max_analyzers
         return config
 
-    @staticmethod
     def _series_snapshots(
+        self,
         series_settings: list[SeriesSettings],
         analyzer_routing: list[dict[str, object]],
         executed_by_series: list[list[str]],
@@ -163,6 +193,7 @@ class RegistryAnalyzerSelection:
         """Execution snapshots for the whole run. Each analyzer an override changed carries
         `settings_overrides`: which overrides applied to which series and the settings they set.
         Several groups are merged by analyzer, keeping the record where it ran."""
+        registrations = {registration.analyzer_id: registration for registration in load_registrations(_REPO_ROOT / "config" / "analyzer_registry.d")}
         merged: dict[str, dict[str, object]] = {}
         order: list[str] = []
         for settings, executed, failed in zip(series_settings, executed_by_series, failed_by_series):
@@ -190,6 +221,8 @@ class RegistryAnalyzerSelection:
                             "applied": list(settings.resolution.applied),
                             "params": {analyzer_id: settings.resolution.params.get(analyzer_id, {}) for analyzer_id in changed},
                             "disabled": sorted(set(changed) & settings.resolution.disabled),
+                            "overrides": [{"id": override_id, **settings.resolution.sources.get(override_id, {})} for override_id in settings.resolution.applied],
+                            "settings": self._setting_changes(changed, settings.resolution, registrations),
                         }
                     )
         return [merged[key] for key in order]
@@ -786,4 +819,13 @@ def _text(value: object) -> str | None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
     return str(value)
+
+
+def _dotted(params: dict[str, object], path: str) -> object:
+    current: object = params
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
 

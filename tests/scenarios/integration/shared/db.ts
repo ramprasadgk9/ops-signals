@@ -168,6 +168,12 @@ export async function seedAnalysisRun(params: { runId: string; service: string; 
   );
 }
 
+/** Sets a seeded run's per-analyzer execution record, e.g. one with settings_overrides to stand for
+ * a run made with per-service analyzer settings. */
+export async function setRunExecutedAnalyzers(runId: string, executed: unknown[]): Promise<void> {
+  await pool.query(`update analysis_runs set executed_analyzers_json = $2 where id = $1`, [runId, JSON.stringify(executed)]);
+}
+
 /** Seeds ops_behavior_findings directly — for testing the occurrence_count/last_seen_at display
  * on BehaviorIntelligencePage without waiting on a real detection to fire and re-fire. */
 export async function seedBehaviorFinding(params: {

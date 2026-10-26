@@ -8,9 +8,11 @@ tokens are only ever reported as set or not set.
 
 from __future__ import annotations
 
+import difflib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -47,10 +49,13 @@ from backend.app.models.entities import (
     AnalysisRunEntity,
     AutonomousPolicyEntity,
     ChangeEventEntity,
+    FindingEntity,
     OtlpPendingPointEntity,
 )
 from backend.app.otlp.metrics import last_received_at as otlp_last_received_at
 from backend.app.services.prometheus_service import ConnectionProbe, PrometheusQueryService, display_url
+from intelligence.analyzer_overrides import AnalyzerOverride, load_overrides
+from intelligence.analyzer_registry import AnalyzerRegistration, load_registrations
 
 logger = logging.getLogger(__name__)
 
@@ -458,6 +463,84 @@ def integration_checks(db: Session, now: datetime) -> list[SetupCheck]:
     return checks
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+OVERRIDES_DIR = _REPO_ROOT / "config" / "analyzer_overrides.d"
+REGISTRY_DIR = _REPO_ROOT / "config" / "analyzer_registry.d"
+
+
+def _overrides_how_to(registrations: list[AnalyzerRegistration]) -> list[str]:
+    steps = [
+        "Copy config/analyzer_overrides.d/example.yml.example to a .yml file in the same folder (one per team works well) "
+        "and edit it. It takes effect on the next analysis run.",
+        "scope.service must match the service name on the series (as shown on findings); scope.metric its metric name. "
+        'Wildcards work: "payments-*" (quote a name that starts with *).',
+    ]
+    for registration in registrations:
+        for path, spec in registration.tunable.items():
+            low, high = spec.get("min"), spec.get("max")
+            span = f", from {low} to {high}" if low is not None and high is not None else ""
+            steps.append(f"{registration.display_name}: {spec.get('label') or path} ({registration.analyzer_id} → {path}{span})")
+    return steps
+
+
+def _seen_series(db: Session, now: datetime) -> set[tuple[str | None, str | None]]:
+    """(service, metric) pairs analyzed in the last 7 days: from runs (one series each for
+    autonomous runs) and findings (every series of a CSV run that found something). Not the
+    points table, which is far too big to scan here."""
+    since = now - timedelta(days=7)
+    seen: set[tuple[str | None, str | None]] = set()
+    for entity in (AnalysisRunEntity, FindingEntity):
+        try:
+            seen.update(db.execute(select(entity.service, entity.metric_name).where(entity.created_at >= since).distinct()).all())
+        except Exception:
+            logger.warning("setup check: reading analyzed series failed", exc_info=True)
+            db.rollback()
+    return seen
+
+
+def _unmatched_hint(override: AnalyzerOverride, seen: set[tuple[str | None, str | None]]) -> str:
+    scope = " ".join(f"{name}: {value}" for name, value in (("service", override.service), ("metric", override.metric)) if value)
+    for name, value, names in (
+        ("services", override.service, {service for service, _ in seen if service}),
+        ("metrics", override.metric, {metric for _, metric in seen if metric}),
+    ):
+        close = difflib.get_close_matches(value, sorted(names), n=1) if value and "*" not in value else []
+        if close:
+            return f"Check {scope}: seen {name} include {close[0]}."
+    return f"Check {scope}."
+
+
+def analyzer_overrides_check(db: Session, now: datetime) -> SetupCheck:
+    """Per-service analyzer settings (config/analyzer_overrides.d/): what's in use, which files
+    were skipped and why, and which overrides match nothing analyzed lately (often a typo)."""
+    base = {"id": "analyzer_overrides", "group": "optional", "title": "Per-service analyzer settings",
+            "docs": "docs/configuration.md", "action": "how_to_set"}
+    registrations = load_registrations(REGISTRY_DIR)
+    how_to = _overrides_how_to(registrations)
+    example_file = OVERRIDES_DIR / "example.yml.example"
+    snippet = example_file.read_text(encoding="utf-8") if example_file.exists() else None
+    files = sorted(list(OVERRIDES_DIR.glob("*.yml")) + list(OVERRIDES_DIR.glob("*.yaml"))) if OVERRIDES_DIR.is_dir() else []
+    if not files:
+        return SetupCheck(**base, status="off", detail="Not used: every service runs on the default analyzer settings.", fix=how_to, snippet=snippet)
+
+    loaded = load_overrides(OVERRIDES_DIR, registrations)
+    seen = _seen_series(db, now)
+    unmatched = [override for override in loaded.overrides if seen and not any(override.matches(service, metric) for service, metric in seen)]
+    in_use = sorted({override.source_file for override in loaded.overrides})
+    count = len(loaded.overrides)
+    parts = [f"{count} override{'s' if count != 1 else ''} in {len(in_use)} file{'s' if len(in_use) != 1 else ''} in use"
+             + (f": {', '.join(in_use)}" if in_use and not loaded.errors and not unmatched else "")]
+    if loaded.errors:
+        parts.append(f"{len(loaded.errors)} file{'s' if len(loaded.errors) != 1 else ''} skipped")
+    if unmatched:
+        parts.append(f"{len(unmatched)} override{'s' if len(unmatched) != 1 else ''} matched nothing in the last 7 days")
+    problems = [f"{error.source_file} skipped: {error.message}. Its services run on the default settings." for error in loaded.errors] + [
+        f"{override.override_id} ({override.source_file}) matched no series in the last 7 days. {_unmatched_hint(override, seen)}"
+        for override in unmatched
+    ]
+    return SetupCheck(**base, status="warn" if problems else "ok", detail=" · ".join(parts), fix=problems + how_to, snippet=snippet)
+
+
 @router.get("/check", response_model=SetupCheckOut)
 def setup_check(
     db: Session = Depends(get_db),
@@ -490,5 +573,6 @@ def setup_check(
     checks.extend(security_checks(actor))
     checks.extend(activity_checks(db, now))
     checks.extend(integration_checks(db, now))
+    checks.append(analyzer_overrides_check(db, now))
     you = SetupActorOut(name=actor.name, role=actor.role, via=actor.via) if actor else None
     return SetupCheckOut(generated_at=now, version=version, checks=checks, you=you)

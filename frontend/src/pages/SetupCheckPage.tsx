@@ -9,6 +9,7 @@ import {
   SETUP_GROUPS,
   checksIn,
   connectionTestText,
+  fixLabel,
   hasFixDetails,
   setupDocsUrl,
   setupReport,
@@ -80,8 +81,8 @@ function CheckRow({ check }: { check: SetupCheck }) {
         </Box>
         <Stack direction="row" spacing={1} sx={{ gridColumn: { xs: '2', md: 'auto' }, justifySelf: { md: 'end' } }}>
           {details ? (
-            <Button size="small" variant="outlined" sx={buttonSx} aria-expanded={open} aria-label={`${open ? 'Hide' : 'How to fix'}: ${check.title}`} onClick={() => setOpen(!open)}>
-              {open ? 'Hide' : 'How to fix'}
+            <Button size="small" variant="outlined" sx={buttonSx} aria-expanded={open} aria-label={`${open ? 'Hide' : fixLabel(check)}: ${check.title}`} onClick={() => setOpen(!open)}>
+              {open ? 'Hide' : fixLabel(check)}
             </Button>
           ) : check.docs && check.status !== 'ok' ? (
             <Button size="small" variant="outlined" sx={buttonSx} href={setupDocsUrl(check.docs)} target="_blank" rel="noreferrer">
@@ -124,7 +125,7 @@ function CheckRow({ check }: { check: SetupCheck }) {
             </Box>
           ) : null}
           <Box>
-            <Typography sx={label}>How to fix</Typography>
+            <Typography sx={label}>{fixLabel(check)}</Typography>
             <Box component="ol" sx={{ m: 0, pl: 2.5, fontSize: 14, '& li': { my: 0.5 } }}>
               {(check.fix ?? []).map((step) => (
                 <li key={step}>{step}</li>

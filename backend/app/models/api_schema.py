@@ -209,6 +209,10 @@ class FindingOut(BaseModel):
     # check, related findings (services/finding_plain.py). None when there isn't enough evidence;
     # title and summary are unchanged either way.
     plain: dict | None = None
+    # Per-service analyzer settings it was made with (services/finding_settings.py): each changed
+    # setting in words with the value used and the default, and the overrides that set them, with
+    # their file and reason. None for a finding made with the default settings.
+    custom_settings: dict | None = None
 
 
 class FindingFeedbackIn(BaseModel):

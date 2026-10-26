@@ -19,6 +19,8 @@ import { changeChipLabel, findingChanges, findingWhatChanged } from '../utils/fi
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
 import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { testedCaption, testedHeadline, testedTooltip } from '../utils/findingTrust';
+import { customSettings } from '../utils/customSettings';
+import { CustomSettingsBox } from './CustomSettingsBox';
 
 type Props = {
   open: boolean;
@@ -144,6 +146,8 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
             </Stack>
           )}
         </Box>
+
+        {customSettings(finding) ? <CustomSettingsBox custom={customSettings(finding)!} /> : null}
 
         {finding.trust ? (
           <Box sx={{ mb: 3 }} data-testid="finding-tested">
