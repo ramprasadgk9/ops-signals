@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import copy
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,8 +15,9 @@ from intelligence.analyzer_registry import (
     library_installed,
     load_registrations,
 )
+from intelligence.analyzer_overrides import OverrideResolution, OverrideSet, load_overrides
 from intelligence.analyzers.base import Analyzer
-from intelligence.config import AnalyzerConfig, AppConfig
+from intelligence.config import AnalyzerConfig, AppConfig, deep_merge
 from intelligence.findings.schema import OperationalFinding
 from intelligence.signals.schema import OperationalSignal
 
@@ -51,12 +54,145 @@ RUN_REASON_TEXT = {
 }
 
 
+@dataclass(slots=True)
+class SeriesSettings:
+    """The rows of a run that share one set of analyzer settings, and the selection built from
+    them. `resolution.applied` is empty for rows no per-service override matches."""
+
+    selection: "RegistryAnalyzerSelection"
+    resolution: OverrideResolution
+    # None: every row of the run. Otherwise a boolean mask over the run's rows.
+    mask: pd.Series | None = None
+    series: list[tuple[str | None, str | None]] = field(default_factory=list)
+
+    def rows(self, normalized: pd.DataFrame) -> pd.DataFrame:
+        return normalized if self.mask is None else normalized[self.mask]
+
+
 class RegistryAnalyzerSelection:
     """Analyzer construction and router-driven selection, shared by SignalPipeline (CSV and
     interactive runs) and MetricAnalysisExecutor (autonomous runs). Both used to carry their own
     copy; the autonomous one hardcoded the 7 built-ins, so an analyzer added through the Add
     Analyzer wizard never ran on scheduled runs. Subclasses provide `self.config`.
     """
+
+    # Per-service settings (intelligence/analyzer_overrides.py). Tests point this elsewhere.
+    overrides_dir: Path = _REPO_ROOT / "config" / "analyzer_overrides.d"
+
+    def _load_overrides(self) -> OverrideSet:
+        return load_overrides(self.overrides_dir, load_registrations(_REPO_ROOT / "config" / "analyzer_registry.d"))
+
+    def _settings_by_series(self, normalized: pd.DataFrame) -> list[SeriesSettings]:
+        """Splits a run by the per-service overrides that apply to each (service, metric) in it.
+        A run no override touches is one group with this selection and every row, exactly as
+        before per-service settings existed."""
+        overrides = self._load_overrides()
+        if not overrides.overrides or normalized.empty:
+            return [SeriesSettings(selection=self, resolution=OverrideResolution())]
+        services = normalized["service"] if "service" in normalized.columns else pd.Series(None, index=normalized.index)
+        metrics = normalized["metric_name"] if "metric_name" in normalized.columns else pd.Series(None, index=normalized.index)
+        services, metrics = (column.astype(object).where(column.notna(), None) for column in (services, metrics))
+        keys = pd.Series(list(zip(services, metrics)), index=normalized.index)
+        groups: dict[tuple[str, ...], tuple[OverrideResolution, list[tuple[str | None, str | None]]]] = {}
+        for service, metric in dict.fromkeys(keys):
+            resolution = overrides.resolve(_text(service), _text(metric))
+            groups.setdefault(tuple(resolution.applied), (resolution, []))[1].append((service, metric))
+        if list(groups) == [()]:
+            return [SeriesSettings(selection=self, resolution=OverrideResolution())]
+        settings: list[SeriesSettings] = []
+        for applied, (resolution, series) in sorted(groups.items()):
+            mask = None if len(groups) == 1 else keys.isin(series)
+            selection = self if not applied else _OverrideSelection(self._config_with(resolution))
+            settings.append(SeriesSettings(selection=selection, resolution=resolution, mask=mask, series=series))
+        return settings
+
+    def _build_series_analyzers(
+        self,
+        normalized: pd.DataFrame,
+        analyzer_routing: list[dict[str, object]],
+        run_metadata: dict[str, object] | None,
+    ) -> list[tuple[SeriesSettings, list[Analyzer]]]:
+        """The analyzers for each group of rows that shares settings (see _settings_by_series)."""
+        built = [(settings, settings.selection._build_analyzers(analyzer_routing)) for settings in self._settings_by_series(normalized)]
+        for _, analyzers in built:
+            self._apply_analysis_window(analyzers, run_metadata)
+        return built
+
+    def _run_series_analyzers(
+        self,
+        series_analyzers: list[tuple[SeriesSettings, list[Analyzer]]],
+        normalized: pd.DataFrame,
+        analysis_run_id: str,
+    ) -> tuple[list[OperationalSignal], list[list[str]], list[dict[str, str]]]:
+        """Runs each group's analyzers on its own rows. Returns all signals, and per group the
+        analyzers that ran and the ones that failed. Subclasses provide _run_analyzers."""
+        signals: list[OperationalSignal] = []
+        executed_by_series: list[list[str]] = []
+        failed_by_series: list[dict[str, str]] = []
+        for settings, analyzers in series_analyzers:
+            generated, failed = self._run_analyzers(analyzers, settings.rows(normalized), analysis_run_id)  # type: ignore[attr-defined]
+            signals.extend(generated)
+            executed_by_series.append([str(analyzer.analyzer_id) for analyzer in analyzers if str(analyzer.analyzer_id) not in failed])
+            failed_by_series.append(failed)
+        return signals, executed_by_series, failed_by_series
+
+    def _config_with(self, resolution: OverrideResolution) -> AppConfig:
+        """This run's config with one series' overrides merged in, key by key, over
+        config/analyzers.yaml. The run's own config is not modified."""
+        config = copy.deepcopy(self.config)
+        registrations = {registration.analyzer_id: registration for registration in load_registrations(_REPO_ROOT / "config" / "analyzer_registry.d")}
+        for analyzer_id in set(resolution.params) | resolution.disabled:
+            if analyzer_id not in config.analysis.analyzers:
+                registration = registrations.get(analyzer_id)
+                config.analysis.analyzers[analyzer_id] = AnalyzerConfig(enabled=registration.enabled if registration else True, params={})
+            analyzer_config = config.analysis.analyzers[analyzer_id]
+            analyzer_config.params = deep_merge(analyzer_config.params, resolution.params.get(analyzer_id, {}))
+            if analyzer_id in resolution.disabled:
+                analyzer_config.enabled = False
+        if resolution.max_analyzers is not None:
+            config.analysis.recommendation_execution.max_analyzers = resolution.max_analyzers
+        return config
+
+    @staticmethod
+    def _series_snapshots(
+        series_settings: list[SeriesSettings],
+        analyzer_routing: list[dict[str, object]],
+        executed_by_series: list[list[str]],
+        failed_by_series: list[dict[str, str]],
+    ) -> list[dict[str, object]]:
+        """Execution snapshots for the whole run. Each analyzer an override changed carries
+        `settings_overrides`: which overrides applied to which series and the settings they set.
+        Several groups are merged by analyzer, keeping the record where it ran."""
+        merged: dict[str, dict[str, object]] = {}
+        order: list[str] = []
+        for settings, executed, failed in zip(series_settings, executed_by_series, failed_by_series):
+            selection = settings.selection
+            snapshots = selection._executed_analyzer_snapshots(
+                analyzer_routing,
+                executed,
+                failed_analyzers=failed,
+                selected_analyzers=selection._selected_router_analyzers(analyzer_routing),
+            )
+            for snapshot in snapshots:
+                key = str(snapshot["router_analyzer_id"])
+                changed = [analyzer_id for analyzer_id in snapshot.get("pipeline_analyzer_ids") or [key] if analyzer_id in settings.resolution.params or analyzer_id in settings.resolution.disabled]
+                existing = merged.get(key)
+                if existing is None:
+                    merged[key] = snapshot
+                    order.append(key)
+                elif existing.get("execution_status") == "skipped" and snapshot.get("execution_status") != "skipped":
+                    snapshot["settings_overrides"] = existing.get("settings_overrides", [])
+                    merged[key] = snapshot
+                if changed:
+                    merged[key].setdefault("settings_overrides", []).append(
+                        {
+                            "series": [{"service": service, "metric": metric} for service, metric in settings.series],
+                            "applied": list(settings.resolution.applied),
+                            "params": {analyzer_id: settings.resolution.params.get(analyzer_id, {}) for analyzer_id in changed},
+                            "disabled": sorted(set(changed) & settings.resolution.disabled),
+                        }
+                    )
+        return [merged[key] for key in order]
 
     config: AppConfig
 
@@ -637,3 +773,17 @@ class RegistryAnalyzerSelection:
     @staticmethod
     def _should_run_analyzer(analyzer_id: str, allowed: set[str] | None) -> bool:
         return allowed is None or analyzer_id in allowed
+
+
+class _OverrideSelection(RegistryAnalyzerSelection):
+    """Selection for the rows of a run that per-service overrides apply to."""
+
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+
+
+def _text(value: object) -> str | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    return str(value)
+

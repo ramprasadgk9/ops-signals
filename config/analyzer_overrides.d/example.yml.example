@@ -1,0 +1,20 @@
+# Per-service analyzer settings. Copy this file to <anything>.yml in this folder and edit it.
+# The file name is only for people (e.g. one file per team); `scope` decides what it applies to.
+# Files are read at the start of every analysis run, so a change needs no restart.
+# What each analyzer lets you change, and the allowed range, is its `tunable` block in
+# config/analyzer_registry.d/builtin.yml. See docs/configuration.md, "Per-service analyzer settings".
+overrides:
+  payments_memory_trend:
+    # service and/or metric, exact or with wildcards. Quote a name that starts with *: "*-api".
+    scope:
+      service: payments-api
+      metric: process_resident_memory_bytes
+    reason: Memory grows slowly here before an outage; the default 10% is too late.
+    analyzers:
+      trend:
+        finding_rules:
+          min_slope_percent: 5
+    # Optional: fewer router picks for these series, or analyzers that shouldn't run on them.
+    selection:
+      max_analyzers: 2
+      disabled: [stumpy]

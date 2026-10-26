@@ -83,14 +83,13 @@ class SignalPipeline(RegistryAnalyzerSelection):
                 self.store.save_normalized_points(normalized, analysis_run_id=analysis_run_id)
 
             analyzer_routing, series_profile, registry_version = self._route_analyzers(normalized)
-            analyzers = self._build_analyzers(analyzer_routing)
-            self._apply_analysis_window(analyzers, run_metadata)
+            # One group of analyzers per set of per-service settings in this run (usually one).
+            series_analyzers = self._build_series_analyzers(normalized, analyzer_routing, run_metadata)
+            series_settings = [settings for settings, _ in series_analyzers]
+            analyzers = list({analyzer.analyzer_id: analyzer for _, group in series_analyzers for analyzer in group}.values())
             selected_analyzers = [analyzer.analyzer_id for analyzer in analyzers]
-            selected_router_analyzers = self._selected_router_analyzers(analyzer_routing)
-            executed_analyzer_snapshots = self._executed_analyzer_snapshots(
-                analyzer_routing,
-                [],
-                selected_analyzers=selected_router_analyzers,
+            executed_analyzer_snapshots = self._series_snapshots(
+                series_settings, analyzer_routing, [[] for _ in series_settings], [{} for _ in series_settings]
             )
             self.store.update_analysis_run_learning_snapshot(
                 analysis_run_id,
@@ -110,16 +109,12 @@ class SignalPipeline(RegistryAnalyzerSelection):
                     asdict(analyzer.capability()) for analyzer in analyzers
                 ])
 
-            signals, failed_analyzers = self._run_analyzers(analyzers, normalized, analysis_run_id)
+            signals, executed_by_series, failed_by_series = self._run_series_analyzers(series_analyzers, normalized, analysis_run_id)
+            failed_analyzers = {analyzer_id: error for failed in failed_by_series for analyzer_id, error in failed.items()}
             executed_analyzers = [
-                analyzer_id for analyzer_id in selected_analyzers if analyzer_id not in failed_analyzers
+                analyzer_id for analyzer_id in selected_analyzers if any(analyzer_id in executed for executed in executed_by_series)
             ]
-            executed_analyzer_snapshots = self._executed_analyzer_snapshots(
-                analyzer_routing,
-                executed_analyzers,
-                failed_analyzers=failed_analyzers,
-                selected_analyzers=selected_router_analyzers,
-            )
+            executed_analyzer_snapshots = self._series_snapshots(series_settings, analyzer_routing, executed_by_series, failed_by_series)
             self.store.update_analysis_run_learning_snapshot(
                 analysis_run_id,
                 {"executed_analyzers_json": executed_analyzer_snapshots},

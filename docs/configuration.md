@@ -44,6 +44,47 @@ Analyzer Labs' "run with custom params" merges the same way. `enabled` turns an 
 The trend analyzer always fits a straight line by least squares (`model: OLS`); another `model`
 value is ignored with a warning in the log.
 
+## Per-service analyzer settings
+
+One team's right threshold can be another's noise. Files in `config/analyzer_overrides.d/` change
+analyzer settings for chosen services or metrics, and leave everything else on the settings above.
+Start from `config/analyzer_overrides.d/example.yml.example`:
+
+```yaml
+overrides:
+  payments_memory_trend:
+    scope:
+      service: payments-api                    # and/or metric:, exact or a wildcard ("payments-*")
+      metric: process_resident_memory_bytes
+    reason: Memory grows slowly here before an outage; the default 10% is too late.
+    analyzers:
+      trend:
+        finding_rules:
+          min_slope_percent: 5
+    selection:                                 # optional
+      max_analyzers: 2
+      disabled: [stumpy]
+```
+
+- **What it applies to:** `scope.service` must match the service name stored for the series (the
+  OTLP `service.name`, the Prometheus label chosen as the service label, or the CSV's service), and
+  `scope.metric` its metric name. The file name doesn't matter. A series nothing matches keeps the
+  default settings.
+- **What can change:** only the settings an analyzer lists under `tunable` in
+  `config/analyzer_registry.d/builtin.yml`, within their range: the trend slope, the baseline-shift
+  change and effect size, the z-score, and PyOD's spike size and unusual-stretch length.
+  `selection` can lower or raise `max_analyzers` for those series and turn analyzers off for them.
+- **When several match:** they all apply, least specific first, so the most specific wins on a
+  setting they share: service and metric, then service, then metric; an exact name beats a wildcard.
+- **Mistakes:** a file with any problem (a setting that can't be changed, a value out of range, a
+  missing `reason`, invalid YAML) is skipped whole and the reason is written to the backend log;
+  the other files still apply, and that file's services run on the defaults.
+- **Where it shows:** each analyzer's record in the analysis run (`executed_analyzers_json`) lists
+  under `settings_overrides` which overrides applied to which series and what they set.
+
+Files are read at the start of every run, so a change takes effect on the next run without a
+restart. Benchmarks ignore them and measure the shipped settings.
+
 ## Operational Memory and Output
 
 Operational memory (the Qdrant index and the embedding model) and what each run saves are set in the
