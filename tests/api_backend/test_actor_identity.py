@@ -115,7 +115,8 @@ def test_the_setup_check_says_who_the_backend_sees(client: TestClient) -> None:
     backend = next(check for check in through_grafana["checks"] if check["id"] == "backend")
     assert backend["detail"].startswith("Reached through Grafana") and backend["detail"].endswith("you are admin (Admin)")
 
-    anonymous = client.get("/api/setup/check", headers=ANONYMOUS).json()
+    # A Viewer reads the summary; the full check is for Admins.
+    anonymous = client.get("/api/setup/summary", headers=ANONYMOUS).json()
     assert anonymous["you"] == {"name": None, "role": "Viewer", "via": "grafana"}
 
     direct = client.get("/api/setup/check").json()

@@ -46,6 +46,7 @@ Browser → company sign-in proxy → web UI (nginx) → Ops Signals backend
 | Run Analysis, Analyze and Save, Run once (Autonomous) | – | ✓ | ✓ |
 | Save, edit, pause or resume a schedule | – | ✓ | ✓ |
 | Analyzer labs, Add Analyzer, the behavior pattern builder, case imports, test alerts | – | – | ✓ |
+| See set-up details: the full Setup check, analyzer settings, lab work, case imports | – | – | ✓ |
 
 What people see:
 
@@ -59,6 +60,9 @@ What people see:
   shows "Settings is for Ops Signals admins" (or "… is for Editors") and whom to ask, with a link to
   Overview. The page itself doesn't load.
 - **A case page** opened by a Viewer is read-only, with a note saying so.
+- **The setup reminder** on Overview shows for everyone while something needed is broken. Admins get
+  a link to Setup check; everyone else reads "Your Ops Signals admin can fix this on Setup check."
+- **Import past incidents** on Recurring problems is locked for anyone but Admins.
 - **Autonomous Analysis** for a Viewer shows the schedule (with its owner and who last edited it) and
   what runs found, without Edit, Pause or the set-up form.
 

@@ -671,6 +671,18 @@ export async function getSetupCheck(baseUrl: string) {
   return fetchJson<SetupCheckResult>(baseUrl, '/api/setup/check');
 }
 
+/** Each part's name and status only, for every role: the header chips and the setup reminder. The full
+ * check is for Admins. A backend from before the summary answers 404 and still shows everyone the full
+ * check, so that's used instead. */
+export async function getSetupSummary(baseUrl: string) {
+  try {
+    return await fetchJson<SetupCheckResult>(baseUrl, '/api/setup/summary');
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Request failed: 404')) return getSetupCheck(baseUrl);
+    throw error;
+  }
+}
+
 /** One synthetic alert through the alerts receiver, to prove it end to end. */
 export async function sendTestAlert(baseUrl: string) {
   return postJson<{ accepted?: number }>(baseUrl, '/api/integrations/alertmanager/test', {});

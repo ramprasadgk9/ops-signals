@@ -2,9 +2,9 @@
 the role the company's groups give for the web UI behind a sign-in proxy (backend/app/identity.py).
 
 The role is the Grafana user's org role from X-Grafana-Context (backend/app/identity.py), which Grafana
-sets and a browser can't override. Reading is open to every role. A change needs an Editor, except a
-few read-like requests open to Viewers (asking, previewing, testing a connection) and set-up and lab
-actions kept for Admins. Requests that don't come through Grafana carry no role and are not limited
+sets and a browser can't override. Reading is open to every role, except set-up details and analyzer
+lab work, kept for Admins. A change needs an Editor, except a few read-like requests open to Viewers
+(asking, previewing, testing a connection) and set-up and lab actions kept for Admins. Requests that don't come through Grafana carry no role and are not limited
 here: the API token (backend/app/security.py) is what protects those (docs/security-model.md).
 Requests with no actor at all (no Grafana, no sign-in) are not limited here either.
 """
@@ -24,6 +24,8 @@ _ASK_EDITOR = {"grafana": "Ask your Grafana admin for the Editor role."}
 _ASK_EDITOR_ELSEWHERE = "Ask your Ops Signals admin for the Editor role."
 _ADMIN_ONLY = {"grafana": "Only Grafana admins can do this."}
 _ADMIN_ONLY_ELSEWHERE = "Only Ops Signals admins can do this."
+_ADMIN_SEES = {"grafana": "Only Grafana admins can see this."}
+_ADMIN_SEES_ELSEWHERE = "Only Ops Signals admins can see this."
 
 # Changes nothing, or only the asker's own rating of an answer: open to Viewers.
 _VIEWER_WRITES = [re.compile(pattern) for pattern in (
@@ -51,6 +53,15 @@ _ADMIN_WRITES = [re.compile(pattern) for pattern in (
     r"^/api/integrations/alertmanager/test$",
     r"^/api/ai/test$",
     r"^/api/metric-usage/run$",
+)]
+
+# Set-up details (addresses, which secrets are set, how to fix) and unreleased analyzer work: Admins
+# only. Everyone else gets GET /api/setup/summary for the setup reminder and the plugin's header chips.
+_ADMIN_READS = [re.compile(pattern) for pattern in (
+    r"^/api/setup/check$",
+    r"^/api/admin/",
+    r"^/api/analyzer-labs/",
+    r"^/api/case-imports",
 )]
 
 # Why a Viewer can't, in the words the plugin shows next to a locked button.
@@ -117,9 +128,11 @@ def pages_for(role: str | None) -> tuple[dict[str, str], list[str]]:
 
 def required_role(method: str, path: str) -> str | None:
     """The lowest role that may make this request, or None when any role may."""
-    if method.upper() in _READ_METHODS:
-        return None
     normalized = path.rstrip("/")
+    if method.upper() == "OPTIONS":
+        return None
+    if method.upper() in _READ_METHODS:
+        return "Admin" if any(pattern.search(normalized) for pattern in _ADMIN_READS) else None
     if any(pattern.search(normalized) for pattern in _ADMIN_WRITES):
         return "Admin"
     if any(pattern.search(normalized) for pattern in _VIEWER_WRITES):
@@ -127,7 +140,9 @@ def required_role(method: str, path: str) -> str | None:
     return "Editor"
 
 
-def refusal(path: str, needed: str, via: str = "grafana") -> str:
+def refusal(path: str, needed: str, via: str = "grafana", reading: bool = False) -> str:
+    if needed == "Admin" and reading:
+        return _ADMIN_SEES.get(via, _ADMIN_SEES_ELSEWHERE)
     if needed == "Admin":
         return _ADMIN_ONLY.get(via, _ADMIN_ONLY_ELSEWHERE)
     reason = next((text for pattern, text in _EDITOR_REASONS if pattern.search(path)), "Editors can change things in Ops Signals.")
@@ -143,4 +158,5 @@ def require_grafana_role(request: Request) -> None:
     if needed is None:
         return
     if RANKS.get(actor.role or "", 0) < RANKS[needed]:
-        raise HTTPException(status_code=403, detail=refusal(request.url.path.rstrip("/"), needed, actor.via))
+        reading = request.method.upper() in _READ_METHODS
+        raise HTTPException(status_code=403, detail=refusal(request.url.path.rstrip("/"), needed, actor.via, reading))

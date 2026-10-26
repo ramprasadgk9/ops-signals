@@ -169,14 +169,15 @@ export function setupChips(result: SetupCheckResult | null, unreachable = false)
   if (metrics.length) {
     chips.push(
       failing.length
-        ? { id: 'metrics', label: `Metrics: ${failing.length} failing`, tone: 'fail', title: failing.map((check) => `${check.title}: ${check.detail}`).join('\n') }
+        ? { id: 'metrics', label: `Metrics: ${failing.length} failing`, tone: 'fail', title: failing.map((check) => (check.detail ? `${check.title}: ${check.detail}` : check.title)).join('\n') }
         : { id: 'metrics', label: 'Metrics ready', tone: 'ok', title: metrics.map((check) => check.title).join('\n') }
     );
   }
   const memory = result.checks.find((check) => check.id === 'memory');
   if (memory) {
     const memoryLabel = { ok: 'Case memory on', warn: 'Case memory starting', fail: 'Case memory down', off: 'Case memory off' }[memory.status];
-    chips.push({ id: 'memory', label: memoryLabel, tone: memory.status, title: memory.detail });
+    // The summary every role gets has no details; the label says it then.
+    chips.push({ id: 'memory', label: memoryLabel, tone: memory.status, title: memory.detail || memoryLabel });
   }
   return chips;
 }

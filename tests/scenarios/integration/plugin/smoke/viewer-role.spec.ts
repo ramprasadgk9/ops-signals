@@ -29,4 +29,11 @@ test('a Viewer sees what they cannot do, and the backend refuses it too', async 
   const refused = await page.request.post(`${PROXY}/api/findings/0/feedback`, { data: { verdict: 'real_problem' } });
   expect(refused.status()).toBe(403);
   expect((await refused.json()).detail).toContain('Ask your Grafana admin for the Editor role');
+
+  // Set-up details are for Admins; the header chips read the summary every role may see.
+  await expect(page.getByText('● Backend connected')).toBeVisible();
+  const details = await page.request.get(`${PROXY}/api/setup/check`);
+  expect(details.status()).toBe(403);
+  expect((await details.json()).detail).toBe('Only Grafana admins can see this.');
+  expect((await page.request.get(`${PROXY}/api/setup/summary`)).ok()).toBe(true);
 });

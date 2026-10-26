@@ -11,6 +11,7 @@ vi.mock('../api/queries', () => ({
     memoryStats: vi.fn(),
     alertContext: vi.fn(),
     recurringProblems: vi.fn(() => Promise.resolve({ available: true, window_days: 90, min_occurrences: 3, group_by: 'symptom', group_similarity: 0.8, cases_considered: 0, sampled: false, problems: [] })),
+    me: vi.fn(),
     monitoringCoverage: vi.fn(() => Promise.resolve({ available: true, reason: 'No past incidents imported in this window.', window_days: 365, incidents_considered: 0, counts: {}, services: [], incidents: [] })),
   },
 }));
@@ -316,5 +317,22 @@ describe('RecurringProblemsPage alert preview with only similar cases', () => {
     expect(screen.queryByText('Insufficient history')).not.toBeInTheDocument();
     expect(screen.getByText('Imported · jira OPS-101')).toBeInTheDocument();
     expect(screen.getByText('Cached the compiled schema')).toBeInTheDocument();
+  });
+});
+
+describe('RecurringProblemsPage for someone who is not an Admin', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('locks Import past incidents, which only Admins may do', async () => {
+    vi.mocked(api.me).mockResolvedValue({ signed_in: true, name: 'sam@example.com', role: 'Viewer', via: 'proxy', groups: [], granted_by: null, mode: 'proxy-headers', problem: null });
+    vi.mocked(api.memoryStats).mockResolvedValue(memoryStats);
+    vi.mocked(api.cases).mockResolvedValue([]);
+    renderPage();
+
+    const buttons = await screen.findAllByRole('button', { name: '🔒 Import past incidents' });
+    for (const button of buttons) expect(button).toBeDisabled();
+    expect(screen.getByText('Only Ops Signals admins can import past incidents.')).toBeInTheDocument();
   });
 });

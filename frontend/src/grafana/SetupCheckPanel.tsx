@@ -1,6 +1,6 @@
 import React from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import { getSetupCheck, sendTestAlert, testPrometheusConnection } from './backendClient';
+import { getSetupCheck, getSetupSummary, sendTestAlert, testPrometheusConnection } from './backendClient';
 import { isGrafanaProxyUrl } from './backendUrlSetting';
 import { styles } from './plainUi';
 import {
@@ -62,8 +62,9 @@ function backendHost(url: string): string {
 }
 
 /** The check for one backend, refetched when the backend changes; failures become a failed Backend check. */
-/** grafanaTarget: the backend URL Grafana calls, when backendUrl is the Grafana proxy. */
-export function useSetupCheck(backendUrl: string, grafanaTarget?: string) {
+/** grafanaTarget: the backend URL Grafana calls, when backendUrl is the Grafana proxy. summaryOnly: names
+ * and statuses without details, which every role may read (the header chips and the reminder). */
+export function useSetupCheck(backendUrl: string, grafanaTarget?: string, summaryOnly = false) {
   const [result, setResult] = useState<SetupCheckResult | null>(null);
   // True when the check itself couldn't be fetched; result then holds a failed Backend check.
   const [unreachable, setUnreachable] = useState(false);
@@ -72,7 +73,7 @@ export function useSetupCheck(backendUrl: string, grafanaTarget?: string) {
     if (!backendUrl) return;
     setChecking(true);
     try {
-      setResult(await getSetupCheck(backendUrl));
+      setResult(await (summaryOnly ? getSetupSummary : getSetupCheck)(backendUrl));
       setUnreachable(false);
     } catch (error) {
       setResult(
@@ -84,7 +85,7 @@ export function useSetupCheck(backendUrl: string, grafanaTarget?: string) {
     } finally {
       setChecking(false);
     }
-  }, [backendUrl, grafanaTarget]);
+  }, [backendUrl, grafanaTarget, summaryOnly]);
   useEffect(() => {
     setResult(null);
     void run();

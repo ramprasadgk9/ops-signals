@@ -109,6 +109,15 @@ describe('setupChips', () => {
     expect(chips[1].title).toBe('Metrics: mimir-eu: Login rejected (401).');
   });
 
+  it('works from the summary every role gets, which has no details', () => {
+    const chips = setupChips({
+      ...RESULT,
+      checks: [...RESULT.checks, { id: 'memory', group: 'required' as const, status: 'ok' as const, title: 'Memory search', detail: '' }].map((check) => ({ ...check, detail: '' })),
+    });
+    expect(chips[1].title).toBe('Metrics: mimir-eu');
+    expect(chips[2].title).toBe('Case memory on');
+  });
+
   it('shows metrics ready and memory off when that is the case', () => {
     const chips = setupChips({
       ...RESULT,

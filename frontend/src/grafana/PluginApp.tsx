@@ -354,7 +354,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     [prometheusDatasources, selectedPrometheusUid]
   );
   // The header chips and the setup reminder both come from one Setup check of the chosen backend.
-  const setup = useSetupCheck(backendUrl, configuredBackendUrl(props.meta?.jsonData));
+  const setup = useSetupCheck(backendUrl, configuredBackendUrl(props.meta?.jsonData), true);
   // Roles apply only through Grafana, where the backend enforces them too (backend/app/roles.py).
   const role = isGrafanaProxyUrl(backendUrl) ? asGrafanaRole(setup.result?.you?.role) ?? grafanaUserRole() : null;
   const timeRangeValid = timeRange.from.getTime() < timeRange.to.getTime();
