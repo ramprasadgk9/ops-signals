@@ -327,3 +327,24 @@ describe('FindingCard seen before', () => {
     expect(screen.queryByText('Evidence')).not.toBeInTheDocument();
   });
 });
+
+describe('FindingCard custom settings', () => {
+  const tuned: Finding = {
+    ...newPodsFinding,
+    comparison_json: {},
+    custom_settings: {
+      settings: [{ analyzer_id: 'trend', analyzer: 'Trend Analysis', path: 'finding_rules.min_slope_percent', label: 'Smallest steady climb or drop that counts', value: 5, default: 10 }],
+      overrides: [{ id: 'payments_memory', file: 'payments-team.yml', reason: 'Memory grows slowly here.' }],
+    },
+  };
+
+  it('tags a finding made with per-service settings', () => {
+    renderCard(tuned);
+    expect(screen.getByTestId('finding-custom-settings')).toHaveTextContent('Custom settings · not tested');
+  });
+
+  it('adds nothing to a finding on the default settings', () => {
+    renderCard({ ...tuned, custom_settings: null });
+    expect(screen.queryByTestId('finding-custom-settings')).not.toBeInTheDocument();
+  });
+});

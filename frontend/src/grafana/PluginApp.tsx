@@ -22,6 +22,7 @@ import { useSectionShown } from './sectionToggle';
 import { patternParts, patternsByFinding } from '../utils/combinedPatterns';
 import { PluginBreakdownDisclosure, PluginBreakdownSection, PluginScopeChip } from './PluginBreakdown';
 import { PluginFindingTrust } from './PluginFindingTrust';
+import { PluginCustomSettings, PluginCustomSettingsChip } from './PluginCustomSettings';
 import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
 import { PluginMemoryAlertsView } from './PluginMemoryAlertsView';
 import { connectionName, findingClusters, findingSource, findingsInCluster } from './findingSource';
@@ -3800,6 +3801,7 @@ function AutonomousInvestigationPanel({
             <SeverityPill severity={finding.health_status} />
             <BehaviorPill label={humanize(finding.category)} />
             {caseId !== null ? <span style={{ ...styles.chip, color: '#3fcf8e', borderColor: 'rgba(63, 207, 142, 0.5)' }}>Case #{caseId}</span> : null}
+            <PluginCustomSettingsChip finding={finding} />
           </div>
           <div style={styles.detailGrid}>
             <div><div style={styles.helperText}>Service</div><strong>{finding.service || 'unknown'}</strong></div>
@@ -3809,6 +3811,7 @@ function AutonomousInvestigationPanel({
             {finding.cluster ? <div><div style={styles.helperText}>Cluster</div><strong>{finding.cluster}</strong></div> : null}
             {connection ? <div><div style={styles.helperText}>Prometheus connection</div><strong>{connection}</strong></div> : null}
           </div>
+          <PluginCustomSettings finding={finding} />
           <PluginFindingTrust backendUrl={backendUrl} findingId={finding.id} trust={finding.trust} service={finding.service} />
           {activeCaseId && shouldShowTicketCard(ticketingStatus, ticketingStatusFailed, ticket) ? (
             <div style={{ borderTop: '1px solid rgba(204, 204, 220, 0.12)', paddingTop: 10, marginTop: 10 }}>

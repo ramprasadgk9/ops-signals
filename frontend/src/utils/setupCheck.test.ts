@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasFixDetails, proxyUnreachableSetupResult, setupBanner, setupChips, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
+import { fixLabel, hasFixDetails, proxyUnreachableSetupResult, setupBanner, setupChips, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
 
 const RESULT: SetupCheckResult = {
   generated_at: '2026-10-19T14:02:31Z',
@@ -145,5 +145,19 @@ describe('proxyUnreachableSetupResult', () => {
   it('asks for a Grafana restart when the proxy route is missing, and for the token on a 401', () => {
     expect(proxyUnreachableSetupResult(new Error('Request failed: 404 - plugin route match not found'), 'http://b:8000').checks[0].fix).toEqual(['Restart Grafana, then check again.']);
     expect(proxyUnreachableSetupResult(new Error('Request failed: 401 - Unauthorized'), 'http://b:8000').checks[0].detail).toContain('Grafana sent none or the wrong one');
+  });
+});
+
+describe('how_to_set checks', () => {
+  const overrides = {
+    id: 'analyzer_overrides', group: 'optional' as const, status: 'ok' as const, title: 'Per-service analyzer settings',
+    detail: '1 override in 1 file in use: payments-team.yml', action: 'how_to_set', fix: ['Copy the example file.'],
+  };
+
+  it('explain how to set them up even when they are ok or off, under "How to set"', () => {
+    expect(hasFixDetails(overrides)).toBe(true);
+    expect(hasFixDetails({ ...overrides, status: 'off' })).toBe(true);
+    expect(fixLabel(overrides)).toBe('How to set');
+    expect(fixLabel(RESULT.checks[2])).toBe('How to fix');
   });
 });

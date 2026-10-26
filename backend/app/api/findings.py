@@ -16,6 +16,7 @@ from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity
 from backend.app.services.finding_changes import finding_changes
 from backend.app.services.finding_plain import finding_plain
+from backend.app.services.finding_settings import finding_custom_settings
 from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.services.finding_trust import finding_trust, record_feedback
 
@@ -45,6 +46,7 @@ def _to_finding_out(
     trust: dict | None = None,
     source: str | None = None,
     plain: dict | None = None,
+    custom_settings: dict | None = None,
 ) -> FindingOut:
     return FindingOut(
         id=finding.id,
@@ -71,6 +73,7 @@ def _to_finding_out(
         changes=changes,
         trust=trust,
         plain=plain,
+        custom_settings=custom_settings,
     )
 
 
@@ -89,11 +92,19 @@ def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmen
     )
     trust = finding_trust(db, rows)
     plain = finding_plain(db, rows)
+    custom = finding_custom_settings(db, rows)
     out = []
     for row in rows:
         connection_id, source_type = runs.get(row.analysis_run_id, (None, None))
+        row_trust = trust.get(row.id)
+        if row.id in custom and row_trust is not None:
+            # The tested numbers were measured with the default settings; they don't describe
+            # a finding made with settings a team chose.
+            row_trust = {**row_trust, "tested": None, "custom_settings": True}
         out.append(
-            _to_finding_out(row, changes.get(row.id), connection_id, trust.get(row.id), _FINDING_SOURCES.get(source_type or "", source_type), plain.get(row.id))
+            _to_finding_out(
+                row, changes.get(row.id), connection_id, row_trust, _FINDING_SOURCES.get(source_type or "", source_type), plain.get(row.id), custom.get(row.id)
+            )
         )
     return out
 

@@ -357,3 +357,31 @@ describe('FindingDetailsDrawer seen before', () => {
     expect(screen.getByText('503 checked in tests')).toBeInTheDocument();
   });
 });
+
+describe('FindingDetailsDrawer custom settings', () => {
+  it('shows each changed setting next to its default, and who set it and why', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue(undefined as never);
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.findingSeenBefore).mockResolvedValue({ finding_id: 41, available: false, matches: [] } as never);
+    renderDrawer({
+      ...otlpFinding,
+      custom_settings: {
+        settings: [{ analyzer_id: 'trend', analyzer: 'Trend Analysis', path: 'finding_rules.min_slope_percent', label: 'Smallest steady climb or drop that counts', value: 5, default: 10 }],
+        overrides: [{ id: 'payments_memory', file: 'payments-team.yml', reason: 'Memory grows slowly here.' }],
+      },
+    });
+
+    const box = within(await screen.findByTestId('finding-custom-settings-box'));
+    expect(box.getByText('Found with custom settings')).toBeInTheDocument();
+    const row = box.getByText('Trend Analysis: Smallest steady climb or drop that counts').closest('tr')!;
+    expect(within(row).getByText('5')).toBeInTheDocument();
+    expect(within(row).getByText('10')).toBeInTheDocument();
+    expect(box.getByText('Memory grows slowly here.')).toBeInTheDocument();
+    expect(box.getByText('Override payments_memory in payments-team.yml')).toBeInTheDocument();
+  });
+
+  it('shows no box for a finding on the default settings', () => {
+    renderDrawer(otlpFinding);
+    expect(screen.queryByTestId('finding-custom-settings-box')).not.toBeInTheDocument();
+  });
+});

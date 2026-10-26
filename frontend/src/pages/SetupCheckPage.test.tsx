@@ -36,6 +36,12 @@ const RESULT: SetupCheckResult = {
     },
     { id: 'first_analysis', group: 'recommended', status: 'warn', title: 'First analysis', detail: 'Nothing analyzed yet.', action: 'run_analysis' },
     { id: 'alerts', group: 'optional', status: 'off', title: 'Alerts receiver', detail: 'Off.', docs: 'docs/alert-enrichment.md' },
+    {
+      id: 'analyzer_overrides', group: 'optional', status: 'warn', title: 'Per-service analyzer settings',
+      detail: '1 override in 1 file in use · 1 file skipped', action: 'how_to_set', docs: 'docs/configuration.md',
+      fix: ['checkout-team.yml skipped: a value is out of range. Its services run on the default settings.', 'Copy the example file.'],
+      snippet: 'overrides:\n  payments_memory_trend: {}',
+    },
   ],
 };
 
@@ -128,5 +134,20 @@ describe('SetupCheckPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy report' }));
     expect(await screen.findByText(/^Copied\./)).toBeInTheDocument();
     expect(writeText.mock.calls[0][0]).toContain('[FAIL] Metrics: mimir-eu: Login rejected (401).');
+  });
+});
+
+describe('SetupCheckPage per-service analyzer settings', () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it('opens "How to set" with what was skipped, the steps and the example file', async () => {
+    vi.mocked(api.setupCheck).mockResolvedValue(RESULT);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'How to set: Per-service analyzer settings' }));
+
+    expect(screen.getByText('checkout-team.yml skipped: a value is out of range. Its services run on the default settings.')).toBeInTheDocument();
+    expect(screen.getByText('Copy the example file.')).toBeInTheDocument();
+    expect(screen.getByText(/payments_memory_trend/)).toBeInTheDocument();
   });
 });

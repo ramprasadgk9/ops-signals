@@ -9,6 +9,7 @@ import { breakdownScopeLabel, breakdownSentence, breakdownSpreadColor, findingBr
 import { findingLevel, findingLevelHint } from '../utils/findingLevel';
 import { problemTiming } from '../utils/findingProblem';
 import { testedSentence, trustBadge } from '../utils/findingTrust';
+import { CUSTOM_SETTINGS_LABEL, customSettings, customSettingsTooltip } from '../utils/customSettings';
 import { FindingTrustPanel } from './FindingTrustPanel';
 import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
@@ -71,6 +72,7 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
   const watchedBy = usage ? watchedByTag(usage) : null;
   // Trust replaces the importance-based level: importance didn't separate real problems from noise in tests.
   const badge = trustBadge(finding.trust);
+  const custom = customSettings(finding);
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -127,6 +129,11 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
             />
           </Tooltip>
         ))}
+        {custom && (
+          <Tooltip title={customSettingsTooltip(custom)} arrow>
+            <Chip label={CUSTOM_SETTINGS_LABEL} size="small" variant="outlined" color="secondary" data-testid="finding-custom-settings" sx={{ mb: 1, mr: 1 }} />
+          </Tooltip>
+        )}
         {watchedBy && (
           <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{watchedBy.detail}</span>} arrow>
             <Chip

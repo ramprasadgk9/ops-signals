@@ -81,6 +81,8 @@ class OverrideResolution:
     applied: list[str] = field(default_factory=list)
     # Equally specific overrides that set the same setting differently: (setting, winner, loser).
     conflicts: list[tuple[str, str, str]] = field(default_factory=list)
+    # Override id -> {"file", "reason"}, for showing where a setting came from and why.
+    sources: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -108,6 +110,7 @@ class OverrideSet:
                 resolution.max_analyzers = override.max_analyzers
             resolution.disabled.update(override.disabled)
             resolution.applied.append(override.override_id)
+            resolution.sources[override.override_id] = {"file": override.source_file, "reason": override.reason}
         return resolution
 
 

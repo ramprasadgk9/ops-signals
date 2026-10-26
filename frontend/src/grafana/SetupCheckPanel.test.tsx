@@ -28,6 +28,12 @@ const RESULT: SetupCheckResult = {
       connection_id: 'default',
     },
     { id: 'login', group: 'recommended', status: 'warn', title: 'Login', detail: 'Open.', fix: ['Create a token.'], snippet: 'OPS_SIGNALS_API_TOKEN=x' },
+    {
+      id: 'analyzer_overrides', group: 'optional', status: 'ok', title: 'Per-service analyzer settings',
+      detail: '1 override in 1 file in use: payments-team.yml', action: 'how_to_set', docs: 'docs/configuration.md',
+      fix: ['checkout-team.yml skipped: a value is out of range. Its services run on the default settings.', 'Copy the example file.'],
+      snippet: 'overrides:\n  payments_memory_trend: {}',
+    },
   ],
 };
 
@@ -102,5 +108,18 @@ describe('SetupChips', () => {
 
     expect(screen.getByText('● Backend connected')).toBeInTheDocument();
     expect(screen.getByText('● Metrics: 1 failing')).toHaveAttribute('title', "Metrics: default: Can't reach localhost.");
+  });
+});
+
+describe('SetupCheckPanel per-service analyzer settings', () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it('offers "How to set" on the row even when it is ok', async () => {
+    vi.mocked(getSetupCheck).mockResolvedValue(RESULT);
+    render(<SetupCheckPanel backendUrl="http://localhost:8002" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'How to set: Per-service analyzer settings' }));
+
+    expect(screen.getByText('Copy the example file.')).toBeInTheDocument();
   });
 });

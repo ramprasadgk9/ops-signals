@@ -1,6 +1,7 @@
 // Plain-language wording for a finding's trust (backend services/finding_trust.py, docs/finding-trust.md).
 import { byLine } from './actorLine';
 import type { Finding, FindingTrust, FindingVerdict } from '../types';
+import { CUSTOM_SETTINGS_LABEL, CUSTOM_SETTINGS_TRUST_NOTE } from './customSettings';
 
 type ChipColor = 'success' | 'warning' | 'error' | 'default';
 
@@ -60,12 +61,14 @@ function pct(value: number): string {
 }
 
 export function testedHeadline(trust: FindingTrust): string {
+  if (trust.custom_settings) return CUSTOM_SETTINGS_LABEL;
   if (trust.tested) return `${pct(trust.tested.real)} were real`;
   return trust.group === 'data_problem' ? 'This is a fact' : 'Not tested';
 }
 
 export function testedCaption(trust: FindingTrust): string {
   const tested = trust.tested;
+  if (trust.custom_settings) return CUSTOM_SETTINGS_TRUST_NOTE;
   if (!tested) {
     return trust.group === 'data_problem'
       ? 'No data points arrived, or the value froze. It is not a guess, so there is no tested rate.'

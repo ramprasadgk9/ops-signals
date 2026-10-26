@@ -3,7 +3,7 @@
 
 export type SetupCheckStatus = 'ok' | 'fail' | 'warn' | 'off';
 export type SetupCheckGroup = 'required' | 'recommended' | 'optional';
-export type SetupCheckAction = 'test_connection' | 'run_analysis' | 'send_test_alert';
+export type SetupCheckAction = 'test_connection' | 'run_analysis' | 'send_test_alert' | 'how_to_set';
 
 export interface SetupCheck {
   id: string;
@@ -46,7 +46,13 @@ export function checksIn(result: SetupCheckResult, group: SetupCheckGroup): Setu
 
 /** Whether a check has steps to show behind "How to fix". */
 export function hasFixDetails(check: SetupCheck): boolean {
-  return check.status !== 'ok' && Boolean(check.tried || check.cause || check.fix?.length || check.snippet);
+  // A how_to_set check (e.g. per-service analyzer settings) explains how to set it up even when it's ok or off.
+  return (check.status !== 'ok' || check.action === 'how_to_set') && Boolean(check.tried || check.cause || check.fix?.length || check.snippet);
+}
+
+/** The details button's label: how to fix something broken, or how to set up something optional. */
+export function fixLabel(check: SetupCheck): string {
+  return check.action === 'how_to_set' ? 'How to set' : 'How to fix';
 }
 
 export function setupSummary(result: SetupCheckResult) {

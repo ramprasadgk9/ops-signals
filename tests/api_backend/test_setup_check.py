@@ -162,3 +162,60 @@ def test_otlp_that_went_quiet_is_flagged(monkeypatch: pytest.MonkeyPatch) -> Non
     # With no Prometheus, OpenTelemetry is the only source, so a stopped one is a needed fix.
     assert (checks["otlp"]["group"], checks["otlp"]["status"]) == ("required", "fail")
     assert checks["otlp"]["detail"] == "Stopped: the last batch came 7d ago."
+
+
+PAYMENTS_OVERRIDE = """
+overrides:
+  payments_memory:
+    scope: {service: payments-api}
+    reason: Memory grows slowly here.
+    analyzers:
+      trend: {finding_rules: {min_slope_percent: 5}}
+"""
+
+
+def _seed_run(service: str, metric: str = "memory") -> None:
+    now = datetime.utcnow()
+    with get_session_local()() as db:
+        db.add(AnalysisRunEntity(id=f"run-{service}", source_type="prometheus", service=service, metric_name=metric,
+                                 start_time=now - timedelta(hours=1), end_time=now, sample_count=10, status="completed"))
+        db.commit()
+
+
+def test_per_service_settings_are_off_until_a_file_is_added(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(setup_check, "OVERRIDES_DIR", tmp_path)
+    with _client() as client:
+        check = _by_id(client.get(CHECK).json())["analyzer_overrides"]
+
+    assert (check["group"], check["status"], check["action"]) == ("optional", "off", "how_to_set")
+    assert check["detail"] == "Not used: every service runs on the default analyzer settings."
+    # How to set: the file to copy, and each setting a team can change with its range.
+    assert check["fix"][0].startswith("Copy config/analyzer_overrides.d/example.yml.example")
+    assert any(step.startswith("Trend Analysis: Smallest steady climb") and "from 1 to 100" in step for step in check["fix"])
+
+
+def test_per_service_settings_in_use_are_listed(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "payments-team.yml").write_text(PAYMENTS_OVERRIDE)
+    monkeypatch.setattr(setup_check, "OVERRIDES_DIR", tmp_path)
+    with _client() as client:
+        _seed_run("payments-api")
+        check = _by_id(client.get(CHECK).json())["analyzer_overrides"]
+
+    assert check["status"] == "ok"
+    assert check["detail"] == "1 override in 1 file in use: payments-team.yml"
+
+
+def test_a_skipped_file_and_an_override_that_matches_nothing_are_flagged(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "payments-team.yml").write_text(PAYMENTS_OVERRIDE.replace("payments-api", "payment-api"))
+    (tmp_path / "checkout-team.yml").write_text(PAYMENTS_OVERRIDE.replace("payments_memory", "checkout_trend").replace("min_slope_percent: 5", "min_slope_percent: 500"))
+    monkeypatch.setattr(setup_check, "OVERRIDES_DIR", tmp_path)
+    with _client() as client:
+        _seed_run("payments-api")
+        check = _by_id(client.get(CHECK).json())["analyzer_overrides"]
+
+    assert check["status"] == "warn"
+    assert check["detail"] == "1 override in 1 file in use · 1 file skipped · 1 override matched nothing in the last 7 days"
+    assert check["fix"][0].startswith("checkout-team.yml skipped: override 'checkout_trend': 'trend.finding_rules.min_slope_percent' must be between 1 and 100, got 500")
+    assert check["fix"][0].endswith("Its services run on the default settings.")
+    # A near-miss service name gets a hint: a typo is the usual reason.
+    assert check["fix"][1] == "payments_memory (payments-team.yml) matched no series in the last 7 days. Check service: payment-api: seen services include payments-api."

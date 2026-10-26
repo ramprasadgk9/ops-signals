@@ -249,6 +249,13 @@ export type Finding = {
   trust?: FindingTrust | null;
   /** Plain-words wording for the card (backend services/finding_plain.py); read with utils/findingPlain. */
   plain?: FindingPlain | null;
+  /** Per-service analyzer settings it was made with; null on the default settings. Read with utils/customSettings. */
+  custom_settings?: FindingCustomSettings | null;
+};
+
+export type FindingCustomSettings = {
+  settings: Array<{ analyzer_id: string; analyzer: string; path: string; label: string; value: unknown; default: unknown }>;
+  overrides: Array<{ id: string; file?: string; reason?: string }>;
 };
 
 export type FindingPlainBadge = 'worse' | 'better' | 'changed' | 'gap' | 'noise' | 'blip';
@@ -302,6 +309,8 @@ export type FindingTrust = {
   /** Who gave that answer, when it came through Grafana, and when. */
   answered_by?: string | null;
   answered_at?: string | null;
+  /** Made with per-service analyzer settings: `tested` is null because it was measured with the defaults. */
+  custom_settings?: boolean;
 };
 
 export type OperationalCase = {
