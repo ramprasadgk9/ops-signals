@@ -10,6 +10,7 @@ import { buildAutonomousPreviewRequest } from '../grafana/autonomousPreviewModel
 import type { AutonomousPolicy, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse, MonitoringCategory } from '../grafana/contracts';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { LockNote } from '../components/LockNote';
+import { scheduleAuthorLine } from '../utils/actorLine';
 
 function buildPreviewRequestFromPolicy(policy: AutonomousPolicy): AutonomousPreviewRequest {
   return {
@@ -67,9 +68,11 @@ type Props = {
   previewNowSignal?: boolean;
   onPreviewNowHandled?: () => void;
   onPreviewNowStateChange?: (isLoading: boolean) => void;
+  /** A Viewer's page: the schedule without its buttons, and no form (backend/app/roles.py READ_ONLY_PAGES). */
+  readOnly?: boolean;
 };
 
-function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume, isTogglingStatus }: {
+function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume, isTogglingStatus, readOnly = false }: {
   policy: AutonomousPolicy;
   /** Shown only when there is more than one Prometheus connection. */
   connectionName?: string | null;
@@ -77,8 +80,10 @@ function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume
   onPause: () => void;
   onResume: () => void;
   isTogglingStatus: boolean;
+  readOnly?: boolean;
 }) {
   const { canEdit } = useWebPermissions();
+  const authors = scheduleAuthorLine(policy);
   const categoryTitles = policy.monitoring_selection.categories
     .map((id) => categories.find((c) => c.id === id)?.title ?? id)
     .join(', ');
@@ -103,15 +108,16 @@ function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume
           <Typography variant="body2" color="text.secondary">
             {categoryTitles} &middot; {scopeLabel} &middot; every {policy.schedule_minutes ? formatSchedule(policy.schedule_minutes) : 'n/a'}
           </Typography>
+          {authors ? <Typography variant="caption" color="text.secondary">{authors}</Typography> : null}
         </Box>
-        <Stack direction="row" gap={1}>
+        {readOnly ? null : <Stack direction="row" gap={1}>
           <Button size="small" startIcon={<EditRoundedIcon />} variant="outlined" disabled={!canEdit} title={canEdit ? undefined : 'Editors can change schedules.'} onClick={onEdit}>Edit</Button>
           {policy.enabled ? (
             <Button size="small" startIcon={<PauseRoundedIcon />} variant="outlined" disabled={isTogglingStatus || !canEdit} onClick={onPause} title="Stop scheduled runs. The schedule is kept and can be resumed.">Pause</Button>
           ) : (
             <Button size="small" variant="outlined" disabled={isTogglingStatus || !canEdit} onClick={onResume}>Resume</Button>
           )}
-        </Stack>
+        </Stack>}
       </Stack>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
         <Box>
@@ -133,11 +139,12 @@ function ScheduledPolicyCard({ policy, connectionName, onEdit, onPause, onResume
           <Typography sx={{ fontWeight: 700 }}>{policy.execution.max_metrics_per_run}</Typography>
         </Box>
       </Box>
+      {readOnly ? <LockNote>{WEB_LOCK_REASONS.schedule}</LockNote> : null}
     </Paper>
   );
 }
 
-export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, enableCategoryRequest, onEnableCategoryHandled, previewNowSignal, onPreviewNowHandled, onPreviewNowStateChange }: Props) {
+export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, enableCategoryRequest, onEnableCategoryHandled, previewNowSignal, onPreviewNowHandled, onPreviewNowStateChange, readOnly = false }: Props) {
   const { canEdit } = useWebPermissions();
   const queryClient = useQueryClient();
   const [environment, setEnvironment] = useState('production');
@@ -215,6 +222,8 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     queryKey: ['autonomous-scope-options', connectionId, serviceLabel, namespaceLabel, environmentLabel, analysisWindow],
     queryFn: () => api.autonomousScopeOptions({ connection_id: connectionId, service_label: serviceLabel, namespace_label: namespaceLabel, environment_label: environmentLabel, window: analysisWindow }),
     retry: false,
+    // Only the form uses the scope choices.
+    enabled: !readOnly,
   });
 
   const policiesQuery = useQuery({
@@ -320,6 +329,26 @@ export function AutonomousConfigurePanel({ onRunComplete, onPreviewComplete, ena
     onPreviewNowStateChange?.(previewPolicyMutation.isPending);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewPolicyMutation.isPending]);
+
+  if (readOnly) {
+    if (policiesQuery.isPending) return null;
+    return activePolicy ? (
+      <ScheduledPolicyCard
+        policy={activePolicy}
+        connectionName={connectionNameFor(activePolicy.connection_id)}
+        onEdit={() => undefined}
+        onPause={() => undefined}
+        onResume={() => undefined}
+        isTogglingStatus={false}
+        readOnly
+      />
+    ) : (
+      <Paper variant="outlined" sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
+        <Typography sx={{ fontWeight: 700 }}>No schedule yet.</Typography>
+        <Typography variant="body2" color="text.secondary">Editors can set one up. What earlier runs found is below.</Typography>
+      </Paper>
+    );
+  }
 
   if (activePolicy && !isEditing) {
     return (

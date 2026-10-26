@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
 import { allows, effectiveRole, WEB_LOCK_REASONS, type Me } from '../hooks/useWebPermissions';
 import type { Finding } from '../types';
-import { AdminArea } from './AdminArea';
 import { FindingTrustPanel } from './FindingTrustPanel';
 import { UserChip } from './UserChip';
 
@@ -70,10 +69,6 @@ describe('a signed-in Viewer', () => {
     expect(screen.getByRole('button', { name: 'Real problem' })).toBeDisabled();
   });
 
-  it('gets the admin notice on an admin page', async () => {
-    renderWith(VIC, <AdminArea><p>Lab</p></AdminArea>);
-    expect(await screen.findByRole('note')).toHaveTextContent('only Ops Signals admins can change things here');
-  });
 });
 
 describe('an Editor', () => {

@@ -25,47 +25,47 @@ import { CasesPage } from '../pages/CasesPage';
 import { IntegrationsPage } from '../pages/IntegrationsPage';
 import { AlertsPage } from '../pages/AlertsPage';
 import { SetupCheckPage } from '../pages/SetupCheckPage';
-import { AdminArea } from '../components/AdminArea';
+import { RoleArea } from '../components/RoleArea';
 import { MetricUsagePage } from '../pages/MetricUsagePage';
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<OverviewPage />} />
-      <Route path="/autonomous-monitoring" element={<AutonomousMonitoringPage />} />
+      <Route path="/" element={<RoleArea name="Overview"><OverviewPage /></RoleArea>} />
+      <Route path="/autonomous-monitoring" element={<RoleArea name="Autonomous Analysis"><AutonomousMonitoringPage /></RoleArea>} />
       <Route path="/investigations" element={<Navigate to="/cases?tab=in-progress" replace />} />
-      <Route path="/cases" element={<CasesPage />} />
-      <Route path="/cases/:caseId" element={<CaseDetailsPage />} />
-      <Route path="/questions/:questionId" element={<QuestionAnswerPage />} />
-      <Route path="/capabilities" element={<CapabilitiesPage />} />
-      <Route path="/behavior-intelligence" element={<BehaviorIntelligencePage />} />
+      <Route path="/cases" element={<RoleArea name="Cases"><CasesPage /></RoleArea>} />
+      <Route path="/cases/:caseId" element={<RoleArea name="Cases"><CaseDetailsPage /></RoleArea>} />
+      <Route path="/questions/:questionId" element={<RoleArea name="This question"><QuestionAnswerPage /></RoleArea>} />
+      <Route path="/capabilities" element={<RoleArea name="Capabilities"><CapabilitiesPage /></RoleArea>} />
+      <Route path="/behavior-intelligence" element={<RoleArea name="Behavior Intelligence"><BehaviorIntelligencePage /></RoleArea>} />
       {/* The Lab is now the builder panel on Behavior Intelligence; old links and bookmarks land there. */}
       <Route path="/behavior-intelligence/lab" element={<Navigate to="/behavior-intelligence?tab=patterns&builder=new" replace />} />
-      <Route path="/analyzer-recommendation" element={<AnalyzerRecommendationPage />} />
-      <Route path="/validate-data" element={<ValidateDataPage />} />
+      <Route path="/analyzer-recommendation" element={<RoleArea name="Recommendations"><AnalyzerRecommendationPage /></RoleArea>} />
+      <Route path="/validate-data" element={<RoleArea name="New Analysis"><ValidateDataPage /></RoleArea>} />
       {/* The experiment results page was removed; old links land on the closest replacement. */}
       <Route path="/experiments" element={<Navigate to="/experiments/ruptures-change-point-lab" replace />} />
-      <Route path="/experiments/add-analyzer" element={<AdminArea><AddAnalyzerPage /></AdminArea>} />
-      <Route path="/experiments/pyod-outlier-lab" element={<AdminArea><PyodOutlierLabPage /></AdminArea>} />
-      <Route path="/experiments/prophet-forecast-lab" element={<AdminArea><ProphetForecastLabPage /></AdminArea>} />
-      <Route path="/experiments/ruptures-change-point-lab" element={<AdminArea><RupturesChangePointLabPage /></AdminArea>} />
-      <Route path="/experiments/stumpy-motif-lab" element={<AdminArea><StumpyMotifLabPage /></AdminArea>} />
-      <Route path="/experiments/trend-lab" element={<AdminArea><TrendLabPage /></AdminArea>} />
-      <Route path="/experiments/zscore-anomaly-lab" element={<AdminArea><ZScoreAnomalyLabPage /></AdminArea>} />
-      <Route path="/analyzer-router" element={<AnalyzerRouterExperimentPage />} />
-      <Route path="/assistant" element={<MemoryChatPage />} />
-      <Route path={DOCS_CHECK_PATH} element={<DocsCheckPage />} />
-      <Route path="/recurring-problems" element={<RecurringProblemsPage />} />
+      <Route path="/experiments/add-analyzer" element={<RoleArea name="Add Analyzer"><AddAnalyzerPage /></RoleArea>} />
+      <Route path="/experiments/pyod-outlier-lab" element={<RoleArea name="PyOD Outlier Lab"><PyodOutlierLabPage /></RoleArea>} />
+      <Route path="/experiments/prophet-forecast-lab" element={<RoleArea name="Prophet Forecast Lab"><ProphetForecastLabPage /></RoleArea>} />
+      <Route path="/experiments/ruptures-change-point-lab" element={<RoleArea name="Ruptures Change Point Lab"><RupturesChangePointLabPage /></RoleArea>} />
+      <Route path="/experiments/stumpy-motif-lab" element={<RoleArea name="STUMPY Motif Lab"><StumpyMotifLabPage /></RoleArea>} />
+      <Route path="/experiments/trend-lab" element={<RoleArea name="Trend Lab"><TrendLabPage /></RoleArea>} />
+      <Route path="/experiments/zscore-anomaly-lab" element={<RoleArea name="Z-Score Anomaly Lab"><ZScoreAnomalyLabPage /></RoleArea>} />
+      <Route path="/analyzer-router" element={<RoleArea name="Analyzer router"><AnalyzerRouterExperimentPage /></RoleArea>} />
+      <Route path="/assistant" element={<RoleArea name="Ask Ops Signals"><MemoryChatPage /></RoleArea>} />
+      <Route path={DOCS_CHECK_PATH} element={<RoleArea name="Docs check"><DocsCheckPage /></RoleArea>} />
+      <Route path="/recurring-problems" element={<RoleArea name="Recurring problems"><RecurringProblemsPage /></RoleArea>} />
       <Route path="/operational-memory" element={<RedirectKeepingQuery to="/recurring-problems" />} />
-      <Route path="/memory-chat" element={<MemoryChatPage />} />
-      <Route path="/findings" element={<FindingsPage />} />
-      <Route path="/metric-usage" element={<MetricUsagePage />} />
-      <Route path="/integrations" element={<IntegrationsPage />} />
-      <Route path="/alerts" element={<AlertsPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
-      <Route path="/setup-check" element={<SetupCheckPage />} />
+      <Route path="/memory-chat" element={<RoleArea name="Ask Ops Signals"><MemoryChatPage /></RoleArea>} />
+      <Route path="/findings" element={<RoleArea name="Findings"><FindingsPage /></RoleArea>} />
+      <Route path="/metric-usage" element={<RoleArea name="Metric Usage"><MetricUsagePage /></RoleArea>} />
+      <Route path="/integrations" element={<RoleArea name="Integrations"><IntegrationsPage /></RoleArea>} />
+      <Route path="/alerts" element={<RoleArea name="Alerts"><AlertsPage /></RoleArea>} />
+      <Route path="/settings" element={<RoleArea name="Settings"><SettingsPage /></RoleArea>} />
+      <Route path="/setup-check" element={<RoleArea name="Setup check"><SetupCheckPage /></RoleArea>} />
       <Route path="/system" element={<Navigate to="/setup-check" replace />} />
-      <Route path="/signals/:signalId" element={<SignalDetailPage />} />
+      <Route path="/signals/:signalId" element={<RoleArea name="This signal"><SignalDetailPage /></RoleArea>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

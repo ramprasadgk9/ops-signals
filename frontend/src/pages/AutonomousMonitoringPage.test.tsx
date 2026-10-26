@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { api } from '../api/queries';
 import { AppShell } from '../components/AppShell';
 import { AppRoutes } from '../routes/AppRoutes';
+import type { Me } from '../hooks/useWebPermissions';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -24,6 +25,8 @@ vi.mock('../api/queries', () => ({
     prometheusConnections: vi.fn().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] }),
     autonomousListPolicies: vi.fn().mockResolvedValue([]),
     autonomousSetPolicyStatus: vi.fn(),
+    // No sign-in: nothing is limited.
+    me: vi.fn().mockResolvedValue({ signed_in: false, name: null, role: null, via: 'none', groups: [], granted_by: null, mode: 'none', problem: null }),
   },
 }));
 
@@ -68,7 +71,7 @@ describe('AutonomousMonitoringPage', () => {
   it('renders the dedicated autonomous configure route and sidebar item', async () => {
     renderRoute();
 
-    expect(screen.getByRole('link', { name: /Autonomous Analysis Configure/ })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Autonomous Analysis Configure/ })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Autonomous Analysis Configure' })).toBeInTheDocument();
     expect(screen.getByText('Configure Autonomous Analysis')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Preview' })).toBeInTheDocument();
@@ -340,5 +343,39 @@ describe('AutonomousMonitoringPage', () => {
     expect(screen.getByText('Discovery warning 4')).toBeInTheDocument();
     expect(screen.queryByText('Discovery warning 5')).not.toBeInTheDocument();
     expect(screen.getByText('+2 more warnings')).toBeInTheDocument();
+  });
+});
+
+const VIEWER: Me = {
+  signed_in: true, name: 'sam@example.com', role: 'Viewer', via: 'proxy', groups: [], granted_by: null, mode: 'proxy-headers', problem: null,
+  pages: { '/': 'Viewer', '/autonomous-monitoring': 'Viewer', '/validate-data': 'Editor', '/settings': 'Admin' },
+  read_only_pages: ['/autonomous-monitoring'],
+};
+
+describe('AutonomousMonitoringPage for a Viewer', () => {
+  it('shows the schedule and who owns it, without its buttons or the form', async () => {
+    vi.mocked(api.autonomousScopeOptions).mockClear();
+    vi.mocked(api.me).mockResolvedValueOnce(VIEWER);
+    vi.mocked(api.autonomousListPolicies).mockResolvedValueOnce([{ ...ACTIVE_SCHEDULE, created_by: 'priya', edited_by: 'sam' }] as never);
+    renderRoute();
+
+    expect(await screen.findByRole('heading', { name: 'Autonomous Analysis' })).toBeInTheDocument();
+    expect(await screen.findByText('Production coverage')).toBeInTheDocument();
+    expect(screen.getByText(/Owner priya · last edited by sam/)).toBeInTheDocument();
+    expect(screen.getByText('Editors can change schedules. Ask your Ops Signals admin for the Editor role.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Configure Autonomous Analysis')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Autonomous Analysis' })).toBeInTheDocument();
+    expect(api.autonomousScopeOptions).not.toHaveBeenCalled();
+  });
+
+  it('says when there is no schedule yet', async () => {
+    vi.mocked(api.me).mockResolvedValueOnce(VIEWER);
+    vi.mocked(api.autonomousListPolicies).mockResolvedValueOnce([]);
+    renderRoute();
+
+    expect(await screen.findByText('No schedule yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Run once' })).not.toBeInTheDocument();
   });
 });

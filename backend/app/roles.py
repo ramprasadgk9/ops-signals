@@ -62,6 +62,59 @@ _EDITOR_REASONS = [
 ]
 
 
+# The web UI pages each role may open, by the lowest role (frontend/src/routes/AppRoutes.tsx). An
+# entry covers its own address and the ones under it, except "/", which is only Overview. A page not
+# listed here is for Admins, so a new page starts closed until it is added.
+PAGES: dict[str, str] = {
+    "/": "Viewer",
+    "/alerts": "Viewer",
+    "/findings": "Viewer",
+    "/signals": "Viewer",
+    "/questions": "Viewer",
+    "/cases": "Viewer",
+    "/metric-usage": "Viewer",
+    "/behavior-intelligence": "Viewer",
+    "/recurring-problems": "Viewer",
+    "/assistant": "Viewer",
+    "/memory-chat": "Viewer",
+    "/autonomous-monitoring": "Viewer",
+    "/validate-data": "Editor",
+    "/analyzer-recommendation": "Editor",
+    "/integrations": "Admin",
+    "/experiments": "Admin",
+    "/analyzer-router": "Admin",
+    "/assistant/docs-check": "Admin",
+    "/capabilities": "Admin",
+    "/settings": "Admin",
+    "/setup-check": "Admin",
+}
+
+# Pages a role opens without their set-up part, by the highest role that gets it so.
+READ_ONLY_PAGES: dict[str, str] = {
+    "/autonomous-monitoring": "Viewer",
+}
+
+
+def _page_entry(path: str) -> str | None:
+    """The PAGES entry that covers this address: the longest one."""
+    covering = [entry for entry in PAGES if path == entry or (entry != "/" and path.startswith(f"{entry}/"))]
+    return max(covering, key=len, default=None)
+
+
+def page_role(path: str) -> str:
+    """The lowest role that may open this web UI page."""
+    entry = _page_entry(path.rstrip("/") or "/")
+    return PAGES[entry] if entry else "Admin"
+
+
+def pages_for(role: str | None) -> tuple[dict[str, str], list[str]]:
+    """What /api/me tells the web UI: every page with its role, and the pages this role sees read-only.
+    With no role (no sign-in) nothing is read-only."""
+    if role is None:
+        return dict(PAGES), []
+    return dict(PAGES), [page for page, upto in READ_ONLY_PAGES.items() if RANKS.get(role, 0) <= RANKS[upto]]
+
+
 def required_role(method: str, path: str) -> str | None:
     """The lowest role that may make this request, or None when any role may."""
     if method.upper() in _READ_METHODS:
