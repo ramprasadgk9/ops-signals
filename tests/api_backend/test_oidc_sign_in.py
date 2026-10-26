@@ -232,7 +232,18 @@ def test_the_setup_check_login_row(provider, client: TestClient) -> None:
     sign_in(client, provider, "ada@example.com")
     login = next(check for check in client.get("/api/setup/check").json()["checks"] if check["id"] == "login")
     assert (login["status"], login["action"]) == ("ok", "sign_in")
-    assert login["detail"].startswith("Company sign-in is on · you are ada@example.com (Admin, group ops-signals-admins)")
+    assert login["detail"].startswith("Company sign-in is on · you are ada@example.com (Admin, group ops-signals-admins) · groups that arrived: ops-signals-admins")
+
+
+def test_me_shows_the_groups_that_arrived_even_when_none_match(provider, monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    """Lists that don't match what the provider sends (IDs, paths) make the person setting up a Viewer."""
+    monkeypatch.setenv("OPS_SIGNALS_AUTH_ADMIN_GROUPS", f"{ADMIN_GROUP},11111111-aaaa")
+    sign_in(client, provider, "ada@example.com")
+    monkeypatch.setenv("OPS_SIGNALS_AUTH_ADMIN_GROUPS", "11111111-aaaa")
+    monkeypatch.setenv("OPS_SIGNALS_AUTH_EDITOR_GROUPS", "")
+    me = client.get("/api/me").json()
+    # A Viewer now, so no Setup check: the chip's groups are how to find the right value.
+    assert (me["role"], me["arrived_groups"]) == ("Viewer", [ADMIN_GROUP])
 
 
 def test_the_setup_check_says_when_the_provider_cant_be_reached(provider, monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:

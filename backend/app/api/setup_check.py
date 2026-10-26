@@ -341,7 +341,12 @@ def oidc_login_check(actor: Actor | None, auth: AuthConfig, api_token: str | Non
         return SetupCheck(**base, status="warn", detail="Sign-ins work, but the last 5 had no groups, so everyone is a Viewer.",
                           fix=[f"Add a groups claim to the app in your provider, or set OPS_SIGNALS_OIDC_GROUPS_CLAIM to the claim it uses (now {auth.oidc_groups_claim})."])
     who = f" · you are {_who(actor)}" if actor is not None and actor.via == "oidc" else ""
-    return SetupCheck(**base, status="ok", detail=f"Company sign-in is on{who} · provider {auth.oidc_issuer_url} · sessions last {auth.session_hours:g} h")
+    arrived = ""
+    if actor is not None and actor.via == "oidc" and actor.name:
+        groups = oidc.arrived_groups(actor.name)
+        # What the provider sent at your sign-in, so the Admin and Editor lists can name it exactly.
+        arrived = " · no groups arrived at your sign-in" if actor.groups_missing else f" · groups that arrived: {', '.join(groups)}" if groups else ""
+    return SetupCheck(**base, status="ok", detail=f"Company sign-in is on{who}{arrived} · provider {auth.oidc_issuer_url} · sessions last {auth.session_hours:g} h")
 
 
 def security_checks(actor: Actor | None = None) -> list[SetupCheck]:

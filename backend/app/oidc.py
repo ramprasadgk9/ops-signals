@@ -19,7 +19,7 @@ import logging
 import secrets
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from urllib.parse import urlencode, urlsplit
 
@@ -50,6 +50,25 @@ _lock = threading.Lock()
 _documents: dict[str, tuple[float, dict]] = {}
 # Whether the last few sign-ins came without groups, for Setup check's "everyone is a Viewer" warning.
 recent_groups_missing: deque[bool] = deque(maxlen=5)
+# The groups that arrived at each person's last sign-in (this process only), so an admin setting up
+# the Admin and Editor lists can see what the provider really sends: names, IDs or paths.
+_MAX_REMEMBERED_PEOPLE = 20
+_MAX_REMEMBERED_GROUPS = 20
+_arrived_groups: OrderedDict[str, tuple[str, ...] | None] = OrderedDict()
+
+
+def arrived_groups(user: str) -> tuple[str, ...] | None:
+    """The groups at this person's last sign-in; None when the provider sent none, or unknown."""
+    with _lock:
+        return _arrived_groups.get(user)
+
+
+def _remember_groups(user: str, groups: tuple[str, ...], missing: bool) -> None:
+    with _lock:
+        _arrived_groups[user] = None if missing else groups[:_MAX_REMEMBERED_GROUPS]
+        _arrived_groups.move_to_end(user)
+        while len(_arrived_groups) > _MAX_REMEMBERED_PEOPLE:
+            _arrived_groups.popitem(last=False)
 
 
 class SignInError(Exception):
@@ -310,6 +329,7 @@ def finish(auth: AuthConfig, flow_cookie: str | None, secret: bytes, code: str |
     if auth.oidc_allowed_groups and not any(group in auth.oidc_allowed_groups for group in groups):
         raise SignInError("not_allowed", f"{user} isn't in any of OPS_SIGNALS_OIDC_ALLOWED_GROUPS (groups {'not sent' if missing else list(groups)}).", shown=user[:_MAX_NAME])
     recent_groups_missing.append(missing)
+    _remember_groups(user[:_MAX_NAME], groups, missing)
     name = claims.get("name")
     return SignedIn(user=user[:_MAX_NAME], display_name=str(name)[:_MAX_NAME] if name else None, groups=groups,
                     groups_missing=missing, next_path=flow["next"])

@@ -27,6 +27,8 @@ export type Me = {
   auto_redirect?: boolean;
   display_name?: string | null;
   session_ends_at?: string | null;
+  /** The groups the provider sent at this person's last sign-in, to copy into the Admin/Editor lists. */
+  arrived_groups?: string[] | null;
 };
 
 const RANKS = { Viewer: 1, Editor: 2, Admin: 3 } as const;

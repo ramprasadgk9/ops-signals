@@ -14,7 +14,7 @@ const SIGNED_OUT: Me = {
   signed_in: false, name: null, role: null, via: 'none', groups: [], granted_by: null, mode: 'oidc', problem: null,
   login_url: '/api/auth/login', provider_name: 'test accounts', auto_redirect: false,
 };
-const SAM: Me = { ...SIGNED_OUT, signed_in: true, name: 'sam@example.com', role: 'Viewer', via: 'oidc', session_ends_at: new Date(Date.now() + 2 * 3600_000).toISOString() };
+const SAM: Me = { ...SIGNED_OUT, signed_in: true, name: 'sam@example.com', role: 'Viewer', via: 'oidc', session_ends_at: new Date(Date.now() + 2 * 3600_000).toISOString(), arrived_groups: ['ops-signals-viewers'] };
 
 function renderAt(me: Me, path: string) {
   vi.mocked(api.me).mockResolvedValue(me);
@@ -119,6 +119,9 @@ describe('UserChip with the backend own sign-in', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Signed in as sam@example.com, Viewer' }));
     expect(screen.getByText('your company account')).toBeInTheDocument();
     expect(screen.getByText('Session ends in')).toBeInTheDocument();
+    // What the provider sent, to copy into the Admin and Editor lists.
+    expect(screen.getByText('Groups your provider sent')).toBeInTheDocument();
+    expect(screen.getByText('ops-signals-viewers')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     await vi.waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/signed-out'));
   });

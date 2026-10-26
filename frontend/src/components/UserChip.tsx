@@ -68,6 +68,14 @@ export function UserChip() {
           {me.granted_by ? <Row label="Because of group" value={me.granted_by} /> : null}
           <Row label="Through" value={VIA_LABEL[me.via] ?? me.via} />
           {timeLeft(me.session_ends_at) ? <Row label="Session ends in" value={timeLeft(me.session_ends_at)!} /> : null}
+          {me.via === 'oidc' ? (
+            <Box sx={{ py: 0.4 }}>
+              <Typography variant="body2" color="text.secondary">Groups your provider sent</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12.5, overflowWrap: 'anywhere' }}>
+                {me.arrived_groups?.length ? me.arrived_groups.join(', ') : 'none'}
+              </Typography>
+            </Box>
+          ) : null}
           <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1 }}>
             Roles come from your company's groups. Ask your Ops Signals admin to change yours.
             {me.via === 'oidc' ? ' When the session ends, you sign in again.' : ''}

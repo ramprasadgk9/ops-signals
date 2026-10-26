@@ -103,10 +103,20 @@ gives it. Scripts, CI, Alertmanager and the Grafana plugin keep using the API to
 The Setup check page's **Login** row has these steps next to it (**How to set up company sign-in**)
 and a **Test sign-in** button.
 
-1. **Register Ops Signals as a web app** in your provider, with the redirect address
-   `<your web UI address>/api/auth/callback` (Setup check → Login shows it, with a Copy button).
-2. **Add a groups claim** to the ID token, and note the client ID, a client secret and the issuer
-   address.
+1. **In your provider's admin console, register Ops Signals as a web app**, with the redirect
+   address `<your web UI address>/api/auth/callback` (Setup check → Login shows it, with a Copy
+   button).
+2. **On the app you just registered, add a groups claim** to the ID token, so Ops Signals gets each
+   person's groups. Look for settings named Token configuration, Claims, Claim mappers or Groups
+   claim.
+   - Name the claim `groups`, or set `OPS_SIGNALS_OIDC_GROUPS_CLAIM` to the name your provider uses
+     (for example `roles`).
+   - Some providers send group IDs instead of names, or paths like `/sre`. Put exactly what arrives
+     in the Admin and Editor lists: after signing in, the name chip's menu (top right) lists the
+     groups your provider sent, and so does Setup check → Login for an Admin.
+   - Without the claim everyone signs in as a Viewer, and Setup check warns.
+
+   On the same page, note the client ID, a client secret and the issuer address.
 3. **Set them on the backend** and restart it. Company sign-in also needs the token from
    [`security-model.md`](security-model.md#turning-on-authentication), which scripts keep using:
 

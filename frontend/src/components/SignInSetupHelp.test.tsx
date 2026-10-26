@@ -44,5 +44,7 @@ describe('SignInSetupHelp', () => {
     fireEvent.click(screen.getByRole('button', { name: 'How to set up company sign-in' }));
     expect(screen.getByRole('dialog', { name: 'Set up company sign-in' })).toHaveTextContent('OPS_SIGNALS_AUTH_MODE=oidc');
     expect(screen.getByRole('dialog')).toHaveTextContent('OPS_SIGNALS_TEST_SIGN_IN=true');
+    expect(screen.getByRole('dialog')).toHaveTextContent("In your provider's admin console, register Ops Signals as a web app");
+    expect(screen.getByRole('dialog')).toHaveTextContent('Token configuration, Claims, Claim mappers or Groups claim');
   });
 });

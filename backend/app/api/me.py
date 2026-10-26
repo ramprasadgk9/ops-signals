@@ -39,6 +39,9 @@ class MeOut(BaseModel):
     auto_redirect: bool = False
     display_name: str | None = None
     session_ends_at: datetime | None = None
+    # The groups the provider sent at this person's last sign-in (None: none sent, or not known), so
+    # whoever sets up the Admin and Editor lists can see the exact names or IDs.
+    arrived_groups: list[str] | None = None
 
 
 def sign_in_problem(mode: str, api_token: str | None, actor: Actor | None) -> str | None:
@@ -65,9 +68,11 @@ def me(actor: Actor | None = Depends(current_actor)) -> MeOut:
         pages, _ = pages_for(None)
         return MeOut(signed_in=False, mode=auth.mode, problem=problem, pages=pages, **sign_in)
     pages, read_only = pages_for(actor.role or "Viewer")
+    arrived = oidc.arrived_groups(actor.name) if actor.via == "oidc" and actor.name else None
     return MeOut(
         **sign_in,
         display_name=actor.display_name,
+        arrived_groups=list(arrived) if arrived else None,
         session_ends_at=datetime.fromtimestamp(actor.session_ends_at, timezone.utc) if actor.session_ends_at else None,
         signed_in=actor.name is not None,
         name=actor.name,

@@ -51,10 +51,19 @@ function SetUpDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
         </Typography>
         <Box component="ol" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 1.25, fontSize: 14 }}>
           <li>
-            <b>Register Ops Signals as a web app</b> in your provider, with this redirect address:
+            <b>In your provider's admin console, register Ops Signals as a web app</b>, with this redirect address:
             <Box sx={{ mt: 0.75 }}><CopyLine value={callbackAddress()} /></Box>
           </li>
-          <li><b>Add a groups claim</b> to the ID token, and note the client ID, a client secret and the issuer address.</li>
+          <li>
+            <b>On the app you just registered, add a groups claim</b> to the ID token, so Ops Signals gets each person's groups. Look for settings named
+            Token configuration, Claims, Claim mappers or Groups claim.
+            <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5, color: ui.muted, '& li': { my: 0.25 } }}>
+              <li>Name the claim <code>groups</code>, or set OPS_SIGNALS_OIDC_GROUPS_CLAIM to the name your provider uses (for example <code>roles</code>).</li>
+              <li>Some providers send group IDs instead of names, or paths like <code>/sre</code>. Put exactly what arrives in the Admin and Editor lists: after signing in, your name chip (top right) lists the groups that arrived.</li>
+              <li>Without the claim everyone signs in as a Viewer, and this row warns.</li>
+            </Box>
+            On the same page, note the <b>client ID</b>, a <b>client secret</b> and the <b>issuer address</b>.
+          </li>
           <li>
             <b>Set them on the backend</b>, with OPS_SIGNALS_API_TOKEN, and restart it:
             <Box component="pre" sx={{ ...codeSx, m: 0, mt: 0.75, p: 1.25, whiteSpace: 'pre-wrap' }}>{SETTINGS}</Box>
