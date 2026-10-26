@@ -1,6 +1,9 @@
 import { deleteJson, getHealth, getJson, postForm, postJson, patchJson } from './client';
 import type { SetupCheckResult } from '../utils/setupCheck';
 import type { Me } from '../hooks/useWebPermissions';
+
+/** Setup check's Test sign-in (GET /api/auth/test). */
+export type SignInTest = { reachable: boolean; issuer: string | null; redirect_uri: string; detail: string; test_provider: boolean };
 import type {
   AnalyzerConfigSuggestion,
   AnalyzerConfigSuggestionInput,
@@ -115,6 +118,8 @@ export const api = {
   setupCheck: () => getJson<SetupCheckResult>('/api/setup/check'),
   setupSummary: () => getJson<SetupCheckResult>('/api/setup/summary'),
   me: () => getJson<Me>('/api/me'),
+  signOut: () => postJson<Record<string, never>, { redirect: string }>('/api/auth/logout', {}),
+  testSignIn: () => getJson<SignInTest>('/api/auth/test'),
   sendTestAlert: () => postJson<Record<string, never>, AlertReceipt>('/api/integrations/alertmanager/test', {}),
   alerts: (params: AlertListParams = {}) => {
     const search = new URLSearchParams();

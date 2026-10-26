@@ -403,6 +403,11 @@ Ops Signals is meant to run inside a trusted network, next to your Prometheus an
   endpoint that wipes all data. `OPS_SIGNALS_ALLOW_FILE_WRITES=true` lets the analyzer and behavior
   labs write files on the server. The dev scripts turn both on.
 - **CORS** is limited to local dev origins. Add your Grafana URL with `OPS_SIGNALS_CORS_ORIGINS`.
+- **Sign-in and roles (Viewer, Editor, Admin).** The Grafana plugin takes them from Grafana. The web
+  UI signs people in with your company's identity provider over OpenID Connect
+  (`OPS_SIGNALS_AUTH_MODE=oidc`) or trusts a sign-in proxy; `OPS_SIGNALS_TEST_SIGN_IN=true` with
+  `scripts/run_all.sh` tries it with test accounts first. See
+  [`docs/web-ui-sign-in.md`](docs/web-ui-sign-in.md).
 
 [`docs/security-model.md`](docs/security-model.md) covers how each client (web UI, Grafana plugin,
 Alertmanager) sends the token, the Helm and Compose settings, and the known limitations.
@@ -1048,8 +1053,9 @@ case is in [`docs/operational-cases.md`](docs/operational-cases.md).
 
 ## Current Limitations
 
-- Authentication is a single optional shared token, with no users or roles. Run it on a trusted
-  network - see [`docs/security-model.md`](docs/security-model.md)
+- Scripts, CI and receivers share one optional API token, with no names or roles; people get roles
+  only through the Grafana plugin or the web UI's sign-in. Run it on a trusted network - see
+  [`docs/security-model.md`](docs/security-model.md)
 - With OTLP or CSV alone, autonomous analysis, pod drill-down, alert enrichment and Metric Usage are
   off: they need a Prometheus-compatible source (and Grafana, for Metric Usage dashboards). The UI
   says so where you meet them - see [what each source turns on](docs/integrations.md#what-each-source-turns-on)

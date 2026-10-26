@@ -36,10 +36,19 @@ export function retryUnlessClientError(failureCount: number, error: unknown): bo
   return !isClientError(error) && failureCount < 3;
 }
 
+/** Fired on a 401. With the backend's own sign-in it means the session has ended, and the web UI offers
+ * to sign in again without losing the page (components/SignIn.tsx). */
+export const SIGNED_OUT_EVENT = 'ops-signals:signed-out';
+
+async function apiError(res: Response): Promise<ApiError> {
+  if (res.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+  return new ApiError(res.status, await errorMessage(res));
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) {
-    throw new ApiError(res.status, await errorMessage(res));
+    throw await apiError(res);
   }
   return res.json() as Promise<T>;
 }
@@ -67,7 +76,7 @@ export async function postJson<TRequest, TResponse>(path: string, body: TRequest
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await errorMessage(res));
+    throw await apiError(res);
   }
   return res.json() as Promise<TResponse>;
 }
@@ -79,7 +88,7 @@ export async function patchJson<TRequest, TResponse>(path: string, body: TReques
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await errorMessage(res));
+    throw await apiError(res);
   }
   return res.json() as Promise<TResponse>;
 }
@@ -89,7 +98,7 @@ export async function deleteJson<TResponse>(path: string): Promise<TResponse> {
     method: 'DELETE',
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await errorMessage(res));
+    throw await apiError(res);
   }
   return res.json() as Promise<TResponse>;
 }
@@ -100,7 +109,7 @@ export async function postForm<TResponse>(path: string, body: FormData): Promise
     body,
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await errorMessage(res));
+    throw await apiError(res);
   }
   return res.json() as Promise<TResponse>;
 }

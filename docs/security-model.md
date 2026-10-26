@@ -109,10 +109,17 @@ role on every request and a browser can't change it, so with `OPS_SIGNALS_API_TO
 Grafana can reach the backend) roles can't be bypassed. Without a token, someone who calls the
 backend directly isn't limited by roles at all.
 
-The web UI gets the same roles from your company's groups when it sits behind a sign-in proxy and
-`OPS_SIGNALS_AUTH_MODE=proxy-headers` is set ([`web-ui-sign-in.md`](web-ui-sign-in.md)). The
-backend believes the proxy's user header only with `OPS_SIGNALS_API_TOKEN` set, and only the web
-UI's nginx holds the token, so the web container must be reachable only through the proxy.
+The web UI gets the same roles from your company's groups ([`web-ui-sign-in.md`](web-ui-sign-in.md)):
+
+- **Company sign-in** (`OPS_SIGNALS_AUTH_MODE=oidc`): the backend signs people in with your identity
+  provider over OpenID Connect and checks the provider's signed ID token itself. Who signed in lives
+  in a signed, `HttpOnly` session cookie. The web UI's nginx no longer adds the API token, so a browser
+  has only its session's rights; a change carried by the cookie must come from the web UI's own
+  address; and `X-Grafana-Context` counts only on requests that carry the API token. The API token is
+  required in this mode, and scripts keep using it.
+- **Sign-in proxy** (`OPS_SIGNALS_AUTH_MODE=proxy-headers`): the backend believes the proxy's user
+  header only with `OPS_SIGNALS_API_TOKEN` set, and only the web UI's nginx holds the token, so the
+  web container must be reachable only through the proxy.
 
 ## Who did what
 

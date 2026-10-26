@@ -73,6 +73,10 @@ def test_me_says_who_and_why(sign_in_env, client: TestClient) -> None:
     me = client.get("/api/me", headers=_signed_in("priya@example.com", "payments,sre")).json()
     assert me.pop("pages")["/settings"] == "Admin"
     assert me.pop("read_only_pages") == []
+    # Only for the backend's own sign-in (test_oidc_sign_in.py).
+    assert {key: me.pop(key) for key in ("login_url", "provider_name", "auto_redirect", "display_name", "session_ends_at")} == {
+        "login_url": None, "provider_name": None, "auto_redirect": False, "display_name": None, "session_ends_at": None,
+    }
     assert me == {
         "signed_in": True, "name": "priya@example.com", "role": "Editor", "via": "proxy",
         "groups": ["payments", "sre"], "granted_by": "sre", "mode": "proxy-headers", "problem": None,

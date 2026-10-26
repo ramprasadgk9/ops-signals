@@ -40,6 +40,7 @@ _VIEWER_WRITES = [re.compile(pattern) for pattern in (
     r"^/api/cases/\d+/(rca|resolution)/suggest$",
     r"^/api/findings/\d+/suggested-fixes/runbook-draft$",
     r"^/api/metric-usage/drop-config$",
+    r"^/api/auth/logout$",
 )]
 
 # Set-up, labs and data management: Admins only.
@@ -59,6 +60,7 @@ _ADMIN_WRITES = [re.compile(pattern) for pattern in (
 # only. Everyone else gets GET /api/setup/summary for the setup reminder and the plugin's header chips.
 _ADMIN_READS = [re.compile(pattern) for pattern in (
     r"^/api/setup/check$",
+    r"^/api/auth/test$",
     r"^/api/admin/",
     r"^/api/analyzer-labs/",
     r"^/api/case-imports",

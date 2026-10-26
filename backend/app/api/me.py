@@ -6,6 +6,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from datetime import datetime, timezone
+
+from backend.app import oidc
 from backend.app.config import get_auth_config, get_security_config
 from backend.app.identity import Actor, current_actor
 from backend.app.roles import pages_for
@@ -29,9 +32,18 @@ class MeOut(BaseModel):
     pages: dict[str, str] = Field(default_factory=dict)
     # Pages this person sees without their set-up part, e.g. Autonomous Analysis for a Viewer.
     read_only_pages: list[str] = Field(default_factory=list)
+    # With the backend's own sign-in (mode oidc): where to sign in, the button's words, whether to skip
+    # the sign-in page, and when this person's session ends.
+    login_url: str | None = None
+    provider_name: str | None = None
+    auto_redirect: bool = False
+    display_name: str | None = None
+    session_ends_at: datetime | None = None
 
 
 def sign_in_problem(mode: str, api_token: str | None, actor: Actor | None) -> str | None:
+    if mode == "oidc":
+        return oidc.setup_problem(get_auth_config(), api_token)
     if mode != "proxy-headers":
         return None
     if not api_token:
@@ -45,11 +57,18 @@ def sign_in_problem(mode: str, api_token: str | None, actor: Actor | None) -> st
 def me(actor: Actor | None = Depends(current_actor)) -> MeOut:
     auth = get_auth_config()
     problem = sign_in_problem(auth.mode, get_security_config().api_token, actor)
+    sign_in = (
+        {"login_url": oidc.LOGIN_PATH, "provider_name": auth.oidc_provider_name, "auto_redirect": auth.oidc_auto_redirect}
+        if auth.mode == "oidc" and not problem else {}
+    )
     if actor is None:
         pages, _ = pages_for(None)
-        return MeOut(signed_in=False, mode=auth.mode, problem=problem, pages=pages)
+        return MeOut(signed_in=False, mode=auth.mode, problem=problem, pages=pages, **sign_in)
     pages, read_only = pages_for(actor.role or "Viewer")
     return MeOut(
+        **sign_in,
+        display_name=actor.display_name,
+        session_ends_at=datetime.fromtimestamp(actor.session_ends_at, timezone.utc) if actor.session_ends_at else None,
         signed_in=actor.name is not None,
         name=actor.name,
         role=actor.role,

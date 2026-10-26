@@ -11,7 +11,7 @@ export type Me = {
   signed_in: boolean;
   name: string | null;
   role: Role | null;
-  via: 'grafana' | 'proxy' | 'dev' | 'none';
+  via: 'grafana' | 'proxy' | 'oidc' | 'dev' | 'none';
   groups: string[];
   granted_by: string | null;
   mode: string;
@@ -20,6 +20,13 @@ export type Me = {
   pages?: Record<string, Role>;
   /** Pages this person sees without their set-up part. */
   read_only_pages?: string[];
+  /** With the backend's own sign-in (mode oidc): where to sign in, the button's words, whether to skip
+   * the sign-in page, the provider's name for the person, and when the session ends. */
+  login_url?: string | null;
+  provider_name?: string | null;
+  auto_redirect?: boolean;
+  display_name?: string | null;
+  session_ends_at?: string | null;
 };
 
 const RANKS = { Viewer: 1, Editor: 2, Admin: 3 } as const;

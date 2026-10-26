@@ -42,8 +42,21 @@ services:
       OPS_SIGNALS_PROMETHEUS_URL: ${OPS_SIGNALS_PROMETHEUS_URL:-http://prometheus:9090}
       # See docs/security-model.md. Without a token the API is open to anyone who can reach port 8000.
       OPS_SIGNALS_API_TOKEN: ${OPS_SIGNALS_API_TOKEN:-}
-      # Web UI sign-in through your company's sign-in proxy (docs/web-ui-sign-in.md); off unless set.
+      # Web UI sign-in (docs/web-ui-sign-in.md), off unless set: oidc signs people in with your
+      # company's identity provider; proxy-headers trusts your sign-in proxy.
       OPS_SIGNALS_AUTH_MODE: ${OPS_SIGNALS_AUTH_MODE:-none}
+      OPS_SIGNALS_OIDC_ISSUER_URL: ${OPS_SIGNALS_OIDC_ISSUER_URL:-}
+      OPS_SIGNALS_OIDC_CLIENT_ID: ${OPS_SIGNALS_OIDC_CLIENT_ID:-}
+      OPS_SIGNALS_OIDC_CLIENT_SECRET: ${OPS_SIGNALS_OIDC_CLIENT_SECRET:-}
+      OPS_SIGNALS_OIDC_ALLOWED_GROUPS: ${OPS_SIGNALS_OIDC_ALLOWED_GROUPS:-}
+      OPS_SIGNALS_OIDC_GROUPS_CLAIM: ${OPS_SIGNALS_OIDC_GROUPS_CLAIM:-}
+      OPS_SIGNALS_OIDC_USER_CLAIM: ${OPS_SIGNALS_OIDC_USER_CLAIM:-}
+      OPS_SIGNALS_OIDC_SCOPES: ${OPS_SIGNALS_OIDC_SCOPES:-}
+      OPS_SIGNALS_OIDC_PROVIDER_NAME: ${OPS_SIGNALS_OIDC_PROVIDER_NAME:-}
+      OPS_SIGNALS_OIDC_AUTO_REDIRECT: ${OPS_SIGNALS_OIDC_AUTO_REDIRECT:-}
+      OPS_SIGNALS_SESSION_HOURS: ${OPS_SIGNALS_SESSION_HOURS:-}
+      OPS_SIGNALS_SESSION_SECRET: ${OPS_SIGNALS_SESSION_SECRET:-}
+      OPS_SIGNALS_PUBLIC_URL: ${OPS_SIGNALS_PUBLIC_URL:-}
       OPS_SIGNALS_AUTH_USER_HEADER: ${OPS_SIGNALS_AUTH_USER_HEADER:-}
       OPS_SIGNALS_AUTH_GROUPS_HEADER: ${OPS_SIGNALS_AUTH_GROUPS_HEADER:-}
       OPS_SIGNALS_AUTH_EDITOR_GROUPS: ${OPS_SIGNALS_AUTH_EDITOR_GROUPS:-}
@@ -95,8 +108,10 @@ services:
       context: .
       dockerfile: docker/web.Dockerfile
     environment:
-      # nginx adds it to every /api/ request, so the browser never sees it.
+      # nginx adds it to every /api/ request, so the browser never sees it - except with
+      # OPS_SIGNALS_AUTH_MODE=oidc, where people sign in and their session says who they are.
       OPS_SIGNALS_API_TOKEN: ${OPS_SIGNALS_API_TOKEN:-}
+      OPS_SIGNALS_AUTH_MODE: ${OPS_SIGNALS_AUTH_MODE:-none}
     ports:
       - "8080:8080"
     depends_on:

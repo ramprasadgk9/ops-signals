@@ -11,11 +11,12 @@ protocols) through configuration, and never build per-vendor integrations.
   ([`ui-tour.md`](ui-tour.md#setup-check-and-settings), `GET /api/setup/check`).
 - **The plugin signs in through Grafana (done, step 1 below).**
 - **Roles in the plugin (done, step 2 below).** Viewer, Editor and Admin, from Grafana.
-- **Web UI sign-in through a sign-in proxy (done, first half of step 3 below).** Roles from company
-  groups ([`web-ui-sign-in.md`](web-ui-sign-in.md)). Named tokens are the other half, next; they also
-  let the web UI insist on a signed-in user.
+- **Web UI sign-in (done, first half of step 3 below).** Ops Signals signs people in itself with the
+  company's identity provider over OpenID Connect, or trusts a sign-in proxy; roles come from company
+  groups ([`web-ui-sign-in.md`](web-ui-sign-in.md)). A local test provider lets you try it before a
+  provider is set up. Named tokens are the other half, next.
 - **Login:** one shared API token, `OPS_SIGNALS_API_TOKEN`, or none. Outside the plugin through
-  Grafana and the web UI behind a sign-in proxy there are no roles: anyone with the token can do
+  Grafana and the web UI with sign-in on there are no roles: anyone with the token can do
   everything ([`security-model.md`](security-model.md)).
 - **"Who did it":** recorded for what people do in the plugin through Grafana and in the web UI with
   sign-in on. Scripts and integrations record no name (step 3b).
@@ -86,7 +87,6 @@ one click away. Everyone can still see everything.
 
 ## Later, only when users ask
 
-- **Built-in sign-in (OIDC)** for the web UI, for companies without a sign-in proxy.
 - **Audit log** (admin only): who changed schedules, connections or analyzers, and when.
 - **Strict per-team separation** (multi-tenancy), where one team can't see another's data. A large
   change; only for a customer that requires it.

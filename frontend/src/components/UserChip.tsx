@@ -1,9 +1,20 @@
 import { useState } from 'react';
-import { Box, Chip, Popover, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, Divider, Popover, Stack, Tooltip, Typography } from '@mui/material';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
+import { useMutation } from '@tanstack/react-query';
+import { api } from '../api/queries';
 import { useWebPermissions } from '../hooks/useWebPermissions';
 
-const VIA_LABEL: Record<string, string> = { proxy: 'company sign-in', grafana: 'Grafana', dev: 'OPS_SIGNALS_DEV_USER (dev only)' };
+const VIA_LABEL: Record<string, string> = { proxy: 'company sign-in', oidc: 'your company account', grafana: 'Grafana', dev: 'OPS_SIGNALS_DEV_USER (dev only)' };
+
+/** "7 h 12 min" until the session ends, or null without one. */
+export function timeLeft(endsAt: string | null | undefined, now: number = Date.now()): string | null {
+  if (!endsAt) return null;
+  const minutes = Math.max(0, Math.round((new Date(endsAt).getTime() - now) / 60_000));
+  if (Number.isNaN(minutes)) return null;
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
+}
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -18,6 +29,8 @@ function Row({ label, value }: { label: string; value: string }) {
 export function UserChip() {
   const { me, role } = useWebPermissions();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  // The backend clears the session and says where to go: the provider's sign-out, or /signed-out.
+  const signOut = useMutation({ mutationFn: api.signOut, onSuccess: ({ redirect }) => window.location.assign(redirect) });
   if (!me) return null;
 
   if (role === null) {
@@ -54,9 +67,19 @@ export function UserChip() {
           <Row label="Role" value={role} />
           {me.granted_by ? <Row label="Because of group" value={me.granted_by} /> : null}
           <Row label="Through" value={VIA_LABEL[me.via] ?? me.via} />
+          {timeLeft(me.session_ends_at) ? <Row label="Session ends in" value={timeLeft(me.session_ends_at)!} /> : null}
           <Typography variant="caption" color="text.secondary" component="p" sx={{ mt: 1 }}>
             Roles come from your company's groups. Ask your Ops Signals admin to change yours.
+            {me.via === 'oidc' ? ' When the session ends, you sign in again.' : ''}
           </Typography>
+          {me.via === 'oidc' ? (
+            <>
+              <Divider sx={{ my: 1.5 }} />
+              <Button size="small" variant="outlined" disabled={signOut.isPending} onClick={() => signOut.mutate()} sx={{ textTransform: 'none', fontWeight: 750 }}>
+                {signOut.isPending ? 'Signing out…' : 'Sign out'}
+              </Button>
+            </>
+          ) : null}
         </Box>
       </Popover>
     </>
