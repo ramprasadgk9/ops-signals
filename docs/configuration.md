@@ -48,7 +48,7 @@ value is ignored with a warning in the log.
 
 One team's right threshold can be another's noise. Files in `config/analyzer_overrides.d/` change
 analyzer settings for chosen services or metrics, and leave everything else on the settings above.
-Start from `config/analyzer_overrides.d/example.yml.example`:
+Start from `config/analyzer_overrides.d/payments-team.yml.example`:
 
 ```yaml
 overrides:
@@ -70,6 +70,14 @@ overrides:
   OTLP `service.name`, the Prometheus label chosen as the service label, or the CSV's service), and
   `scope.metric` its metric name. The file name doesn't matter. A series nothing matches keeps the
   default settings.
+- **Files:** every `*.yml` and `*.yaml` file in the folder is read; files ending in `.example` are
+  not. One file per team scales well. An override can change several analyzers; `scope.metric` takes
+  one name or wildcard, so give metrics without a shared pattern an override each. The example file
+  shows a service-wide override, one metric, and a wildcard for several metrics.
+- **Only analyzers that run:** a setting changes nothing if its analyzer doesn't run on the series.
+  By default the router runs Trend and PyOD Outlier; Baseline Shift and Z-Score run only with
+  `selection_mode: all` or `manual_override`
+  ([what runs by default](analyzers-explained.md#overlapping-analyzers-what-runs-by-default)).
 - **What can change:** only the settings an analyzer lists under `tunable` in
   `config/analyzer_registry.d/builtin.yml`, within their range: the trend slope, the baseline-shift
   change and effect size, the z-score, and PyOD's spike size and unusual-stretch length.

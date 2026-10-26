@@ -21,6 +21,10 @@ it. Data Health and STUMPY run on every series. Baseline Shift, Z-Score and Seas
 only when you select them (selection mode `all` or `manual_override`).
 The "When it runs" column in the [comparison](#one-page-comparison) has the details.
 
+The thresholds in this guide are the defaults. A team can make some of them stricter or looser for
+its own services or metrics, such as Trend's 10% or PyOD's spike size - see
+[Per-service analyzer settings](configuration.md#per-service-analyzer-settings).
+
 ## 1. Baseline Shift - Has the normal level changed?
 
 **Simple meaning:** detects when a metric settles at a different normal level and stays there.

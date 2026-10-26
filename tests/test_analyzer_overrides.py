@@ -196,13 +196,21 @@ def test_every_tunable_path_exists_in_the_shipped_settings() -> None:
 
 
 def test_the_shipped_example_is_a_valid_overrides_file(tmp_path: Path) -> None:
-    example = (PROJECT_ROOT / "config" / "analyzer_overrides.d" / "example.yml.example").read_text()
+    example = (PROJECT_ROOT / "config" / "analyzer_overrides.d" / "payments-team.yml.example").read_text()
     overrides = _load(tmp_path, **{"payments-team.yml": example})
 
     assert overrides.errors == []
     resolution = overrides.resolve("payments-api", "process_resident_memory_bytes")
-    assert resolution.params == {"trend": {"finding_rules": {"min_slope_percent": 5}}}
+    assert resolution.params == {
+        "pyod_outlier": {"finding_rule": {"min_range_excess": 0.6}},
+        "trend": {"finding_rules": {"min_slope_percent": 5}},
+    }
     assert (resolution.max_analyzers, resolution.disabled) == (2, {"stumpy"})
+    assert resolution.applied == ["payments_service_wide", "payments_memory"]
+
+    latency = overrides.resolve("payments-api", "http_request_duration_seconds_bucket")
+    assert latency.params == {"pyod_outlier": {"finding_rule": {"min_range_excess": 1.0, "min_sustained_points": 15}}}
+    assert (latency.max_analyzers, latency.disabled) == (None, {"stumpy"})
 
 
 def test_the_example_is_not_loaded_until_it_is_copied_to_a_yml_file() -> None:

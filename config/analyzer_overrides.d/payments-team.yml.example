@@ -1,0 +1,61 @@
+# Per-service analyzer settings, as one team's file. To use it, copy it to a .yml file in this
+# folder (e.g. payments-team.yml) and edit it. Files ending in .example are not read.
+#
+# One file per team works well: every *.yml / *.yaml file here is read, and the file name is only
+# for people. `scope` decides what an override applies to.
+# Files are read at the start of every analysis run, so a change needs no restart.
+# What each analyzer lets you change, and the allowed range, is its `tunable` block in
+# config/analyzer_registry.d/builtin.yml. See docs/configuration.md, "Per-service analyzer settings".
+#
+# Every override that matches a series applies, least specific first, so the more specific one wins
+# on a setting both change: service and metric, then service only, then metric only; an exact name
+# beats a wildcard. Below, process_resident_memory_bytes on payments-api gets payments_service_wide
+# and payments_memory, and payments_memory's min_range_excess wins over the service-wide one.
+#
+# A setting only matters when its analyzer runs. By default the router runs trend and pyod_outlier;
+# baseline_shift and anomaly_zscore run only with selection_mode all or manual_override in
+# config/analyzers.yaml (see docs/analyzers-explained.md).
+overrides:
+  # The whole service: every metric of payments-api.
+  payments_service_wide:
+    scope:
+      service: payments-api
+    reason: Payment traffic comes in bursts by design; short spikes are normal here.
+    analyzers:
+      pyod_outlier:
+        finding_rule:
+          min_range_excess: 1.0
+    # Optional: analyzers that shouldn't run on these series. Lists from all matching overrides add
+    # up, so a more specific override can't turn one back on.
+    selection:
+      disabled: [stumpy]
+
+  # One metric of the service, with several analyzers changed.
+  payments_memory:
+    # service and/or metric, exact or with wildcards. Quote a name that starts with *: "*-api".
+    scope:
+      service: payments-api
+      metric: process_resident_memory_bytes
+    reason: Memory grows slowly here before an outage; the default 10% is too late, and smaller jumps matter.
+    analyzers:
+      trend:
+        finding_rules:
+          min_slope_percent: 5
+      pyod_outlier:
+        finding_rule:
+          min_range_excess: 0.6
+    # Optional: fewer router picks for these series (the most specific match wins).
+    selection:
+      max_analyzers: 2
+
+  # Several metrics of the service at once, with a wildcard. scope.metric takes one name or pattern,
+  # not a list: for metrics without a shared pattern, add one override per metric.
+  payments_latency:
+    scope:
+      service: payments-api
+      metric: http_request_duration_seconds*
+    reason: Latency stays high for a few minutes on every card-network retry; only flag longer stretches.
+    analyzers:
+      pyod_outlier:
+        finding_rule:
+          min_sustained_points: 15

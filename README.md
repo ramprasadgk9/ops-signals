@@ -131,6 +131,8 @@ See [`docs/vision.md`](docs/vision.md) for the longer narrative behind this.
 - A React web UI, a Grafana plugin and an MCP server for AI clients
 - New analyzers are added through config, in Python or as your own HTTP service, without touching
   core code
+- Each team can change analyzer settings for its own services or metrics, in its own file, with a
+  reason for each change - see [Per-service analyzer settings](docs/configuration.md#per-service-analyzer-settings)
 - A benchmark suite measures router accuracy, detection accuracy and false alarms against
   known-answer datasets - see [`benchmark/README.md`](benchmark/README.md)
 
@@ -816,6 +818,7 @@ order and an example.
 | --- | --- |
 | `config/analyzers.yaml` | Analysis mode, window, and per-analyzer defaults such as window size and sensitivity |
 | `config/providers/*.yaml` | How each input source maps onto the canonical point format |
+| `config/analyzer_overrides.d/*.yml` | Per-service analyzer settings, one file per team: stricter or looser thresholds for chosen services or metrics - start from `payments-team.yml.example` |
 | `config/behavior_definitions.d/*.yml` | Cross-metric behavior rules, one file per behavior - see [`docs/behavior-intelligence.md`](docs/behavior-intelligence.md) |
 | `config.yaml` | Operational memory: Qdrant and embeddings |
 

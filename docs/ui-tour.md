@@ -55,7 +55,11 @@ counts both deploys from CI and those found in Prometheus ("3 found automaticall
 days"), and turns yellow when the last look in Prometheus failed
 ([`docs/deploy-discovery.md`](deploy-discovery.md)). Metrics connections
 have a **Test** button, and **Copy report** gives a plain-text summary without secrets for an issue
-or an admin. While something needed is broken, Overview shows a reminder linking here. The same
+or an admin. **Per-service analyzer settings** shows which team files are in use, files skipped for
+a mistake, and overrides that matched nothing lately; **How to set** lists every setting a team can
+change, with its range, and the example file
+([`docs/configuration.md`](configuration.md#per-service-analyzer-settings)). A finding made with
+these settings has a **Custom settings · not tested** tag. While something needed is broken, Overview shows a reminder linking here. The same
 check is on the Grafana plugin's Configuration page, and at `GET /api/setup/check`.
 
 **Settings** covers configuration — not part of the core analysis workflow, so not covered further
