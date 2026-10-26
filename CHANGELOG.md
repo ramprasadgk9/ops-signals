@@ -21,7 +21,9 @@ Includes Grafana plugin 1.0.35.
 - **Try sign-in before onboarding.** `OPS_SIGNALS_TEST_SIGN_IN=true` makes `scripts/run_all.sh`
   start a local test provider (`backend/devtools/test_sign_in_provider.py`, 127.0.0.1 only) with
   test accounts for Viewer, Editor, Admin and one without groups, and turn on company sign-in for its
-  own backend only. Setup check warns while it's on.
+  own backend only. Setup check warns while it's on. `scripts/try_keycloak_sign_in.sh up` does the
+  same against a real, throwaway Keycloak in Docker, set up with the documented steps (users john,
+  elena and vic as Admin, Editor and Viewer); `path-off` / `path-on` show the group-path trap.
 
 - **The plugin's Autonomous Analysis is read-only for Grafana Viewers**, as in the web UI: the saved
   schedule and what runs found, without the Configure stage, Edit, Pause or "Enable category".

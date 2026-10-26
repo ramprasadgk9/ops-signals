@@ -216,6 +216,44 @@ It is for this computer only: it listens on `127.0.0.1`, its accounts have no pa
 backend accepts it only at a `127.0.0.1` address. Another install can start it by hand with
 `python -m backend.devtools.test_sign_in_provider`, which prints the settings to set.
 
+### With a real provider on your machine (Keycloak)
+
+The test provider shows Ops Signals' own screens. To see it work with a real identity provider we
+didn't write, set up the way a company would, `scripts/try_keycloak_sign_in.sh` runs Keycloak (an
+open-source identity provider) in Docker and does the set-up steps above for you. It takes about 15
+minutes; the first run downloads Keycloak (about 500 MB).
+
+**Before you start:** Docker running, `./scripts/setup.sh` done, and `./scripts/run_all.sh` stopped.
+Your `.env` must not set sign-in lines (`OPS_SIGNALS_AUTH_MODE`, `OPS_SIGNALS_OIDC_*`, the group lists,
+`OPS_SIGNALS_PUBLIC_URL`, `OPS_SIGNALS_TEST_SIGN_IN`, `OPS_SIGNALS_DEV_USER`): the script names any it
+finds, to comment out while you try this.
+
+1. Run `./scripts/try_keycloak_sign_in.sh up`. It starts Keycloak on `127.0.0.1:8180`, creates a realm
+   `acme` with three groups and three users, registers Ops Signals as a web app, adds the groups claim
+   with Keycloak's default "Full group path" on, writes the settings to `tmp/keycloak/keycloak.env`, and
+   starts `run_all.sh` with them.
+2. Open http://localhost:5174 and check, in this order:
+
+| # | Do | You should see |
+| --- | --- | --- |
+| 1 | Open the web UI | "Sign in with Acme login" |
+| 2 | Sign in as `john` / `Passw0rd-john` | Keycloak's own login page, then back in Ops Signals as **john · Viewer** |
+| 3 | Open the name chip | "Groups your provider sent: `/ops-signals-admins`": the paths trap from [the set-up steps](#register-ops-signals-with-your-provider) |
+| 4 | In another terminal run `./scripts/try_keycloak_sign_in.sh path-off`, then Sign out from the chip | Keycloak asks "Do you want to log out?", then "You're signed out of Ops Signals" |
+| 5 | Sign in as `john` again | **john · Admin**; the chip shows `ops-signals-admins` |
+| 6 | Setup check → Login | "Company sign-in is on · you are john@acme.example (Admin, group ops-signals-admins) …"; **Test sign-in** says Ops Signals can reach your provider |
+| 7 | Sign out, sign in as `elena` / `Passw0rd-elena` | **Editor**: New Analysis shown; Settings and Setup check hidden |
+| 8 | Sign out, sign in as `vic` / `Passw0rd-vic` | **Viewer** (group `support`): Autonomous Analysis read-only; `/settings` closed |
+
+3. When you're done: Ctrl+C, then `./scripts/try_keycloak_sign_in.sh down` (removes Keycloak and the
+   settings file), and start `./scripts/run_all.sh` as usual.
+
+`./scripts/try_keycloak_sign_in.sh start` starts the stack again with the same settings; `up` again
+starts the realm from scratch. The Keycloak admin console is http://localhost:8180 (`admin` / `admin`,
+realm `acme`), and the API token for scripts is `OPS_SIGNALS_API_TOKEN` in `tmp/keycloak/keycloak.env`.
+Ports in use elsewhere: set `KEYCLOAK_PORT` or `FRONTEND_PORT` before `up`. The made-up addresses
+(`@acme.example`) are never emailed.
+
 ## Sign-in proxy (proxy-headers)
 
 The alternative when you already run a sign-in proxy (any proxy or ingress that signs people in and
