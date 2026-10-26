@@ -59,7 +59,10 @@ or an admin. **Per-service analyzer settings** shows which team files are in use
 a mistake, and overrides that matched nothing lately; **How to set** lists every setting a team can
 change, with its range, and the example file
 ([`docs/configuration.md`](configuration.md#per-service-analyzer-settings)). A finding made with
-these settings has a **Custom settings · not tested** tag. While something needed is broken, Overview shows a reminder linking here. The same
+these settings has a **Custom settings · not tested** tag. **Login** says which sign-in is on and
+who you are; with company sign-in it shows the redirect address to register (with **Copy**), **Test
+sign-in**, and **How to set up company sign-in**
+([`docs/web-ui-sign-in.md`](web-ui-sign-in.md)). While something needed is broken, Overview shows a reminder linking here. The same
 check is on the Grafana plugin's Configuration page, and at `GET /api/setup/check` (with sign-in on, for Admins only; everyone else gets each check's name and status at `GET /api/setup/summary`, which the reminder uses).
 
 **Settings** covers configuration — not part of the core analysis workflow, so not covered further

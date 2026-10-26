@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/queries';
 import { PageHeader, WorkspacePanel } from '../standalone/components';
+import { SignInSetupHelp } from '../components/SignInSetupHelp';
 import { ui } from '../standalone/theme';
 import {
   SETUP_GROUPS,
@@ -106,6 +107,7 @@ function CheckRow({ check }: { check: SetupCheck }) {
           ) : null}
         </Stack>
       </Box>
+      {check.action === 'sign_in' ? <SignInSetupHelp /> : null}
       {open && details ? (
         <Box sx={{ ml: { md: 4.5 }, mb: 1.5, p: 2, borderRadius: '6px', border: `1px solid ${check.status === 'fail' ? 'rgba(255, 77, 87, 0.35)' : ui.border}`, bgcolor: check.status === 'fail' ? 'rgba(255, 77, 87, 0.04)' : 'transparent', display: 'grid', gridTemplateColumns: { xs: '1fr', md: check.tried || check.cause ? '1fr 1fr' : '1fr' }, gap: 2.5 }}>
           {check.tried || check.cause ? (

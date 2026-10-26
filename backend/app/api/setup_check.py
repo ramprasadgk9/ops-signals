@@ -25,8 +25,10 @@ from backend.app.api.ai import ai_status
 from backend.app.api.ingestion_status import _as_utc, _grafana_reachable, _scalar
 from backend.app.api.memory import get_memory_config, get_memory_health, get_vector_store
 from backend.app.api.services import database_reachable
+from backend.app import oidc
 from backend.app.identity import Actor, current_actor
 from backend.app.config import (
+    AuthConfig,
     MemoryConfig,
     PrometheusConnectionConfig,
     PrometheusConnectionsError,
@@ -292,15 +294,17 @@ def login_check(actor: Actor | None) -> SetupCheck | None:
     if actor is not None and actor.via == "dev":
         return SetupCheck(**base, status="warn", detail=f"Pretending to be {_who(actor)} with OPS_SIGNALS_DEV_USER: for trying sign-in on your own machine only.",
                           fix=["Unset OPS_SIGNALS_DEV_USER and restart the backend when you are done."])
+    if auth.mode == "oidc":
+        return oidc_login_check(actor, auth, security.api_token, base)
     if not security.api_token:
         return None
     if auth.mode != "proxy-headers":
         if actor is not None:
             return SetupCheck(**base, status="ok", detail=f"An API token is required on every request. You are {_who(actor)} through Grafana.")
         return SetupCheck(
-            **base, status="warn",
+            **base, status="warn", action="sign_in",
             detail="An API token is required on every request, but nobody signs in to the web UI, so everyone who uses it can see and change everything.",
-            fix=["To give people Viewer, Editor or Admin roles in the web UI, put it behind your company's sign-in proxy and set OPS_SIGNALS_AUTH_MODE=proxy-headers.",
+            fix=["To give people Viewer, Editor or Admin roles in the web UI, turn on company sign-in (OPS_SIGNALS_AUTH_MODE=oidc), or put it behind your company's sign-in proxy and set OPS_SIGNALS_AUTH_MODE=proxy-headers.",
                  "In the Grafana plugin, roles come from Grafana when it connects through Grafana."],
         )
     if actor is None:
@@ -313,6 +317,36 @@ def login_check(actor: Actor | None) -> SetupCheck | None:
         )
     where = "through Grafana" if actor.via == "grafana" else "through company sign-in"
     return SetupCheck(**base, status="ok", detail=f"Company sign-in (proxy headers) is on · you are {_who(actor)} {where}.")
+
+
+def oidc_login_check(actor: Actor | None, auth: AuthConfig, api_token: str | None, base: dict) -> SetupCheck:
+    """The Login row with the backend's own sign-in: set up, reachable, a test provider, groups arriving.
+    action "sign_in" gives the row its Copy redirect address, Test sign-in and set-up help."""
+    base = base | {"action": "sign_in"}
+    problem = oidc.setup_problem(auth, api_token)
+    if problem:
+        return SetupCheck(**base, status="fail", detail=problem,
+                          fix=["Open How to set up company sign-in for the settings to set, then restart the backend."])
+    try:
+        oidc.discovery(auth.oidc_issuer_url or "")
+    except oidc.SignInError as error:
+        return SetupCheck(**base, status="fail", detail="Company sign-in is on, but Ops Signals can't reach your provider.", tried=error.detail,
+                          fix=["Check OPS_SIGNALS_OIDC_ISSUER_URL is the issuer, without /.well-known/...",
+                               "Check the backend can reach your provider (proxy, firewall), then Test sign-in again."])
+    if oidc.is_test_provider(auth.oidc_issuer_url or ""):
+        return SetupCheck(**base, status="warn", detail="Signed in with the local test provider: for trying sign-in on this computer only.",
+                          fix=["Before a team uses Ops Signals, remove OPS_SIGNALS_TEST_SIGN_IN and set your company's provider (How to set up company sign-in)."])
+    recent = list(oidc.recent_groups_missing)
+    if (auth.admin_groups or auth.editor_groups) and len(recent) == oidc.recent_groups_missing.maxlen and all(recent):
+        return SetupCheck(**base, status="warn", detail="Sign-ins work, but the last 5 had no groups, so everyone is a Viewer.",
+                          fix=[f"Add a groups claim to the app in your provider, or set OPS_SIGNALS_OIDC_GROUPS_CLAIM to the claim it uses (now {auth.oidc_groups_claim})."])
+    who = f" · you are {_who(actor)}" if actor is not None and actor.via == "oidc" else ""
+    arrived = ""
+    if actor is not None and actor.via == "oidc" and actor.name:
+        groups = oidc.arrived_groups(actor.name)
+        # What the provider sent at your sign-in, so the Admin and Editor lists can name it exactly.
+        arrived = " · no groups arrived at your sign-in" if actor.groups_missing else f" · groups that arrived: {', '.join(groups)}" if groups else ""
+    return SetupCheck(**base, status="ok", detail=f"Company sign-in is on{who}{arrived} · provider {auth.oidc_issuer_url} · sessions last {auth.session_hours:g} h")
 
 
 def security_checks(actor: Actor | None = None) -> list[SetupCheck]:

@@ -57,6 +57,43 @@ spec:
             - name: OPS_SIGNALS_AUTH_ADMIN_GROUPS
               value: {{ . | quote }}
             {{- end }}
+            {{- with .oidc }}
+            {{- with .issuerUrl }}
+            - name: OPS_SIGNALS_OIDC_ISSUER_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .clientId }}
+            - name: OPS_SIGNALS_OIDC_CLIENT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .clientSecretSecret.name }}
+            - name: OPS_SIGNALS_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .clientSecretSecret.name }}
+                  key: {{ .clientSecretSecret.key }}
+            {{- end }}
+            {{- with .allowedGroups }}
+            - name: OPS_SIGNALS_OIDC_ALLOWED_GROUPS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .groupsClaim }}
+            - name: OPS_SIGNALS_OIDC_GROUPS_CLAIM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .providerName }}
+            - name: OPS_SIGNALS_OIDC_PROVIDER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .sessionHours }}
+            - name: OPS_SIGNALS_SESSION_HOURS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .publicUrl }}
+            - name: OPS_SIGNALS_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- if .Values.prometheusConnections.config }}
             - name: OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE

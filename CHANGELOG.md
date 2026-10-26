@@ -4,6 +4,27 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Company sign-in for the web UI.** With `OPS_SIGNALS_AUTH_MODE=oidc` Ops Signals signs people in
+  itself with any OpenID Connect provider: a sign-in page, the provider's page, and back with the
+  role their groups give (`OPS_SIGNALS_AUTH_ADMIN_GROUPS` / `_EDITOR_GROUPS`). The backend checks the
+  provider's signed ID token itself (PKCE, state, nonce; RS/PS/ES keys only) and keeps who signed in
+  in a signed `HttpOnly` session cookie for `OPS_SIGNALS_SESSION_HOURS` (8). The chip menu shows when
+  the session ends and has Sign out; a session that ends mid-work offers to sign in again in a new
+  tab without losing the page; failed sign-ins say why with an error id. Optional
+  `OPS_SIGNALS_OIDC_ALLOWED_GROUPS`, groups and user claims, provider name, auto-redirect and
+  `OPS_SIGNALS_PUBLIC_URL`. Needs `OPS_SIGNALS_API_TOKEN`; in this mode the web UI's nginx stops
+  adding the token, changes carried by the cookie must come from the web UI's own address, and
+  `X-Grafana-Context` counts only with the token. Setup check → Login shows the redirect address,
+  Test sign-in and set-up help, and warns when the provider can't be reached or sends no groups.
+  Packaged Compose, Helm (`security.signIn.oidc.*`) and `.env.example` carry the settings. New
+  dependency: `PyJWT[crypto]`. See `docs/web-ui-sign-in.md`.
+- **Try sign-in before onboarding.** `OPS_SIGNALS_TEST_SIGN_IN=true` makes `scripts/run_all.sh`
+  start a local test provider (`backend/devtools/test_sign_in_provider.py`, 127.0.0.1 only) with
+  test accounts for Viewer, Editor, Admin and one without groups, and turn on company sign-in for its
+  own backend only. Setup check warns while it's on. `scripts/try_keycloak_sign_in.sh up` does the
+  same against a real, throwaway Keycloak in Docker, set up with the documented steps (users john,
+  elena and vic as Admin, Editor and Viewer); `path-off` / `path-on` show the group-path trap.
+
 - **The plugin's Autonomous Analysis is read-only for Grafana Viewers**, as in the web UI: the saved
   schedule and what runs found, without the Configure stage, Edit, Pause or "Enable category".
 

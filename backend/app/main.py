@@ -46,6 +46,7 @@ from backend.app.api.notifications import router as notifications_router
 from backend.app.api.services import router as services_router
 from backend.app.api.setup_check import router as setup_check_router
 from backend.app.api.me import router as me_router
+from backend.app.api.auth import router as auth_router
 from backend.app.api.signals import router as signals_router
 from backend.app.api.testing import router as testing_router
 from backend.app.api.timeseries import router as timeseries_router
@@ -88,6 +89,7 @@ from backend.app.models.schema_compat import (
     ensure_ticketing_schema,
 )
 from backend.app.roles import require_grafana_role
+from backend.app.oidc import setup_problem as oidc_setup_problem
 from backend.app.security import require_api_token
 from backend.app.storage.bootstrap import seed_reference_data
 from intelligence.storage.postgres_store import register_findings_hook
@@ -445,6 +447,12 @@ def create_app(database_url: str | None = None) -> FastAPI:
         logger.warning("OPS_SIGNALS_DEV_USER is ignored because OPS_SIGNALS_API_TOKEN is set.")
     if auth.mode == "proxy-headers" and not security.api_token:
         logger.warning("OPS_SIGNALS_AUTH_MODE=proxy-headers needs OPS_SIGNALS_API_TOKEN; the user headers are ignored until it is set.")
+    if auth.mode == "oidc":
+        problem = oidc_setup_problem(auth, security.api_token)
+        if problem:
+            logger.warning("Company sign-in can't turn on: %s", problem)
+        else:
+            logger.info("Company sign-in is on with %s", auth.oidc_issuer_url)
     # With an API token, the interactive API docs and the OpenAPI schema are off: FastAPI serves
     # them outside the token check, and a browser can't send the token to them anyway.
     docs_open = not security.api_token
@@ -504,6 +512,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(notifications_router)
     app.include_router(setup_check_router)
     app.include_router(me_router)
+    app.include_router(auth_router)
     
     # Register memory router
     app.include_router(memory_router)

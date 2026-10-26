@@ -17,15 +17,29 @@ security:
   # Comma-separated origins allowed to call the API from a browser (e.g. your Grafana URL). Empty =
   # the built-in localhost defaults.
   corsOrigins: ""
-  # Web UI sign-in through your company's sign-in proxy (docs/web-ui-sign-in.md). Needs
-  # apiTokenSecret. mode "proxy-headers" turns it on; empty headers keep the defaults
-  # (X-Forwarded-Email, X-Forwarded-Groups). Groups are comma-separated.
+  # Web UI sign-in (docs/web-ui-sign-in.md). Needs apiTokenSecret. mode "oidc" signs people in with
+  # your company's identity provider (the oidc block below); mode "proxy-headers" trusts your sign-in
+  # proxy (empty headers keep the defaults X-Forwarded-Email, X-Forwarded-Groups). Groups decide the
+  # role (Admin, Editor, else Viewer) and are comma-separated.
   signIn:
     mode: none
     userHeader: ""
     groupsHeader: ""
     editorGroups: ""
     adminGroups: ""
+    oidc:
+      issuerUrl: ""
+      clientId: ""
+      # An existing Secret holding the client secret.
+      clientSecretSecret:
+        name: ""
+        key: client-secret
+      allowedGroups: ""
+      groupsClaim: ""
+      providerName: ""
+      sessionHours: ""
+      # The address people use, e.g. https://ops-signals.example.com (the ingress host otherwise).
+      publicUrl: ""
 
 # Postgres connection used by the backend and the MCP server. Set urlSecret.name to read the URL
 # from an existing Secret instead (recommended outside local testing): the plain url below then

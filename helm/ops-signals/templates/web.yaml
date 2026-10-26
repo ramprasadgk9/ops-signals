@@ -23,8 +23,11 @@ spec:
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
           ports:
             - containerPort: 8080
-          {{- with include "ops-signals.apiTokenEnv" . }}
           env:
+            # nginx stops adding the API token when people sign in themselves (mode oidc).
+            - name: OPS_SIGNALS_AUTH_MODE
+              value: {{ .Values.security.signIn.mode | default "none" | quote }}
+          {{- with include "ops-signals.apiTokenEnv" . }}
             {{- . | nindent 12 }}
           {{- end }}
 ---

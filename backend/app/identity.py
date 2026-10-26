@@ -9,12 +9,14 @@ all (docs/security-model.md).
 
 Without that header, OPS_SIGNALS_AUTH_MODE=proxy-headers reads the sign-in proxy's user and groups
 headers - only with an API token set, since only the web UI's nginx holds it (and strips any
-X-Grafana-Context a browser sends). OPS_SIGNALS_DEV_USER pretends to be someone, only without a token.
-Anything else - scripts, Alertmanager, the plugin in "Browser, directly" mode - has no actor.
+X-Grafana-Context a browser sends). With OPS_SIGNALS_AUTH_MODE=oidc the backend signed people in itself,
+and the signed session cookie says who this is (backend/app/oidc.py). OPS_SIGNALS_DEV_USER pretends to be
+someone, only without a token. Anything else - scripts, Alertmanager, the plugin in "Browser, directly" mode - has no actor.
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import re
@@ -22,6 +24,7 @@ from dataclasses import dataclass
 
 from fastapi import Request
 
+from backend.app import oidc
 from backend.app.config import AuthConfig, get_auth_config, get_security_config
 
 logger = logging.getLogger(__name__)
@@ -37,11 +40,17 @@ class Actor:
 
     name: str | None
     role: str | None
-    # grafana (the plugin's Grafana proxy), proxy (the company sign-in proxy) or dev (OPS_SIGNALS_DEV_USER).
+    # grafana (the plugin's Grafana proxy), proxy (the company sign-in proxy), oidc (signed in by the
+    # backend itself) or dev (OPS_SIGNALS_DEV_USER).
     via: str = "grafana"
     groups: tuple[str, ...] = ()
     # The group that gave the role, for "Editor because of group sre".
     granted_by: str | None = None
+    # Signed in by the backend (oidc): the name the provider gave, when the session ends (epoch
+    # seconds), and whether the provider left the groups out.
+    display_name: str | None = None
+    session_ends_at: int | None = None
+    groups_missing: bool = False
 
 
 def actor_from_context(raw: str | None) -> Actor | None:
@@ -74,19 +83,46 @@ def proxy_actor(headers, auth: AuthConfig, api_token: str | None) -> Actor | Non
     if not user:
         return None
     groups = tuple(group.strip() for group in re.split(r"[,;]", headers.get(auth.groups_header) or "") if group.strip())
-    admin = next((group for group in groups if group in auth.admin_groups), None)
-    editor = next((group for group in groups if group in auth.editor_groups), None)
-    role, granted_by = ("Admin", admin) if admin else ("Editor", editor) if editor else ("Viewer", None)
+    role, granted_by = role_for(groups, auth)
     return Actor(name=user[:_MAX_NAME], role=role, via="proxy", groups=groups, granted_by=granted_by)
 
 
+def role_for(groups: tuple[str, ...], auth: AuthConfig) -> tuple[str, str | None]:
+    """Admin or Editor from the company's groups (Admin wins), else Viewer; and the group that gave it."""
+    admin = next((group for group in groups if group in auth.admin_groups), None)
+    editor = next((group for group in groups if group in auth.editor_groups), None)
+    return ("Admin", admin) if admin else ("Editor", editor) if editor else ("Viewer", None)
+
+
+def session_actor(request: Request, auth: AuthConfig, api_token: str | None) -> Actor | None:
+    """Who signed in through the backend's own sign-in (OPS_SIGNALS_AUTH_MODE=oidc), from the session cookie."""
+    if auth.mode != "oidc" or oidc.setup_problem(auth, api_token):
+        return None
+    secret = oidc.session_secret(auth, api_token)
+    session = oidc.read_session(request.cookies.get(oidc.SESSION_COOKIE), secret) if secret else None
+    if session is None:
+        return None
+    role, granted_by = role_for(session.groups, auth)
+    return Actor(name=session.user, role=role, via="oidc", groups=session.groups, granted_by=granted_by,
+                 display_name=session.display_name, session_ends_at=session.expires_at, groups_missing=session.groups_missing)
+
+
 def current_actor(request: Request) -> Actor | None:
-    """FastAPI dependency: the Grafana user (through the plugin's proxy) or the signed-in person (through
-    the company sign-in proxy) behind this request, or None for neither."""
-    grafana = actor_from_context(request.headers.get(GRAFANA_CONTEXT_HEADER))
-    if grafana is not None:
-        return grafana
-    return proxy_actor(request.headers, get_auth_config(), get_security_config().api_token)
+    """FastAPI dependency: the Grafana user (through the plugin's proxy), the person signed in with the
+    backend's own sign-in, or the one the company sign-in proxy names - in that order - or None."""
+    auth, api_token = get_auth_config(), get_security_config().api_token
+    # With the backend's own sign-in a browser reaches the API with its cookie and no token, so it could
+    # send a made-up Grafana user. Grafana's plugin proxy always adds the token: believe the header only then.
+    if auth.mode != "oidc" or has_api_token(request, api_token):
+        grafana = actor_from_context(request.headers.get(GRAFANA_CONTEXT_HEADER))
+        if grafana is not None:
+            return grafana
+    return session_actor(request, auth, api_token) or proxy_actor(request.headers, auth, api_token)
+
+
+def has_api_token(request: Request, api_token: str | None) -> bool:
+    authorization = request.headers.get("Authorization")
+    return bool(api_token and authorization and hmac.compare_digest(authorization, f"Bearer {api_token}"))
 
 
 def actor_name(actor: Actor | None) -> str | None:
