@@ -88,7 +88,8 @@ def test_api_token_and_risky_switches_are_reported(monkeypatch: pytest.MonkeyPat
         res = client.get(CHECK, headers={"Authorization": "Bearer s3cret-token"})
 
     checks = _by_id(res.json())
-    assert checks["login"]["status"] == "ok"
+    # A token alone: nobody signs in to the web UI, so it has no roles.
+    assert checks["login"]["status"] == "warn"
     assert checks["risky_switches"]["status"] == "warn"
     assert checks["risky_switches"]["detail"].startswith("2 switches are on")
     assert "s3cret-token" not in res.text

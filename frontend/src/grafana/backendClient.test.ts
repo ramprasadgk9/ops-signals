@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { deleteAutonomousPolicy, listAnalysisRuns, listServices, resetTestingOperationalData, setApiToken } from './backendClient';
+import { deleteAutonomousPolicy, getSetupSummary, listAnalysisRuns, listServices, resetTestingOperationalData, setApiToken } from './backendClient';
 
 function mockFetch() {
   const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } }));
@@ -72,5 +72,32 @@ describe('listAnalysisRuns', () => {
     const fetchMock = mockFetch();
     await listAnalysisRuns('http://backend', { limit: 1, service: 'checkout', metric: 'cpu_usage' });
     expect(fetchMock.mock.calls[0][0]).toBe('http://backend/api/analysis-runs?limit=1&service=checkout&metric_name=cpu_usage');
+  });
+});
+
+describe('getSetupSummary', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+  it('reads the summary every role may see', async () => {
+    const fetchMock = vi.fn(async (_url: string) => json({ version: 'v', checks: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await getSetupSummary('http://localhost:8002');
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['http://localhost:8002/api/setup/summary']);
+  });
+
+  it('falls back to the full check on a backend from before the summary', async () => {
+    const fetchMock = vi.fn(async (url: string) => (url.endsWith('/summary') ? json({ detail: 'Not Found' }, 404) : json({ version: 'old', checks: [] })));
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await getSetupSummary('http://localhost:8002')).version).toBe('old');
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['http://localhost:8002/api/setup/summary', 'http://localhost:8002/api/setup/check']);
+  });
+
+  it('passes on any other failure, such as a refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ detail: 'Only Grafana admins can see this.' }, 403)));
+    await expect(getSetupSummary('http://localhost:8002')).rejects.toThrow('Request failed: 403');
   });
 });

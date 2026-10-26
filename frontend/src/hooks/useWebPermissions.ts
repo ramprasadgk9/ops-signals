@@ -32,6 +32,7 @@ export const WEB_LOCK_REASONS = {
   saveOrRun: 'Preview is open to everyone. Editors can save a schedule or run it.',
   schedule: 'Editors can change schedules. Ask your Ops Signals admin for the Editor role.',
   admin: 'Only Ops Signals admins can do this.',
+  importIncidents: 'Only Ops Signals admins can import past incidents.',
 } as const;
 
 /** The role that applies, or null when nobody is signed in (then nothing is limited). */

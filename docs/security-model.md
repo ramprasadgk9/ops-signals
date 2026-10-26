@@ -98,9 +98,9 @@ the organization (`backend/app/roles.py`):
 
 | Role | May |
 | --- | --- |
-| **Viewer** | Read everything, ask Ops Signals and rate its answers, preview an autonomous plan, test a connection |
+| **Viewer** | Read everything except set-up details, ask Ops Signals and rate its answers, preview an autonomous plan, test a connection |
 | **Editor** | Also answer "Was this real?", create and work on cases (investigation, root cause, resolution, memory, tickets), run analyses, save, change, pause or delete schedules |
-| **Admin** | Also the plugin's Configuration page, test alerts, the analyzer and behavior labs, case imports, and the test-data reset |
+| **Admin** | Also the plugin's Configuration page, test alerts, the analyzer and behavior labs, case imports, and the test-data reset; and reading set-up details: the full Setup check (addresses, which secrets are set, fixes), analyzer settings, lab work and case imports. Everyone else gets each check's name and status from `GET /api/setup/summary` |
 
 Setup, the plugin-or-web-UI question and step-by-step checks are in
 [`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md). A refused request gets a 403 saying why ("Editors can change schedules. Ask your Grafana admin for

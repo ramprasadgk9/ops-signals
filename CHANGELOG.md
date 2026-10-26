@@ -4,6 +4,16 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **Set-up details are for Admins.** With roles on (the plugin through Grafana, or the web UI with
+  sign-in), only Admins can read the full Setup check, the analyzer settings (`/api/admin/...`),
+  analyzer lab work (`/api/analyzer-labs/...`) and case imports; others get a 403 "Only Grafana
+  admins can see this." / "Only Ops Signals admins can see this." The new `GET /api/setup/summary`
+  gives every role each check's name and status without details; the setup reminder and the
+  plugin's header chips use it (the plugin falls back to the full check on an older backend). For
+  non-Admins the web UI reminder says the admin can fix it instead of linking to Setup check, and
+  Import past incidents on Recurring problems is locked. Setup check's Login row now warns when an
+  API token is set but nobody signs in, since everyone using the web UI can then change everything.
+
 - **The web UI shows each role only its pages.** With sign-in on, the menu lists only the pages a
   person's role can open: Viewers don't see Integrations, New Analysis, Recommendations, the analyzer
   labs, Settings or Setup check; Editors don't see Integrations, the labs, Settings or Setup check.

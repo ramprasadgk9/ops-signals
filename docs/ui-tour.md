@@ -60,7 +60,7 @@ a mistake, and overrides that matched nothing lately; **How to set** lists every
 change, with its range, and the example file
 ([`docs/configuration.md`](configuration.md#per-service-analyzer-settings)). A finding made with
 these settings has a **Custom settings · not tested** tag. While something needed is broken, Overview shows a reminder linking here. The same
-check is on the Grafana plugin's Configuration page, and at `GET /api/setup/check`.
+check is on the Grafana plugin's Configuration page, and at `GET /api/setup/check` (with sign-in on, for Admins only; everyone else gets each check's name and status at `GET /api/setup/summary`, which the reminder uses).
 
 **Settings** covers configuration — not part of the core analysis workflow, so not covered further
 here, with one exception: Settings'

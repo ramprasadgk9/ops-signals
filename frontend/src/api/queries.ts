@@ -113,6 +113,7 @@ export const api = {
   otlpStatus: () => getJson<OtlpStatus>('/api/otlp/status'),
   ingestionStatus: () => getJson<IngestionStatus>('/api/ingestion/status'),
   setupCheck: () => getJson<SetupCheckResult>('/api/setup/check'),
+  setupSummary: () => getJson<SetupCheckResult>('/api/setup/summary'),
   me: () => getJson<Me>('/api/me'),
   sendTestAlert: () => postJson<Record<string, never>, AlertReceipt>('/api/integrations/alertmanager/test', {}),
   alerts: (params: AlertListParams = {}) => {

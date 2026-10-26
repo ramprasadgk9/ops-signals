@@ -98,9 +98,11 @@ def test_without_sign_in_nothing_changes(monkeypatch: pytest.MonkeyPatch, client
 
 
 def test_the_setup_check_login_row_says_who_signed_in(sign_in_env, client: TestClient) -> None:
-    checks = {check["id"]: check for check in client.get("/api/setup/check", headers=_signed_in("priya@example.com", "sre")).json()["checks"]}
+    checks = {check["id"]: check for check in client.get("/api/setup/check", headers=_signed_in("ada@example.com", "platform-admins")).json()["checks"]}
     assert checks["login"]["status"] == "ok"
-    assert checks["login"]["detail"] == "Company sign-in (proxy headers) is on · you are priya@example.com (Editor, group sre) through company sign-in."
+    assert checks["login"]["detail"] == "Company sign-in (proxy headers) is on · you are ada@example.com (Admin, group platform-admins) through company sign-in."
+    # Only Admins read the details; an Editor gets the summary.
+    assert client.get("/api/setup/check", headers=_signed_in("priya@example.com", "sre")).status_code == 403
 
     missing = {check["id"]: check for check in client.get("/api/setup/check", headers=AUTH).json()["checks"]}
     assert missing["login"]["status"] == "warn"
@@ -108,10 +110,11 @@ def test_the_setup_check_login_row_says_who_signed_in(sign_in_env, client: TestC
 
 
 def test_the_dev_user_is_flagged_in_the_setup_check(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
-    monkeypatch.setenv("OPS_SIGNALS_DEV_USER", "priya@example.com:Viewer")
+    monkeypatch.setenv("OPS_SIGNALS_DEV_USER", "priya@example.com:Admin")
     checks = {check["id"]: check for check in client.get("/api/setup/check").json()["checks"]}
     assert checks["login"]["status"] == "warn"
     assert "OPS_SIGNALS_DEV_USER" in checks["login"]["detail"]
+    monkeypatch.setenv("OPS_SIGNALS_DEV_USER", "priya@example.com:Viewer")
     assert client.post(f"/api/findings/{_create_finding()}/feedback", json={"verdict": "real_problem"}).status_code == 403
 
 

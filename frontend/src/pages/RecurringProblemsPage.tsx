@@ -13,6 +13,8 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ImportIncidentsDialog } from '../components/ImportIncidentsDialog';
+import { LockNote } from '../components/LockNote';
+import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { RecurringProblemsPanel } from '../components/RecurringProblemsPanel';
 import { CoveragePanel } from '../components/CoveragePanel';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
@@ -39,6 +41,8 @@ export function RecurringProblemsPage() {
   // A case page's "See the pattern" link names the group's central case.
   const highlightId = Number(searchParams.get('problem')) || null;
   const [activeFilter, setActiveFilter] = React.useState('indexed');
+  // Importing reads the import set-up, which only Admins may see (backend/app/roles.py).
+  const { canAdmin } = useWebPermissions();
   const [importOpen, setImportOpen] = React.useState(false);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
 
@@ -74,9 +78,11 @@ export function RecurringProblemsPage() {
             onClick={() => setImportOpen(true)}
             startIcon={<UploadFileRoundedIcon />}
             variant="contained"
+            disabled={!canAdmin}
+            title={canAdmin ? undefined : WEB_LOCK_REASONS.admin}
             sx={{ textTransform: 'none', fontWeight: 800 }}
           >
-            Import past incidents
+            {canAdmin ? '' : '🔒 '}Import past incidents
           </Button>
         }
       />
@@ -104,9 +110,10 @@ export function RecurringProblemsPage() {
           <Typography sx={{ mt: 0.75, color: ui.muted, maxWidth: 560, mx: 'auto' }}>
             Import postmortems or incidents from Jira, PagerDuty, incident.io or a folder of CSV and Markdown files. They become resolved cases that similar-case search can match from day one.
           </Typography>
-          <Button onClick={() => setImportOpen(true)} startIcon={<UploadFileRoundedIcon />} variant="contained" sx={{ mt: 2, textTransform: 'none', fontWeight: 800 }}>
-            Import past incidents
+          <Button onClick={() => setImportOpen(true)} startIcon={<UploadFileRoundedIcon />} variant="contained" disabled={!canAdmin} sx={{ mt: 2, textTransform: 'none', fontWeight: 800 }}>
+            {canAdmin ? '' : '🔒 '}Import past incidents
           </Button>
+          {canAdmin ? null : <LockNote>{WEB_LOCK_REASONS.importIncidents}</LockNote>}
         </Box>
       ) : null}
 

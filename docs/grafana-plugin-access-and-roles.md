@@ -40,10 +40,14 @@ The backend reads it in `backend/app/identity.py` and applies the roles in `back
 | Run Analysis (Interactive), Run once (Autonomous) | – | ✓ | ✓ |
 | Save, edit, pause or delete a schedule | – | ✓ | ✓ |
 | Configuration page, test alerts, analyzer and behavior labs, case imports, test-data reset | – | – | ✓ |
+| See set-up details: the full Setup check, analyzer settings, lab work, case imports | – | – | ✓ |
 
 What a Viewer sees: the locked buttons stay visible with a 🔒 and the reason underneath, for example
 "Editors can run analyses. Ask your Grafana admin for the Editor role." The case drawer is
 read-only, with a note saying so.
+
+The header chips (Backend, Metrics, Case memory) and the setup reminder work for every role: they
+read each check's name and status from `GET /api/setup/summary`, without the details.
 
 The backend enforces the same table, so a hand-made request is refused too: it gets a 403 with the
 same reason, and nothing changes.

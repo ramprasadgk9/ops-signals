@@ -295,10 +295,14 @@ def login_check(actor: Actor | None) -> SetupCheck | None:
     if not security.api_token:
         return None
     if auth.mode != "proxy-headers":
-        detail = "An API token is required on every request."
         if actor is not None:
-            detail += f" You are {_who(actor)} through Grafana."
-        return SetupCheck(**base, status="ok", detail=detail)
+            return SetupCheck(**base, status="ok", detail=f"An API token is required on every request. You are {_who(actor)} through Grafana.")
+        return SetupCheck(
+            **base, status="warn",
+            detail="An API token is required on every request, but nobody signs in to the web UI, so everyone who uses it can see and change everything.",
+            fix=["To give people Viewer, Editor or Admin roles in the web UI, put it behind your company's sign-in proxy and set OPS_SIGNALS_AUTH_MODE=proxy-headers.",
+                 "In the Grafana plugin, roles come from Grafana when it connects through Grafana."],
+        )
     if actor is None:
         return SetupCheck(
             **base, status="warn",
@@ -547,6 +551,27 @@ def setup_check(
     store: VectorStore | None = Depends(get_vector_store),
     memory_config: MemoryConfig | None = Depends(get_memory_config),
     actor: Actor | None = Depends(current_actor),
+) -> SetupCheckOut:
+    """Every check with what was tried and how to fix it: Admins only (backend/app/roles.py)."""
+    return run_setup_checks(db, store, memory_config, actor)
+
+
+@router.get("/summary", response_model=SetupCheckOut)
+def setup_summary(
+    db: Session = Depends(get_db),
+    store: VectorStore | None = Depends(get_vector_store),
+    memory_config: MemoryConfig | None = Depends(get_memory_config),
+    actor: Actor | None = Depends(current_actor),
+) -> SetupCheckOut:
+    """The same checks with only their name and status, for everyone: the setup reminder and the
+    plugin's header chips. Details can name addresses and secrets, so they stay in /check."""
+    result = run_setup_checks(db, store, memory_config, actor)
+    checks = [SetupCheck(id=check.id, group=check.group, status=check.status, title=check.title, detail="") for check in result.checks]
+    return result.model_copy(update={"checks": checks})
+
+
+def run_setup_checks(
+    db: Session, store: VectorStore | None, memory_config: MemoryConfig | None, actor: Actor | None
 ) -> SetupCheckOut:
     now = datetime.now(timezone.utc)
     version = get_settings().app_version

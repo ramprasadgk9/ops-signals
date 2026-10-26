@@ -6,6 +6,11 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Header chips for every role.** The Backend, Metrics and Case memory chips and the setup reminder
+  read the Setup check summary (`/api/setup/summary`), which every Grafana role may see; the full
+  check with its details is for Grafana admins, on the Configuration page. Against an older backend
+  without the summary, the plugin uses the full check as before.
+
 - **Found automatically.** On the Alerts page, a deploy Ops Signals found in Prometheus (a new
   version on a `*_build_info` metric or a new Kubernetes ReplicaSet) carries a "Found automatically"
   tag under What changed; hovering it says how it was found. Deploys sent by CI don't get the tag.
