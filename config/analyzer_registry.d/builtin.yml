@@ -26,6 +26,19 @@ analyzers:
       ruptures_model: l2
       ruptures_jump: 5
       ruptures_n_bkps: 1
+    # What a per-service override (config/analyzer_overrides.d/) may change, by its path in
+    # config/analyzers.yaml. Anything not listed here can't be overridden per service.
+    tunable:
+      finding_rules.min_change_percent:
+        type: number
+        min: 5
+        max: 200
+        label: Smallest lasting change in level that counts, in %
+      finding_rules.min_effect_size:
+        type: number
+        min: 0.5
+        max: 5
+        label: How clearly the new level must stand apart from the old, in standard deviations
 
   ruptures:
     display_name: Ruptures
@@ -57,6 +70,14 @@ analyzers:
         min_segment_size: 5
         change_threshold: 1.5
         max_iterations: 5
+    tunable:
+      # Readings are only flagged from 3 standard deviations (implementation.zscore_threshold),
+      # so a finding can be made stricter than that, not looser.
+      finding_rules.min_abs_zscore:
+        type: number
+        min: 3
+        max: 10
+        label: How far from the average a reading must be to count, in standard deviations
 
   pyod_outlier:
     display_name: PyOD Outlier
@@ -84,6 +105,17 @@ analyzers:
         min_range_excess: 0.56
         min_sustained_points: 8
         window: 15m
+    tunable:
+      finding_rule.min_range_excess:
+        type: number
+        min: 0.2
+        max: 5
+        label: How far beyond the normal range a spike must reach, in widths of that range
+      finding_rule.min_sustained_points:
+        type: integer
+        min: 2
+        max: 100
+        label: How many unusual readings close together count as an unusual stretch
 
   trend:
     display_name: Trend Analysis
@@ -96,6 +128,12 @@ analyzers:
         model: OLS
       finding_rules:
         min_slope_percent: 10
+    tunable:
+      finding_rules.min_slope_percent:
+        type: number
+        min: 1
+        max: 100
+        label: Smallest steady climb or drop that counts, as % of the metric's usual level
 
   stumpy:
     display_name: STUMPY

@@ -434,3 +434,48 @@ def test_instantiate_merges_http_analyzer_params_key_by_key() -> None:
     instance = instantiate(registration, overrides={"finding_rules": {"min_score": 0.6}})
 
     assert instance.params["finding_rules"] == {"min_score": 0.6, "min_points": 10}
+
+
+def test_tunable_settings_load_with_their_rules(tmp_path: Path) -> None:
+    registry_dir = tmp_path / "analyzer_registry.d"
+    write_registry(
+        registry_dir,
+        "custom.yml",
+        """
+analyzers:
+  cpu_forecast:
+    class_path: intelligence.analyzers.trend.TrendAnalyzer
+    runtime_params:
+      finding_rules: {min_slope_percent: 12}
+    tunable:
+      finding_rules.min_slope_percent: {type: number, min: 1, max: 50, label: Smallest climb that counts}
+""",
+    )
+
+    (registration,) = load_registrations(registry_dir)
+
+    assert registration.tunable == {"finding_rules.min_slope_percent": {"type": "number", "min": 1, "max": 50, "label": "Smallest climb that counts"}}
+
+
+@pytest.mark.parametrize(
+    "tunable",
+    [
+        "{finding_rules.min_slope_percent: {type: text}}",
+        "{finding_rules.min_slope_percent: {type: number, min: 9, max: 1}}",
+        "[finding_rules.min_slope_percent]",
+    ],
+)
+def test_an_invalid_tunable_skips_the_analyzer(tmp_path: Path, tunable: str) -> None:
+    registry_dir = tmp_path / "analyzer_registry.d"
+    write_registry(
+        registry_dir,
+        "custom.yml",
+        f"""
+analyzers:
+  cpu_forecast:
+    class_path: intelligence.analyzers.trend.TrendAnalyzer
+    tunable: {tunable}
+""",
+    )
+
+    assert load_registrations(registry_dir) == []
