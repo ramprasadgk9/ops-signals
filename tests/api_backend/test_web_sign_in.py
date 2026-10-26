@@ -71,6 +71,8 @@ def test_a_signed_in_viewer_is_refused_with_the_web_ui_wording(sign_in_env, clie
 
 def test_me_says_who_and_why(sign_in_env, client: TestClient) -> None:
     me = client.get("/api/me", headers=_signed_in("priya@example.com", "payments,sre")).json()
+    assert me.pop("pages")["/settings"] == "Admin"
+    assert me.pop("read_only_pages") == []
     assert me == {
         "signed_in": True, "name": "priya@example.com", "role": "Editor", "via": "proxy",
         "groups": ["payments", "sre"], "granted_by": "sre", "mode": "proxy-headers", "problem": None,

@@ -73,16 +73,16 @@ const navItems: NavItem[] = [
 ];
 
 const analyzerLabItems: NavItem[] = [
-  { label: 'Z-Score Anomaly Lab', to: '/experiments/zscore-anomaly-lab', icon: <ScienceRoundedIcon />, adminOnly: true },
-  { label: 'PyOD Outlier Lab', to: '/experiments/pyod-outlier-lab', icon: <ScienceRoundedIcon />, adminOnly: true },
-  { label: 'Prophet Forecast Lab', to: '/experiments/prophet-forecast-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
-  { label: 'Ruptures Change Point Lab', to: '/experiments/ruptures-change-point-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
-  { label: 'STUMPY Motif Lab', to: '/experiments/stumpy-motif-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
-  { label: 'Trend Lab', to: '/experiments/trend-lab', icon: <TimelineRoundedIcon />, adminOnly: true },
+  { label: 'Z-Score Anomaly Lab', to: '/experiments/zscore-anomaly-lab', icon: <ScienceRoundedIcon /> },
+  { label: 'PyOD Outlier Lab', to: '/experiments/pyod-outlier-lab', icon: <ScienceRoundedIcon /> },
+  { label: 'Prophet Forecast Lab', to: '/experiments/prophet-forecast-lab', icon: <TimelineRoundedIcon /> },
+  { label: 'Ruptures Change Point Lab', to: '/experiments/ruptures-change-point-lab', icon: <TimelineRoundedIcon /> },
+  { label: 'STUMPY Motif Lab', to: '/experiments/stumpy-motif-lab', icon: <TimelineRoundedIcon /> },
+  { label: 'Trend Lab', to: '/experiments/trend-lab', icon: <TimelineRoundedIcon /> },
 ];
 
 const analyzerWorkbenchItems: NavItem[] = [
-  { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon />, adminOnly: true },
+  { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon /> },
   { label: 'Recommendations', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon /> },
 ];
 
@@ -93,7 +93,6 @@ const systemItems: NavItem[] = [
 
 function NavButton({ item, nested = false, needsSource = false }: { item: NavItem; nested?: boolean; needsSource?: boolean }) {
   const location = useLocation();
-  const { canAdmin } = useWebPermissions();
   const active = item.match ? item.match(location.pathname) : location.pathname === item.to;
   return (
     <Button
@@ -122,7 +121,6 @@ function NavButton({ item, nested = false, needsSource = false }: { item: NavIte
         {item.label}
       </Box>
       {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-violet)', color: ui.purple, fontWeight: 800 }} /> : null}
-      {item.adminOnly && !canAdmin ? <Chip label="🔒 Admin" size="small" title="Only Ops Signals admins can change things here" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', fontWeight: 800 }} /> : null}
       {needsSource ? <Chip label="Connect" size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', fontWeight: 800 }} /> : null}
     </Button>
   );
@@ -275,8 +273,19 @@ export function AppShell({ children }: PropsWithChildren) {
   const [analyzerWorkbenchOpen, setAnalyzerWorkbenchOpen] = useState(isAnalyzerWorkbenchPage);
   const [labsOpen, setLabsOpen] = useState(isAnalyzerWorkbenchPage);
   const { isOff } = useFeatureAvailability();
-  const needsSourceItems = navItems.filter((item) => item.feature && isOff(item.feature));
-  const mainItems = navItems.filter((item) => !needsSourceItems.includes(item));
+  // Only the pages this person's role may open (backend/app/roles.py PAGES); a Viewer's Autonomous
+  // Analysis is read-only, so its name drops "Configure".
+  // Nothing is listed until GET /api/me answers, so a Viewer never sees closed pages flash up.
+  const { canOpen, isReadOnly, loading } = useWebPermissions();
+  const openable = (items: NavItem[]) => items
+    .filter((item) => !loading && canOpen(item.to))
+    .map((item) => (isReadOnly(item.to) && item.to === '/autonomous-monitoring' ? { ...item, label: 'Autonomous Analysis' } : item));
+  const shownNavItems = openable(navItems);
+  const labItems = openable(analyzerLabItems);
+  const workbenchItems = openable(analyzerWorkbenchItems);
+  const shownSystemItems = openable(systemItems);
+  const needsSourceItems = shownNavItems.filter((item) => item.feature && isOff(item.feature));
+  const mainItems = shownNavItems.filter((item) => !needsSourceItems.includes(item));
   useEffect(() => {
     if (isAnalyzerWorkbenchPage) setAnalyzerWorkbenchOpen(true);
   }, [isAnalyzerWorkbenchPage, location.pathname]);
@@ -333,37 +342,41 @@ export function AppShell({ children }: PropsWithChildren) {
           <Stack spacing={0.8} sx={{ px: 1.5 }}>
             {mainItems.map((item) => <NavButton key={item.label} item={item} />)}
             <NeedsSourceGroup items={needsSourceItems} />
-            <Button
-              onClick={() => setAnalyzerWorkbenchOpen((open) => !open)}
-              endIcon={<KeyboardArrowDownRoundedIcon sx={{ transform: analyzerWorkbenchOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}
-              fullWidth
-              sx={{
-                justifyContent: 'space-between',
-                minHeight: 34,
-                px: 1.6,
-                pt: 1.4,
-                color: ui.red,
-                textTransform: 'uppercase',
-                letterSpacing: 1.2,
-                fontSize: 14,
-                fontWeight: 900,
-                '& .MuiButton-endIcon svg': { color: ui.red, fontSize: 22 },
-                '&:hover': { bgcolor: 'rgba(255, 77, 87, 0.05)' },
-              }}
-            >
-              Analyzer Workbench
-            </Button>
+            {labItems.length || workbenchItems.length ? (
+              <Button
+                onClick={() => setAnalyzerWorkbenchOpen((open) => !open)}
+                endIcon={<KeyboardArrowDownRoundedIcon sx={{ transform: analyzerWorkbenchOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}
+                fullWidth
+                sx={{
+                  justifyContent: 'space-between',
+                  minHeight: 34,
+                  px: 1.6,
+                  pt: 1.4,
+                  color: ui.red,
+                  textTransform: 'uppercase',
+                  letterSpacing: 1.2,
+                  fontSize: 14,
+                  fontWeight: 900,
+                  '& .MuiButton-endIcon svg': { color: ui.red, fontSize: 22 },
+                  '&:hover': { bgcolor: 'rgba(255, 77, 87, 0.05)' },
+                }}
+              >
+                Analyzer Workbench
+              </Button>
+            ) : null}
             {analyzerWorkbenchOpen ? (
               <>
-                <WorkbenchButton
-                  label="Labs"
-                  icon={<ScienceRoundedIcon />}
-                  active={analyzerLabItems.some((item) => location.pathname === item.to)}
-                  onClick={() => setLabsOpen((open) => !open)}
-                  expanded={labsOpen}
-                />
-                {labsOpen ? analyzerLabItems.map((item) => <NavButton key={item.label} item={item} nested />) : null}
-                {analyzerWorkbenchItems.map((item) => (
+                {labItems.length ? (
+                  <WorkbenchButton
+                    label="Labs"
+                    icon={<ScienceRoundedIcon />}
+                    active={labItems.some((item) => location.pathname === item.to)}
+                    onClick={() => setLabsOpen((open) => !open)}
+                    expanded={labsOpen}
+                  />
+                ) : null}
+                {labsOpen ? labItems.map((item) => <NavButton key={item.label} item={item} nested />) : null}
+                {workbenchItems.map((item) => (
                   <WorkbenchButton
                     key={item.label}
                     label={item.label}
@@ -375,10 +388,14 @@ export function AppShell({ children }: PropsWithChildren) {
               </>
             ) : null}
           </Stack>
-          <Divider sx={{ mx: 3, my: 2 }} />
-          <Stack spacing={0.8} sx={{ px: 1.5 }}>
-            {systemItems.map((item) => <NavButton key={item.label} item={item} />)}
-          </Stack>
+          {shownSystemItems.length ? (
+            <>
+              <Divider sx={{ mx: 3, my: 2 }} />
+              <Stack spacing={0.8} sx={{ px: 1.5 }}>
+                {shownSystemItems.map((item) => <NavButton key={item.label} item={item} />)}
+              </Stack>
+            </>
+          ) : null}
           <Box sx={{ flex: 1 }} />
           <SystemStatus />
           <Button startIcon={<ChevronLeftRoundedIcon />} sx={{ justifyContent: 'flex-start', mx: 1.5, mt: 6, color: 'var(--os-text-2)', textTransform: 'none', fontWeight: 700 }}>
@@ -391,9 +408,9 @@ export function AppShell({ children }: PropsWithChildren) {
             <Button startIcon={<CalendarTodayRoundedIcon />} endIcon={<KeyboardArrowDownRoundedIcon />} variant="outlined" disabled sx={{ height: 44, borderColor: ui.border, color: 'var(--os-text-2)', bgcolor: 'var(--os-surface)', textTransform: 'none', fontWeight: 750 }}>
               Time Window Unavailable
             </Button>
-            <Button component={RouterLink} to="/validate-data" startIcon={<AddRoundedIcon />} variant="contained" sx={{ height: 44, bgcolor: ui.blue, textTransform: 'none', fontWeight: 850, boxShadow: '0 10px 20px rgba(79,70,229,0.25)' }}>
+            {!loading && canOpen('/validate-data') ? <Button component={RouterLink} to="/validate-data" startIcon={<AddRoundedIcon />} variant="contained" sx={{ height: 44, bgcolor: ui.blue, textTransform: 'none', fontWeight: 850, boxShadow: '0 10px 20px rgba(79,70,229,0.25)' }}>
               New Analysis
-            </Button>
+            </Button> : null}
           </Stack>
           {children}
         </Box>

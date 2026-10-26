@@ -4,6 +4,16 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **The web UI shows each role only its pages.** With sign-in on, the menu lists only the pages a
+  person's role can open: Viewers don't see Integrations, New Analysis, Recommendations, the analyzer
+  labs, Settings or Setup check; Editors don't see Integrations, the labs, Settings or Setup check.
+  Opening a closed page by its address says who it's for and whom to ask, and the page doesn't load.
+  Viewers see Autonomous Analysis read-only: the schedule with its owner, and what runs found. The
+  list is `PAGES` in `backend/app/roles.py`, sent by `GET /api/me` (`pages`, `read_only_pages`); a
+  page not listed is for Admins. Without sign-in nothing changes. The `🔒 Admin` menu chips and the
+  Admin-area notice are gone. The web UI schedule card now shows its owner and last editor for
+  everyone. See `docs/web-ui-sign-in.md`.
+
 - **Deploys are found in Prometheus, without CI.** Every 5 minutes Ops Signals looks at the last 6
   hours for a service reporting a new version on its `*_build_info` metric, and for new
   kube-state-metrics ReplicaSets. Found deploys are stored with CI's (`source: ops-signals:...`,

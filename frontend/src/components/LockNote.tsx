@@ -9,14 +9,3 @@ export function LockNote({ children }: { children: string }) {
   );
 }
 
-/** The notice above an Admins-only page: Viewers and Editors may look, its actions are locked. */
-export function AdminOnlyNotice() {
-  return (
-    <Typography
-      role="note"
-      sx={{ border: '1px solid var(--os-tint-amber-border, #fed7aa)', bgcolor: 'var(--os-tint-amber, #fff7ed)', color: 'var(--os-ink-amber, #b45309)', borderRadius: '8px', px: 2, py: 1.25, fontWeight: 700, fontSize: 14 }}
-    >
-      🔒 Admin area. You can look around; only Ops Signals admins can change things here.
-    </Typography>
-  );
-}

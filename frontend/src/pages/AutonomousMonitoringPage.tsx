@@ -7,9 +7,12 @@ import { AutonomousMonitoringDashboard } from '../autonomous/AutonomousMonitorin
 import { buildAutonomousDashboardData, latestFinishedPolicyRun, type AutonomousPreviewResponse, type AutonomousRunResponse, type MonitoringCategory } from '../autonomous/dashboardModel';
 import { FeatureNeedsSource } from '../components/FeatureNeedsSource';
 import { PageHeader } from '../standalone/components';
+import { useWebPermissions } from '../hooks/useWebPermissions';
 
 export function AutonomousMonitoringPage() {
   const queryClient = useQueryClient();
+  // A Viewer sees what runs and what it found, without the set-up part (backend/app/roles.py READ_ONLY_PAGES).
+  const readOnly = useWebPermissions().isReadOnly('/autonomous-monitoring');
   const [runResult, setRunResult] = useState<AutonomousRunResponse | null>(null);
   const [previewResult, setPreviewResult] = useState<AutonomousPreviewResponse | null>(null);
   const [enableCategoryRequest, setEnableCategoryRequest] = useState<MonitoringCategory | null>(null);
@@ -92,7 +95,11 @@ export function AutonomousMonitoringPage() {
   return (
     <Box sx={{ mx: { xs: -2, md: 0 }, p: { xs: 1, md: 0 } }}>
       <Stack spacing={3}>
-        <PageHeader title="Autonomous Analysis Configure" subtitle="Configure scope, monitoring categories, execution limits, and run autonomous analysis." />
+        {readOnly ? (
+          <PageHeader title="Autonomous Analysis" subtitle="What runs on a schedule, and what it found." />
+        ) : (
+          <PageHeader title="Autonomous Analysis Configure" subtitle="Configure scope, monitoring categories, execution limits, and run autonomous analysis." />
+        )}
         <FeatureNeedsSource feature="autonomous_analysis">
           <AutonomousConfigurePanel
             onRunComplete={handleRunComplete}
@@ -102,6 +109,7 @@ export function AutonomousMonitoringPage() {
             previewNowSignal={previewNowSignal}
             onPreviewNowHandled={() => setPreviewNowSignal(false)}
             onPreviewNowStateChange={setIsPreviewingNow}
+            readOnly={readOnly}
           />
           <Box id="autonomous-overview">
             <AutonomousMonitoringDashboard
@@ -110,7 +118,7 @@ export function AutonomousMonitoringPage() {
               state={dashboardState}
               error={findingsQuery.error || casesQuery.error || behaviorsQuery.error ? 'Autonomous summary unavailable.' : null}
               onRetry={refreshAutonomousData}
-              onEnableCategory={setEnableCategoryRequest}
+              onEnableCategory={readOnly ? undefined : setEnableCategoryRequest}
               onPreviewNow={() => setPreviewNowSignal(true)}
               isPreviewingNow={isPreviewingNow}
             />

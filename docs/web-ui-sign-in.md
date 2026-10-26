@@ -53,11 +53,28 @@ What people see:
   the group that gave the role and how they signed in.
 - **Locked buttons** stay visible with a 🔒 and the reason underneath, for example "Editors can run
   analyses. Ask your Ops Signals admin for the Editor role."
-- **Admin pages** are marked `🔒 Admin` in the menu. Others can open them and look around, with a
-  notice that only admins can change things there.
+- **The menu** lists only the pages their role can open (see the next table). A section left empty,
+  such as Analyzer Workbench for a Viewer, goes away.
+- **A page opened by its address** that their role can't use, from a bookmark or a pasted link,
+  shows "Settings is for Ops Signals admins" (or "… is for Editors") and whom to ask, with a link to
+  Overview. The page itself doesn't load.
 - **A case page** opened by a Viewer is read-only, with a note saying so.
+- **Autonomous Analysis** for a Viewer shows the schedule (with its owner and who last edited it) and
+  what runs found, without Edit, Pause or the set-up form.
 
 A hand-made request is refused too: the backend answers 403 with the same reason.
+
+## Who sees which page
+
+| Page | Viewer | Editor | Admin |
+| --- | :-: | :-: | :-: |
+| Overview, Alerts, Findings, Cases, Metric Usage, Behavior Intelligence, Recurring problems, Ask Ops Signals | ✓ | ✓ | ✓ |
+| Autonomous Analysis | read-only | ✓ | ✓ |
+| New Analysis, Recommendations | – | ✓ | ✓ |
+| Integrations, Settings, Setup check, analyzer labs, Add Analyzer | – | – | ✓ |
+
+The list lives in `backend/app/roles.py` (`PAGES`); the web UI gets it from `GET /api/me`. A page
+missing from the list is for Admins only. With no sign-in every page is open, as before.
 
 ## Set up company sign-in
 
@@ -129,7 +146,10 @@ person. It works **only without an API token**, and the backend logs a warning w
 | New Analysis | 🔒 Run Analysis, with "Editors can run analyses. Ask your Ops Signals admin for the Editor role." |
 | A finding | "Was this real?" and Create case locked |
 | A case page | The read-only note; Save Investigation and Add to Memory disabled |
-| Menu | The analyzer labs and Add Analyzer marked `🔒 Admin`; on Behavior Intelligence, New pattern and Edit copy are hidden |
+| Menu | No Integrations, New Analysis, Analyzer Workbench, Settings or Setup check; Autonomous Analysis without "Configure" |
+| `/settings` typed in the address bar | "Settings is for Ops Signals admins", and a link to Overview |
+| Autonomous Analysis | The schedule without Edit or Pause, and no set-up form |
+| Behavior Intelligence | New pattern and Edit copy hidden |
 
 Change `Viewer` to `Editor` or `Admin` and restart to see the other roles. Remove the line and
 restart when you're done.
@@ -143,8 +163,10 @@ curl -s -H "Authorization: Bearer $OPS_SIGNALS_API_TOKEN" -H "X-Forwarded-Email:
 
 ### Automated checks
 
-The backend's rules are in `tests/api_backend/test_web_sign_in.py`; the web UI's chip and locks in
-`frontend/src/components/WebSignIn.test.tsx`.
+The backend's rules are in `tests/api_backend/test_web_sign_in.py` and `test_role_pages.py` (which
+also fails when a page in `AppRoutes.tsx` is missing from the list); the web UI's chip and locks in
+`frontend/src/components/WebSignIn.test.tsx`, the menu and closed pages in `RoleArea.test.tsx`, and
+a Viewer in the browser in `tests/scenarios/integration/web-ui/roles/viewer-pages.spec.ts`.
 
 ## Troubleshooting
 
