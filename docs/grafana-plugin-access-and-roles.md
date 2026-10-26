@@ -44,7 +44,9 @@ The backend reads it in `backend/app/identity.py` and applies the roles in `back
 
 What a Viewer sees: the locked buttons stay visible with a 🔒 and the reason underneath, for example
 "Editors can run analyses. Ask your Grafana admin for the Editor role." The case drawer is
-read-only, with a note saying so.
+read-only, with a note saying so. On **Autonomous Analysis** a Viewer gets the overview only: the
+saved schedule with its owner and next run (no Edit or Pause, no Configure stage, no set-up form),
+then what runs found, as in the web UI. "Preview now" still works, since it saves nothing.
 
 The header chips (Backend, Metrics, Case memory) and the setup reminder work for every role: they
 read each check's name and status from `GET /api/setup/summary`, without the details.

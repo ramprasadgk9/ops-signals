@@ -37,3 +37,19 @@ test('a Viewer sees what they cannot do, and the backend refuses it too', async 
   expect((await details.json()).detail).toBe('Only Grafana admins can see this.');
   expect((await page.request.get(`${PROXY}/api/setup/summary`)).ok()).toBe(true);
 });
+
+test('a Viewer sees Autonomous Analysis without its set-up part', async ({ page }) => {
+  const login = await page.request.post('/login', { data: { user: VIEWER.login, password: VIEWER.password } });
+  expect(login.ok()).toBe(true);
+
+  await page.goto(env.pluginAppPath);
+  await expect(page.getByText(`${VIEWER.login} · Viewer`)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: /Autonomous Analysis/ }).click();
+
+  // The schedule (or a note that there is none yet), never the Configure switch or the form.
+  await expect(page.getByText(/^(Editors can change schedules\.|No schedule yet\.)$/).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: 'Configure', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(🔒 )?Edit$/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Save & schedule/ })).toHaveCount(0);
+});
+

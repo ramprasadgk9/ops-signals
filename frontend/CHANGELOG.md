@@ -6,6 +6,11 @@ release names the plugin version it ships. The full project changelog is
 
 ## 1.0.35 - Unreleased (ships with the next Ops Signals release)
 
+- **Autonomous Analysis read-only for Viewers.** A Grafana Viewer gets the Overview only: the saved
+  schedule with its owner and next run, without Edit, Pause, the Configure stage or the set-up form,
+  then what runs found. "Enable category" is gone for them; "Preview now" stays. Interactive Analysis
+  and Memory & Alerts are unchanged (Run Analysis stays locked for Viewers). Same as the web UI.
+
 - **Header chips for every role.** The Backend, Metrics and Case memory chips and the setup reminder
   read the Setup check summary (`/api/setup/summary`), which every Grafana role may see; the full
   check with its details is for Grafana admins, on the Configuration page. Against an older backend

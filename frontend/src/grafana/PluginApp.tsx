@@ -1597,6 +1597,87 @@ const formStyles: Record<string, React.CSSProperties> = {
   backendPanel: { display: 'grid', gridTemplateColumns: 'minmax(260px, 1.4fr) minmax(200px, 1fr)', gap: 14, marginTop: 12, padding: 14, border: '1px solid rgba(204, 204, 220, 0.2)', borderRadius: 6, maxWidth: 860 },
 };
 
+/** The saved schedule: what it watches, who owns it, when it runs next. A Viewer's copy has no buttons
+ * (backend/app/roles.py READ_ONLY_PAGES; the web UI's AutonomousConfigurePanel does the same). */
+export function PluginScheduleCard({ policy, connections, readOnly = false, isToggling = false, error = '', onEdit, onPause, onResume }: {
+  policy: AutonomousPolicy;
+  connections: PrometheusConnection[];
+  readOnly?: boolean;
+  isToggling?: boolean;
+  error?: string;
+  onEdit?: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
+}) {
+  const { canEdit } = usePermissions();
+  return (
+    <div>
+      <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <span style={{ ...styles.chip, color: policy.enabled ? '#3fcf8e' : 'rgba(204, 204, 220, 0.72)', marginBottom: 8, display: 'inline-block' }}>
+            {policy.enabled ? '● Scheduled · Active' : 'Scheduled · Paused'}
+          </span>
+          <h2 style={{ margin: 0 }}>{policy.name}</h2>
+          {scheduleAuthorLine(policy) ? <p style={{ ...styles.muted, margin: '4px 0 0', fontSize: 12 }}>{scheduleAuthorLine(policy)}</p> : null}
+          <p style={{ ...styles.muted, margin: '5px 0 0' }}>
+            {policy.monitoring_selection.categories.join(', ')} &middot; every {policy.schedule_minutes ? `${policy.schedule_minutes}m` : 'n/a'}
+          </p>
+          {connections.length > 1 || (policy.scope.all_clusters === false && policy.scope.clusters?.length) ? (
+            <p style={{ ...styles.muted, margin: '3px 0 0' }}>
+              {[
+                connections.length > 1 ? (connectionName(connections, policy.connection_id ?? 'default') ?? policy.connection_id) : null,
+                policy.scope.all_clusters === false && policy.scope.clusters?.length ? `clusters ${policy.scope.clusters.join(', ')}` : null,
+              ].filter(Boolean).join(' · ')}
+            </p>
+          ) : null}
+        </div>
+        {readOnly ? null : (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" style={canEdit ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={!canEdit} title={canEdit ? undefined : LOCK_REASONS.schedule} onClick={onEdit}>{canEdit ? '' : '🔒 '}Edit</button>
+            {policy.enabled ? (
+              <button
+                type="button"
+                style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.08)', border: '1px solid rgba(204, 204, 220, 0.28)', ...(canEdit ? {} : styles.buttonDisabled) }}
+                disabled={isToggling || !canEdit}
+                onClick={onPause}
+                title={canEdit ? 'Stop scheduled runs. The schedule is kept and can be resumed.' : LOCK_REASONS.schedule}
+              >
+                {isToggling ? 'Pausing...' : `${canEdit ? '' : '🔒 '}Pause`}
+              </button>
+            ) : (
+              <button type="button" style={canEdit ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={isToggling || !canEdit} title={canEdit ? undefined : LOCK_REASONS.schedule} onClick={onResume}>
+                {isToggling ? 'Resuming...' : `${canEdit ? '' : '🔒 '}Resume`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {canEdit && !readOnly ? null : <LockReason style={{ marginTop: -6, marginBottom: 10 }}>{LOCK_REASONS.schedule}</LockReason>}
+      {error ? <div style={{ ...styles.alert, marginBottom: 12 }}>{error}</div> : null}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, paddingTop: 14, borderTop: '1px solid rgba(204, 204, 220, 0.14)' }}>
+        <div>
+          <div style={styles.label}>Last run</div>
+          <div>{policy.last_run_status ?? 'Not run yet'}</div>
+        </div>
+        <div>
+          <div style={styles.label}>Next run</div>
+          <div>{policy.enabled ? (policy.next_run_at ? new Date(policy.next_run_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'n/a') : 'Paused'}</div>
+        </div>
+        <div>
+          <div style={styles.label}>Health</div>
+          <div style={{ color: policy.consecutive_failures > 0 ? '#ff7381' : '#3fcf8e' }}>
+            {policy.consecutive_failures > 0 ? `${policy.consecutive_failures} failed in a row` : 'Healthy'}
+          </div>
+        </div>
+        <div>
+          <div style={styles.label}>Max metrics / run</div>
+          <div>{policy.execution.max_metrics_per_run}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AutonomousAnalysisView({
   backendUrl,
   setBackendUrl,
@@ -1788,6 +1869,9 @@ function AutonomousAnalysisView({
   // to be shared with any sibling view.
   const [activePolicy, setActivePolicy] = useState<AutonomousPolicy | null>(null);
   const { canEdit } = usePermissions();
+  // A Grafana Viewer sees what runs and what it found, without the set-up part, as in the web UI
+  // (backend/app/roles.py READ_ONLY_PAGES): always the overview, the schedule without its buttons.
+  const readOnly = !canEdit;
   const [isLoadingPolicy, setIsLoadingPolicy] = useState(false);
   // Whether the first look for a saved schedule has finished: until then neither the schedule card nor
   // the form is shown, so the form doesn't flash and then turn into the card.
@@ -1962,7 +2046,8 @@ function AutonomousAnalysisView({
   const hasCompletedAutonomousRun = Boolean(
     runResult?.status === 'completed' ||
     runResult?.status === 'partial' ||
-    forceOverview
+    forceOverview ||
+    readOnly
   );
   const hasFailedAutonomousRun = Boolean(
     runResult?.status === 'failed'
@@ -2009,23 +2094,37 @@ function AutonomousAnalysisView({
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          type="button"
-          style={autonomousTab === 'configure' ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : styles.button}
-          onClick={handleBackToConfigure}
-        >
-          Configure
-        </button>
-        <button
-          type="button"
-          style={autonomousTab === 'overview' ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : styles.button}
-          onClick={() => setForceOverview(true)}
-          title="View findings, run history, and coverage details - available even before a run has completed in this session."
-        >
-          Overview
-        </button>
-      </div>
+      {readOnly ? null : (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            style={autonomousTab === 'configure' ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : styles.button}
+            onClick={handleBackToConfigure}
+          >
+            Configure
+          </button>
+          <button
+            type="button"
+            style={autonomousTab === 'overview' ? { ...styles.button, background: '#3fcf8e', color: '#08130e' } : styles.button}
+            onClick={() => setForceOverview(true)}
+            title="View findings, run history, and coverage details - available even before a run has completed in this session."
+          >
+            Overview
+          </button>
+        </div>
+      )}
+      {readOnly && policyChecked ? (
+        <Card>
+          {activePolicy ? (
+            <PluginScheduleCard policy={activePolicy} connections={connections} readOnly />
+          ) : (
+            <>
+              <strong>No schedule yet.</strong>
+              <p style={{ ...styles.muted, margin: '4px 0 0' }}>Editors can set one up. What earlier runs found is below.</p>
+            </>
+          )}
+        </Card>
+      ) : null}
       {policyLoadError ? (
         <div style={{ ...styles.alert, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <span>{policyLoadError}</span>
@@ -2037,68 +2136,15 @@ function AutonomousAnalysisView({
       {showConfigure ? (
       <Card>
         {activePolicy && !isEditingSchedule ? (
-          <div>
-            <div style={{ ...styles.rowBetween, alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
-              <div>
-                <span style={{ ...styles.chip, color: activePolicy.enabled ? '#3fcf8e' : 'rgba(204, 204, 220, 0.72)', marginBottom: 8, display: 'inline-block' }}>
-                  {activePolicy.enabled ? '● Scheduled · Active' : 'Scheduled · Paused'}
-                </span>
-                <h2 style={{ margin: 0 }}>{activePolicy.name}</h2>
-                {scheduleAuthorLine(activePolicy) ? <p style={{ ...styles.muted, margin: '4px 0 0', fontSize: 12 }}>{scheduleAuthorLine(activePolicy)}</p> : null}
-                <p style={{ ...styles.muted, margin: '5px 0 0' }}>
-                  {activePolicy.monitoring_selection.categories.join(', ')} &middot; every {activePolicy.schedule_minutes ? `${activePolicy.schedule_minutes}m` : 'n/a'}
-                </p>
-                {connections.length > 1 || (activePolicy.scope.all_clusters === false && activePolicy.scope.clusters?.length) ? (
-                  <p style={{ ...styles.muted, margin: '3px 0 0' }}>
-                    {[
-                      connections.length > 1 ? (connectionName(connections, activePolicy.connection_id ?? 'default') ?? activePolicy.connection_id) : null,
-                      activePolicy.scope.all_clusters === false && activePolicy.scope.clusters?.length ? `clusters ${activePolicy.scope.clusters.join(', ')}` : null,
-                    ].filter(Boolean).join(' · ')}
-                  </p>
-                ) : null}
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" style={canEdit ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={!canEdit} title={canEdit ? undefined : LOCK_REASONS.schedule} onClick={handleEditSchedule}>{canEdit ? '' : '🔒 '}Edit</button>
-                {activePolicy.enabled ? (
-                  <button
-                    type="button"
-                    style={{ ...styles.button, background: 'rgba(204, 204, 220, 0.08)', border: '1px solid rgba(204, 204, 220, 0.28)', ...(canEdit ? {} : styles.buttonDisabled) }}
-                    disabled={isTogglingSchedule || !canEdit}
-                    onClick={handlePauseSchedule}
-                    title={canEdit ? 'Stop scheduled runs. The schedule is kept and can be resumed.' : LOCK_REASONS.schedule}
-                  >
-                    {isTogglingSchedule ? 'Pausing...' : `${canEdit ? '' : '🔒 '}Pause`}
-                  </button>
-                ) : (
-                  <button type="button" style={canEdit ? styles.button : { ...styles.button, ...styles.buttonDisabled }} disabled={isTogglingSchedule || !canEdit} title={canEdit ? undefined : LOCK_REASONS.schedule} onClick={handleResumeSchedule}>
-                    {isTogglingSchedule ? 'Resuming...' : `${canEdit ? '' : '🔒 '}Resume`}
-                  </button>
-                )}
-              </div>
-            </div>
-            {canEdit ? null : <LockReason style={{ marginTop: -6, marginBottom: 10 }}>{LOCK_REASONS.schedule}</LockReason>}
-            {scheduleError ? <div style={{ ...styles.alert, marginBottom: 12 }}>{scheduleError}</div> : null}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, paddingTop: 14, borderTop: '1px solid rgba(204, 204, 220, 0.14)' }}>
-              <div>
-                <div style={styles.label}>Last run</div>
-                <div>{activePolicy.last_run_status ?? 'Not run yet'}</div>
-              </div>
-              <div>
-                <div style={styles.label}>Next run</div>
-                <div>{activePolicy.enabled ? (activePolicy.next_run_at ? new Date(activePolicy.next_run_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'n/a') : 'Paused'}</div>
-              </div>
-              <div>
-                <div style={styles.label}>Health</div>
-                <div style={{ color: activePolicy.consecutive_failures > 0 ? '#ff7381' : '#3fcf8e' }}>
-                  {activePolicy.consecutive_failures > 0 ? `${activePolicy.consecutive_failures} failed in a row` : 'Healthy'}
-                </div>
-              </div>
-              <div>
-                <div style={styles.label}>Max metrics / run</div>
-                <div>{activePolicy.execution.max_metrics_per_run}</div>
-              </div>
-            </div>
-          </div>
+          <PluginScheduleCard
+            policy={activePolicy}
+            connections={connections}
+            isToggling={isTogglingSchedule}
+            error={scheduleError}
+            onEdit={handleEditSchedule}
+            onPause={handlePauseSchedule}
+            onResume={handleResumeSchedule}
+          />
         ) : !policyChecked && !isEditingSchedule ? (
           <p role="status" style={{ ...styles.muted, margin: 0 }}>Loading your schedule…</p>
         ) : (
@@ -2394,7 +2440,7 @@ function AutonomousAnalysisView({
           onInvestigateInteractive={onInvestigateInteractive}
           onCloseInvestigation={onCloseInvestigation}
           onCreateCase={onCreateCase}
-          onEnableCategory={(category) => {
+          onEnableCategory={readOnly ? undefined : (category) => {
             if (!selectedCategories.includes(category)) toggleCategory(category);
             handleBackToConfigure();
           }}
