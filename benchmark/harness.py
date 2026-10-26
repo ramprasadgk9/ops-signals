@@ -8,6 +8,7 @@ stubbed out.
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -47,6 +48,9 @@ def _base_config():
     return _BASE_CONFIG
 
 
+NO_OVERRIDES = Path("/nonexistent/analyzer_overrides.d")
+
+
 class OnlyAnalyzersPipeline(SignalPipeline):
     """The production pipeline with exactly the given analyzers, whatever the router decides.
     Normalization, finding rules and importance scoring stay the product's own."""
@@ -73,11 +77,16 @@ def build_pipeline(
     config.input.metric_name = metric_name
     config.input.validation = {**(config.input.validation or {}), "allow_negative_values": True}
     if analyzers == ROUTER_PICKS:
-        return SignalPipeline(config, store=NullStore(), embedder=StubEmbedder())
-    config.analysis.selection_mode = "all"
-    if analyzers == ALL_ANALYZERS:
-        return SignalPipeline(config, store=NullStore(), embedder=StubEmbedder())
-    return OnlyAnalyzersPipeline(config, store=NullStore(), embedder=StubEmbedder(), only=tuple(analyzers))
+        pipeline = SignalPipeline(config, store=NullStore(), embedder=StubEmbedder())
+    else:
+        config.analysis.selection_mode = "all"
+        if analyzers == ALL_ANALYZERS:
+            pipeline = SignalPipeline(config, store=NullStore(), embedder=StubEmbedder())
+        else:
+            pipeline = OnlyAnalyzersPipeline(config, store=NullStore(), embedder=StubEmbedder(), only=tuple(analyzers))
+    # Benchmarks measure the shipped settings, not per-service overrides someone added locally.
+    pipeline.overrides_dir = NO_OVERRIDES
+    return pipeline
 
 
 _WARMED_UP = False

@@ -193,3 +193,17 @@ def test_every_tunable_path_exists_in_the_shipped_settings() -> None:
                 current = current[part]
             spec = registration.tunable[path]
             assert spec["min"] <= current <= spec["max"], f"{registration.analyzer_id}.{path} default {current} is outside its range"
+
+
+def test_the_shipped_example_is_a_valid_overrides_file(tmp_path: Path) -> None:
+    example = (PROJECT_ROOT / "config" / "analyzer_overrides.d" / "example.yml.example").read_text()
+    overrides = _load(tmp_path, **{"payments-team.yml": example})
+
+    assert overrides.errors == []
+    resolution = overrides.resolve("payments-api", "process_resident_memory_bytes")
+    assert resolution.params == {"trend": {"finding_rules": {"min_slope_percent": 5}}}
+    assert (resolution.max_analyzers, resolution.disabled) == (2, {"stumpy"})
+
+
+def test_the_example_is_not_loaded_until_it_is_copied_to_a_yml_file() -> None:
+    assert load_overrides(PROJECT_ROOT / "config" / "analyzer_overrides.d", REGISTRATIONS).overrides == []
