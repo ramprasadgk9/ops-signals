@@ -45,10 +45,10 @@ test('search and severity filters narrow the cases table to the expected rows', 
     await expect(caseLink(page, normalTitle)).not.toBeVisible();
     await page.getByPlaceholder('Search cases...').fill('');
 
-    // Severity filter: the first combobox (named by its selected option text).
-    // Scoped to <main> because the app header's global search is a combobox too.
+    // Severity filter: named by its selected option text ("All Severity"). Scoped to <main> because
+    // the app header's global search is a combobox too, and the Service filter is one as well.
     await page.getByPlaceholder('Search cases...').fill(runId);
-    const severitySelect = page.getByRole('main').getByRole('combobox').first();
+    const severitySelect = page.getByRole('main').getByRole('combobox', { name: /Severity/ });
     await severitySelect.click();
     await page.getByRole('option', { name: 'Critical' }).click();
     await expect(caseLink(page, criticalTitle)).toBeVisible();
