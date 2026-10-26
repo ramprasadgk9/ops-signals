@@ -4,6 +4,9 @@
 
 Includes Grafana plugin 1.0.35.
 
+- **The plugin's Autonomous Analysis is read-only for Grafana Viewers**, as in the web UI: the saved
+  schedule and what runs found, without the Configure stage, Edit, Pause or "Enable category".
+
 - **Set-up details are for Admins.** With roles on (the plugin through Grafana, or the web UI with
   sign-in), only Admins can read the full Setup check, the analyzer settings (`/api/admin/...`),
   analyzer lab work (`/api/analyzer-labs/...`) and case imports; others get a 403 "Only Grafana
