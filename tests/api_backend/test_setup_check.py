@@ -190,7 +190,7 @@ def test_per_service_settings_are_off_until_a_file_is_added(tmp_path, monkeypatc
     assert (check["group"], check["status"], check["action"]) == ("optional", "off", "how_to_set")
     assert check["detail"] == "Not used: every service runs on the default analyzer settings."
     # How to set: the file to copy, and each setting a team can change with its range.
-    assert check["fix"][0].startswith("Copy config/analyzer_overrides.d/example.yml.example")
+    assert check["fix"][0].startswith("Copy config/analyzer_overrides.d/payments-team.yml.example")
     assert any(step.startswith("Trend Analysis: Smallest steady climb") and "from 1 to 100" in step for step in check["fix"])
 
 

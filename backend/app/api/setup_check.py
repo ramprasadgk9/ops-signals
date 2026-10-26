@@ -470,7 +470,7 @@ REGISTRY_DIR = _REPO_ROOT / "config" / "analyzer_registry.d"
 
 def _overrides_how_to(registrations: list[AnalyzerRegistration]) -> list[str]:
     steps = [
-        "Copy config/analyzer_overrides.d/example.yml.example to a .yml file in the same folder (one per team works well) "
+        "Copy config/analyzer_overrides.d/payments-team.yml.example to a .yml file in the same folder (one per team works well) "
         "and edit it. It takes effect on the next analysis run.",
         "scope.service must match the service name on the series (as shown on findings); scope.metric its metric name. "
         'Wildcards work: "payments-*" (quote a name that starts with *).',
@@ -517,7 +517,7 @@ def analyzer_overrides_check(db: Session, now: datetime) -> SetupCheck:
             "docs": "docs/configuration.md", "action": "how_to_set"}
     registrations = load_registrations(REGISTRY_DIR)
     how_to = _overrides_how_to(registrations)
-    example_file = OVERRIDES_DIR / "example.yml.example"
+    example_file = OVERRIDES_DIR / "payments-team.yml.example"
     snippet = example_file.read_text(encoding="utf-8") if example_file.exists() else None
     files = sorted(list(OVERRIDES_DIR.glob("*.yml")) + list(OVERRIDES_DIR.glob("*.yaml"))) if OVERRIDES_DIR.is_dir() else []
     if not files:

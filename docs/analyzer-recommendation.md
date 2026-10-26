@@ -603,6 +603,11 @@ confidence.
 **Can I force an analyzer?** Yes, via `manual_override` with `selected_analyzers` in
 `config/analyzers.yaml`.
 
+**Can a team change thresholds for its own service?** Yes, in `config/analyzer_overrides.d/`: one
+file per team, scoped to services and metrics, within each analyzer's `tunable` ranges - see
+[Per-service analyzer settings](configuration.md#per-service-analyzer-settings). `selection` there
+can also lower `max_analyzers` or turn analyzers off for those series.
+
 **Does `OPTIONAL` execute?** Not in `recommended_only`. In `recommended_threshold`, only as the
 coverage pick for a detected problem shape that no higher-rated runnable analyzer covers (see
 "Selection modes"); otherwise it's visible for explanation, not executed.
