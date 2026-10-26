@@ -332,7 +332,7 @@ the bundled Prometheus and mock metrics (`OPS_SIGNALS_LOCAL_PROMETHEUS=true` sta
 ./scripts/run_all.sh
 ```
 
-This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command. Press `Ctrl+C` to stop the services.
+This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command. Press `Ctrl+C` to stop the backend and frontend servers (run `docker compose down` when you want to stop the background containers).
 
 #### Open the Application
 
