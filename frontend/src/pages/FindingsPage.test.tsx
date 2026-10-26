@@ -587,3 +587,114 @@ describe('FindingsPage combined patterns', () => {
     expect(screen.queryByText(/Combined patterns/)).not.toBeInTheDocument();
   });
 });
+
+describe('FindingsPage service filter', () => {
+  const on = (id: number, service: string, metric = 'latency_p95'): Finding => ({ ...finding, id, service, metric_name: metric, title: `Shift on ${service}` });
+
+  beforeEach(() => {
+    vi.mocked(api.overviewSummary).mockResolvedValue({
+      generated_at: '2026-09-26T00:00:00Z',
+      window: '24h',
+      active_findings: 3,
+      open_cases: 0,
+      behavior_changes: 0,
+      impacted_services: 2,
+      memory_items: 0,
+      severity_trend: [],
+      category_breakdown: [],
+    });
+    vi.mocked(api.alerts).mockResolvedValue([]);
+    vi.mocked(api.signalsByRunIds).mockResolvedValue([]);
+    vi.mocked(api.metricUsageLookup).mockResolvedValue({});
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('lists services busiest first with counts, filters by one, and keeps it in the URL', async () => {
+    vi.mocked(api.findings).mockResolvedValue([on(1, 'checkout-api'), on(2, 'checkout-api', 'errors'), on(3, 'payments-api')]);
+    renderAt('/findings');
+
+    expect(await screen.findByText('Shift on payments-api')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Service' }));
+    const options = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(options).toEqual(['All services3', 'checkout-api2', 'payments-api1']);
+
+    fireEvent.click(screen.getByRole('option', { name: /payments-api/ }));
+
+    await waitFor(() => expect(screen.queryByText('Shift on checkout-api')).not.toBeInTheDocument());
+    expect(screen.getByText('Shift on payments-api')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('service=payments-api');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all services' }));
+    expect((await screen.findAllByText('Shift on checkout-api')).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('location')).not.toHaveTextContent('service=');
+  });
+
+  it('groups findings with no service under "No service label"', async () => {
+    vi.mocked(api.findings).mockResolvedValue([on(1, 'checkout-api'), on(2, 'unknown'), on(3, 'unknown-service', 'errors')]);
+    renderAt('/findings?service=(none)');
+
+    expect(await screen.findByRole('combobox', { name: 'Service' })).toHaveValue('No service label');
+    expect(screen.queryByText('Shift on checkout-api')).not.toBeInTheDocument();
+    expect(screen.getByText('Shift on unknown')).toBeInTheDocument();
+    expect(screen.getByText('Shift on unknown-service')).toBeInTheDocument();
+  });
+
+  it('says so when the service from the URL has nothing in the window, and offers a way out', async () => {
+    vi.mocked(api.findings).mockResolvedValue([on(1, 'checkout-api'), on(2, 'payments-api')]);
+    renderAt('/findings?service=billing-worker');
+
+    expect(await screen.findByText('No findings for billing-worker in the last 24 hours.')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Service' })).toHaveValue('billing-worker');
+
+    fireEvent.click(within(screen.getByRole('status')).getByRole('button', { name: 'Last 7 days' }));
+    expect(screen.getByTestId('location')).toHaveTextContent('window=7d');
+    expect(screen.getByTestId('location')).toHaveTextContent('service=billing-worker');
+  });
+
+  it('hides the filter when every finding is on one service', async () => {
+    vi.mocked(api.findings).mockResolvedValue([on(1, 'checkout-api'), on(2, 'checkout-api', 'errors')]);
+    renderAt('/findings');
+
+    expect((await screen.findAllByText('Shift on checkout-api')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('combobox', { name: 'Service' })).not.toBeInTheDocument();
+  });
+
+  it('keeps only the combined patterns on the chosen service', async () => {
+    const wait: Finding = { ...on(11, 'checkout-api', 'db_connection_wait_seconds'), analysis_run_id: 'run-1' };
+    vi.mocked(api.findings).mockResolvedValue([wait, on(12, 'payments-api')]);
+    vi.mocked(api.behaviorFindings).mockResolvedValue([{
+      id: 3,
+      behavior_id: 'pool_exhaustion:1:run-1',
+      definition_id: 'pool_exhaustion',
+      definition_version: 1,
+      title: 'Database connection pool exhaustion',
+      summary: 'Pool saturated.',
+      category: 'resource_constraint',
+      severity: 'critical',
+      service: 'checkout-api',
+      analysis_run_id: 'run-1',
+      input_metrics_json: { db_wait: 'db_connection_wait_seconds' },
+      facts_json: {},
+      evidence_json: [],
+      matched_conditions_json: [],
+      confidence: 1,
+      correlation_json: {},
+      case_id: null,
+      occurrence_count: 1,
+      last_seen_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    }]);
+
+    const { unmount } = renderAt('/findings?service=checkout-api');
+    expect(await screen.findByText('Combined patterns (1)')).toBeInTheDocument();
+    unmount();
+
+    renderAt('/findings?service=payments-api');
+    expect(await screen.findByText('Shift on payments-api')).toBeInTheDocument();
+    expect(screen.queryByText(/Combined patterns/)).not.toBeInTheDocument();
+  });
+});

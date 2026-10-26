@@ -5,6 +5,7 @@ import { buildAutonomousDashboardData } from '../autonomous/dashboardModel';
 import type { BehaviorFinding, Finding, FindingTrust } from '../types';
 import { getCase, listCases, listPrometheusConnections } from './backendClient';
 import type { GrafanaCase } from './contracts';
+import { inService, serviceOptions } from '../utils/serviceFilter';
 import { GrafanaAutonomousOverview } from './PluginApp';
 
 // PluginApp's Prometheus query path imports @grafana/* (only loadable inside Grafana).
@@ -68,8 +69,11 @@ function grafanaCase(id: number, findingId: number): GrafanaCase {
   };
 }
 
-function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter, behaviorFindings = [] }: {
+function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter, behaviorFindings = [], services, serviceFilter = null, onServiceFilter }: {
   onCreateCase: (finding: Finding) => Promise<number | null>;
+  services?: React.ComponentProps<typeof GrafanaAutonomousOverview>['services'];
+  serviceFilter?: string | null;
+  onServiceFilter?: (service: string | null) => void;
   behaviorFindings?: BehaviorFinding[];
   findings?: Finding[];
   onInvestigateInteractive?: (finding: Finding) => void;
@@ -87,6 +91,9 @@ function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive =
       clusters={clusters}
       clusterFilter={null}
       onClusterFilter={onClusterFilter}
+      services={services}
+      serviceFilter={serviceFilter}
+      onServiceFilter={onServiceFilter}
       behaviorFindings={behaviorFindings}
       state="ready"
       context={{}}
@@ -428,5 +435,44 @@ describe('GrafanaAutonomousOverview sections that can be hidden', () => {
     await screen.findByRole('button', { name: 'Open case #31 ▸' });
     fireEvent.click(screen.getByRole('button', { name: 'Hide current run summary' }));
     expect(screen.queryByText('executed')).not.toBeInTheDocument();
+  });
+});
+
+describe('GrafanaAutonomousOverview service filter', () => {
+  beforeEach(() => {
+    cases.mockReset().mockResolvedValue([]);
+    connections.mockResolvedValue({ connections: [] });
+  });
+
+  // Filters the way PluginApp does: findings narrowed to the service before the overview sees them.
+  function ServiceHarness({ findings }: { findings: Finding[] }) {
+    const [service, setService] = useState<string | null>(null);
+    const shown = inService(findings, service);
+    return <Harness onCreateCase={vi.fn()} findings={shown} services={serviceOptions(findings, service)} serviceFilter={service} onServiceFilter={setService} />;
+  }
+
+  it('lists services with counts and shows only the chosen one', async () => {
+    const checkout = finding({ id: 9001, service: 'checkout-api', metric_name: 'error_rate', importance_score: 0.9, trust: SHIFT });
+    const payments = finding({ id: 9002, service: 'payments-api', metric_name: 'p95_latency_ms', importance_score: 0.7, trust: SHIFT });
+    const payments2 = finding({ id: 9003, service: 'payments-api', metric_name: 'cpu_usage', importance_score: 0.6, trust: SHIFT });
+    render(<ServiceHarness findings={[checkout, payments, payments2]} />);
+
+    const select = await screen.findByLabelText('Service');
+    expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual(['All services (3)', 'payments-api (2)', 'checkout-api (1)']);
+
+    fireEvent.change(select, { target: { value: 'payments-api' } });
+    expect(await screen.findByRole('button', { name: 'Show all services' })).toBeInTheDocument();
+    // Only the select's own option still names it; nothing on the page is about checkout-api.
+    expect(screen.queryAllByText(/checkout-api/).filter((element) => element.tagName !== 'OPTION')).toEqual([]);
+    expect(screen.getAllByText(/payments-api/).filter((element) => element.tagName !== 'OPTION').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all services' }));
+    expect(screen.getByLabelText('Service')).toHaveValue('');
+  });
+
+  it('shows no service select when the run has one service', async () => {
+    render(<Harness onCreateCase={vi.fn()} services={serviceOptions(FINDINGS)} onServiceFilter={vi.fn()} />);
+    expect(await screen.findAllByTestId('triage-attention')).not.toHaveLength(0);
+    expect(screen.queryByLabelText('Service')).not.toBeInTheDocument();
   });
 });

@@ -25,6 +25,8 @@ import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
 import { PluginMemoryAlertsView } from './PluginMemoryAlertsView';
 import { connectionName, findingClusters, findingSource, findingsInCluster } from './findingSource';
+import { casesInService, inService, serviceOptions, showServiceFilter, type ServiceOption } from '../utils/serviceFilter';
+import { readServiceParam, writeServiceParam } from './serviceUrlState';
 import { caseForSymptom, caseIdsByFinding, dataProblemsByMetric, NO_SERVICE, serviceLabel, serviceSymptoms, stillShowing, symptomChange, symptomKey, symptomKind, symptomOf, symptomRole, triageOrder, triageSymptoms, type ServiceSymptom, type SymptomTriage } from './serviceSymptoms';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import { shouldShowTicketCard } from '../utils/ticketingVisibility';
@@ -1765,6 +1767,17 @@ function AutonomousAnalysisView({
   const [clusterFilter, setClusterFilter] = useState<string | null>(null);
   const clusters = useMemo(() => findingClusters(findings), [findings]);
   const { cluster: activeCluster, findings: clusterFindings } = useMemo(() => findingsInCluster(findings, clusterFilter), [findings, clusterFilter]);
+  // One service at a time: findings, behavior findings and cases all follow it, so every panel on
+  // the overview is about that service. Counts follow the cluster filter.
+  const [serviceFilter, setServiceFilterState] = useState<string | null>(() => readServiceParam());
+  const setServiceFilter = (service: string | null) => {
+    setServiceFilterState(service);
+    writeServiceParam(service);
+  };
+  const findingServices = useMemo(() => serviceOptions(clusterFindings, serviceFilter), [clusterFindings, serviceFilter]);
+  const serviceFindings = useMemo(() => inService(clusterFindings, serviceFilter), [clusterFindings, serviceFilter]);
+  const serviceBehaviors = useMemo(() => inService(behaviorFindings, serviceFilter), [behaviorFindings, serviceFilter]);
+  const serviceCasesOnly = useMemo(() => casesInService(cases, serviceFilter), [cases, serviceFilter]);
   const [previewCategoryFilter, setPreviewCategoryFilter] = useState<string>('all');
   const [previewConceptFilter, setPreviewConceptFilter] = useState<string>('all');
   const [expandedPreviewMetric, setExpandedPreviewMetric] = useState<string | null>(null);
@@ -1925,10 +1938,10 @@ function AutonomousAnalysisView({
     setIsEditingSchedule(true);
   };
   const dashboardData = buildAutonomousDashboardData({
-    findings: clusterFindings,
-    cases,
+    findings: serviceFindings,
+    cases: serviceCasesOnly,
     analysisRuns: runs,
-    behaviorFindings,
+    behaviorFindings: serviceBehaviors,
     policyRuns,
     previewResult,
     runResult,
@@ -2359,11 +2372,14 @@ function AutonomousAnalysisView({
         <GrafanaAutonomousOverview
           backendUrl={backendUrl}
           data={dashboardData}
-          findings={clusterFindings}
+          findings={serviceFindings}
           clusters={clusters}
           clusterFilter={activeCluster}
           onClusterFilter={setClusterFilter}
-          behaviorFindings={behaviorFindings}
+          services={findingServices}
+          serviceFilter={serviceFilter}
+          onServiceFilter={setServiceFilter}
+          behaviorFindings={serviceBehaviors}
           state={dashboardState}
           endpointErrors={endpointErrors}
           onRetry={onRetryOverview}
@@ -2423,6 +2439,9 @@ export function GrafanaAutonomousOverview({
   clusters = [],
   clusterFilter = null,
   onClusterFilter,
+  services = [],
+  serviceFilter = null,
+  onServiceFilter,
   behaviorFindings,
   state,
   context,
@@ -2450,6 +2469,10 @@ export function GrafanaAutonomousOverview({
   clusters?: string[];
   clusterFilter?: string | null;
   onClusterFilter?: (cluster: string | null) => void;
+  /** Services in the window's findings; the select appears when there are two or more. */
+  services?: ServiceOption[];
+  serviceFilter?: string | null;
+  onServiceFilter?: (service: string | null) => void;
   behaviorFindings: BehaviorFinding[];
   state: 'loading' | 'error' | 'ready';
   context: {
@@ -2713,6 +2736,25 @@ export function GrafanaAutonomousOverview({
           {context.environment ? <span style={styles.chip}>Environment: {context.environment}</span> : null}
         </div>
       </div>
+      {onServiceFilter && showServiceFilter(services, serviceFilter) ? (
+        <div style={{ ...styles.row, gap: 6 }}>
+          <label htmlFor="overview-service-filter" style={{ ...styles.helperText, margin: 0 }}>Service</label>
+          <select
+            id="overview-service-filter"
+            style={{ ...styles.input, width: 'auto', minWidth: 200 }}
+            value={serviceFilter ?? ''}
+            onChange={(event) => onServiceFilter(event.target.value || null)}
+          >
+            <option value="">All services ({services.reduce((total, item) => total + item.count, 0)})</option>
+            {services.map((item) => <option key={item.key} value={item.key}>{item.label} ({item.count})</option>)}
+          </select>
+          {serviceFilter ? (
+            <button type="button" style={{ ...styles.chip, cursor: 'pointer', background: 'transparent', color: 'inherit' }} onClick={() => onServiceFilter(null)}>
+              Show all services
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {clusters.length > 1 && onClusterFilter ? (
         <div role="group" aria-label="Cluster" style={{ ...styles.row, gap: 6 }}>
           <span style={{ ...styles.helperText, margin: 0 }}>Cluster</span>

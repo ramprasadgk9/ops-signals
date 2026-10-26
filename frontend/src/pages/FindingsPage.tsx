@@ -19,6 +19,8 @@ import { findingIdFromQuery, findingSortFromParam, findingSorts, groupRepeatedFi
 import { needsAttention } from '../utils/findingTrust';
 import { inWindow, partFindings, patternsByFinding, searchPatterns } from '../utils/combinedPatterns';
 import { CombinedPatternCard } from '../components/CombinedPatternCard';
+import { ServiceFilterField } from '../components/ServiceFilterField';
+import { inService, serviceFilterLabel, serviceOptions, showServiceFilter } from '../utils/serviceFilter';
 
 type FindingsWindow = '6h' | '24h' | '7d';
 
@@ -133,7 +135,7 @@ export function FindingsPage() {
   useEffect(() => {
     setShown(PAGE_SIZE);
     setContextShown(PAGE_SIZE);
-  }, [searchQuery, sort, groupRepeats, window, searchParams.get('cluster'), searchParams.get('source'), searchParams.get('only')]);
+  }, [searchQuery, sort, groupRepeats, window, searchParams.get('cluster'), searchParams.get('source'), searchParams.get('service'), searchParams.get('only')]);
   const showRuns = (finding: Finding) => {
     const next = new URLSearchParams(searchParams);
     next.set('q', [finding.service, finding.metric_name, finding.cluster].filter(Boolean).join(' '));
@@ -153,11 +155,16 @@ export function FindingsPage() {
   const sources = [...new Set(findings.map((finding) => finding.source).filter((source): source is string => Boolean(source)))].sort();
   const sourceFilter = searchParams.get('source');
   const sourceFindings = sourceFilter ? clusterFindings.filter((finding) => finding.source === sourceFilter) : clusterFindings;
+  // Services can number in the hundreds, so this one is a searchable dropdown, not chips. Counts
+  // follow the cluster and source filters, so each says what picking it will show.
+  const serviceFilter = searchParams.get('service');
+  const services = serviceOptions(sourceFindings, serviceFilter);
+  const serviceFindings = inService(sourceFindings, serviceFilter);
   // ?only=patterns keeps the findings a behavior rule used in a combined pattern (the "Part of" ones).
   // Not ?pattern=, which is the deep link to one pattern's card.
   const patternLinks = patternsByFinding(behaviorsQuery.data ?? [], findings);
   const onlyPatterns = searchParams.get('only') === 'patterns';
-  const kindFindings = onlyPatterns ? sourceFindings.filter((finding) => finding.id !== undefined && patternLinks.has(finding.id)) : sourceFindings;
+  const kindFindings = onlyPatterns ? serviceFindings.filter((finding) => finding.id !== undefined && patternLinks.has(finding.id)) : serviceFindings;
   // Searching a pattern's name or rule id also finds the findings it was made from.
   const patternText = (finding: Finding) =>
     (finding.id !== undefined ? patternLinks.get(finding.id) ?? [] : []).map((behavior) => `${behavior.title} ${behavior.definition_id}`).join(' ');
@@ -167,15 +174,16 @@ export function FindingsPage() {
   // they stay one click away instead of crowding the list that asks for attention.
   const attentionGroups = visibleGroups.filter((group) => needsAttention(group.finding));
   const contextGroups = visibleGroups.filter((group) => !needsAttention(group.finding));
-  // A pattern has no cluster or source of its own: with either filter on, keep the patterns made
-  // from a finding the filter kept.
-  const filteredIds = new Set(sourceFindings.map((finding) => finding.id));
+  // A pattern has no cluster or source of its own: with any of these filters on, keep the patterns
+  // made from a finding the filters kept.
+  const filteredIds = new Set(serviceFindings.map((finding) => finding.id));
   const visiblePatterns = searchPatterns(
     (behaviorsQuery.data ?? []).filter((behavior) => inWindow(behavior, window)),
     searchQuery,
-  ).filter((behavior) => !(clusterFilter || sourceFilter) || partFindings(behavior, patternLinks, findings).some((finding) => filteredIds.has(finding.id)));
+  ).filter((behavior) => !(clusterFilter || sourceFilter || serviceFilter) || partFindings(behavior, patternLinks, findings).some((finding) => filteredIds.has(finding.id)));
   const setClusterFilter = (cluster: string | null) => setParam('cluster', cluster);
   const setSourceFilter = (source: string | null) => setParam('source', source);
+  const setServiceFilter = (service: string | null) => setParam('service', service);
   const setOnlyPatterns = (on: boolean) => setParam('only', on ? 'patterns' : null);
   // "#57" for a finding outside this window: offer to open it directly, as the deep link does.
   const searchedId = findingIdFromQuery(searchQuery);
@@ -317,6 +325,9 @@ export function FindingsPage() {
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
             sx={{ flex: 1, bgcolor: 'var(--os-surface)' }}
           />
+          {showServiceFilter(services, serviceFilter) ? (
+            <ServiceFilterField options={services} value={serviceFilter} total={sourceFindings.length} onChange={setServiceFilter} />
+          ) : null}
           <TextField
             select
             size="small"
@@ -408,6 +419,14 @@ export function FindingsPage() {
               {contextGroups.length ? ` · ${contextGroups.length} context only` : ''}
               {visibleGroups.length !== visibleFindings.length ? ` (${visibleFindings.length} findings, repeats grouped)` : ''}
               {visibleFindings.length !== findings.length ? ` · ${findings.length} in window` : ''}
+              {serviceFilter ? (
+                <>
+                  {' · '}
+                  <Button variant="text" size="small" onClick={() => setServiceFilter(null)} sx={{ p: 0, minWidth: 0, textTransform: 'none', fontWeight: 800, verticalAlign: 'baseline' }}>
+                    Show all services
+                  </Button>
+                </>
+              ) : null}
             </Typography>
             <Typography sx={{ fontSize: 16, fontWeight: 900 }}>Needs attention ({attentionGroups.length})</Typography>
             {attentionGroups.length ? (
@@ -448,6 +467,17 @@ export function FindingsPage() {
           </Stack>
         ) : searchQuery ? (
           <Typography color="text.secondary">No findings in this window match "{searchQuery}".</Typography>
+        ) : serviceFilter ? (
+          <Stack spacing={1} alignItems="flex-start" role="status">
+            <Typography sx={{ fontWeight: 800 }}>
+              No findings for {serviceFilterLabel(serviceFilter)} in the {windows.find((item) => item.id === window)?.label.toLowerCase() ?? window}.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">It may be quiet, or its findings are older.</Typography>
+            <Stack direction="row" spacing={1}>
+              {window !== '7d' ? <Button variant="outlined" size="small" onClick={() => setParam('window', '7d')} sx={{ textTransform: 'none', fontWeight: 800 }}>Last 7 days</Button> : null}
+              <Button variant="outlined" size="small" onClick={() => setServiceFilter(null)} sx={{ textTransform: 'none', fontWeight: 800 }}>Show all services</Button>
+            </Stack>
+          </Stack>
         ) : onlyPatterns ? (
           <Typography color="text.secondary">No Behavior Intelligence findings in this window.</Typography>
         ) : (

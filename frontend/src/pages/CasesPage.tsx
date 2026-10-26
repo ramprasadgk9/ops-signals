@@ -30,6 +30,8 @@ import { CaseTicketCard } from '../components/CaseTicketCard';
 import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 import { RootCauseUnconfirmedBadge } from '../components/RootCauseUnconfirmedBadge';
+import { ServiceFilterField } from '../components/ServiceFilterField';
+import { inService, serviceOptions, showServiceFilter } from '../utils/serviceFilter';
 
 export function CasesPage() {
   const casesQuery = useQuery({ queryKey: ['cases'], queryFn: () => api.cases(200) });
@@ -45,8 +47,12 @@ export function CasesPage() {
   );
   const cases = casesQuery.data ?? [];
   const rows = toCaseRows(cases);
-  // Tab counts follow the search, severity and origin filters so each tab says what it will show.
-  const matching = useMemo(() => filterCaseRows(rows, { search, severity, origin }), [rows, search, severity, origin]);
+  // ?service= is in the URL so a filtered list can be shared; each case keeps its finding's service.
+  const service = searchParams.get('service');
+  const otherFiltersMatch = useMemo(() => filterCaseRows(rows, { search, severity, origin }), [rows, search, severity, origin]);
+  const services = serviceOptions(otherFiltersMatch, service);
+  // Tab counts follow the search, severity, origin and service filters so each tab says what it will show.
+  const matching = useMemo(() => inService(otherFiltersMatch, service), [otherFiltersMatch, service]);
   const filtered = matching.filter((row) => inCaseTab(row, tab));
   const selected = useMemo(() => {
     if (selectedCaseId != null) {
@@ -60,6 +66,13 @@ export function CasesPage() {
     const next = new URLSearchParams(searchParams);
     if (value === 'open') next.delete('tab');
     else next.set('tab', value);
+    setSearchParams(next, { replace: true });
+  };
+
+  const setService = (value: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set('service', value);
+    else next.delete('service');
     setSearchParams(next, { replace: true });
   };
 
@@ -88,6 +101,7 @@ export function CasesPage() {
       </Tabs>
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5}>
         <TextField size="small" placeholder="Search cases..." value={search} onChange={(event) => setSearch(event.target.value)} sx={{ width: { xs: '100%', lg: 280 }, bgcolor: 'var(--os-surface)' }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }} />
+        {showServiceFilter(services, service) ? <ServiceFilterField options={services} value={service} total={otherFiltersMatch.length} onChange={setService} /> : null}
         <TextField select size="small" value={severity} onChange={(event) => setSeverity(event.target.value)} sx={{ minWidth: 150, bgcolor: 'var(--os-surface)' }} inputProps={{ 'aria-label': 'Severity' }}>
           <MenuItem value="all">All Severity</MenuItem>
           {['critical', 'high', 'medium', 'low', 'significant', 'normal'].map((value) => <MenuItem key={value} value={value}>{titleCase(value)}</MenuItem>)}
@@ -160,7 +174,17 @@ export function CasesPage() {
               </TableBody>
             </Table>
             {filtered.length === 0 ? <Typography sx={{ p: 3, color: ui.muted, textAlign: 'center' }}>No cases here.</Typography> : null}
-            <Typography sx={{ p: 2.2, color: ui.muted, fontWeight: 650 }}>Showing {filtered.length} of {cases.length} cases</Typography>
+            <Typography sx={{ p: 2.2, color: ui.muted, fontWeight: 650 }}>
+              Showing {filtered.length} of {cases.length} cases
+              {service ? (
+                <>
+                  {' · '}
+                  <Button variant="text" size="small" onClick={() => setService(null)} sx={{ p: 0, minWidth: 0, textTransform: 'none', fontWeight: 800, verticalAlign: 'baseline' }}>
+                    Show all services
+                  </Button>
+                </>
+              ) : null}
+            </Typography>
           </WorkspacePanel>
         </Grid>
         <Grid size={{ xs: 12, xl: 3 }}>

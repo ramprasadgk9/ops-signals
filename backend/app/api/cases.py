@@ -120,20 +120,17 @@ def list_cases(
     db: Session = Depends(get_db),
 ) -> list[CaseOut]:
     capped_limit = max(1, min(limit, 200))
+    # Filter in SQL, before the limit: filtering the newest N afterwards dropped a service's
+    # older cases whenever other services had N newer ones.
+    query = select(OperationalCaseEntity)
+    if service:
+        query = query.where(OperationalCaseEntity.finding_snapshot["service"].as_string() == service)
+    if metric_name:
+        query = query.where(OperationalCaseEntity.finding_snapshot["metric_name"].as_string() == metric_name)
     cases = db.execute(
-        select(OperationalCaseEntity)
-        .order_by(OperationalCaseEntity.updated_at.desc())
-        .limit(capped_limit)
+        query.order_by(OperationalCaseEntity.updated_at.desc()).limit(capped_limit)
     ).scalars().all()
-    filtered: list[OperationalCaseEntity] = []
-    for case in cases:
-        snapshot = case.finding_snapshot or {}
-        if service and snapshot.get("service") != service:
-            continue
-        if metric_name and snapshot.get("metric_name") != metric_name:
-            continue
-        filtered.append(case)
-    return [_to_case_out(case) for case in filtered]
+    return [_to_case_out(case) for case in cases]
 
 
 @router.get("/{case_id}", response_model=CaseOut)

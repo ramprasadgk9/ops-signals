@@ -127,3 +127,40 @@ describe('CasesPage status tabs', () => {
     expect(screen.getAllByText('Root cause unconfirmed').length).toBeGreaterThan(0);
   });
 });
+
+describe('CasesPage service filter', () => {
+  const PAYMENTS = { ...CASE, id: 51, case_title: 'Card authorisations slowed down', finding_snapshot: { service: 'payments-api', metric_name: 'request_duration_p95' } };
+
+  it('filters cases by service, updates the tab counts, and keeps it in the URL', async () => {
+    cases = [CASE, IN_PROGRESS, PAYMENTS];
+    renderPage();
+
+    expect(await screen.findByRole('tab', { name: 'Open 3' })).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Service' }));
+    fireEvent.click(screen.getByRole('option', { name: /payments-api/ }));
+
+    expect(await screen.findByRole('tab', { name: 'Open 1' })).toBeInTheDocument();
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('Card authorisations slowed down')).toBeInTheDocument();
+    expect(within(table).queryByText(CASE.case_title)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all services' }));
+    expect(await screen.findByRole('tab', { name: 'Open 3' })).toBeInTheDocument();
+  });
+
+  it('opens filtered from ?service=', async () => {
+    cases = [CASE, IN_PROGRESS, PAYMENTS];
+    renderPage('/cases?service=spike-lab');
+
+    expect(await screen.findByRole('combobox', { name: 'Service' })).toHaveValue('spike-lab');
+    expect(screen.getByRole('tab', { name: 'Open 1' })).toBeInTheDocument();
+  });
+
+  it('hides the filter when every case is on one service', async () => {
+    cases = [CASE, RESOLVED];
+    renderPage();
+
+    expect(await screen.findByRole('tab', { name: 'Open 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Service' })).not.toBeInTheDocument();
+  });
+});

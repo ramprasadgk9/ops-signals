@@ -127,7 +127,7 @@ the Ops Signals app in Grafana (http://localhost:3000).
    **Test** checks one. The **Clusters** section is always there: `eu` and `us` to choose from on
    `team-a`, "staging, the only cluster" on `team-b`, "No clusters" on a Prometheus without the
    label. Preview names the connection it is for.
-2. **Run once, then Overview.** Chips **All clusters | eu | us** filter the overview; symptom rows
+2. **Run once, then Overview.** Chips **All clusters | eu | us** filter the overview (next to a **Service** select when the run covers two or more services); symptom rows
    carry their cluster and `error_rate` in `us` and in `eu` are separate rows. A case opened from
    a row shows the cluster in the drawer's Finding step.
 3. **Interactive Analysis → Query through: Ops Signals connection.** Pick `Mimir team-a (eu, us)`,

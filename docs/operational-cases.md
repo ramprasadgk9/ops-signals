@@ -64,6 +64,14 @@ When an operational case is linked to an external ticketing provider (e.g., Jira
    - Operators can retrieve setup details and delivery health via `GET /api/integrations/ticketing/{provider}/webhook-info`.
    - Incoming Jira webhooks (`POST /api/integrations/ticketing/{provider}/webhook`) process comments and status changes instantaneously with zero polling latency, verified via HMAC-SHA256 signatures and deduped against `ticket_webhook_deliveries`.
 
+## Filtering by Service
+
+The **Cases** page has a **Service** dropdown next to the search box when the cases cover two or more
+services. Each case keeps the service of the finding it was opened from; the tab counts follow the
+filter, and the URL keeps it (`/cases?service=payments-api`). `GET /api/cases?service=` filters in the
+database before applying `limit`, so a service's older cases aren't dropped when other services have
+newer ones.
+
 ## Current State
 
 Case tracking exists in the backend models, standalone web frontend, and operational memory pipeline.
