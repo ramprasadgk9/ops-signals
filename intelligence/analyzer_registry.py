@@ -31,6 +31,8 @@ SUPPORTED_PROFILE_METRICS = {
     "behavior_mix",
 }
 SUPPORTED_OPERATORS = {"gte", "gt", "lte", "lt", "equals"}
+# Value types a `tunable` setting can take (see AnalyzerRegistration.tunable).
+TUNABLE_TYPES = {"number", "integer", "boolean"}
 
 
 class AnalyzerRegistrationError(ValueError):
@@ -87,6 +89,10 @@ class AnalyzerRegistration:
     # One or two plain sentences on what the analyzer looks for, with an example. Shown as a tip
     # next to the analyzer's name in the web UI and the Grafana plugin.
     description: str | None = None
+    # Settings a per-service override (config/analyzer_overrides.d/) may change, keyed by their
+    # dotted path as written in config/analyzers.yaml (e.g. "finding_rules.min_slope_percent"):
+    # {type: number|integer|boolean, min, max, label}. Anything not listed can't be overridden.
+    tunable: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _validate_entry(analyzer_id: str, data: dict[str, Any]) -> list[str]:
@@ -126,6 +132,18 @@ def _validate_entry(analyzer_id: str, data: dict[str, Any]) -> list[str]:
         if len(operators_present) != 1:
             errors.append(f"scoring rule must declare exactly one operator from {sorted(SUPPORTED_OPERATORS)}")
 
+    tunable = data.get("tunable") or {}
+    if not isinstance(tunable, dict):
+        errors.append("tunable must be a mapping")
+        tunable = {}
+    for path, spec in tunable.items():
+        if not isinstance(spec, dict) or spec.get("type") not in TUNABLE_TYPES:
+            errors.append(f"tunable '{path}' must declare type: one of {sorted(TUNABLE_TYPES)}")
+            continue
+        low, high = spec.get("min"), spec.get("max")
+        if low is not None and high is not None and float(low) > float(high):
+            errors.append(f"tunable '{path}' has min greater than max")
+
     return errors
 
 
@@ -160,6 +178,7 @@ def _parse_entry(analyzer_id: str, data: dict[str, Any], source_file: str) -> An
         always_run=bool(data.get("always_run", False)),
         requires_library=data.get("requires_library"),
         description=str(data.get("description") or "").strip() or None,
+        tunable={str(path): dict(spec) for path, spec in (data.get("tunable") or {}).items()},
     )
 
 
