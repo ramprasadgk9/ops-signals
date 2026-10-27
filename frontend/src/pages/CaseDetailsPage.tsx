@@ -625,7 +625,7 @@ export function CaseDetailsPage() {
                   <Typography variant="h6" sx={{ mb: 2 }}>
                     Comparison details
                   </Typography>
-                  <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 2, overflowX: 'auto' }}>
+                  <Box sx={{ bgcolor: 'action.hover', p: 2, borderRadius: 2, overflowX: 'auto' }}>
                     <Typography variant="caption" component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
                       {JSON.stringify(finding.comparison_json, null, 2)}
                     </Typography>
@@ -691,7 +691,7 @@ export function CaseDetailsPage() {
                   ) : (
                     <Stack spacing={1}>
                       {caseData.investigation_notes.map((note, index) => (
-                        <Box key={index} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 2 }}>
+                        <Box key={index} sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 2 }}>
                           <Typography variant="caption" color="text.secondary">
                             {note.timestamp ? new Date(note.timestamp).toLocaleString() : 'No timestamp'}
                           </Typography>
