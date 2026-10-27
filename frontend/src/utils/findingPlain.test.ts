@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RELATED_HINT, leadSignal, leadSignalText, plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
+import { RELATED_HINT, aiFooter, hasAiLines, leadSignal, leadSignalText, plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
 import type { FindingPlain } from '../types';
 
 // Finding #8300 as the backend words it (tests/test_finding_plain.py).
@@ -108,5 +108,48 @@ describe('leadSignal', () => {
   it('writes it as one line with its analyzer and confidence', () => {
     expect(leadSignalText(stretch)).toBe('A stretch of 16 points unlike anything else. (stumpy · confidence 1.00)');
     expect(leadSignalText(null)).toBeNull();
+  });
+});
+
+describe('plainLines with AI wording', () => {
+  const ai = {
+    available: true,
+    why: 'Fewer requests now fail, so most users get through again.',
+    check_extra: 'Whether the fix is still in place after the next release.',
+    related_extra: 'Errors and slow requests dropping together often means a shared dependency recovered.',
+    model: 'qwen2.5:3b',
+  };
+
+  it('replaces why, and adds its sentence after the template check and the first Happened with', () => {
+    expect(plainLines(errors, utc, ai)).toEqual([
+      { label: 'Why it matters', text: ai.why, ai: true },
+      {
+        label: 'Happened with',
+        text: `Slow-request time (p95) also dropped at Oct 19, 10:54 PM (571 ms to 357 ms). ${ai.related_extra}`,
+        findingId: 8299,
+        hint: RELATED_HINT,
+        ai: true,
+      },
+      { label: 'What to check', text: `Deploys or config changes in spike-lab between Oct 19, 10:24 PM and 11:24 PM. ${ai.check_extra}`, ai: true },
+    ]);
+  });
+
+  it('keeps the template for each line the AI left out', () => {
+    const lines = plainLines(errors, utc, { available: true, why: null, check_extra: ai.check_extra, related_extra: null });
+    expect(lines[0]).toEqual({ label: 'Why it matters', text: 'Fewer requests fail, so fewer users see errors.' });
+    expect(lines[1].ai).toBeUndefined();
+    expect(lines[2].ai).toBe(true);
+  });
+
+  it('shows the template when nothing is available', () => {
+    expect(plainLines(errors, utc, { available: false, reason: 'ai_off' })).toEqual(plainLines(errors, utc));
+    expect(hasAiLines({ available: false, reason: 'ai_off' })).toBe(false);
+    expect(hasAiLines({ available: true, why: null, check_extra: null, related_extra: null })).toBe(false);
+    expect(hasAiLines(ai)).toBe(true);
+  });
+
+  it('names the model in the footer', () => {
+    expect(aiFooter(ai)).toBe("Written by AI (qwen2.5:3b) from this finding's facts");
+    expect(aiFooter({ ...ai, model: null })).toBe("Written by AI from this finding's facts");
   });
 });

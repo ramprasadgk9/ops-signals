@@ -80,6 +80,7 @@ import type {
   SaveDocTestsResult,
   CaseImportBatch,
   AIStatus,
+  FindingAIWording,
   AITestResult,
   CaseImportPreview,
   CaseImportProfiles,
@@ -355,6 +356,7 @@ export const api = {
     getJson<RecurringProblemsResponse>(`/api/memory/recurring-problems?days=${days}&min_occurrences=${minOccurrences}&group_by=${groupBy}${name ? '' : '&name=false'}`),
   monitoringCoverage: (days = 365) => getJson<CoverageReport>(`/api/memory/coverage?days=${days}`),
   suggestedFixes: (findingId: number) => getJson<SuggestedFixesResponse>(`/api/findings/${findingId}/suggested-fixes`),
+  findingAiWording: (findingId: number) => getJson<FindingAIWording>(`/api/findings/${findingId}/ai-wording`),
   runbookDraft: (findingId: number) =>
     postJson<Record<string, never>, RunbookDraft>(`/api/findings/${findingId}/suggested-fixes/runbook-draft`, {}),
   sameFix: (caseId: number) => getJson<SameFixResponse>(`/api/cases/${caseId}/same-fix`),

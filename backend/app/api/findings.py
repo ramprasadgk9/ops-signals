@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -11,15 +12,17 @@ from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
-from backend.app.models.api_schema import FindingFeedbackIn, FindingOut
+from backend.app.models.api_schema import FindingAIWordingOut, FindingFeedbackIn, FindingOut
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity
+from backend.app.services.finding_ai_wording import wording_facts, write_ai_wording
 from backend.app.services.finding_changes import finding_changes
 from backend.app.services.finding_plain import finding_plain
 from backend.app.services.finding_settings import finding_custom_settings
 from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.services.finding_trust import finding_trust, record_feedback
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/findings", tags=["findings"])
 Window = Literal["1h", "6h", "24h", "7d"]
 FindingSource = Literal["prometheus", "otlp", "csv"]
@@ -238,8 +241,53 @@ def get_finding(
     row = db.execute(select(FindingEntity).where(FindingEntity.id == finding_id)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="finding not found")
-    _ensure_ai_summary(row, db, assistant)
-    return _with_changes(db, [row], config)[0]
+    out = _with_changes(db, [row], config)[0]
+    # A finding with plain wording shows that instead of its summary, and gets AI wording from
+    # GET /ai-wording; polishing a summary nobody sees would only make this request wait.
+    if out.plain is None:
+        _ensure_ai_summary(row, db, assistant)
+        out.ai_summary = row.ai_summary
+    return out
+
+
+@router.get("/{finding_id}/ai-wording", response_model=FindingAIWordingOut)
+def get_finding_ai_wording(
+    finding_id: int,
+    db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> FindingAIWordingOut:
+    """Why it matters, an extra thing to check and an extra Happened with sentence, written by the
+    AI provider for this finding on its first open and saved. Asked for after the details page
+    shows, so the page never waits for the model; every line that is None keeps the template."""
+    row = db.execute(select(FindingEntity).where(FindingEntity.id == finding_id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    if row.ai_wording:
+        return FindingAIWordingOut(available=True, **_wording_lines(row.ai_wording))
+    ai_services = assistant.services.ai_services if assistant else None
+    plain = finding_plain(db, [row]).get(row.id)
+    if plain is None:
+        return FindingAIWordingOut(available=False, reason="no_plain")
+    if ai_services is None:
+        return FindingAIWordingOut(available=False, reason="ai_off")
+    try:
+        written = write_ai_wording(ai_services, wording_facts(row.metric_name, row.service, plain))
+    except Exception:  # noqa: BLE001 - AI wording must never break the details page
+        logger.warning("AI wording failed for finding %s", finding_id, exc_info=True)
+        written = None
+    if written is None:
+        return FindingAIWordingOut(available=False, reason="failed")
+    row.ai_wording = written
+    try:
+        db.commit()
+    except Exception:  # noqa: BLE001 - still show what was written; the next open writes it again
+        db.rollback()
+        logger.warning("Could not save AI wording for finding %s", finding_id, exc_info=True)
+    return FindingAIWordingOut(available=True, **_wording_lines(written))
+
+
+def _wording_lines(saved: dict) -> dict:
+    return {key: saved.get(key) for key in ("why", "check_extra", "related_extra", "model")}
 
 
 @router.post("/{finding_id}/feedback", response_model=FindingOut)

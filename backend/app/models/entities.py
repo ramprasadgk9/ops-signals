@@ -288,6 +288,9 @@ class FindingEntity(Base):
     # stays the deterministic field this app has always had; ai_summary is additive and only used
     # when present, so a finding is fully functional identically to before if AI is never enabled.
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # AI-written why / extra check / extra related sentence for the details page, saved on first open
+    # (backend/app/services/finding_ai_wording.py). Additive like ai_summary: the template wording stays.
+    ai_wording: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class FindingFeedbackEntity(Base):

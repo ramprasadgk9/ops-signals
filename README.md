@@ -364,7 +364,7 @@ them are `GET /api/ingestion/status` and `GET /api/alerts`.
 
 #### Optional: Enable Local AI
 
-By default, Ask Ops Signals and the analyzer recommendation advisor run on deterministic retrieval and templates - no AI, no API key, no network calls out. To add local LLM-assisted answers on top of that (never instead of it - the deterministic behavior stays the fallback):
+By default, Ask Ops Signals, the analyzer recommendation advisor and finding wording run on deterministic retrieval and templates - no AI, no API key, no network calls out. To add local LLM-assisted answers on top of that (never instead of it - the deterministic behavior stays the fallback):
 
 ```bash
 docker compose --profile ai up -d
@@ -376,7 +376,7 @@ This starts a local Ollama container and pulls a small default model (`qwen2.5:3
 OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh
 ```
 
-See [Operational Intelligence Assistant](#operational-intelligence-assistant) for exactly what changes when this is on.
+See [Operational Intelligence Assistant](#operational-intelligence-assistant) for exactly what changes when this is on. Finding details also get What to check and Happened with lines written for the metric, and Why it matters for metrics the wording file doesn't describe ([AI wording](docs/finding-wording.md#ai-wording)).
 
 Prefer a model you already run or pay for? Set `OPS_SIGNALS_AI_PROVIDER=openai_compatible` (vLLM, Azure OpenAI, Bedrock gateways, LiteLLM) or `anthropic` instead. See [Other AI Providers](docs/ask-ops-signals-assistant.md#other-ai-providers).
 

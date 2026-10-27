@@ -20,6 +20,7 @@ import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, suppo
 import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { testedCaption, testedHeadline, testedTooltip } from '../utils/findingTrust';
 import { customSettings } from '../utils/customSettings';
+import { useWebPermissions } from '../hooks/useWebPermissions';
 import { CustomSettingsBox } from './CustomSettingsBox';
 
 type Props = {
@@ -80,6 +81,17 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
     retry: false,
   });
 
+  // Asked for after the drawer shows, so it never waits for the model; the template shows meanwhile.
+  const { canAdmin } = useWebPermissions();
+  const aiWording = useQuery({
+    queryKey: ['finding-ai-wording', finding?.id],
+    queryFn: () => api.findingAiWording(finding!.id as number),
+    enabled: open && typeof finding?.id === 'number' && Boolean(finding?.plain),
+    retry: false,
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60_000,
+  });
+
   const analysisRunQuery = useQuery({
     queryKey: ['finding-drawer-analysis-run', analysisRunId],
     queryFn: () => api.analysisRun(analysisRunId!),
@@ -134,9 +146,15 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
 
         <LinkedAlerts findingId={finding.id} />
 
-        <Box sx={{ mb: 3, p: 2, backgroundColor: 'var(--os-surface-alt)', borderRadius: 1 }}>
+        <Box sx={{ mb: 3, p: 2, backgroundColor: 'var(--os-surface-alt)', borderRadius: 1 }} data-testid="finding-details-plain">
           {finding.plain ? (
-            <PlainFindingSummary plain={finding.plain} summary={`${finding.title} ${finding.summary}`} />
+            <PlainFindingSummary
+              plain={finding.plain}
+              summary={`${finding.title} ${finding.summary}`}
+              ai={aiWording.data}
+              aiPending={aiWording.isPending && aiWording.fetchStatus === 'fetching'}
+              showAiHint={aiWording.data?.reason === 'ai_off' && canAdmin}
+            />
           ) : (
             <Stack direction="row" spacing={0.75} alignItems="flex-start">
               {finding.ai_summary && (

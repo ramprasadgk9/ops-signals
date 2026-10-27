@@ -3829,7 +3829,7 @@ function AutonomousInvestigationPanel({
           {finding.plain ? <div style={{ marginTop: 6 }}><PluginPlainBadge plain={finding.plain} /></div> : null}
           <h3 style={{ margin: '4px 0 0' }}>{finding.plain?.headline ?? finding.title}</h3>
           {finding.plain ? (
-            <div style={{ marginTop: 6 }}><PluginPlainFinding plain={finding.plain} details={`${finding.title} ${finding.summary}`} /></div>
+            <div style={{ marginTop: 6 }}><PluginPlainFinding plain={finding.plain} details={`${finding.title} ${finding.summary}`} findingId={finding.id} backendUrl={backendUrl} /></div>
           ) : (
             <p style={{ ...styles.muted, margin: '6px 0 0' }}>{finding.summary}</p>
           )}

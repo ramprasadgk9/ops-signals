@@ -280,6 +280,21 @@ export type FindingPlain = {
   service_importance_label?: string | null;
 };
 
+/** GET /api/findings/{id}/ai-wording: lines the AI provider wrote for this finding's details
+ * (backend/app/services/finding_ai_wording.py). A null line keeps the template; `reason` says why
+ * nothing is available: ai_off (no AI provider), no_plain or failed. */
+export type FindingAIWording = {
+  available: boolean;
+  reason?: 'ai_off' | 'no_plain' | 'failed' | null;
+  /** Replaces the template's Why it matters. */
+  why?: string | null;
+  /** One more thing to check, after the template's What to check. */
+  check_extra?: string | null;
+  /** One more sentence after the first Happened with line. */
+  related_extra?: string | null;
+  model?: string | null;
+};
+
 export type FindingVerdict = 'real_problem' | 'expected_change' | 'not_a_problem';
 
 export type FindingTrustGroup = 'data_problem' | 'level_change_agree' | 'level_change_single' | 'spike' | 'pattern';
