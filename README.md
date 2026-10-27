@@ -376,7 +376,7 @@ This starts a local Ollama container and pulls a small default model (`qwen2.5:3
 OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh
 ```
 
-See [Operational Intelligence Assistant](#operational-intelligence-assistant) for exactly what changes when this is on. Finding details also get What to check and Happened with lines written for the metric, and Why it matters for metrics the wording file doesn't describe ([AI wording](docs/finding-wording.md#ai-wording)).
+See [Operational Intelligence Assistant](#operational-intelligence-assistant) for exactly what changes when this is on. Other places it's used: [Where AI is used](docs/ask-ops-signals-assistant.md#where-ai-is-used).
 
 Prefer a model you already run or pay for? Set `OPS_SIGNALS_AI_PROVIDER=openai_compatible` (vLLM, Azure OpenAI, Bedrock gateways, LiteLLM) or `anthropic` instead. See [Other AI Providers](docs/ask-ops-signals-assistant.md#other-ai-providers).
 
