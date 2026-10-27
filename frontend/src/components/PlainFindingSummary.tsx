@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
-import type { FindingPlain } from '../types';
-import { plainLines, plainTimes, plainTone, type PlainTone } from '../utils/findingPlain';
+import { Box, Button, Chip, CircularProgress, Stack, Tooltip, Typography } from '@mui/material';
+import type { FindingAIWording, FindingPlain } from '../types';
+import { AI_LINE_HINT, aiFooter, hasAiLines, plainLines, plainTimes, plainTone, type PlainTone } from '../utils/findingPlain';
+import { EnableAiHint } from './EnableAiHint';
 
 // A finding in plain words: what changed, why it matters and what to check, with the stored
 // summary kept under "Technical details". Wording comes from config/finding_templates.yaml.
@@ -43,6 +44,9 @@ export function PlainFindingSummary({
   summary,
   signal,
   onOpenFinding,
+  ai,
+  aiPending = false,
+  showAiHint = false,
 }: {
   plain: FindingPlain;
   /** The finding's stored summary, shown under Technical details. */
@@ -50,9 +54,17 @@ export function PlainFindingSummary({
   /** The finding's strongest signal in analyzer words (utils/findingPlain leadSignalText), also under Technical details. */
   signal?: string | null;
   onOpenFinding?: (findingId: number) => void;
+  /** AI-written lines (finding details only); the template shows until they arrive, and without them. */
+  ai?: FindingAIWording | null;
+  /** The AI lines are being written. */
+  aiPending?: boolean;
+  /** No AI provider is on and this person could turn one on: offer how, once. */
+  showAiHint?: boolean;
 }) {
   const [showDetails, setShowDetails] = useState(false);
-  const lines = plainLines(plain);
+  const [templateOnly, setTemplateOnly] = useState(false);
+  const written = hasAiLines(ai);
+  const lines = plainLines(plain, {}, written && !templateOnly ? ai : null);
   return (
     <Stack spacing={1.25} data-testid="finding-plain">
       <Typography variant="body2" sx={{ color: 'text.primary' }} data-testid="finding-plain-what">
@@ -86,6 +98,11 @@ export function PlainFindingSummary({
                 )}
               </Typography>
               <Typography component="dd" variant="body2" sx={{ m: 0, minWidth: 0 }}>
+                {line.ai ? (
+                  <Tooltip title={AI_LINE_HINT} enterTouchDelay={0}>
+                    <Chip label="AI" size="small" variant="outlined" color="info" tabIndex={0} data-testid="finding-plain-ai" sx={{ height: 18, fontSize: '0.65rem', mr: 0.75, verticalAlign: 1 }} />
+                  </Tooltip>
+                ) : null}
                 {line.text}
                 {line.findingId && onOpenFinding ? (
                   <Button size="small" onClick={() => onOpenFinding(line.findingId as number)} sx={{ textTransform: 'none', ml: 0.5, py: 0, minWidth: 0 }}>
@@ -97,6 +114,21 @@ export function PlainFindingSummary({
           ))}
         </Box>
       ) : null}
+      {aiPending ? (
+        <Stack direction="row" spacing={1} alignItems="center" data-testid="finding-plain-ai-pending">
+          <CircularProgress size={12} />
+          <Typography variant="caption" color="text.secondary">Writing for this finding...</Typography>
+        </Stack>
+      ) : null}
+      {written && ai ? (
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" data-testid="finding-plain-ai-footer">
+          <Typography variant="caption" color="text.secondary">{templateOnly ? 'Template wording' : aiFooter(ai)}</Typography>
+          <Button size="small" onClick={() => setTemplateOnly((value) => !value)} sx={{ textTransform: 'none', py: 0, minWidth: 0 }}>
+            {templateOnly ? 'Show AI wording' : 'Show template wording'}
+          </Button>
+        </Stack>
+      ) : null}
+      {showAiHint ? <EnableAiHint /> : null}
       <Box>
         <Button
           size="small"

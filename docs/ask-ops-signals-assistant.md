@@ -171,6 +171,9 @@ the UI shows this as an "AI-generated" vs. "Evidence summary (no AI)" label.
 
 ## Enabling Local AI
 
+AI is used in other places too (finding wording, recurring problems, ticket triage...): see
+[Where AI is used](ai-features.md).
+
 No API key, no cloud calls. Bundle a local model via Ollama:
 
 ```bash

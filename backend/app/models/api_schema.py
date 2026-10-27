@@ -219,6 +219,19 @@ class FindingFeedbackIn(BaseModel):
     verdict: Literal["real_problem", "expected_change", "not_a_problem"]
 
 
+class FindingAIWordingOut(BaseModel):
+    """AI-written lines for a finding's details (backend/app/services/finding_ai_wording.py). A None
+    line keeps the template. available is False when there is nothing to show, and reason says why:
+    ai_off (no AI provider), no_plain (the finding has no plain wording) or failed (the call failed)."""
+
+    available: bool
+    reason: Literal["ai_off", "no_plain", "failed"] | None = None
+    why: str | None = None
+    check_extra: str | None = None
+    related_extra: str | None = None
+    model: str | None = None
+
+
 class CaseCreateResponse(BaseModel):
     case_id: int
     finding_id: int | None = None

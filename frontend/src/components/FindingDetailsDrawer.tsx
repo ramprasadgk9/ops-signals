@@ -20,6 +20,7 @@ import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, suppo
 import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { testedCaption, testedHeadline, testedTooltip } from '../utils/findingTrust';
 import { customSettings } from '../utils/customSettings';
+import { useFindingAiWording } from '../hooks/useFindingAiWording';
 import { CustomSettingsBox } from './CustomSettingsBox';
 
 type Props = {
@@ -80,6 +81,8 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
     retry: false,
   });
 
+  const aiWording = useFindingAiWording(finding, open);
+
   const analysisRunQuery = useQuery({
     queryKey: ['finding-drawer-analysis-run', analysisRunId],
     queryFn: () => api.analysisRun(analysisRunId!),
@@ -134,9 +137,15 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
 
         <LinkedAlerts findingId={finding.id} />
 
-        <Box sx={{ mb: 3, p: 2, backgroundColor: 'var(--os-surface-alt)', borderRadius: 1 }}>
+        <Box sx={{ mb: 3, p: 2, backgroundColor: 'var(--os-surface-alt)', borderRadius: 1 }} data-testid="finding-details-plain">
           {finding.plain ? (
-            <PlainFindingSummary plain={finding.plain} summary={`${finding.title} ${finding.summary}`} />
+            <PlainFindingSummary
+              plain={finding.plain}
+              summary={`${finding.title} ${finding.summary}`}
+              ai={aiWording.ai}
+              aiPending={aiWording.aiPending}
+              showAiHint={aiWording.showAiHint}
+            />
           ) : (
             <Stack direction="row" spacing={0.75} alignItems="flex-start">
               {finding.ai_summary && (

@@ -148,6 +148,37 @@ those three.
 
 Times (`change_time`, `first_time`...) are shown in each reader's own time zone.
 
+## AI wording
+
+With an AI provider on ([Enabling Local AI](ask-ops-signals-assistant.md#enabling-local-ai)), a
+finding's **details** (web UI drawer, Grafana plugin evidence panel) get lines written for that
+metric and service. Cards, Slack messages and the assistant keep the template wording.
+
+| Line | What AI adds |
+|---|---|
+| **Why it matters** | Only for a metric with no `concept`: in place of the `unknown_meaning` sentence, what the metric likely is and what the change can mean. A metric with a concept keeps its template sentence. |
+| **What to check** | One more thing to check, after the template's own line. |
+| **Happened with** | One sentence after the first line, on what changes at the same moment often mean. The link to the other finding stays. |
+
+Each line the AI wrote has an **AI** chip, and **Show template wording** under the lines switches
+back. The lines are written the first time the details open (`GET /api/findings/{id}/ai-wording`),
+then saved with the finding (`ai_wording`), so later opens are instant and need no model call. The
+page shows the template while they're written and never waits for them.
+
+Before a line is kept it's checked against the finding's facts (`backend/app/services/finding_ai_wording.py`).
+A line is dropped, and the template stays, when it has a number, metric name or version that isn't
+in the facts, a time, a statistics word ("baseline", "anomaly") or "root cause", fewer than 4 or more
+than 45 words, or says nearly the same as the template. A failed call isn't saved, so the next open
+tries again.
+
+With AI off, nothing changes. Admins (everyone, with no sign-in) see a note under the lines once,
+with **How to turn it on** next to it, until they choose **Not now**.
+
+Why only metrics with no concept get a new "Why it matters": tried on real findings with a 4B local
+model, the rewrite of a known metric's sentence was often worse than the template (it described p95
+as the slowest request and guessed causes). For a metric the file doesn't describe, the template
+has nothing to say, and the AI's line was clearly better.
+
 ## When something is wrong
 
 - **A placeholder that isn't on the template's list** (a typo like `{befor}`) switches that template

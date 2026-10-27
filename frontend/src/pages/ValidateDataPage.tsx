@@ -46,6 +46,7 @@ import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions'
 import { LockNote } from '../components/LockNote';
 import { PlainBadge, PlainFindingSummary, PlainHeadline } from '../components/PlainFindingSummary';
 import { leadSignal, leadSignalText } from '../utils/findingPlain';
+import { useFindingAiWording } from '../hooks/useFindingAiWording';
 import { RouterDecisionPanel } from '../components/RouterDecisionPanel';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
@@ -533,6 +534,7 @@ export function ValidateDataPage() {
   const firstSample = previewSamples[0]?.timestamp;
   const lastSample = previewSamples[previewSamples.length - 1]?.timestamp;
   const primaryFinding = promResult?.findings[0];
+  const primaryAiWording = useFindingAiWording(primaryFinding);
   // The finding's own strongest signal, not just the run's first one.
   const primarySignal = promResult ? leadSignal(primaryFinding?.signal_ids, promResult.signals) : null;
   const dataQualityMessage = buildDataQualityMessage(promResult);
@@ -981,7 +983,7 @@ export function ValidateDataPage() {
 	                      {primaryFinding.plain ? <PlainBadge plain={primaryFinding.plain} /> : null}
 	                      <Typography sx={{ fontSize: 17, fontWeight: 900, color: ui.text }}>{primaryFinding.plain?.headline ?? primaryFinding.title}</Typography>
 	                      {primaryFinding.plain ? (
-	                        <PlainFindingSummary plain={primaryFinding.plain} summary={`${primaryFinding.title} ${primaryFinding.summary}`} signal={leadSignalText(primarySignal)} />
+	                        <PlainFindingSummary plain={primaryFinding.plain} summary={`${primaryFinding.title} ${primaryFinding.summary}`} signal={leadSignalText(primarySignal)} {...primaryAiWording} />
 	                      ) : (
 	                        <Typography sx={{ color: 'var(--os-text-2)', fontSize: 14, lineHeight: 1.55 }}>{primaryFinding.summary}</Typography>
 	                      )}

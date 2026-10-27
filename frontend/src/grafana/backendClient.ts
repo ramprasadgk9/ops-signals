@@ -46,6 +46,7 @@ import type {
   AmbiguousResolutionPayload,
 } from './contracts';
 import type { MetricSample } from './prometheusFrameNormalizer';
+import type { FindingAIWording } from '../types';
 
 export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
 
@@ -150,6 +151,11 @@ async function fetchJson<T>(baseUrl: string, path: string): Promise<T> {
     throw await buildRequestError(response);
   }
   return response.json() as Promise<T>;
+}
+
+/** AI-written lines for a finding's details (GET /api/findings/{id}/ai-wording). */
+export function getFindingAiWording(baseUrl: string, findingId: number): Promise<FindingAIWording> {
+  return fetchJson<FindingAIWording>(baseUrl, `/api/findings/${findingId}/ai-wording`);
 }
 
 async function postJson<T>(baseUrl: string, path: string, payload?: unknown): Promise<T> {

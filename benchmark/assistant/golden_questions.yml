@@ -53,6 +53,7 @@ questions:
     expect:
       - {source: README.md, section: "Optional: Enable Local AI"}
       - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
+      - {source: docs/ai-features.md, section: "Turn it on"}
 
   - id: default-ollama-model
     category: docs
@@ -60,6 +61,7 @@ questions:
     contains: ["qwen2.5:3b"]
     expect:
       - {source: README.md, section: "Optional: Enable Local AI"}
+      - {source: docs/ai-features.md, section: "Turn it on"}
 
   - id: assistant-api-key
     category: docs
