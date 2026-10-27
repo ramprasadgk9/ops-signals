@@ -170,7 +170,7 @@ def test_rca_suggest_falls_back_cleanly_when_ai_call_fails(client_factory) -> No
     app = client_factory(assistant=assistant, similarity_service=None)
 
     with TestClient(app) as client:
-        _seed_case(503, 503)
+        _seed_case(503, 503, notes=[{"timestamp": "2026-10-20T14:50:00", "note": "Rolled back the deploy."}])
         response = client.post("/api/cases/503/rca/suggest")
 
     assert response.status_code == 200
@@ -184,7 +184,7 @@ def test_rca_suggest_never_writes_to_the_case(client_factory) -> None:
     app = client_factory(assistant=assistant, similarity_service=None)
 
     with TestClient(app) as client:
-        _seed_case(504, 504)
+        _seed_case(504, 504, notes=[{"timestamp": "2026-10-20T14:50:00", "note": "Rolled back the deploy."}])
         client.post("/api/cases/504/rca/suggest")
         case_after = client.get("/api/cases/504").json()
 
@@ -221,7 +221,7 @@ def test_resolution_suggest_unavailable_when_no_material_to_draft_from(client_fa
 
 
 def test_resolution_suggest_returns_draft_when_assistant_available(client_factory) -> None:
-    fake_client = _ScriptedClient(response_text="Rolled back the offending deploy; CPU usage returned to baseline.")
+    fake_client = _ScriptedClient(response_text='{"outcome_summary": "Rolled back the offending deploy; CPU usage returned to normal.", "corrective_action": "Rolled back the deploy."}')
     assistant = _assistant_with(fake_client)
     app = client_factory(assistant=assistant)
 
@@ -238,11 +238,12 @@ def test_resolution_suggest_returns_draft_when_assistant_available(client_factor
     assert response.status_code == 200
     body = response.json()
     assert body["available"] is True
-    assert body["draft"] == "Rolled back the offending deploy; CPU usage returned to baseline."
+    assert body["draft"] == "Rolled back the offending deploy; CPU usage returned to normal."
+    assert body["corrective_action"] == "Rolled back the deploy."
 
 
 def test_resolution_suggest_never_writes_to_the_case(client_factory) -> None:
-    fake_client = _ScriptedClient(response_text="Draft resolution.")
+    fake_client = _ScriptedClient(response_text='{"outcome_summary": "Draft resolution here.", "corrective_action": null}')
     assistant = _assistant_with(fake_client)
     app = client_factory(assistant=assistant)
 
@@ -314,12 +315,11 @@ def test_suggest_rca_includes_external_ticket_comments(client_factory) -> None:
     assert response.json()["available"] is True
     assert len(fake_client.calls) == 1
     evidence_sent = "\n".join(m.content for m in fake_client.calls[0].messages)
-    assert "External team notes from Jira/ticketing:" in evidence_sent
-    assert "[Senior SRE]: Connection pool leak verified" in evidence_sent
+    assert "Ticket comment by Senior SRE: Connection pool leak verified" in evidence_sent
 
 
 def test_suggest_resolution_includes_external_ticket_comments(client_factory) -> None:
-    fake_client = _ScriptedClient(response_text="Suggested resolution from ticket notes.")
+    fake_client = _ScriptedClient(response_text='{"outcome_summary": "Suggested resolution from ticket notes.", "corrective_action": null}')
     assistant = _assistant_with(fake_client)
     app = client_factory(assistant=assistant)
 
@@ -349,8 +349,7 @@ def test_suggest_resolution_includes_external_ticket_comments(client_factory) ->
     assert response.json()["available"] is True
     assert len(fake_client.calls) == 1
     evidence_sent = "\n".join(m.content for m in fake_client.calls[0].messages)
-    assert "External team notes from Jira/ticketing:" in evidence_sent
-    assert "[OnCall Engineer]: Applied hotfix PR #123" in evidence_sent
+    assert "Ticket comment by OnCall Engineer: Applied hotfix PR #123" in evidence_sent
 
 
 
@@ -360,8 +359,158 @@ def test_rca_suggest_does_not_offer_a_broken_model_reply_as_a_draft(client_facto
     app = client_factory(assistant=assistant, similarity_service=None)
 
     with TestClient(app) as client:
-        _seed_case(512, 512)
+        _seed_case(512, 512, notes=[{"timestamp": "2026-10-20T14:50:00", "note": "Rolled back the deploy."}])
         body = client.post("/api/cases/512/rca/suggest").json()
 
     assert body["available"] is False
     assert not body.get("draft")
+
+
+# --- What a draft is written from, and what it may say --------------------------------------
+
+
+def test_rca_suggest_says_not_enough_instead_of_guessing_from_the_finding_alone(client_factory) -> None:
+    fake_client = _ScriptedClient(response_text="Should never be called.")
+    app = client_factory(assistant=_assistant_with(fake_client), similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(520, 520)
+        body = client.post("/api/cases/520/rca/suggest").json()
+
+    assert body["available"] is False
+    assert body["reason_code"] == "not_enough"
+    assert fake_client.calls == []
+
+
+def test_suggest_says_ai_off_with_a_code(client_factory) -> None:
+    app = client_factory(assistant=None)
+
+    with TestClient(app) as client:
+        _seed_case(521, 521, notes=[{"timestamp": "t", "note": "Rolled back."}])
+        assert client.post("/api/cases/521/rca/suggest").json()["reason_code"] == "ai_off"
+        assert client.post("/api/cases/521/resolution/suggest").json()["reason_code"] == "ai_off"
+
+
+def test_rca_suggest_lists_the_facts_it_was_written_from(client_factory) -> None:
+    fake_client = _ScriptedClient(response_text="A retry loop may not release connections, from the note.")
+    app = client_factory(assistant=_assistant_with(fake_client), similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(522, 522, notes=[{"timestamp": "2026-10-20T14:35:00", "note": "Retry loop doesn't release connections on timeout."}])
+        body = client.post("/api/cases/522/rca/suggest").json()
+
+    assert body["available"] is True
+    kinds = [source["kind"] for source in body["sources"]]
+    assert kinds == ["finding", "note"]
+    note = body["sources"][1]
+    assert note["label"] == "Note, Oct 20, 14:35 UTC"
+    assert note["detail"] == "Retry loop doesn't release connections on timeout."
+    evidence_sent = fake_client.calls[0].messages[1].content
+    assert "Investigation note (Oct 20, 14:35 UTC): Retry loop" in evidence_sent
+
+
+def test_rca_suggest_includes_the_matched_deploy(client_factory, monkeypatch) -> None:
+    from backend.app.services import case_ai_drafts
+
+    def matched(_db, findings, _config):
+        return {
+            findings[0].id: {
+                "status": "matched",
+                "matches": [{"event_type": "deploy", "version": "v2.3", "timestamp": "2026-10-20T14:05:00+00:00", "minutes_before_anchor": 7.0, "description": None}],
+            }
+        }
+
+    monkeypatch.setattr(case_ai_drafts, "finding_changes", matched)
+    fake_client = _ScriptedClient(response_text="CPU rose about 7 minutes after the v2.3 deploy; the cause is not recorded yet.")
+    app = client_factory(assistant=_assistant_with(fake_client), similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(523, 523)
+        body = client.post("/api/cases/523/rca/suggest").json()
+
+    assert body["available"] is True
+    assert body["draft"] == "CPU rose about 7 minutes after the v2.3 deploy; the cause is not recorded yet."
+    deploy = next(source for source in body["sources"] if source["kind"] == "deploy")
+    assert deploy["label"] == "Change: deploy v2.3"
+    assert "Change on checkout-api: deploy v2.3 at Oct 20, 14:05 UTC, 7 minutes before the metric changed" in fake_client.calls[0].messages[1].content
+
+
+def test_rca_suggest_drops_a_sentence_with_a_made_up_version(client_factory) -> None:
+    reply = "A retry loop may not release connections, from the note. It was likely added in v4.1."
+    app = client_factory(assistant=_assistant_with(_ScriptedClient(response_text=reply)), similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(524, 524, notes=[{"timestamp": "t", "note": "Retry loop doesn't release connections."}])
+        body = client.post("/api/cases/524/rca/suggest").json()
+
+    assert body["draft"] == "A retry loop may not release connections, from the note."
+
+
+def test_rca_suggest_fails_when_every_sentence_is_dropped(client_factory) -> None:
+    reply = "The pool is definitely too small at 200 connections."
+    app = client_factory(assistant=_assistant_with(_ScriptedClient(response_text=reply)), similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(525, 525, notes=[{"timestamp": "t", "note": "Pool exhausted."}])
+        body = client.post("/api/cases/525/rca/suggest").json()
+
+    assert body["available"] is False
+    assert body["reason_code"] == "failed"
+
+
+def test_resolution_suggest_counts_a_non_json_reply_as_failed(client_factory) -> None:
+    app = client_factory(assistant=_assistant_with(_ScriptedClient(response_text="Rolled back, all good.")))
+
+    with TestClient(app) as client:
+        _seed_case(526, 526, notes=[{"timestamp": "t", "note": "Rolled back."}])
+        body = client.post("/api/cases/526/resolution/suggest").json()
+
+    assert body["available"] is False
+    assert body["reason_code"] == "failed"
+
+
+def test_resolution_suggest_is_written_from_the_saved_root_cause_and_notes(client_factory) -> None:
+    reply = '{"outcome_summary": "Rolled back; CPU normal again.", "corrective_action": "Rolled back. Still open: fix the busy loop before redeploying."}'
+    fake_client = _ScriptedClient(response_text=reply)
+    app = client_factory(assistant=_assistant_with(fake_client))
+
+    with TestClient(app) as client:
+        _seed_case(527, 527, notes=[{"timestamp": "t", "note": "Rolled back, CPU normal."}], root_cause_summary="A busy loop in the new deploy.")
+        body = client.post("/api/cases/527/resolution/suggest").json()
+
+    assert body["corrective_action"] == "Rolled back. Still open: fix the busy loop before redeploying."
+    assert [source["kind"] for source in body["sources"]] == ["note", "root_cause"]
+    assert "Saved root cause: A busy loop in the new deploy." in fake_client.calls[0].messages[1].content
+
+
+@pytest.mark.parametrize(
+    ("text", "kept"),
+    [
+        ("Rolled back v2.3 at 14:50. Pool was 200.", "Rolled back v2.3 at 14:50."),
+        ("Same as case #118. Also seen in #119.", "Same as case #118."),
+        ("It is definitely the retry loop. It may be the retry loop.", "It may be the retry loop."),
+        ("db_pool_size is too small.", None),
+        ("", None),
+    ],
+)
+def test_check_draft(text: str, kept: str | None) -> None:
+    from backend.app.services.case_ai_drafts import check_draft
+
+    facts = "Change: deploy v2.3 at Oct 20, 14:05 UTC\nNote (Oct 20, 14:50 UTC): rolled back\nSimilar past case #118"
+    assert check_draft(text, facts) == kept
+
+
+@pytest.mark.parametrize(
+    ("text", "kept"),
+    [
+        ("Rolled back. The validation was removed.", "Rolled back."),
+        ("Rolled back. Still open: fix the validation.", "Rolled back. Still open: fix the validation."),
+        ("Increased the pool size.", None),
+    ],
+)
+def test_check_draft_drops_a_fix_nobody_recorded(text: str, kept: str | None) -> None:
+    from backend.app.services.case_ai_drafts import check_draft
+
+    facts = "Ticket comment by Sam: the new release added a JSON validation, we need to fix it.\nInvestigation note: Rolled back."
+    assert check_draft(text, facts, actions=True) == kept
+    assert check_draft("The validation was removed.", facts) == "The validation was removed."

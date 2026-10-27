@@ -303,22 +303,38 @@ class ResolutionUpdateRequest(BaseModel):
     resolved_by: str | None = None
 
 
+class CaseDraftSource(BaseModel):
+    """One fact a draft was written from, shown under the box so the person can check it."""
+
+    kind: Literal["finding", "deploy", "ticket", "note", "ticket_comment", "similar_case", "root_cause", "corrective_action"]
+    label: str
+    detail: str | None = None
+
+
+DraftReasonCode = Literal["ai_off", "not_enough", "failed"]
+
+
 class RCADraftOut(BaseModel):
     """A suggested-only draft; never written to the case. Use PATCH /rca to actually save one."""
 
     available: bool
     draft: str | None = None
     based_on_similar_cases: list[int] = Field(default_factory=list)
+    sources: list[CaseDraftSource] = Field(default_factory=list)
     reason: str | None = None
+    reason_code: DraftReasonCode | None = None
 
 
 class ResolutionDraftOut(BaseModel):
     """A suggested-only draft reformatting of the case's own notes; never written to the case.
-    Use PATCH /resolution to actually save one."""
+    Use PATCH /resolution to actually save one. `draft` is the outcome summary."""
 
     available: bool
     draft: str | None = None
+    corrective_action: str | None = None
+    sources: list[CaseDraftSource] = Field(default_factory=list)
     reason: str | None = None
+    reason_code: DraftReasonCode | None = None
 
 
 class LearningOutcomeCreateRequest(BaseModel):

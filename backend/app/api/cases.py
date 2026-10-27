@@ -14,7 +14,7 @@ from backend.app.api.assistant import get_assistant
 from backend.app.api.memory import get_memory_config, get_memory_indexer, get_similarity_service
 from backend.app.api.ticketing import get_ticketing_service
 from backend.app.assistant.service import OperationalIntelligenceAssistant
-from backend.app.config import MemoryConfig
+from backend.app.config import AlertEnrichmentConfig, MemoryConfig, get_alert_enrichment_config
 from backend.app.integrations.ticketing.service import CaseTicketing
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.similarity_service import SimilarityService
@@ -30,6 +30,7 @@ from backend.app.models.api_schema import (
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.analyzer_learning_service import AnalyzerLearningService, LearningOutcomeError
+from backend.app.services.case_ai_drafts import RCA_INSTRUCTION, check_draft, rca_facts, resolution_facts, write_resolution
 from backend.app.services.case_status import CLOSING_OUTCOMES, derive_case_status, sync_case_status
 
 logger = logging.getLogger(__name__)
@@ -405,22 +406,8 @@ def update_root_cause_analysis(
     return _to_case_out(case)
 
 
-def _append_external_comments(
-    evidence_lines: list[str],
-    case_id: int,
-    ticketing_service: CaseTicketing | None,
-) -> None:
-    """Appends external team comments from ticketing to the AI analysis evidence lines if available."""
-    if not ticketing_service:
-        return
-    try:
-        external_comments = ticketing_service.get_external_comments_for_analysis(case_id)
-        if external_comments:
-            evidence_lines.append(
-                "External team notes from Jira/ticketing:\n" + "\n".join(external_comments)
-            )
-    except Exception as exc:
-        logger.warning("Failed to fetch external comments for case %s: %s", case_id, exc)
+_AI_OFF = "AI assistance is not configured"
+_FAILED = "AI draft generation failed"
 
 
 @router.post("/{case_id}/rca/suggest", response_model=RCADraftOut)
@@ -430,65 +417,34 @@ def suggest_root_cause_analysis(
     assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
     similarity_service: SimilarityService | None = Depends(get_similarity_service),
     ticketing_service: CaseTicketing | None = Depends(get_ticketing_service),
+    change_config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
 ) -> RCADraftOut:
-    """Draft-only RCA hypothesis from this case's own evidence plus similar past cases' resolutions.
-    Never writes anything - PATCH /rca is still the only way to actually save an RCA. Returns
-    available=False (not a fabricated draft) whenever AI is off or a call fails."""
+    """Draft-only RCA hypothesis written up from what the case holds (case_ai_drafts.py). Never
+    writes anything - PATCH /rca is still the only way to actually save an RCA. Returns
+    available=False (not a fabricated draft) whenever AI is off, nobody has recorded anything to
+    draft from, or a call fails."""
     case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     if not assistant or not assistant.services.ai_services:
-        return RCADraftOut(available=False, reason="AI assistance is not configured")
+        return RCADraftOut(available=False, reason=_AI_OFF, reason_code="ai_off")
 
-    snapshot = case.finding_snapshot or {}
-    evidence_lines = [
-        f"Case title: {case.case_title}",
-        f"Service: {snapshot.get('service', 'unknown')}",
-        f"Metric: {snapshot.get('metric_name', 'unknown')}",
-        f"Finding category: {snapshot.get('category', 'unknown')}",
-        f"Finding summary: {snapshot.get('summary', '')}",
-        f"Comparison data: {snapshot.get('comparison_json', {})}",
-    ]
-    if case.investigation_notes:
-        notes_text = "; ".join(note.get("note", "") for note in case.investigation_notes)
-        evidence_lines.append(f"Investigation notes so far: {notes_text}")
-
-    _append_external_comments(evidence_lines, case_id, ticketing_service)
-
-    similar_case_ids: list[int] = []
-    if similarity_service:
-        try:
-            similar = similarity_service.find_similar_cases(case_id, db, top_k=3)
-        except Exception:
-            similar = None
-        if similar:
-            for match in similar.matches:
-                if match.root_cause_summary:
-                    similar_case_ids.append(match.case_id)
-                    evidence_lines.append(
-                        f"Similar past case (service={match.service}, metric={match.metric_name}): "
-                        f"root cause was '{match.root_cause_summary}'"
-                        + (f", fixed by '{match.corrective_action}'" if match.corrective_action else "")
-                    )
-
-    try:
-        draft = synthesize_narrative(
-            assistant.services.ai_services,
-            instruction=(
-                "Suggest a possible root cause hypothesis for this operational case in 2-4 sentences, "
-                "for an on-call engineer to verify - not a confirmed answer. Use ONLY the evidence and "
-                "similar-case history given; if similar cases are present, you may draw on their root "
-                "causes as hypotheses but say so explicitly. Do not invent facts not present in the evidence."
-            ),
-            evidence_text="\n".join(evidence_lines),
-            max_tokens=200,
+    facts = rca_facts(case, db, ticketing=ticketing_service, similarity=similarity_service, change_config=change_config)
+    if not facts.has_material:
+        return RCADraftOut(
+            available=False,
+            reason="Nothing on this case to draft from yet: no notes, ticket comments, matched deploy or similar past case",
+            reason_code="not_enough",
+            sources=facts.sources,
         )
+    try:
+        draft = synthesize_narrative(assistant.services.ai_services, instruction=RCA_INSTRUCTION, evidence_text=facts.text, max_tokens=200)
     except Exception:
         draft = None
-
+    draft = check_draft(draft, facts.text)
     if not draft:
-        return RCADraftOut(available=False, reason="AI draft generation failed")
-    return RCADraftOut(available=True, draft=draft, based_on_similar_cases=similar_case_ids)
+        return RCADraftOut(available=False, reason=_FAILED, reason_code="failed")
+    return RCADraftOut(available=True, draft=draft, based_on_similar_cases=facts.similar_case_ids, sources=facts.sources)
 
 
 @router.post("/{case_id}/resolution/suggest", response_model=ResolutionDraftOut)
@@ -498,47 +454,26 @@ def suggest_resolution_summary(
     assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
     ticketing_service: CaseTicketing | None = Depends(get_ticketing_service),
 ) -> ResolutionDraftOut:
-    """Draft-only resolution summary reformatting the case's own investigation notes, RCA, and
-    corrective action. Never writes anything - PATCH /resolution is still the only way to actually
-    save an outcome. Returns available=False (not a fabricated draft) whenever AI is off, there is
-    no material to draft from, or a call fails."""
+    """Draft-only outcome summary and corrective action from the case's own notes, ticket comments
+    and saved root cause. Never writes anything - PATCH /resolution is still the only way to
+    actually save an outcome. Returns available=False (not a fabricated draft) whenever AI is off,
+    there is no material to draft from, or a call fails."""
     case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     if not assistant or not assistant.services.ai_services:
-        return ResolutionDraftOut(available=False, reason="AI assistance is not configured")
+        return ResolutionDraftOut(available=False, reason=_AI_OFF, reason_code="ai_off")
 
-    evidence_lines = [f"Case title: {case.case_title}"]
-    if case.investigation_notes:
-        notes_text = "; ".join(note.get("note", "") for note in case.investigation_notes)
-        evidence_lines.append(f"Investigation notes: {notes_text}")
-    if case.root_cause_summary:
-        evidence_lines.append(f"Root cause: {case.root_cause_summary}")
-    if case.corrective_action:
-        evidence_lines.append(f"Corrective action taken: {case.corrective_action}")
-
-    _append_external_comments(evidence_lines, case_id, ticketing_service)
-
-    if len(evidence_lines) == 1:
-        return ResolutionDraftOut(available=False, reason="No investigation notes, root cause, or corrective action recorded yet")
-
+    facts = resolution_facts(case, db, ticketing=ticketing_service)
+    if not facts.has_material:
+        return ResolutionDraftOut(available=False, reason="No investigation notes, root cause, or corrective action recorded yet", reason_code="not_enough")
     try:
-        draft = synthesize_narrative(
-            assistant.services.ai_services,
-            instruction=(
-                "Reformat these case notes into a clear, concise resolution summary (2-4 sentences) "
-                "suitable for a case's outcome record. Use ONLY the notes given - do not invent facts, "
-                "root causes, or fixes not present in the evidence."
-            ),
-            evidence_text="\n".join(evidence_lines),
-            max_tokens=180,
-        )
+        draft = write_resolution(assistant.services.ai_services, facts)
     except Exception:
         draft = None
-
-    if not draft:
-        return ResolutionDraftOut(available=False, reason="AI draft generation failed")
-    return ResolutionDraftOut(available=True, draft=draft)
+    if not draft or not (draft["outcome_summary"] or draft["corrective_action"]):
+        return ResolutionDraftOut(available=False, reason=_FAILED, reason_code="failed")
+    return ResolutionDraftOut(available=True, draft=draft["outcome_summary"], corrective_action=draft["corrective_action"], sources=facts.sources)
 
 
 @router.patch("/{case_id}/resolution", response_model=CaseOut)

@@ -127,14 +127,14 @@ def check_line(text: str | None, facts: dict[str, Any], template: str | None) ->
         return None
     line = " ".join(text.split())
     allowed = " ".join(str(value) for value in facts.values() if value).lower()
-    allowed_numbers = {_normal_number(number) for number in _NUMBER.findall(allowed)}
+    allowed_numbers = numbers_in(allowed)
     words = len(_WORD.findall(line))
     problem = None
     if words < MIN_WORDS or words > MAX_WORDS:
         problem = f"{words} words"
-    elif bad := [number for number in _NUMBER.findall(line) if _normal_number(number) not in allowed_numbers]:
+    elif bad := unknown_numbers(line, allowed_numbers):
         problem = f"numbers not in the facts: {bad}"
-    elif bad := [name for name in _IDENTIFIER.findall(line) if name.lower() not in allowed and name.lower() not in _ABBREVIATIONS]:
+    elif bad := unknown_names(line, allowed):
         problem = f"names not in the facts: {bad}"
     elif match := _TIME.search(line):
         problem = f"a time: {match.group(0)!r}"
@@ -146,6 +146,20 @@ def check_line(text: str | None, facts: dict[str, Any], template: str | None) ->
         logger.info("AI wording line dropped (%s): %r", problem, line[:160])
         return None
     return line
+
+
+def numbers_in(text: str) -> set[str]:
+    return {_normal_number(number) for number in _NUMBER.findall(text)}
+
+
+def unknown_numbers(line: str, allowed_numbers: set[str]) -> list[str]:
+    """Numbers in a model's line that the facts don't have."""
+    return [number for number in _NUMBER.findall(line) if _normal_number(number) not in allowed_numbers]
+
+
+def unknown_names(line: str, allowed_lower: str) -> list[str]:
+    """snake_case, dotted names and versions in a model's line that the (lowercased) facts don't have."""
+    return [name for name in _IDENTIFIER.findall(line) if name.lower() not in allowed_lower and name.lower() not in _ABBREVIATIONS]
 
 
 def _normal_number(number: str) -> str:

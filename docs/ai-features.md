@@ -20,7 +20,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 | [Autonomous run questions](#autonomous-run-questions) | Plugin Ask Ops Signals panel | Each question |
 | [Analyzer recommendation](#analyzer-recommendation) | Analyzer Recommendation | Each recommendation |
 | [Docs check questions](#docs-check-questions) | Assistant → Docs check (admins) | On click |
-| [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | API and MCP only | On request |
+| [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | Case → Root Cause, Resolution | On click |
 
 Each feature below says what AI adds and what you see without it.
 
@@ -92,10 +92,11 @@ Each feature below says what AI adds and what you see without it.
 
 ### Root cause and resolution drafts
 
-- **AI adds:** `POST /api/cases/{id}/rca/suggest` drafts a root cause from the case and similar past
-  cases; `/resolution/suggest` drafts a resolution summary from its notes. Never saved. No button
-  in the UI yet.
-- **Without AI:** `available: false`.
+- **AI adds:** **Draft from case** on a case's Root Cause tab fills the summary from the notes,
+  ticket comments, matched deploy and similar past cases; on the Resolution tab it fills the outcome
+  summary and corrective action. Shows what it was drafted from, never saves. Details:
+  [AI drafts](operational-cases.md#ai-drafts-on-the-root-cause-and-resolution-tabs).
+- **Without AI:** no button; the boxes work as before. Admins see once how to turn AI on.
 
 ## Never AI-written
 

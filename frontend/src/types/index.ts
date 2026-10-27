@@ -295,6 +295,28 @@ export type FindingAIWording = {
   model?: string | null;
 };
 
+/** One fact a case draft was written from (backend/app/services/case_ai_drafts.py). */
+export type CaseDraftSource = {
+  kind: 'finding' | 'deploy' | 'ticket' | 'note' | 'ticket_comment' | 'similar_case' | 'root_cause' | 'corrective_action';
+  label: string;
+  detail?: string | null;
+};
+
+/** "Draft from case" on the Root Cause tab. Never saved; `reason_code` says why there is none. */
+export type CaseRcaDraft = {
+  available: boolean;
+  draft?: string | null;
+  based_on_similar_cases?: number[];
+  sources?: CaseDraftSource[];
+  reason?: string | null;
+  reason_code?: 'ai_off' | 'not_enough' | 'failed' | null;
+};
+
+/** "Draft from case" on the Resolution tab: `draft` is the outcome summary. */
+export type CaseResolutionDraft = Omit<CaseRcaDraft, 'based_on_similar_cases'> & {
+  corrective_action?: string | null;
+};
+
 export type FindingVerdict = 'real_problem' | 'expected_change' | 'not_a_problem';
 
 export type FindingTrustGroup = 'data_problem' | 'level_change_agree' | 'level_change_single' | 'spike' | 'pattern';

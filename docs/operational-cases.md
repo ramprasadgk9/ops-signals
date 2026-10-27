@@ -21,6 +21,33 @@ stateDiagram-v2
 4. Corrective action and outcome are recorded.
 5. The case is indexed into Qdrant for future retrieval.
 
+## AI drafts on the Root Cause and Resolution tabs
+
+With an AI provider on, both tabs have a **Draft from case** button for Editors. It fills the box
+from what the case already holds; it never decides a cause on its own and never saves.
+
+- **Root Cause** drafts the summary from the finding, the deploy matched to it, investigation notes,
+  ticket comments and how up to 3 similar past cases were fixed. If nobody recorded a cause, the
+  draft says so instead of guessing.
+- **Resolution** drafts the outcome summary and the corrective action from the notes, ticket
+  comments and the saved root cause. When the problem stopped (a rollback, a restart) but the cause
+  wasn't fixed, the corrective action can end with "Still open: …".
+- Under the box, **Drafted from this case** lists the facts the draft was written from; **Undo
+  draft** puts back what was there. A box with text asks before it is replaced.
+- Status, Confidence, Verified, Outcome Status and Learning Outcome are never filled in. The tab's
+  usual Save button saves the text.
+- Before a draft is shown, a sentence is dropped if it names a number, version or name not in the
+  case, says it is certain, or (Resolution only) says something was removed, fixed or changed when
+  the case never says so. If nothing is left, the tab says it couldn't write a draft.
+- With nothing on the case to draft from (no notes, ticket comments, matched deploy or similar past
+  case), the button says so. With AI off there's no button; admins see once how to turn AI on.
+
+How well a draft reads depends on the model: tried on a laptop with gemma3:4b and llama3.1:8b,
+drafts were sometimes empty or too general, which is why each one is a draft to check.
+
+API: `POST /api/cases/{case_id}/rca/suggest` and `/resolution/suggest` return `available`, the
+draft, `sources` and, when there is none, `reason_code` (`ai_off`, `not_enough` or `failed`).
+
 ## Case Fields
 
 - investigation status
@@ -47,7 +74,7 @@ When an operational case is linked to an external ticketing provider (e.g., Jira
    - Automatically advances `investigation_status` from `not_started` to `in_progress`.
    - If the case was previously indexed in operational memory, flags `memory_status = "stale"` to ensure vector embeddings stay synchronized with PostgreSQL.
    - Enforces idempotency to prevent duplicate notes.
-3. **AI Root Cause & Resolution Enrichment**: AI suggestion endpoints (`/api/cases/{case_id}/rca/suggest` and `/api/cases/{case_id}/resolution/suggest`) dynamically ingest external team observations from ticketing, filtering out already-promoted comments to eliminate duplicate tokens while capturing active incident context.
+3. **AI Root Cause & Resolution drafts**: the drafts (see [AI drafts](#ai-drafts-on-the-root-cause-and-resolution-tabs)) include ticket comments not yet promoted to notes, so a promoted comment isn't sent twice.
 4. **Zero-Click AI Comment Relevance Triage**:
    - Automated evaluation: When new comments arrive via periodic synchronization or inbound webhooks, `CommentTriageService` evaluates unpromoted comments against case telemetry using structured AI output (`CommentTriageEvaluation`).
    - High-confidence operational clues (`is_relevant_clue=True`, `confidence >= 0.75`) detailing diagnostic discoveries, root cause hypotheses, or remediation actions are automatically promoted into case notes with provenance `[{PROVIDER} clue from {Author} (AI auto-promoted)]: {summary}`.

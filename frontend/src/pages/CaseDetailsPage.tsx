@@ -51,6 +51,8 @@ import { CaseTicketCard } from '../components/CaseTicketCard';
 import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { findingLevel } from '../utils/findingLevel';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
+import { CaseDraftButton, CaseDraftNotes, useAiActive, useCaseDraft } from '../components/CaseAiDraft';
+import { EnableAiHint } from '../components/EnableAiHint';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -94,7 +96,7 @@ function workflowState(label: string, done: boolean, active: boolean) {
 
 export function CaseDetailsPage() {
   const { caseId } = useParams<{ caseId: string }>();
-  const { canEdit } = useWebPermissions();
+  const { canEdit, canAdmin } = useWebPermissions();
   const [tabValue, setTabValue] = useState(0);
   const queryClient = useQueryClient();
   const [initialized, setInitialized] = useState(false);
@@ -109,6 +111,16 @@ export function CaseDetailsPage() {
   const [outcomeSummary, setOutcomeSummary] = useState('');
   const [correctiveAction, setCorrectiveAction] = useState('');
   const [learningOutcomeStatus, setLearningOutcomeStatus] = useState('');
+
+  const aiActive = useAiActive();
+  const rcaDraft = useCaseDraft(() => api.suggestRca(parseInt(caseId || '0')), [
+    { value: rcaSummary, set: setRcaSummary, pick: (draft) => draft.draft },
+  ]);
+  const resolutionDraft = useCaseDraft(() => api.suggestResolution(parseInt(caseId || '0')), [
+    { value: outcomeSummary, set: setOutcomeSummary, pick: (draft) => draft.draft },
+    { value: correctiveAction, set: setCorrectiveAction, pick: (draft) => draft.corrective_action },
+  ]);
+  const showDrafts = canEdit && aiActive;
 
   const caseQuery = useQuery({
     queryKey: ['case', caseId],
@@ -182,6 +194,7 @@ export function CaseDetailsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      rcaDraft.clear();
     },
   });
 
@@ -198,6 +211,7 @@ export function CaseDetailsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['case', caseId] });
+      resolutionDraft.clear();
     },
   });
 
@@ -611,7 +625,7 @@ export function CaseDetailsPage() {
                   <Typography variant="h6" sx={{ mb: 2 }}>
                     Comparison details
                   </Typography>
-                  <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 2, overflowX: 'auto' }}>
+                  <Box sx={{ bgcolor: 'action.hover', p: 2, borderRadius: 2, overflowX: 'auto' }}>
                     <Typography variant="caption" component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
                       {JSON.stringify(finding.comparison_json, null, 2)}
                     </Typography>
@@ -677,7 +691,7 @@ export function CaseDetailsPage() {
                   ) : (
                     <Stack spacing={1}>
                       {caseData.investigation_notes.map((note, index) => (
-                        <Box key={index} sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 2 }}>
+                        <Box key={index} sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 2 }}>
                           <Typography variant="caption" color="text.secondary">
                             {note.timestamp ? new Date(note.timestamp).toLocaleString() : 'No timestamp'}
                           </Typography>
@@ -728,6 +742,7 @@ export function CaseDetailsPage() {
                       </Select>
                     </FormControl>
 
+                    {showDrafts ? <CaseDraftButton draft={rcaDraft} /> : null}
                     <TextField
                       label="Root cause summary"
                       multiline
@@ -737,6 +752,10 @@ export function CaseDetailsPage() {
                       placeholder="Example: traffic spike caused CPU saturation after the checkout deployment increased request volume."
                       helperText="Write the operational reason, not just the metric symptom."
                     />
+                    <CaseDraftNotes draft={rcaDraft} after="set Status and Confidence yourself" />
+                    {!aiActive && canAdmin ? (
+                      <EnableAiHint text="Turn on AI to draft the root cause from this case's notes, ticket comments and matched deploy." title="Turn on AI drafts" />
+                    ) : null}
 
                     <TextField
                       label="Confidence (0-1)"
@@ -809,6 +828,7 @@ export function CaseDetailsPage() {
                   </Select>
                 </FormControl>
 
+                {showDrafts ? <CaseDraftButton draft={resolutionDraft} /> : null}
                 <TextField
                   label="Outcome summary"
                   multiline
@@ -824,6 +844,7 @@ export function CaseDetailsPage() {
                   value={correctiveAction}
                   onChange={(e) => setCorrectiveAction(e.target.value)}
                 />
+                <CaseDraftNotes draft={resolutionDraft} after="pick the Outcome Status yourself" />
 
                 {resolutionRequiresLearningOutcome ? (
                   <FormControl fullWidth required error={!learningOutcomeStatus}>

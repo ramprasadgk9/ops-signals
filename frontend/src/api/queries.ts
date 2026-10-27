@@ -81,6 +81,8 @@ import type {
   CaseImportBatch,
   AIStatus,
   FindingAIWording,
+  CaseRcaDraft,
+  CaseResolutionDraft,
   AITestResult,
   CaseImportPreview,
   CaseImportProfiles,
@@ -292,6 +294,8 @@ export const api = {
     caseId: number,
     payload: { outcome_status: string; outcome_summary?: string; corrective_action?: string; learning_outcome_status?: string }
   ) => patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/resolution`, payload),
+  suggestRca: (caseId: number) => postJson<Record<string, never>, CaseRcaDraft>(`/api/cases/${caseId}/rca/suggest`, {}),
+  suggestResolution: (caseId: number) => postJson<Record<string, never>, CaseResolutionDraft>(`/api/cases/${caseId}/resolution/suggest`, {}),
   
   // Ticketing API calls
   getCaseTicket: (caseId: number) => getJson<CaseTicketLink | null>(`/api/cases/${caseId}/ticket`),
