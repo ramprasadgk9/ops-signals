@@ -7,20 +7,95 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 
 ## The list
 
-| Area | Where you see it | What AI adds | Without AI | When the model runs |
-|---|---|---|---|---|
-| **Finding wording** | Finding details (Findings → View details), Validate Data's Finding Summary, the plugin's evidence panel | **What to check**: one more thing to check, after the template's line. **Happened with**: one sentence after the first line. **Why it matters**: only for a metric the wording file doesn't describe, in place of "We don't know what this metric means". Lines carry an **AI** chip; **Show template wording** switches back. See [AI wording](finding-wording.md#ai-wording). | The template lines from `config/finding_templates.yaml`. Admins see once how to turn AI on. | First open of a finding's details; saved |
-| **Finding summary** | Finding cards and details, for a finding with no plain wording | A plain rewrite of the stored summary, with an **AI** chip | The stored summary | First open of its details; saved |
-| **Combined patterns** | Behavior Intelligence → Detected; combined patterns on Findings | A plain explanation of why the pattern matched | The pattern's summary | When the list loads, for each match not explained yet (the list waits for them); saved |
-| **Suggested fixes** | Finding details → Seen before? → **Draft a runbook** | A runbook draft from the fixes that worked, citing the cases. Never saved. | "AI assistance is not configured." under the button | On click |
-| **Recurring problems** | Recurring Problems list | A name for each group ("DB pool runs out after deploys") | The group's central case title | Each page load, one call for all groups |
-| **Recurring problems lookup** | Recurring Problems → lookup → **Raw activity** | 1-2 sentences on repeated activity that never became a case, with an **AI** chip | The counts and recent titles | Each lookup |
-| **Ticket comments** | Case → ticket card → **⚡ AI Triage**; also on ticket sync and ticket webhooks | Picks the comments that matter operationally and adds them to the case notes | Comments stay on the ticket | On click, sync and webhook |
-| **Ask Ops Signals** | Web UI Assistant page | A 1-3 sentence answer from the evidence found, with word-for-word quotes; AI also routes the question (past incidents, the app, or both) | The template answer and keyword routing; the evidence found is the same | Each question |
-| **Autonomous run questions** | Plugin **Ask Ops Signals** panel, and **Ask** on a finding there | An answer written from the run's findings | The template answer | Each question |
-| **Analyzer recommendation** | Analyzer Recommendation | A second opinion next to the rule-based pick, saying where it disagrees | The rule-based pick only | Each recommendation |
-| **Docs check** (admins) | Assistant → Docs check → **Draft questions** | Test questions written for doc sections that have none | Questions drafted from headings | On click |
-| **Case root cause and resolution** | API and MCP only: `POST /api/cases/{id}/rca/suggest`, `/resolution/suggest` | A draft root cause from the case and similar past cases; a resolution summary from its notes. Never saved. | `available: false` | On request |
+| Feature | Where you see it | AI runs |
+|---|---|---|
+| [Finding wording](#finding-wording) | Finding details, Validate Data, plugin evidence panel | First open, then saved |
+| [Finding summary](#finding-summary) | Findings with no plain wording | First open, then saved |
+| [Combined patterns](#combined-patterns) | Behavior Intelligence → Detected | List load, then saved |
+| [Runbook draft](#runbook-draft) | Finding details → Seen before? | On click |
+| [Recurring problem names](#recurring-problem-names) | Recurring Problems | Each page load |
+| [Raw activity summary](#raw-activity-summary) | Recurring Problems → lookup | Each lookup |
+| [Ticket comment triage](#ticket-comment-triage) | Case → ticket card | Click, sync, webhook |
+| [Ask Ops Signals](#ask-ops-signals) | Web UI Assistant | Each question |
+| [Autonomous run questions](#autonomous-run-questions) | Plugin Ask Ops Signals panel | Each question |
+| [Analyzer recommendation](#analyzer-recommendation) | Analyzer Recommendation | Each recommendation |
+| [Docs check questions](#docs-check-questions) | Assistant → Docs check (admins) | On click |
+| [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | API and MCP only | On request |
+
+Each feature below says what AI adds and what you see without it.
+
+### Finding wording
+
+- **AI adds:** one more thing under **What to check**; one sentence after the first **Happened
+  with** line; for a metric the wording file doesn't describe, **Why it matters** in place of "We
+  don't know what this metric means". Each AI line has an **AI** chip; **Show template wording**
+  switches back. Details: [AI wording](finding-wording.md#ai-wording).
+- **Without AI:** the template lines from `config/finding_templates.yaml`. Admins see once how to
+  turn AI on, next to the lines.
+
+### Finding summary
+
+- **AI adds:** a plain rewrite of the stored summary, with an **AI** chip, for a finding that has
+  no plain wording.
+- **Without AI:** the stored summary.
+
+### Combined patterns
+
+- **AI adds:** a plain explanation of why the pattern matched, on Behavior Intelligence → Detected
+  and on combined patterns in Findings.
+- **Without AI:** the pattern's summary.
+
+### Runbook draft
+
+- **AI adds:** **Draft a runbook** turns the fixes that worked before into steps, citing the cases.
+  Never saved.
+- **Without AI:** "AI assistance is not configured." under the button.
+
+### Recurring problem names
+
+- **AI adds:** a name for each group of past problems ("DB pool runs out after deploys"), one call
+  for all groups.
+- **Without AI:** the title of the group's central case.
+
+### Raw activity summary
+
+- **AI adds:** 1-2 sentences on repeated activity that never became a case, with an **AI** chip.
+- **Without AI:** the counts and recent titles.
+
+### Ticket comment triage
+
+- **AI adds:** **⚡ AI Triage** picks the ticket comments that matter operationally and adds them
+  to the case notes. Also runs when comments sync or arrive by webhook.
+- **Without AI:** comments stay on the ticket.
+
+### Ask Ops Signals
+
+- **AI adds:** a 1-3 sentence answer from the evidence found, with word-for-word quotes. AI also
+  decides whether the question is about past incidents, the app, or both.
+- **Without AI:** the template answer and keyword routing. The evidence found is the same.
+
+### Autonomous run questions
+
+- **AI adds:** an answer written from the run's findings, in the plugin's **Ask Ops Signals** panel
+  and **Ask** on a finding there.
+- **Without AI:** the template answer.
+
+### Analyzer recommendation
+
+- **AI adds:** a second opinion next to the rule-based pick, saying where it disagrees.
+- **Without AI:** the rule-based pick only.
+
+### Docs check questions
+
+- **AI adds:** test questions for doc sections that have none (**Draft questions**, admins).
+- **Without AI:** questions drafted from headings.
+
+### Root cause and resolution drafts
+
+- **AI adds:** `POST /api/cases/{id}/rca/suggest` drafts a root cause from the case and similar past
+  cases; `/resolution/suggest` drafts a resolution summary from its notes. Never saved. No button
+  in the UI yet.
+- **Without AI:** `available: false`.
 
 ## Never AI-written
 
@@ -40,8 +115,8 @@ systems).
 
 Most places run once and save the result (finding wording, summaries, pattern explanations), so
 reopening is instant. The first load of Behavior Intelligence after turning AI on can be slow: it
-explains every match not explained yet before showing the list. The others run each time you ask. A small model on a laptop answers in about 2-3
-seconds per call. With a hosted provider, each call is billed by that provider.
+explains every match not explained yet before showing the list. The others run each time you
+ask. A small model on a laptop answers in about 2-3 seconds per call. With a hosted provider, each call is billed by that provider.
 
 ## Turn it on
 
