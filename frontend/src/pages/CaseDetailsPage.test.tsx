@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { CaseDetailsPage } from './CaseDetailsPage';
@@ -16,6 +16,9 @@ vi.mock('../api/queries', () => ({
     updateInvestigation: vi.fn(),
     updateRCA: vi.fn(),
     updateResolution: vi.fn(),
+    aiStatus: vi.fn().mockResolvedValue({ enabled: false, provider: 'noop', model: null, endpoint: null, api_key_set: null, active: false, issue: null }),
+    suggestRca: vi.fn(),
+    suggestResolution: vi.fn(),
   },
 }));
 
@@ -305,5 +308,99 @@ describe('CaseDetailsPage workflow (QA-40)', () => {
     const panel = await openResolutionPanel();
 
     expect(within(panel).getAllByRole('combobox')[0].textContent).toBe("Won't fix");
+  });
+});
+
+describe('CaseDetailsPage AI drafts', () => {
+  const aiOn = { enabled: true, provider: 'ollama', model: 'qwen2.5:3b', endpoint: null, api_key_set: null, active: true, issue: null };
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.aiStatus).mockResolvedValue({ ...aiOn, enabled: false, active: false });
+  });
+
+  async function openTab(name: RegExp) {
+    fireEvent.click(await screen.findByRole('tab', { name }));
+    return screen.getByRole('tabpanel');
+  }
+
+  it('fills the root cause from the case, shows what it was drafted from, and undoes', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue(aiOn);
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.suggestRca).mockResolvedValue({
+      available: true,
+      draft: 'A retry loop in v2.3 may not release DB connections (OPS-412).',
+      sources: [{ kind: 'ticket_comment', label: 'Ticket comment, Sam', detail: "connections aren't released on timeout" }],
+    });
+
+    renderPage();
+    const panel = await openTab(/Root Cause/i);
+    fireEvent.click(await within(panel).findByRole('button', { name: /Draft from case/i }));
+
+    const box = within(panel).getByLabelText('Root cause summary');
+    await waitFor(() => expect(box).toHaveValue('A retry loop in v2.3 may not release DB connections (OPS-412).'));
+    expect(within(panel).getByTestId('case-draft-chip')).toBeInTheDocument();
+    expect(within(panel).getByTestId('case-draft-sources')).toHaveTextContent('Ticket comment, Sam');
+    expect(api.updateRCA).not.toHaveBeenCalled();
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Undo draft' }));
+    expect(box).toHaveValue('');
+    expect(within(panel).queryByTestId('case-draft-chip')).not.toBeInTheDocument();
+  });
+
+  it('asks before replacing text already in the box', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue(aiOn);
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ root_cause_summary: 'My own words.' }));
+
+    renderPage();
+    const panel = await openTab(/Root Cause/i);
+    fireEvent.click(await within(panel).findByRole('button', { name: /Draft from case/i }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Replace your text?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep my text' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(api.suggestRca).not.toHaveBeenCalled();
+    expect(within(panel).getByLabelText('Root cause summary')).toHaveValue('My own words.');
+  });
+
+  it('says when there is nothing on the case to draft from', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue(aiOn);
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.suggestRca).mockResolvedValue({ available: false, reason_code: 'not_enough' });
+
+    renderPage();
+    const panel = await openTab(/Root Cause/i);
+    fireEvent.click(await within(panel).findByRole('button', { name: /Draft from case/i }));
+
+    expect(await within(panel).findByText(/Not enough on this case to draft from yet/)).toBeInTheDocument();
+    expect(within(panel).getByLabelText('Root cause summary')).toHaveValue('');
+  });
+
+  it('fills both resolution boxes', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue(aiOn);
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.suggestResolution).mockResolvedValue({
+      available: true,
+      draft: 'Rolled back to v2.2; latency normal.',
+      corrective_action: 'Rolled back. Still open: fix the retry loop.',
+      sources: [{ kind: 'note', label: 'Note', detail: 'Rolled back to v2.2' }],
+    });
+
+    renderPage();
+    const panel = await openTab(/Resolution/i);
+    fireEvent.click(await within(panel).findByRole('button', { name: /Draft from case/i }));
+
+    await waitFor(() => expect(within(panel).getByLabelText('Outcome summary')).toHaveValue('Rolled back to v2.2; latency normal.'));
+    expect(within(panel).getByLabelText('Corrective action')).toHaveValue('Rolled back. Still open: fix the retry loop.');
+  });
+
+  it('with AI off there is no button, and admins see how to turn it on', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+
+    renderPage();
+    const panel = await openTab(/Root Cause/i);
+
+    expect(await within(panel).findByTestId('enable-ai-hint')).toHaveTextContent('Turn on AI to draft the root cause');
+    expect(within(panel).queryByRole('button', { name: /Draft from case/i })).not.toBeInTheDocument();
   });
 });
