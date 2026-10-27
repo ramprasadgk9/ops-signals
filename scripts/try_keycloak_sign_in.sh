@@ -33,6 +33,9 @@ USERS=(john:ops-signals-admins elena:ops-signals-editors vic:support)
 
 kc() { docker exec "$CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
 
+# Admin sign-in for kc; it expires, so each command that changes Keycloak signs in first.
+kc_login() { kc config credentials --server http://localhost:8080 --realm master --user admin --password admin >/dev/null; }
+
 wait_for_keycloak() {
   echo "Waiting for Keycloak on :${KEYCLOAK_PORT}..."
   for attempt in $(seq 1 90); do
@@ -49,6 +52,7 @@ client_uuid() { kc get clients -r "$REALM" -q clientId="$CLIENT" --fields id --f
 
 set_full_path() {
   local cid mid
+  kc_login
   cid="$(client_uuid)"
   mid="$(kc get "clients/$cid/protocol-mappers/models" -r "$REALM" --fields id,name --format csv --noquotes | grep ',groups$' | cut -d, -f1)"
   kc update "clients/$cid/protocol-mappers/models/$mid" -r "$REALM" \
@@ -93,7 +97,7 @@ up() {
       -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin "$IMAGE" start-dev >/dev/null
   fi
   wait_for_keycloak
-  kc config credentials --server http://localhost:8080 --realm master --user admin --password admin >/dev/null
+  kc_login
 
   # 2. Realm, groups, users (made-up addresses: nothing is ever emailed)
   if kc get "realms/$REALM" >/dev/null 2>&1; then
