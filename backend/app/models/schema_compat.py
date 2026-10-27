@@ -44,6 +44,7 @@ def ensure_learning_schema(engine: Engine) -> None:
 _AI_NARRATIVE_COLUMNS = {
     "ops_operational_findings": {"ai_summary": "TEXT", "ai_wording": "JSON"},
     "ops_behavior_findings": {"ai_explanation": "TEXT"},
+    "ops_operational_cases": {"writeup": "TEXT"},
 }
 
 

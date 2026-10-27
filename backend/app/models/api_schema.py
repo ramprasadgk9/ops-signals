@@ -269,6 +269,7 @@ class CaseOut(BaseModel):
     created_by: str | None = None
     # The Grafana user who closed it (resolved, mitigated...); None otherwise.
     resolved_by: str | None = None
+    writeup: str | None = None
 
 
 # Every value a client sends today: the web UI, the Grafana plugin, MCP, imports and Jira sync.
@@ -306,7 +307,7 @@ class ResolutionUpdateRequest(BaseModel):
 class CaseDraftSource(BaseModel):
     """One fact a draft was written from, shown under the box so the person can check it."""
 
-    kind: Literal["finding", "deploy", "ticket", "note", "ticket_comment", "similar_case", "root_cause", "corrective_action"]
+    kind: Literal["finding", "deploy", "ticket", "note", "ticket_comment", "similar_case", "root_cause", "corrective_action", "timeline"]
     label: str
     detail: str | None = None
 
@@ -335,6 +336,36 @@ class ResolutionDraftOut(BaseModel):
     sources: list[CaseDraftSource] = Field(default_factory=list)
     reason: str | None = None
     reason_code: DraftReasonCode | None = None
+
+
+class WriteupDraftOut(BaseModel):
+    """A suggested-only write-up for Publish Knowledge; never written to the case. Use PATCH
+    /writeup to save one."""
+
+    available: bool
+    draft: str | None = None
+    sources: list[CaseDraftSource] = Field(default_factory=list)
+    reason: str | None = None
+    reason_code: DraftReasonCode | None = None
+
+
+class WriteupUpdateRequest(BaseModel):
+    writeup: str | None = Field(default=None, max_length=8000)
+
+
+class CaseTimelineEvent(BaseModel):
+    time: datetime
+    kind: Literal["deploy", "finding", "opened", "ticket", "note", "ticket_comment", "resolved"]
+    text: str
+    who: str | None = None
+
+
+class CaseTimelineOut(BaseModel):
+    """Publish Knowledge: the case's timeline (no AI) and the text memory indexes for it."""
+
+    events: list[CaseTimelineEvent] = Field(default_factory=list)
+    time_to_fix_minutes: int | None = None
+    memory_text: str
 
 
 class LearningOutcomeCreateRequest(BaseModel):

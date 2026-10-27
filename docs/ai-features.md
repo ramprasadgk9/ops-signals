@@ -21,6 +21,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 | [Analyzer recommendation](#analyzer-recommendation) | Analyzer Recommendation | Each recommendation |
 | [Docs check questions](#docs-check-questions) | Assistant → Docs check (admins) | On click |
 | [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | Case → Root Cause, Resolution | On click |
+| [Case write-up](#case-write-up) | Case → Publish Knowledge | On click |
 
 Each feature below says what AI adds and what you see without it.
 
@@ -97,6 +98,13 @@ Each feature below says what AI adds and what you see without it.
   summary and corrective action. Shows what it was drafted from, never saves. Details:
   [AI drafts](operational-cases.md#ai-drafts-on-the-root-cause-and-resolution-tabs).
 - **Without AI:** no button; the boxes work as before. Admins see once how to turn AI on.
+
+### Case write-up
+
+- **AI adds:** **Draft write-up** fills Summary, Likely cause, Seen before and Still open from the
+  saved root cause and resolution, the timeline and similar past cases. Never saved by itself.
+  Details: [Publish Knowledge](operational-cases.md#publish-knowledge-timeline-and-write-up).
+- **Without AI:** the timeline still shows (it's built by code); you write the write-up yourself.
 
 ## Never AI-written
 

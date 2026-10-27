@@ -297,7 +297,7 @@ export type FindingAIWording = {
 
 /** One fact a case draft was written from (backend/app/services/case_ai_drafts.py). */
 export type CaseDraftSource = {
-  kind: 'finding' | 'deploy' | 'ticket' | 'note' | 'ticket_comment' | 'similar_case' | 'root_cause' | 'corrective_action';
+  kind: 'finding' | 'deploy' | 'ticket' | 'note' | 'ticket_comment' | 'similar_case' | 'root_cause' | 'corrective_action' | 'timeline';
   label: string;
   detail?: string | null;
 };
@@ -315,6 +315,23 @@ export type CaseRcaDraft = {
 /** "Draft from case" on the Resolution tab: `draft` is the outcome summary. */
 export type CaseResolutionDraft = Omit<CaseRcaDraft, 'based_on_similar_cases'> & {
   corrective_action?: string | null;
+};
+
+/** "Draft write-up" on Publish Knowledge: labelled paragraphs (Summary, Likely cause...). */
+export type CaseWriteupDraft = Omit<CaseRcaDraft, 'based_on_similar_cases'>;
+
+export type CaseTimelineEvent = {
+  time: string;
+  kind: 'deploy' | 'finding' | 'opened' | 'ticket' | 'note' | 'ticket_comment' | 'resolved';
+  text: string;
+  who?: string | null;
+};
+
+/** Publish Knowledge: what happened, built from the case (no AI), and the text memory indexes. */
+export type CaseTimeline = {
+  events: CaseTimelineEvent[];
+  time_to_fix_minutes?: number | null;
+  memory_text: string;
 };
 
 export type FindingVerdict = 'real_problem' | 'expected_change' | 'not_a_problem';
@@ -371,6 +388,8 @@ export type OperationalCase = {
   /** The Grafana user who opened it, and who closed it; absent when not done through Grafana. */
   created_by?: string | null;
   resolved_by?: string | null;
+  /** The saved write-up from Publish Knowledge, published to memory with the case. */
+  writeup?: string | null;
   created_at: string;
   updated_at: string;
   resolved_at?: string;

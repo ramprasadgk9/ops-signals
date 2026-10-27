@@ -19,6 +19,9 @@ vi.mock('../api/queries', () => ({
     aiStatus: vi.fn().mockResolvedValue({ enabled: false, provider: 'noop', model: null, endpoint: null, api_key_set: null, active: false, issue: null }),
     suggestRca: vi.fn(),
     suggestResolution: vi.fn(),
+    caseTimeline: vi.fn().mockResolvedValue({ events: [], time_to_fix_minutes: null, memory_text: 'Operational Case' }),
+    updateWriteup: vi.fn(),
+    suggestWriteup: vi.fn(),
   },
 }));
 
@@ -402,5 +405,81 @@ describe('CaseDetailsPage AI drafts', () => {
 
     expect(await within(panel).findByTestId('enable-ai-hint')).toHaveTextContent('Turn on AI to draft the root cause');
     expect(within(panel).queryByRole('button', { name: /Draft from case/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('CaseDetailsPage Publish Knowledge write-up', () => {
+  const aiOn = { enabled: true, provider: 'ollama', model: 'qwen2.5:3b', endpoint: null, api_key_set: null, active: true, issue: null };
+  const timeline = {
+    events: [
+      { time: '2026-10-20T14:05:00Z', kind: 'deploy' as const, text: 'Deploy v2.3 on checkout', who: null },
+      { time: '2026-10-20T14:35:00Z', kind: 'ticket_comment' as const, text: 'v2.3 added a retry loop', who: 'Sam' },
+      { time: '2026-10-20T15:10:00Z', kind: 'resolved' as const, text: 'Resolved', who: 'priya' },
+    ],
+    time_to_fix_minutes: 65,
+    memory_text: 'Operational Case\nWrite-up:\nSummary: rolled back.',
+  };
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.aiStatus).mockResolvedValue({ ...aiOn, enabled: false, active: false });
+  });
+
+  async function openPublish() {
+    fireEvent.click(await screen.findByRole('tab', { name: /Publish Knowledge/i }));
+    return screen.getByRole('tabpanel');
+  }
+
+  it('shows the timeline built from the case, with the time to fix', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.caseTimeline).mockResolvedValue(timeline);
+
+    renderPage();
+    const panel = await openPublish();
+
+    const list = await within(panel).findByTestId('case-timeline');
+    expect(list).toHaveTextContent('Deploy v2.3 on checkout');
+    expect(list).toHaveTextContent('"v2.3 added a retry loop" · Sam, ticket');
+    expect(list).toHaveTextContent('Time to fix: 1 h 5 min from the first finding.');
+  });
+
+  it('drafts the write-up, then Save and publish saves it and publishes the case', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue(aiOn);
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ root_cause_summary: 'Retry loop.' }));
+    vi.mocked(api.caseTimeline).mockResolvedValue(timeline);
+    vi.mocked(api.suggestWriteup).mockResolvedValue({ available: true, draft: 'Summary: rolled back.', sources: [{ kind: 'root_cause', label: 'Saved root cause' }] });
+    vi.mocked(api.updateWriteup).mockResolvedValue(baseCase({ writeup: 'Summary: rolled back.' }));
+    vi.mocked(api.indexCaseMemory).mockResolvedValue({ case_id: 1, memory_status: 'indexed' });
+
+    renderPage();
+    const panel = await openPublish();
+    fireEvent.click(await within(panel).findByRole('button', { name: /Draft write-up/i }));
+    await waitFor(() => expect(within(panel).getByLabelText('Summary and lessons')).toHaveValue('Summary: rolled back.'));
+    expect(api.updateWriteup).not.toHaveBeenCalled();
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save and publish' }));
+    await waitFor(() => expect(api.indexCaseMemory).toHaveBeenCalledWith(1));
+    expect(api.updateWriteup).toHaveBeenCalledWith(1, 'Summary: rolled back.');
+  });
+
+  it('shows a saved write-up read-only until Edit', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ writeup: 'Summary: rolled back.' }));
+    renderPage();
+    const panel = await openPublish();
+
+    expect(await within(panel).findByTestId('case-writeup-saved')).toHaveTextContent('Summary: rolled back.');
+    expect(within(panel).queryByLabelText('Summary and lessons')).not.toBeInTheDocument();
+  });
+
+  it('says to save a root cause first when there is nothing to draft from', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue(aiOn);
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.suggestWriteup).mockResolvedValue({ available: false, reason_code: 'not_enough' });
+
+    renderPage();
+    const panel = await openPublish();
+    fireEvent.click(await within(panel).findByRole('button', { name: /Draft write-up/i }));
+
+    expect(await within(panel).findByText(/Save a root cause or a resolution first/)).toBeInTheDocument();
   });
 });

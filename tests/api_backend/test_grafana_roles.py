@@ -34,6 +34,8 @@ ANONYMOUS_VIEWER = {"X-Grafana-Context": json.dumps({"UserID": 0, "Login": "", "
         ("PATCH", "/api/assistant/feedback/12", None),
         ("POST", "/api/prometheus/test-connection", None),
         ("POST", "/api/cases/4/rca/suggest", None),
+        ("POST", "/api/cases/4/writeup/suggest", None),
+        ("PATCH", "/api/cases/4/writeup", "Editor"),
         ("POST", "/api/findings/9/feedback", "Editor"),
         ("POST", "/api/cases/findings/9/create", "Editor"),
         ("PATCH", "/api/cases/4/resolution", "Editor"),

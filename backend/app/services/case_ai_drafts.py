@@ -65,6 +65,30 @@ Rules:
 
 Return only JSON: {"outcome_summary": string|null, "corrective_action": string|null}"""
 
+WRITEUP_INSTRUCTION = """You help an on-call engineer write the short write-up of one closed incident case,
+for the next person who sees the same problem.
+
+You get the case's saved root cause and resolution, its timeline and similar past cases. Write four
+short fields, 1-2 sentences each:
+
+"summary": what happened and what fixed it.
+"likely_cause": the saved root cause in plain words, saying where it came from (a note, the ticket).
+"seen_before": only if similar past cases are given: which one looks the same (by its #number) and
+how it was fixed. Otherwise null.
+"still_open": what is not fixed yet, if the resolution or notes say so (for example a rollback
+stopped it but the bug is still in the code). Otherwise null.
+
+Rules:
+- Use only what the case says. Do not invent causes, fixes, numbers, versions or names.
+- Only say something was removed, changed or fixed if the case says it was done.
+- Don't write clock times; the timeline shows them. Durations given in the facts are fine.
+- If a field has nothing from the facts, return null for it.
+- Plain words, no statistics words.
+
+Return only JSON: {"summary": string|null, "likely_cause": string|null, "seen_before": string|null, "still_open": string|null}"""
+
+WRITEUP_LABELS = (("summary", "Summary"), ("likely_cause", "Likely cause"), ("seen_before", "Seen before"), ("still_open", "Still open"))
+
 TIMEOUT_SECONDS = 20
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _BANNED = re.compile(r"\b(?:definitely|certainly|the cause is(?! not)|confirmed root cause|baseline|z-?score|anomal\w*|sigma|statistically)\b", re.IGNORECASE)
@@ -131,6 +155,66 @@ def resolution_facts(case: OperationalCaseEntity, db: Session, *, ticketing: Cas
     if case.corrective_action:
         facts.add(f"Saved corrective action: {case.corrective_action}", "corrective_action", "Saved corrective action", case.corrective_action, material=True)
     return facts
+
+
+def writeup_facts(
+    case: OperationalCaseEntity,
+    db: Session,
+    *,
+    timeline: dict[str, Any],
+    similarity: SimilarityService | None,
+) -> CaseFacts:
+    """The saved root cause and resolution (material), the timeline and similar past cases."""
+    facts = CaseFacts(lines=[f"Case title: {case.case_title}"])
+    if case.root_cause_summary:
+        facts.add(f"Saved root cause: {case.root_cause_summary}", "root_cause", "Saved root cause", case.root_cause_summary, material=True)
+    if case.corrective_action:
+        facts.add(f"Saved corrective action: {case.corrective_action}", "corrective_action", "Saved corrective action", case.corrective_action, material=True)
+    if case.outcome_summary:
+        facts.add(f"Saved outcome: {case.outcome_summary}", "corrective_action", "Saved outcome", case.outcome_summary, material=True)
+    events = timeline.get("events") or []
+    if events:
+        lines = [f"- {_when(event['time'])}: {event['text']}" + (f" ({event['who']})" if event.get("who") else "") for event in events]
+        facts.add("Timeline:\n" + "\n".join(lines), "timeline", "Timeline", f"{len(events)} events")
+    if timeline.get("time_to_fix_minutes") is not None:
+        facts.lines.append(f"Time to fix: {timeline['time_to_fix_minutes']} minutes from the first finding")
+    if similarity:
+        _add_similar(facts, db, case.id, similarity)
+    return facts
+
+
+class WriteupReply(BaseModel):
+    summary: str | None = None
+    likely_cause: str | None = None
+    seen_before: str | None = None
+    still_open: str | None = None
+
+
+def write_writeup(ai_services: OptionalAIServices, facts: CaseFacts) -> str | None:
+    """The write-up as labelled paragraphs, each checked; None when the call fails, the reply isn't
+    the JSON asked for, or every paragraph was dropped."""
+    request = LLMRequest(
+        messages=[LLMMessage(role="system", content=WRITEUP_INSTRUCTION), LLMMessage(role="user", content=facts.text)],
+        temperature=0.1,
+        max_tokens=400,
+        response_format="json",
+        timeout_seconds=TIMEOUT_SECONDS,
+    )
+    try:
+        structured = ai_services.structured or StructuredLLMService(ai_services.client)
+        reply = structured.generate_structured(request, WriteupReply)
+    except (AIError, ValidationError) as exc:
+        logger.warning("Write-up draft failed: %s", exc)
+        return None
+    paragraphs = []
+    for field_name, label in WRITEUP_LABELS:
+        if field_name == "seen_before" and not facts.similar_case_ids:
+            continue
+        # "Still open" is advice ("fix the retry loop"), not a claim that something was done.
+        text = check_draft(getattr(reply, field_name), facts.text, actions=field_name != "still_open")
+        if text:
+            paragraphs.append(f"{label}: {text}")
+    return "\n\n".join(paragraphs) or None
 
 
 def check_draft(text: str | None, facts_text: str, *, actions: bool = False) -> str | None:

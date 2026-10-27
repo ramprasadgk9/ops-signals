@@ -48,6 +48,26 @@ drafts were sometimes empty or too general, which is why each one is a draft to 
 API: `POST /api/cases/{case_id}/rca/suggest` and `/resolution/suggest` return `available`, the
 draft, `sources` and, when there is none, `reason_code` (`ai_off`, `not_enough` or `failed`).
 
+## Publish Knowledge: timeline and write-up
+
+The last tab turns the case into something the next person can reuse.
+
+- **Timeline**, built from the case with no AI: the deploy matched to the finding, the finding,
+  the case opening, the linked ticket, notes, ticket comments (a comment promoted to a note shows
+  once) and the resolution, oldest first, in your time zone. Under it: the time to fix, from the
+  first finding to the resolution.
+- **Summary and lessons**, one text box. Save it with **Save only**, or **Save and publish** to
+  save it and publish the case to Operational Memory in one step. It is added to the text memory
+  indexes for the case, so similar-case searches read it; **What future searches will read**
+  shows that text. Editing it later marks the case to publish again.
+- **Draft write-up** (Editors, AI on) fills the box with Summary, Likely cause, Seen before (only
+  when a similar past case is found) and Still open, from the saved root cause and resolution, the
+  timeline and similar past cases. It needs a saved root cause or resolution first, never saves,
+  and goes through the same checks as the other drafts.
+
+API: `GET /api/cases/{case_id}/timeline` (events, `time_to_fix_minutes`, `memory_text`),
+`PATCH /api/cases/{case_id}/writeup` and `POST /api/cases/{case_id}/writeup/suggest`.
+
 ## Case Fields
 
 - investigation status
@@ -59,6 +79,7 @@ draft, `sources` and, when there is none, `reason_code` (`ai_off`, `not_enough` 
 - corrective action
 - outcome status
 - outcome summary
+- write-up
 - memory status
 
 ## Purpose
