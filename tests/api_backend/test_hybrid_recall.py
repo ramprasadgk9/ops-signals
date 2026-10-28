@@ -241,7 +241,25 @@ def test_startup_migrates_an_older_collection_and_backfills_its_vectors(db_sessi
     assert QdrantInitializer.initialize(client)["migrated"] is False
 
 
-def test_backfill_skips_points_whose_case_is_gone(db_session):
+def test_backfill_removes_points_whose_case_is_gone(db_session):
+    client = QdrantClient(":memory:")
+    QdrantInitializer.initialize(client)
+    store = QdrantVectorStore(client, QdrantInitializer.COLLECTION_NAME)
+    case = _add_case(db_session, "db_pool")
+    indexer = CaseMemoryIndexer(store, embedder=_Embedder(), config=MemoryConfig())
+    indexer.index_case(case, db_session)
+    store.upsert(str(uuid4()), CLOSE, {"case_id": 999_999})
+    # While the leftover lacks a symptom vector, symptom search falls back to the full document.
+    assert store._dense_name(SYMPTOM_VECTOR) == FULL_VECTOR
+
+    assert indexer.backfill_vectors(db_session) == 0
+
+    assert store.points_missing(SYMPTOM_VECTOR) == []
+    assert store._dense_name(SYMPTOM_VECTOR) == SYMPTOM_VECTOR
+    assert _ids(store.search(QUERY, limit=5)) == [case.id]
+
+
+def test_backfill_removes_nothing_while_postgres_has_no_cases(db_session):
     client = QdrantClient(":memory:")
     QdrantInitializer.initialize(client)
     store = QdrantVectorStore(client, QdrantInitializer.COLLECTION_NAME)
@@ -249,3 +267,5 @@ def test_backfill_skips_points_whose_case_is_gone(db_session):
     indexer = CaseMemoryIndexer(store, embedder=_Embedder(), config=MemoryConfig())
 
     assert indexer.backfill_vectors(db_session) == 0
+
+    assert len(store.points_missing(SYMPTOM_VECTOR)) == 1
