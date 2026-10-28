@@ -1,3 +1,4 @@
+import type React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PluginShiftHandoff } from './PluginShiftHandoff';
@@ -22,12 +23,19 @@ const handoff: ShiftHandoff = {
   cases_opened: 2,
   cases_resolved: 1,
   cases_still_open: 2,
+  older_open_cases: 0,
   watch: [
-    { kind: 'case', title: 'Payments errors up', service: 'payments', metric_name: 'error_rate', case_id: 10, finding_id: 1, reason: 'open 8 hours, started after deploy v2.3, critical' },
-    { kind: 'finding', title: 'Search slower', service: 'search', metric_name: 'latency_p95', finding_id: 4, reason: 'no case yet, seen 3 hours ago, high' },
+    { kind: 'case', title: 'Payments errors up', service: 'payments', metric_name: 'error_rate', case_id: 10, finding_id: 1, reason: 'open 8 hours, started after deploy v2.3, critical', live: true },
+    { kind: 'finding', title: 'Search slower', service: 'search', metric_name: 'latency_p95', finding_id: 4, reason: 'no case yet, seen 3 hours ago, high', live: true },
   ],
   summary: 'Last 12 hours: 4 new findings, 2 cases opened, 1 resolved. 2 cases still open.',
 };
+
+function renderOpen(ui: React.ReactElement) {
+  const view = render(ui);
+  fireEvent.click(screen.getByRole('button', { name: '⇄ Shift handoff' }));
+  return view;
+}
 
 describe('PluginShiftHandoff', () => {
   beforeEach(() => {
@@ -39,7 +47,7 @@ describe('PluginShiftHandoff', () => {
   });
 
   it('shows the counts and opens the case to watch in the case drawer', async () => {
-    render(<PluginShiftHandoff backendUrl="/api/plugin" />);
+    renderOpen(<PluginShiftHandoff backendUrl="/api/plugin" />);
     expect(await screen.findByTestId('plugin-shift-handoff-counts')).toHaveTextContent('4 new findings · 2 cases opened · 1 resolved · 2 still open');
     fireEvent.click(screen.getByRole('button', { name: 'Open case' }));
     expect(await screen.findByTestId('case-drawer')).toBeInTheDocument();
@@ -48,7 +56,7 @@ describe('PluginShiftHandoff', () => {
 
   it('opens a finding through the overview, and says so when it is not there', async () => {
     const onOpenFinding = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
-    render(<PluginShiftHandoff backendUrl="/api/plugin" onOpenFinding={onOpenFinding} />);
+    renderOpen(<PluginShiftHandoff backendUrl="/api/plugin" onOpenFinding={onOpenFinding} />);
     const finding = await screen.findByRole('button', { name: /search \/ latency_p95/ });
     fireEvent.click(finding);
     expect(onOpenFinding).toHaveBeenCalledWith(4);
@@ -60,7 +68,7 @@ describe('PluginShiftHandoff', () => {
   it('copies without web UI links, and writes the AI note when AI is on', async () => {
     vi.mocked(getAiStatus).mockResolvedValue({ ...aiOff, enabled: true, active: true });
     vi.mocked(writeShiftHandoffNote).mockResolvedValue({ available: true, note: 'Watch case #10 on payments.' });
-    render(<PluginShiftHandoff backendUrl="/api/plugin" />);
+    renderOpen(<PluginShiftHandoff backendUrl="/api/plugin" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Write with AI' }));
     expect(await screen.findByTestId('plugin-shift-handoff-note')).toHaveTextContent('Watch case #10 on payments.');
     fireEvent.click(screen.getByRole('button', { name: 'Copy for Slack' }));
@@ -70,12 +78,21 @@ describe('PluginShiftHandoff', () => {
     expect(text).not.toContain('http');
   });
 
-  it('switches the window and renders nothing when the backend fails', async () => {
-    const { container } = render(<PluginShiftHandoff backendUrl="/api/plugin" />);
+  it('loads nothing until opened, and closes again', async () => {
+    render(<PluginShiftHandoff backendUrl="/api/plugin" />);
+    expect(getShiftHandoff).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '⇄ Shift handoff' }));
+    await screen.findByTestId('plugin-shift-handoff-counts');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByTestId('plugin-shift-handoff')).toBeNull();
+  });
+
+  it('switches the window and says so when the backend fails', async () => {
+    const { container } = renderOpen(<PluginShiftHandoff backendUrl="/api/plugin" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Last 8h' }));
     await waitFor(() => expect(getShiftHandoff).toHaveBeenCalledWith('/api/plugin', 8));
     vi.mocked(getShiftHandoff).mockRejectedValue(new Error('down'));
     fireEvent.click(screen.getByRole('button', { name: 'Last 24h' }));
-    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(await screen.findByText(/could not be loaded/)).toBeInTheDocument();
   });
 });

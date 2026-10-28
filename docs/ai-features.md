@@ -23,7 +23,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 | [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | Case → Root Cause, Resolution | On click |
 | [Case write-up](#case-write-up) | Case → Publish Knowledge | On click |
 | [Why a fix didn't hold](#why-a-fix-didnt-hold) | Finding details, Case → "came back" banner | On click |
-| [Shift handoff note](#shift-handoff-note) | Overview → Shift handoff, plugin overview | On click |
+| [Shift handoff note](#shift-handoff-note) | Overview → Shift handoff button, plugin overview | On click |
 
 Each feature below says what AI adds and what you see without it.
 
@@ -118,13 +118,13 @@ Each feature below says what AI adds and what you see without it.
 
 ### Shift handoff note
 
-- **AI adds:** **Write with AI** on the Overview's Shift handoff card writes 2-3 sentences for the
-  next person on call from the card's counts and its ranked list of what to watch. The ranking itself
-  is done by code, not AI. A sentence naming a number, version or name not in those facts is dropped.
+- **AI adds:** **Write with AI** in the Shift handoff dialog adds 1-2 sentences on what to watch
+  first, after the counts (which code writes, never AI). The ranking is code too. A sentence that
+  names no item, names anything not in the items, or adds an amount nothing measured is dropped.
   Never saved; **Copy for Slack** copies the note instead of the plain summary. Details:
   [Shift handoff](standalone-overview-api.md#shift-handoff).
-- **Without AI:** no button; the card shows the same counts, what to watch first and a plain summary
-  to copy.
+- **Without AI:** no button; the dialog shows the same counts, what to watch first and a plain
+  summary to copy.
 
 ## Never AI-written
 

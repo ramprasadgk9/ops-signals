@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { ShiftHandoffCard } from './ShiftHandoffCard';
+import { ShiftHandoffButton } from './ShiftHandoffButton';
 import { api } from '../api/queries';
 import type { AIStatus, ShiftHandoff } from '../types';
 
@@ -24,25 +24,28 @@ const handoff: ShiftHandoff = {
   cases_opened: 2,
   cases_resolved: 1,
   cases_still_open: 2,
+  older_open_cases: 0,
   watch: [
-    { kind: 'case', title: 'Payments errors up', severity: 'critical', service: 'payments', metric_name: 'error_rate', case_id: 10, finding_id: 1, deploy_version: 'v2.3', reason: 'open 8 hours, started after deploy v2.3, critical' },
-    { kind: 'finding', title: 'Search slower', severity: 'high', service: 'search', metric_name: 'latency_p95', finding_id: 4, reason: 'no case yet, seen 3 hours ago, high' },
+    { kind: 'case', title: 'Payments errors up', severity: 'critical', service: 'payments', metric_name: 'error_rate', case_id: 10, finding_id: 1, deploy_version: 'v2.3', reason: 'open 8 hours, started after deploy v2.3, critical', live: true },
+    { kind: 'finding', title: 'Search slower', severity: 'high', service: 'search', metric_name: 'latency_p95', finding_id: 4, reason: 'no case yet, seen 3 hours ago, high', live: true },
   ],
   summary: 'Last 12 hours: 4 new findings, 2 cases opened, 1 resolved. 2 cases still open. Watch first: case #10 (payments error_rate), open 8 hours, started after deploy v2.3, critical.',
 };
 
-function renderCard() {
+function renderCard(open = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <ShiftHandoffCard />
+        <ShiftHandoffButton />
       </MemoryRouter>
     </QueryClientProvider>
   );
+  if (open) fireEvent.click(screen.getByRole('button', { name: 'Shift handoff' }));
+  return view;
 }
 
-describe('ShiftHandoffCard', () => {
+describe('ShiftHandoffButton', () => {
   beforeEach(() => {
     vi.mocked(api.shiftHandoff).mockReset().mockResolvedValue(handoff);
     vi.mocked(api.shiftHandoffNote).mockReset();
@@ -63,7 +66,8 @@ describe('ShiftHandoffCard', () => {
 
   it('copies the plain summary and the list, and has no AI button with AI off', async () => {
     renderCard();
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy for Slack' }));
+    await screen.findByTestId('shift-handoff-counts');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy for Slack' }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
     const text = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
     expect(text.startsWith(handoff.summary)).toBe(true);
@@ -99,9 +103,18 @@ describe('ShiftHandoffCard', () => {
     expect(await screen.findByText(/couldn't be written/)).toBeInTheDocument();
   });
 
-  it('renders nothing when the handoff cannot be read', async () => {
+  it('loads nothing until the button is pressed, and says so when the handoff cannot be read', async () => {
+    renderCard(false);
+    expect(api.shiftHandoff).not.toHaveBeenCalled();
     vi.mocked(api.shiftHandoff).mockRejectedValue(new Error('down'));
-    const { container } = renderCard();
-    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    fireEvent.click(screen.getByRole('button', { name: 'Shift handoff' }));
+    expect(await screen.findByText(/could not be loaded/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy for Slack' })).toBeDisabled();
+  });
+
+  it('closes when a watch item is opened', async () => {
+    renderCard();
+    fireEvent.click(await screen.findByRole('link', { name: 'Open case' }));
+    await waitFor(() => expect(screen.queryByTestId('shift-handoff')).toBeNull());
   });
 });

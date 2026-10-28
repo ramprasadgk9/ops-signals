@@ -12,7 +12,7 @@ from backend.app.api import assistant as assistant_module
 from backend.app.assistant.service import AssistantServices, OperationalIntelligenceAssistant
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.roles import required_role
 from backend.app.services import shift_handoff
 
@@ -77,11 +77,33 @@ def _case(case_id: int, finding_id: int | None, status: str, created_at: datetim
     )
 
 
+def _pattern(pattern_id: int, service: str, severity: str, seen_at: datetime) -> BehaviorFindingEntity:
+    return BehaviorFindingEntity(
+        id=pattern_id,
+        behavior_id="queue-backlog",
+        definition_id="queue_backlog",
+        definition_version=1,
+        title=f"{service} queue backing up",
+        summary="summary",
+        category="saturation",
+        severity=severity,
+        service=service,
+        input_metrics_json={"queue_depth": {}, "consumer_lag": {}},
+        facts_json={},
+        evidence_json=[],
+        matched_conditions_json=[],
+        confidence=0.9,
+        correlation_json={},
+        created_at=seen_at,
+        last_seen_at=seen_at,
+    )
+
+
 @pytest.fixture
 def seeded(monkeypatch):
     """A shift: payments (critical, after deploy v2.3, open case), checkout (resolved case),
-    search (high, no case), two old open cases nothing happened to this shift (one critical) and
-    an imported past incident."""
+    search (high, no case), an orders combined pattern (high, no case), two old open cases nothing
+    happened to this shift (one critical) and an imported past incident."""
     # Trust and deploys have their own tests; here every finding needs attention and only
     # payments' finding matched a deploy.
     monkeypatch.setattr(shift_handoff, "finding_trust", lambda _db, rows: {row.id: {"tier": "needs_attention"} for row in rows})
@@ -115,6 +137,9 @@ def seeded(monkeypatch):
                     _case(12, 5, "open", now - timedelta(days=3)),
                     _case(13, None, "open", now - timedelta(hours=1), source="imported"),
                     _case(15, 7, "open", now - timedelta(days=5)),
+                    _pattern(20, "orders", "high", now - timedelta(hours=4)),
+                    # Last seen two days ago: not this shift's.
+                    _pattern(21, "ledger", "critical", now - timedelta(days=2)),
                     # Resolved last week: not this shift's.
                     _case(14, 6, "resolved", now - timedelta(days=8), outcome="resolved", resolved_at=now - timedelta(days=7)),
                 ]
@@ -134,24 +159,41 @@ def test_handoff_counts_the_shift_and_ranks_what_to_watch(seeded) -> None:
     assert body["cases_opened"] == 2
     assert body["cases_resolved"] == 1
     assert body["cases_still_open"] == 3
+    assert body["older_open_cases"] == 2
 
     watch = body["watch"]
-    # This shift's problems first: the stale critical case comes after the fresh high finding.
-    assert [(item["kind"], item["case_id"] or item["finding_id"]) for item in watch] == [("case", 10), ("finding", 4), ("case", 15)]
+    assert [(item["kind"], item["case_id"] or item["pattern_id"] or item["finding_id"]) for item in watch] == [("case", 10), ("pattern", 20), ("finding", 4)]
     assert watch[0]["deploy_version"] == "v2.3"
     assert watch[0]["reason"] == "open 8 hours, started after deploy v2.3, high importance"
-    assert watch[1]["reason"] == "no case yet, seen 3 hours ago, high importance"
-    assert watch[2]["reason"] == "open 5 days, high importance"
+    # Same level: a combined pattern (several metrics agreeing) before a single finding.
+    assert watch[1]["reason"] == "combined pattern, no case yet, seen 4 hours ago, high importance"
+    assert watch[1]["metric_name"] == "2 metrics"
+    assert watch[2]["reason"] == "no case yet, seen 3 hours ago, high importance"
     assert body["summary"] == (
         "Last 12 hours: 4 new findings, 2 cases opened, 1 resolved. 3 cases still open. "
         "Watch first: case #10 (payments error_rate), open 8 hours, started after deploy v2.3, high importance."
     )
 
 
+def test_longer_list_puts_cases_nobody_touched_last(seeded) -> None:
+    watch = seeded().get("/api/overview/handoff", params={"hours": 12, "limit": 10}).json()["watch"]
+
+    # The stale critical case comes after this shift's high items, then the stale low one.
+    assert [(item["kind"], item["case_id"] or item["pattern_id"] or item["finding_id"], item["live"]) for item in watch] == [
+        ("case", 10, True),
+        ("pattern", 20, True),
+        ("finding", 4, True),
+        ("case", 15, False),
+        ("case", 12, False),
+    ]
+    assert watch[3]["reason"] == "open 5 days, high importance"
+
+
 def test_handoff_window_is_bounded() -> None:
     client = TestClient(create_app("sqlite+pysqlite:///:memory:"))
     assert client.get("/api/overview/handoff", params={"hours": 0}).status_code == 422
     assert client.get("/api/overview/handoff", params={"hours": 73}).status_code == 422
+    assert client.get("/api/overview/handoff", params={"limit": 21}).status_code == 422
 
 
 def test_empty_shift_says_nothing_needs_watching() -> None:
@@ -169,19 +211,31 @@ def test_note_without_ai_says_so(seeded) -> None:
 def test_note_is_written_from_the_facts_only(seeded) -> None:
     client = _ScriptedClient(
         response_text=(
-            "Last 12 hours brought 4 new findings and 1 resolved case. "
+            "We've seen a high volume of error reports on the checkout side. "
             "Watch case #10 on payments first: still open 8 hours after deploy v2.3. "
-            "It was likely caused by a bad config in v2.4."
+            "Case #10 was likely caused by a bad config in v2.4. "
+            "Many teams are also seeing orders back up."
         )
     )
     body = seeded(_assistant_with(client)).post("/api/overview/handoff/note", params={"hours": 12}).json()
 
     assert body["available"] is True
-    # The last sentence names a version that isn't in the facts, so it is dropped.
-    assert body["note"] == "Last 12 hours brought 4 new findings and 1 resolved case. Watch case #10 on payments first: still open 8 hours after deploy v2.3."
+    # Dropped: a sentence naming no item, a version not in the facts, and an amount nothing measured.
+    # The counts are code's, never the model's.
+    assert body["note"] == (
+        "Last 12 hours: 4 new findings, 2 cases opened, 1 resolved. 3 cases still open. "
+        "Watch case #10 on payments first: still open 8 hours after deploy v2.3."
+    )
     facts = client.calls[0].messages[1].content
-    assert "Item 1: case #10 (payments error_rate)" in facts
-    assert "Cases still open: 3." in facts
+    assert facts.startswith("Item 1: case #10 (payments error_rate)")
+    assert "Cases still open" not in facts
+
+
+def test_note_with_nothing_usable_is_not_available(seeded) -> None:
+    client = _ScriptedClient(response_text="It has been a busy shift with a high volume of alerts.")
+    body = seeded(_assistant_with(client)).post("/api/overview/handoff/note").json()
+    assert body["available"] is False
+    assert body["reason_code"] == "failed"
 
 
 def test_note_failure_keeps_the_plain_summary(seeded) -> None:

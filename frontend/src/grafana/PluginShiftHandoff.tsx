@@ -1,18 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import type { GrafanaCase } from './contracts';
 import type { HandoffWatchItem, ShiftHandoff } from '../types';
-import { HANDOFF_HOURS, handoffCopyText, handoffCounts, watchLabel } from '../utils/shiftHandoff';
+import { HANDOFF_HOURS, handoffCopyText, handoffCounts, openLabel, watchLabel } from '../utils/shiftHandoff';
 import { getAiStatus, getCase, getShiftHandoff, writeShiftHandoffNote } from './backendClient';
 import { InvestigationDrawer } from './PanelPreview';
 import { styles } from './plainUi';
 
 // The on-call handoff in the Grafana plugin's own styling. Same endpoints and wording as the web
-// UI's ShiftHandoffCard; a case opens in the case drawer, a finding in the overview's panel.
+// UI's ShiftHandoffButton: a button that opens it, since it's used at shift change, not all day. A
+// case opens in the case drawer, a finding in the overview's panel.
 
 const WATCH: React.CSSProperties = { border: '1px solid #ffb357', borderRadius: 8, padding: 12, background: 'rgba(255, 179, 87, 0.08)' };
 const LINK_BUTTON: React.CSSProperties = { border: 0, background: 'transparent', color: '#5794f2', padding: 0, cursor: 'pointer', fontWeight: 600, textAlign: 'left' };
 
 export function PluginShiftHandoff({ backendUrl, onOpenFinding }: { backendUrl: string; onOpenFinding?: (findingId: number) => boolean }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <div style={{ ...styles.row, justifyContent: 'flex-end' }}>
+        <button type="button" style={{ ...styles.button, background: 'transparent', border: '1px solid #ffb357', color: '#ffb357' }} onClick={() => setOpen(true)}>⇄ Shift handoff</button>
+      </div>
+    );
+  }
+  return <ShiftHandoffPanel backendUrl={backendUrl} onOpenFinding={onOpenFinding} onClose={() => setOpen(false)} />;
+}
+
+function ShiftHandoffPanel({ backendUrl, onOpenFinding, onClose }: { backendUrl: string; onOpenFinding?: (findingId: number) => boolean; onClose: () => void }) {
   const [hours, setHours] = useState(12);
   const [handoff, setHandoff] = useState<ShiftHandoff | null>(null);
   const [failed, setFailed] = useState(false);
@@ -40,8 +53,6 @@ export function PluginShiftHandoff({ backendUrl, onOpenFinding }: { backendUrl: 
     return () => { active = false; };
   }, [backendUrl]);
 
-  // As elsewhere on the overview: if this read fails, the page renders as it would without it.
-  if (failed) return null;
   const aiNote = note && note.hours === hours ? note.text : null;
   const noteFailed = note !== null && note.hours === hours && !note.text;
   const [first, ...rest] = handoff?.watch ?? [];
@@ -68,7 +79,7 @@ export function PluginShiftHandoff({ backendUrl, onOpenFinding }: { backendUrl: 
     }
   }
 
-  async function open(item: HandoffWatchItem) {
+  async function openItem(item: HandoffWatchItem) {
     setOpenError('');
     if (item.case_id) {
       try {
@@ -78,7 +89,7 @@ export function PluginShiftHandoff({ backendUrl, onOpenFinding }: { backendUrl: 
       }
       return;
     }
-    if (!item.finding_id || !onOpenFinding?.(item.finding_id)) setOpenError('This finding is not in the overview window; open it from Findings.');
+    if (!item.finding_id || !onOpenFinding?.(item.finding_id)) setOpenError(`This ${item.kind === 'pattern' ? 'pattern' : 'finding'} is not in the overview window; open it from Findings.`);
   }
 
   return (
@@ -103,7 +114,7 @@ export function PluginShiftHandoff({ backendUrl, onOpenFinding }: { backendUrl: 
         </div>
       </div>
 
-      {!handoff ? <div style={styles.muted}>Loading the handoff...</div> : (
+      {failed ? <div style={styles.muted}>The handoff could not be loaded. Check the backend connection and try again.</div> : !handoff ? <div style={styles.muted}>Loading the handoff...</div> : (
         <>
           <div data-testid="plugin-shift-handoff-counts" style={{ fontWeight: 700 }}>{handoffCounts(handoff)}</div>
           {first ? (
@@ -113,14 +124,14 @@ export function PluginShiftHandoff({ backendUrl, onOpenFinding }: { backendUrl: 
                 <div style={{ fontWeight: 700 }}>{watchLabel(first)}</div>
                 <div style={styles.helperText}>{first.title}: {first.reason}</div>
               </div>
-              <button type="button" style={styles.button} onClick={() => open(first)}>{first.case_id ? 'Open case' : 'Open finding'}</button>
+              <button type="button" style={styles.button} onClick={() => openItem(first)}>{openLabel(first.kind)}</button>
             </div>
           ) : <div style={styles.muted}>Nothing open needs watching.</div>}
           {rest.length ? (
             <div style={{ ...styles.stack, gap: 4 }}>
               <div style={{ ...styles.helperText, fontWeight: 700 }}>Also worth a look</div>
               {rest.map((item) => (
-                <button key={`${item.kind}-${item.case_id ?? item.finding_id}`} type="button" style={LINK_BUTTON} onClick={() => open(item)}>
+                <button key={`${item.kind}-${item.case_id ?? item.pattern_id ?? item.finding_id}`} type="button" style={LINK_BUTTON} onClick={() => openItem(item)}>
                   {watchLabel(item)} · <span style={{ fontWeight: 400 }}>{item.reason}</span>
                 </button>
               ))}
@@ -142,6 +153,8 @@ export function PluginShiftHandoff({ backendUrl, onOpenFinding }: { backendUrl: 
               </button>
             ) : null}
             {copied ? <span role="status" style={styles.helperText}>{copied}</span> : null}
+            <span style={{ flex: 1 }} />
+            <button type="button" style={LINK_BUTTON} onClick={onClose}>Close</button>
           </div>
           {openError ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{openError}</div> : null}
         </>

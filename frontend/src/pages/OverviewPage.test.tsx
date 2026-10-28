@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { OverviewPage } from './OverviewPage';
 import { api } from '../api/queries';
-import type { BehaviorFinding, Finding, IngestionStatus, OperationalCase } from '../types';
+import type { BehaviorFinding, Finding, IngestionStatus, OperationalCase, ShiftHandoff } from '../types';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -20,6 +20,9 @@ vi.mock('../api/queries', () => ({
     alerts: vi.fn(),
     runCsvUpload: vi.fn(),
     sendTestAlert: vi.fn(),
+    shiftHandoff: vi.fn(),
+    shiftHandoffNote: vi.fn(),
+    aiStatus: vi.fn(),
   },
 }));
 
@@ -81,6 +84,9 @@ describe('OverviewPage integration resilience', () => {
     // leave the Overview exactly as it was.
     vi.mocked(api.ingestionStatus).mockRejectedValue(new Error('not mocked'));
     vi.mocked(api.alerts).mockRejectedValue(new Error('not mocked'));
+    // Likewise the handoff: without it the page keeps the summary sentence and findings table.
+    vi.mocked(api.shiftHandoff).mockRejectedValue(new Error('not mocked'));
+    vi.mocked(api.aiStatus).mockRejectedValue(new Error('not mocked'));
   });
 
   afterEach(() => {
@@ -127,14 +133,11 @@ describe('OverviewPage integration resilience', () => {
     expect(screen.getByText('Operational Summary')).toBeInTheDocument();
     expect(screen.getByText('Needs Attention')).toBeInTheDocument();
     expect(screen.getByText('CPU usage sustained high')).toBeInTheDocument();
-    expect(screen.getByText('Autonomous Analysis')).toBeInTheDocument();
     expect(screen.getByText('checkout-api / cpu_usage')).toBeInTheDocument();
-    expect(screen.getByText('Findings')).toBeInTheDocument();
-    expect(screen.getByText('Generated')).toBeInTheDocument();
-    expect(screen.getByText('Failed Jobs')).toBeInTheDocument();
-    expect(screen.getByText('Execution errors')).toBeInTheDocument();
-    expect(screen.getByText('Top Metric')).toBeInTheDocument();
-    expect(screen.getByText('cpu_usage')).toBeInTheDocument();
+    // The scheduler is one status line; its charts live on its own page.
+    expect(screen.getByText('Autonomous Analysis')).toBeInTheDocument();
+    expect(screen.getByText(/last run completed .* · 2 findings · 0 failed jobs/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Details →' })).toHaveAttribute('href', '/autonomous-monitoring');
     expect(screen.queryByText('Memory Items')).not.toBeInTheDocument();
     expect(screen.queryByText('Finding Severity Trend')).not.toBeInTheDocument();
   });
@@ -208,7 +211,7 @@ describe('OverviewPage integration resilience', () => {
     renderOverview();
 
     expect(await screen.findByText('No findings need attention in this window.')).toBeInTheDocument();
-    expect(screen.getByText('No open cases returned by the API.')).toBeInTheDocument();
+    expect(screen.getByText('no runs yet')).toBeInTheDocument();
     expect(api.findings).toHaveBeenCalledWith(undefined, undefined, undefined, '24h');
   });
 
@@ -454,8 +457,8 @@ describe('OverviewPage integration resilience', () => {
 
       expect(await screen.findByText('Alert: HighLatency')).toBeInTheDocument();
       expect(screen.getByText('checkout-api / latency_p95')).toBeInTheDocument();
-      expect(await screen.findByRole('region', { name: 'Incoming Alerts' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'All alerts →' })).toHaveAttribute('href', '/alerts');
+      expect(await screen.findByText('1 alert in the last 24 hours, 1 still firing')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Alerts →' })).toHaveAttribute('href', '/alerts');
     });
 
     it('adds nothing when no alerts have been received', async () => {
@@ -467,7 +470,7 @@ describe('OverviewPage integration resilience', () => {
       expect(await screen.findByText('checkout-api / latency_p95')).toBeInTheDocument();
       await waitFor(() => expect(api.alerts).toHaveBeenCalled());
       expect(screen.queryByText(/Alert: /)).not.toBeInTheDocument();
-      expect(screen.queryByRole('region', { name: 'Incoming Alerts' })).not.toBeInTheDocument();
+      expect(await screen.findByText('none in the last 24 hours')).toBeInTheDocument();
     });
   });
 });
@@ -476,6 +479,9 @@ describe('OverviewPage combined patterns', () => {
   beforeEach(() => {
     vi.mocked(api.ingestionStatus).mockRejectedValue(new Error('not mocked'));
     vi.mocked(api.alerts).mockRejectedValue(new Error('not mocked'));
+    // Likewise the handoff: without it the page keeps the summary sentence and findings table.
+    vi.mocked(api.shiftHandoff).mockRejectedValue(new Error('not mocked'));
+    vi.mocked(api.aiStatus).mockRejectedValue(new Error('not mocked'));
   });
 
   afterEach(() => {
@@ -518,5 +524,104 @@ describe('OverviewPage combined patterns', () => {
     expect(screen.getByText('Combined pattern')).toBeInTheDocument();
     expect(screen.getByText('Database connection pool exhaustion')).toBeInTheDocument();
     expect(screen.queryByText('No findings need attention in this window.')).not.toBeInTheDocument();
+  });
+});
+
+describe('OverviewPage focus layout', () => {
+  const handoff: ShiftHandoff = {
+    generated_at: '2026-10-27T12:00:00Z',
+    hours: 24,
+    since: '2026-10-26T12:00:00Z',
+    new_findings: 3,
+    cases_opened: 2,
+    cases_resolved: 2,
+    cases_still_open: 18,
+    older_open_cases: 15,
+    watch: [
+      { kind: 'case', title: 'checkout-api slow again', severity: 'significant', service: 'checkout-api', metric_name: 'http_request_duration_p95', case_id: 191, finding_id: 11550, since: new Date(Date.now() - 2 * 3600_000).toISOString(), reason: 'open 2 hours, medium importance', live: true },
+      { kind: 'pattern', title: 'orders queue backing up', severity: 'high', service: 'orders', metric_name: '2 metrics', pattern_id: 20, since: new Date(Date.now() - 4 * 3600_000).toISOString(), reason: 'combined pattern, no case yet, seen 4 hours ago, high importance', live: true },
+      { kind: 'finding', title: 'Value stuck', severity: 'significant', service: 'spike-lab', metric_name: 'error_rate', finding_id: 11551, since: new Date(Date.now() - 3600_000).toISOString(), reason: 'no case yet, seen 1 hour ago, medium importance', live: true },
+      { kind: 'case', title: 'Old case', severity: 'critical', service: 'ledger', metric_name: 'error_rate', case_id: 48, finding_id: 1, reason: 'open 6 days, high importance', live: false },
+    ],
+    summary: '',
+  };
+
+  function mockFocus(data: ShiftHandoff = handoff) {
+    vi.mocked(api.ingestionStatus).mockRejectedValue(new Error('not mocked'));
+    vi.mocked(api.alerts).mockRejectedValue(new Error('not mocked'));
+    vi.mocked(api.aiStatus).mockRejectedValue(new Error('not mocked'));
+    vi.mocked(api.findings).mockResolvedValue([]);
+    vi.mocked(api.cases).mockResolvedValue([]);
+    vi.mocked(api.behaviorFindings).mockResolvedValue([]);
+    vi.mocked(api.overviewSummary).mockResolvedValue({ ...emptySummary, attention_findings: 2, context_findings: 1, open_cases: 18, impacted_services: 2 });
+    vi.mocked(api.autonomousPolicyRuns).mockResolvedValue([autonomousRun]);
+    vi.mocked(api.shiftHandoff).mockResolvedValue(data);
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('names one thing to look at first, with every count a link', async () => {
+    mockFocus();
+    renderOverview();
+
+    const focus = await screen.findByTestId('look-first');
+    expect(focus).toHaveTextContent('Look at this first');
+    expect(focus).toHaveTextContent('Case #191 · checkout-api / http_request_duration_p95');
+    expect(focus).toHaveTextContent('checkout-api slow again: open 2 hours, medium importance.');
+    expect(screen.getByRole('link', { name: 'Open case' })).toHaveAttribute('href', '/cases/191');
+    expect(screen.getByRole('link', { name: '2 findings need attention' })).toHaveAttribute('href', '/findings?window=24h');
+    expect(screen.getByRole('link', { name: '18 open cases' })).toHaveAttribute('href', '/cases');
+    expect(screen.getByRole('link', { name: 'automation healthy' })).toHaveAttribute('href', '/autonomous-monitoring');
+    expect(screen.queryByText('Operational Summary')).not.toBeInTheDocument();
+    expect(api.shiftHandoff).toHaveBeenCalledWith(24, 8);
+  });
+
+  it("lists this shift's work in the same order, and folds cases nobody touched into one line", async () => {
+    mockFocus();
+    renderOverview();
+
+    await screen.findByTestId('look-first');
+    const rows = screen.getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent('checkout-api / http_request_duration_p95');
+    expect(rows[0]).toHaveTextContent('Medium');
+    expect(rows[1]).toHaveTextContent('orders / 2 metrics');
+    expect(rows[1]).toHaveTextContent('High');
+    expect(rows[1]).toHaveTextContent('Combined pattern');
+    expect(rows[2]).toHaveTextContent('spike-lab / error_rate');
+    expect(screen.getByRole('link', { name: 'Review' })).toHaveAttribute('href', '/cases/191');
+    expect(screen.getAllByRole('link', { name: 'Watch' })[0]).toHaveAttribute('href', '/findings?window=24h&pattern=20');
+    expect(screen.getByTestId('older-open-cases')).toHaveTextContent('15 older open cases with no change in the last 24 hours');
+    expect(screen.queryByText('Old case')).not.toBeInTheDocument();
+  });
+
+  it('says nothing new needs you when only old cases are open', async () => {
+    mockFocus({ ...handoff, watch: [handoff.watch[3]] });
+    renderOverview();
+
+    const focus = await screen.findByTestId('look-first');
+    expect(focus).toHaveTextContent('Nothing new needs you');
+    expect(focus).toHaveTextContent('No problem changed in the last 24 hours. 15 open cases are from earlier.');
+    expect(screen.getByText('No findings need attention in this window.')).toBeInTheDocument();
+  });
+
+  it('keeps the tiles as links', async () => {
+    mockFocus();
+    renderOverview();
+
+    await screen.findByTestId('look-first');
+    expect(screen.getByRole('link', { name: /18\s*Open Cases/ })).toHaveAttribute('href', '/cases');
+    expect(screen.getByRole('link', { name: /2\s*Need Attention/ })).toHaveAttribute('href', '/findings?window=24h');
+  });
+
+  it('opens the shift handoff from the header', async () => {
+    mockFocus();
+    renderOverview();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Shift handoff' }));
+    expect(await screen.findByTestId('shift-handoff')).toBeInTheDocument();
+    expect(api.shiftHandoff).toHaveBeenCalledWith(12);
   });
 });

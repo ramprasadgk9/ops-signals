@@ -37,5 +37,10 @@ export function handoffCopyText(handoff: ShiftHandoff, note: string | null | und
 /** Web UI address of a watch item; `baseUrl` prefixes it for a pasted link. */
 export function watchHref(item: HandoffWatchItem, baseUrl = ''): string {
   if (item.case_id) return `${baseUrl}/cases/${item.case_id}`;
+  if (item.pattern_id) return `${baseUrl}/findings?window=24h&pattern=${item.pattern_id}`;
   return `${baseUrl}/findings?window=24h${item.finding_id ? `&finding=${item.finding_id}` : ''}`;
+}
+
+export function openLabel(kind: HandoffWatchItem['kind']): string {
+  return kind === 'case' ? 'Open case' : kind === 'pattern' ? 'Open pattern' : 'Open finding';
 }

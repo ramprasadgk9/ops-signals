@@ -9,6 +9,7 @@ dropped (case_ai_drafts.check_draft). Nothing here writes anything.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -20,7 +21,7 @@ from backend.app.ai.factory import OptionalAIServices
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.alerts.correlation import as_utc
 from backend.app.config import AlertEnrichmentConfig
-from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.active_findings import active_findings, is_closed, problem_of
 from backend.app.services.case_ai_drafts import check_draft
 from backend.app.services.finding_changes import finding_changes
@@ -33,26 +34,30 @@ logger = logging.getLogger(__name__)
 SEVERITY_RANK = {"critical": 0, "high": 1, "significant": 1, "medium": 2, "normal": 3, "low": 3}
 LEVEL_WORDS = {"critical": "high importance", "high": "high importance", "significant": "medium importance", "medium": "medium importance", "normal": "low importance", "low": "low importance"}
 WATCH_LIMIT = 3
+MAX_LIMIT = 20
+# Equal level and age: a case is being worked on, a combined pattern is several metrics agreeing.
+KIND_ORDER = {"case": 0, "pattern": 1, "finding": 2}
 # Deploy lookups are a query or two each: only for the items that could make the list.
 DEPLOY_LOOKUPS = 10
 
 HANDOFF_INSTRUCTION = """You write the shift handoff note for the next on-call engineer.
 
-You get counts for the last hours and the open problems, already ranked: item 1 is the one to
-watch first. Write 2-3 short sentences:
-1. What happened, using the counts.
-2. Which item to watch first and why (still open, how long, after which deploy, how serious).
-3. Optionally, one more item worth a look.
+You get the open problems, already ranked: item 1 is the one to watch first. The counts are
+written separately; don't repeat them. Write 1-2 short sentences:
+1. Which item to watch first and why, using only its line: how long it has been open, the deploy
+   it started after (only if its line names one), how important it is.
+2. Optionally, the next item worth a look.
 
 Rules:
-- Use only the facts given. No numbers, versions, services or names that are not in them.
-- Don't guess a cause. "Started after deploy X" is fine only when the facts say so.
+- Name each item by its case number ("case #12") or, without one, by its service.
+- Use only the words in the item lines. Don't describe what the problem is beyond its title, don't
+  add amounts ("many", "a lot", "high volume") and don't guess a cause.
 - Plain words, no statistics words. Return only the sentences."""
 
 
 @dataclass(slots=True)
 class WatchItem:
-    kind: str  # "case" or "finding"
+    kind: str  # "case", "pattern" (a combined pattern with no case) or "finding" (no case)
     title: str
     severity: str | None
     service: str | None
@@ -60,6 +65,7 @@ class WatchItem:
     since: datetime | None
     case_id: int | None = None
     finding_id: int | None = None
+    pattern_id: int | None = None
     case_status: str | None = None
     deploy_version: str | None = None
     deploy_at: datetime | None = None
@@ -77,11 +83,13 @@ class Handoff:
     cases_opened: int
     cases_resolved: int
     cases_still_open: int
+    # Open cases nothing happened to in the window; listed after this shift's items, if at all.
+    older_open_cases: int = 0
     watch: list[WatchItem] = field(default_factory=list)
     summary: str = ""
 
 
-def build_handoff(db: Session, hours: int, change_config: AlertEnrichmentConfig, now: datetime | None = None) -> Handoff:
+def build_handoff(db: Session, hours: int, change_config: AlertEnrichmentConfig, now: datetime | None = None, limit: int = WATCH_LIMIT) -> Handoff:
     now = now or datetime.now(timezone.utc)
     since = now - timedelta(hours=hours)
 
@@ -95,12 +103,12 @@ def build_handoff(db: Session, hours: int, change_config: AlertEnrichmentConfig,
     new_problems = {problem_of(row) for row in findings if problem_of(row) == row.id}
 
     seen_in_window = {problem_of(row) for row in findings}
-    candidates = _case_items(db, open_cases, since, seen_in_window) + _finding_items(db, findings, cases)
+    candidates = _case_items(db, open_cases, since, seen_in_window) + _pattern_items(db, since, cases) + _finding_items(db, findings, cases)
     # This shift's problems first, then the worst; among equals, one after a deploy, a case, the newest.
     candidates.sort(key=lambda item: _rank(item, deploys_known=False))
     _add_deploys(db, candidates[:DEPLOY_LOOKUPS], change_config)
     candidates.sort(key=lambda item: _rank(item, deploys_known=True))
-    watch = candidates[:WATCH_LIMIT]
+    watch = candidates[: max(1, min(limit, MAX_LIMIT))]
     for item in watch:
         item.reason = _reason(item, now)
 
@@ -112,50 +120,70 @@ def build_handoff(db: Session, hours: int, change_config: AlertEnrichmentConfig,
         cases_opened=sum(1 for case in detected if _after(case.created_at, since)),
         cases_resolved=sum(1 for case in detected if _closed(case) and _after(case.resolved_at or case.updated_at, since)),
         cases_still_open=len(open_cases),
+        older_open_cases=sum(1 for item in candidates if item.kind == "case" and not item.live),
         watch=watch,
     )
     handoff.summary = handoff_summary(handoff)
     return handoff
 
 
-def handoff_summary(handoff: Handoff) -> str:
-    """The note without AI: the counts, then the item to watch first."""
-    counts = (
+def handoff_counts(handoff: Handoff) -> str:
+    return (
         f"Last {handoff.hours} hours: {_plural(handoff.new_findings, 'new finding')}, "
         f"{_plural(handoff.cases_opened, 'case')} opened, {handoff.cases_resolved} resolved. "
         f"{_plural(handoff.cases_still_open, 'case')} still open."
     )
+
+
+def handoff_summary(handoff: Handoff) -> str:
+    """The note without AI: the counts, then the item to watch first."""
+    counts = handoff_counts(handoff)
     if not handoff.watch:
         return f"{counts} Nothing open needs watching."
     return f"{counts} Watch first: {_label(handoff.watch[0])}, {handoff.watch[0].reason}."
 
 
 def handoff_facts(handoff: Handoff) -> str:
-    lines = [
-        f"Window: last {handoff.hours} hours.",
-        f"New findings: {handoff.new_findings}. Cases opened: {handoff.cases_opened}. Cases resolved: {handoff.cases_resolved}. Cases still open: {handoff.cases_still_open}.",
-    ]
-    if not handoff.watch:
-        lines.append("Nothing open needs watching.")
-    for index, item in enumerate(handoff.watch, start=1):
-        lines.append(f"Item {index}: {_label(item)}; {item.title}; {item.reason}.")
-    return "\n".join(lines)
+    items = handoff.watch[:WATCH_LIMIT]
+    return "\n".join(f"Item {index}: {_label(item)}; {item.title}; {item.reason}." for index, item in enumerate(items, start=1))
 
 
 def write_handoff(ai_services: OptionalAIServices, handoff: Handoff) -> str | None:
+    """The counts as code writes them, then AI's sentences on what to watch. A sentence that names
+    no item (by case number or service), or anything not in the item lines, is dropped: the model
+    once opened with "a high volume of error reports", which nothing said."""
+    if not handoff.watch:
+        return None
     facts = handoff_facts(handoff)
     try:
-        text = synthesize_narrative(ai_services, instruction=HANDOFF_INSTRUCTION, evidence_text=facts, max_tokens=220)
+        text = synthesize_narrative(ai_services, instruction=HANDOFF_INSTRUCTION, evidence_text=facts, max_tokens=160)
     except Exception:  # noqa: BLE001 - the deterministic summary is always there
         logger.warning("Handoff note could not be written", exc_info=True)
         return None
-    return check_draft(text, facts)
+    checked = check_draft(text, facts)
+    kept = [sentence for sentence in _SENTENCE.split(checked or "") if _names_an_item(sentence, handoff.watch[:WATCH_LIMIT]) and not _VAGUE.search(sentence)]
+    if not kept:
+        return None
+    return f"{handoff_counts(handoff)} {' '.join(kept)}"
+
+
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+# Amounts nothing in the facts measures.
+_VAGUE = re.compile(r"\b(high volume|a lot of|lots of|many|numerous|several|significant(ly)? (number|amount)|surge|spike in reports)\b", re.IGNORECASE)
+
+
+def _names_an_item(sentence: str, items: list[WatchItem]) -> bool:
+    text = sentence.lower()
+    return any(
+        (item.case_id is not None and f"#{item.case_id}" in text) or (item.service and item.service.lower() in text)
+        for item in items
+    )
 
 
 def _rank(item: WatchItem, *, deploys_known: bool) -> tuple:
     severity = SEVERITY_RANK.get((item.severity or "").lower(), 4)
     after_deploy = item.deploy_version is None if deploys_known else False
-    return (not item.live, severity, after_deploy, item.kind != "case", -_epoch(item.since))
+    return (not item.live, severity, after_deploy, KIND_ORDER.get(item.kind, 3), -_epoch(item.since))
 
 
 def _case_items(db: Session, open_cases: list[OperationalCaseEntity], since: datetime, seen_in_window: set[int | None]) -> list[WatchItem]:
@@ -180,6 +208,26 @@ def _case_items(db: Session, open_cases: list[OperationalCaseEntity], since: dat
             )
         )
     return items
+
+
+def _pattern_items(db: Session, since: datetime, cases: list[OperationalCaseEntity]) -> list[WatchItem]:
+    """Combined patterns seen in the window that nobody has opened a case for (a case on one is
+    already listed as a case)."""
+    cased = {case.behavior_finding_id for case in cases if case.behavior_finding_id}
+    rows = db.execute(select(BehaviorFindingEntity).where(BehaviorFindingEntity.last_seen_at >= since)).scalars().all()
+    return [
+        WatchItem(
+            kind="pattern",
+            title=row.title,
+            severity=row.severity,
+            service=row.service,
+            metric_name=_plural(len(row.input_metrics_json or {}), "metric") if row.input_metrics_json else None,
+            since=row.created_at,
+            pattern_id=row.id,
+        )
+        for row in rows
+        if _after(row.last_seen_at, since) and row.case_id is None and row.id not in cased
+    ]
 
 
 def _finding_items(db: Session, findings: list[FindingEntity], cases: list[OperationalCaseEntity]) -> list[WatchItem]:
@@ -238,6 +286,8 @@ def _reason(item: WatchItem, now: datetime) -> str:
     parts = []
     if item.kind == "case":
         parts.append(f"open {_age(item.since, now)}")
+    elif item.kind == "pattern":
+        parts.append(f"combined pattern, no case yet, seen {_age(item.since, now)} ago")
     else:
         parts.append(f"no case yet, seen {_age(item.since, now)} ago")
     if item.deploy_version:

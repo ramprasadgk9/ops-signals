@@ -153,7 +153,7 @@ export const api = {
   runMetricUsageCheck: () => postJson<Record<string, never>, MetricUsageSnapshot>('/api/metric-usage/run', {}),
   grafanaStatus: () => getJson<GrafanaStatus>('/api/metric-usage/grafana/status'),
   overviewSummary: (window: '6h' | '24h' | '7d' = '24h') => getJson<OverviewSummaryResponse>(`/api/overview/summary?window=${window}`),
-  shiftHandoff: (hours = 12) => getJson<ShiftHandoff>(`/api/overview/handoff?hours=${hours}`),
+  shiftHandoff: (hours = 12, limit = 3) => getJson<ShiftHandoff>(`/api/overview/handoff?hours=${hours}&limit=${limit}`),
   shiftHandoffNote: (hours = 12) => postJson<Record<string, never>, ShiftHandoffNote>(`/api/overview/handoff/note?hours=${hours}`, {}),
   services: () => getJson<string[]>('/api/services'),
   metrics: (service: string) => getJson<string[]>(`/api/services/${service}/metrics`),
