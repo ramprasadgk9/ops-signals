@@ -17,6 +17,7 @@ import { AlertBadge, alertsByFinding } from '../components/AlertComponents';
 import { AlertsOverviewPanel } from '../components/AlertTimeline';
 import { MetricUsageStrip } from '../components/MetricUsageStrip';
 import { SetupBanner } from '../components/SetupBanner';
+import { ShiftHandoffCard } from '../components/ShiftHandoffCard';
 import { PageHeader, IconTile, Pill, WorkspacePanel } from '../standalone/components';
 import { relativeTime, severityTone, titleCase, ui } from '../standalone/theme';
 import { findingLevel } from '../utils/findingLevel';
@@ -102,6 +103,8 @@ export function OverviewPage() {
       {(awaitingFirstData || onboardingOpen) && ingestionStatus ? (
         <GetDataInPanel status={ingestionStatus} onDismiss={awaitingFirstData ? undefined : () => setOnboardingOpen(false)} />
       ) : null}
+
+      {awaitingFirstData ? null : <ShiftHandoffCard />}
 
       <OperationalSummary
         activeFindings={summaryQuery.error ? null : summary?.active_findings ?? findings.length}

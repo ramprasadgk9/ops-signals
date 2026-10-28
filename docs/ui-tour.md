@@ -11,7 +11,7 @@ automatically exist in the other.
 
 | Tab | Route | What it's for |
 | --- | --- | --- |
-| **Overview** | `/` | The landing dashboard — recent findings, case activity, and a summary of what the autonomous scheduler has found. Start here. |
+| **Overview** | `/` | The landing dashboard — recent findings, case activity, and a summary of what the autonomous scheduler has found. Start here. At the top, **Shift handoff** gives the next person on call the last 8, 12 or 24 hours in one line and what to watch first, with **Copy for Slack** (and **Write with AI** when AI is on). See [Shift handoff](standalone-overview-api.md#shift-handoff). |
 | **Alerts** | `/alerts` | Alerts received from Alertmanager and other sources: a 24-hour timeline with deploys marked, and per alert where the change came from (pods), what changed just before (deploys) and the finding or case it was linked to. |
 | **Integrations** | `/integrations` | Setup for every way data gets in: OTLP push, Prometheus (URL, reachable, what uses it), the Alertmanager webhook, and deploy events from CI, each with its URL, a snippet and whether data is arriving. |
 | **Autonomous Analysis Configure** | `/autonomous-monitoring` | Configure which services/metrics to watch and which monitoring categories to enable, preview the resulting plan, run it once, or save it as a recurring schedule. With sign-in on, a Viewer sees it as **Autonomous Analysis**: the schedule and what runs found, without the set-up form. See [`docs/autonomous-analysis-preview.md`](autonomous-analysis-preview.md). |
@@ -78,7 +78,7 @@ The plugin has two top-level modes, switched via tabs at the top of the app:
 | Mode | What it's for |
 | --- | --- |
 | **Interactive Analysis** | Investigate one metric at a time — pick a Prometheus query, run analyzers against it, and inspect findings directly inside Grafana. |
-| **Autonomous Analysis** | The plugin's equivalent of the web UI's Autonomous Analysis Configure + Overview, in one place: a **Configure** stage to set scope/categories and preview or save a schedule, and an **Overview** stage showing the latest run's findings, coverage details, and history. The two are reachable as a persistent tab pair once a scan has run or a schedule exists. A Grafana Viewer gets only the Overview, with the schedule shown read-only above it. |
+| **Autonomous Analysis** | The plugin's equivalent of the web UI's Autonomous Analysis Configure + Overview, in one place: a **Configure** stage to set scope/categories and preview or save a schedule, and an **Overview** stage showing the **Shift handoff** card, then the latest run's findings, coverage details, and history. The two are reachable as a persistent tab pair once a scan has run or a schedule exists. A Grafana Viewer gets only the Overview, with the schedule shown read-only above it. |
 
 Setup instructions: [`docs/grafana-plugin-local-setup.md`](grafana-plugin-local-setup.md). Feature
 walkthrough: [`docs/grafana-plugin-feature-walkthrough.md`](grafana-plugin-feature-walkthrough.md).

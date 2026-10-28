@@ -1,6 +1,8 @@
 import type { SetupCheckResult } from '../utils/setupCheck';
 import { isGrafanaProxyUrl } from './backendUrlSetting';
 import type {
+  ShiftHandoff,
+  ShiftHandoffNote,
   AIStatus,
   AlertItem,
   CaseFixCameBack,
@@ -826,6 +828,14 @@ export async function getCaseFixCameBack(baseUrl: string, caseId: number) {
 /** AI: possible reasons the fix named on a came-back banner didn't hold. Never saved. */
 export async function getFixCameBackWhy(baseUrl: string, subject: 'cases' | 'findings', id: number) {
   return postJson<FixCameBackWhy>(baseUrl, `/api/${subject}/${id}/fix-came-back/why`, {});
+}
+
+export async function getShiftHandoff(baseUrl: string, hours = 12) {
+  return fetchJson<ShiftHandoff>(baseUrl, `/api/overview/handoff?hours=${hours}`);
+}
+
+export async function writeShiftHandoffNote(baseUrl: string, hours = 12) {
+  return postJson<ShiftHandoffNote>(baseUrl, `/api/overview/handoff/note?hours=${hours}`, {});
 }
 
 export async function getAiStatus(baseUrl: string) {

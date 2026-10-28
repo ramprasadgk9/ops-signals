@@ -14,6 +14,7 @@ import { InvestigationDrawer, PanelPreview } from './PanelPreview';
 import { activeBackendUrl, backendOptionsFor, configuredBackendUrl, configuredWebUiUrl, isGrafanaProxyUrl, localBackendOptions, type BackendOption, type PluginJsonData } from './backendUrlSetting';
 import { ApiTokenField } from './ApiTokenField';
 import { Card, Field, styles } from './plainUi';
+import { PluginShiftHandoff } from './PluginShiftHandoff';
 import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel';
 import { asGrafanaRole, grafanaUserRole, LockReason, LOCK_REASONS, PermissionsProvider, usePermissions } from './permissions';
 import { behaviorAnchor, PluginBehaviorFindings } from './PluginBehaviorFindings';
@@ -2783,6 +2784,14 @@ export function GrafanaAutonomousOverview({
           {context.environment ? <span style={styles.chip}>Environment: {context.environment}</span> : null}
         </div>
       </div>
+      <PluginShiftHandoff
+        backendUrl={backendUrl}
+        onOpenFinding={(findingId) => {
+          const finding = findings.find((item) => item.id === findingId);
+          if (finding) onOpenInvestigation(finding, 'investigate');
+          return Boolean(finding);
+        }}
+      />
       {onServiceFilter && showServiceFilter(services, serviceFilter) ? (
         <div style={{ ...styles.row, gap: 6 }}>
           <label htmlFor="overview-service-filter" style={{ ...styles.helperText, margin: 0 }}>Service</label>
