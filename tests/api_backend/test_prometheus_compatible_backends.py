@@ -300,3 +300,152 @@ def test_label_values_are_never_posted(monkeypatch, service) -> None:
 
     [request] = backend.for_path("/api/v1/label/service/values")
     assert request["method"] == "GET"
+
+
+# 6. Series lists are bounded, and a metric with very many series doesn't hide the others
+
+
+class SeriesServer(FakeBackend):
+    """Serves /api/v1/series and the __name__ label values from a list of series, filtering by the
+    __name__ in each match[] and, like Prometheus 2.54 and Mimir 2.17, returning at most `limit`
+    series sorted by labels (unless honor_limit is False, like an older server)."""
+
+    def __init__(self, series: list[dict[str, str]], *, honor_limit: bool = True, fail_scoped: HTTPError | None = None):
+        super().__init__({})
+        self.series = sorted(series, key=lambda labels: sorted(labels.items()))
+        self.honor_limit = honor_limit
+        self.fail_scoped = fail_scoped
+        self.largest_answer = 0
+
+    def __call__(self, request, timeout=None, context=None):
+        response = super().__call__(request, timeout, context)
+        params = self.requests[-1]["params"]
+        path = self.requests[-1]["path"]
+        if path == "/api/v1/label/__name__/values":
+            return self._answer({"status": "success", "data": sorted({labels["__name__"] for labels in self.series})})
+        if path != "/api/v1/series":
+            return response
+        names = {matcher.split('__name__="')[1].rstrip('"}') for key, matcher in params if key == "match[]" and "__name__" in matcher}
+        if not names and self.fail_scoped is not None:
+            raise self.fail_scoped
+        rows = [labels for labels in self.series if not names or labels["__name__"] in names]
+        limit = int(dict(params).get("limit", 0))
+        payload: dict[str, object] = {"status": "success", "data": rows}
+        if self.honor_limit and limit and len(rows) > limit:
+            payload = {"status": "success", "data": rows[:limit], "warnings": ["results truncated due to limit"]}
+        self.largest_answer = max(self.largest_answer, len(payload["data"]))
+        return self._answer(payload)
+
+    @staticmethod
+    def _answer(payload: dict) -> io.BytesIO:
+        return io.BytesIO(json.dumps(payload).encode("utf-8"))
+
+
+def _checkout_series(hot_series: int) -> list[dict[str, str]]:
+    """checkout_api_calls has one series per user; four ordinary metrics have three pods each."""
+    rows = [{"__name__": "checkout_api_calls", "service": "checkout", "user_id": f"u{index:05d}"} for index in range(hot_series)]
+    for name in ("checkout_cpu", "checkout_errors", "checkout_latency", "checkout_memory"):
+        rows.extend({"__name__": name, "service": "checkout", "pod": f"pod-{index}"} for index in range(3))
+    return rows
+
+
+def _found(result: MetricDiscoveryResult) -> set[str]:
+    return {metric.metric_name for metric in result.metrics}
+
+
+def test_small_scope_is_listed_in_one_request_as_before(monkeypatch, service) -> None:
+    server = SeriesServer(_checkout_series(hot_series=3))
+    monkeypatch.setattr(prometheus_service, "urlopen", server)
+
+    result = service.discover_metric_metadata(scope_selector='{service="checkout"}', start=START, end=END)
+
+    [request] = server.for_path("/api/v1/series")
+    assert _param(request, "limit") == ["5001"]
+    assert _found(result) == {"checkout_api_calls", "checkout_cpu", "checkout_errors", "checkout_latency", "checkout_memory"}
+    assert result.series_available == 15
+    assert result.warnings == []
+
+
+def test_metric_with_very_many_series_does_not_hide_the_others(monkeypatch, service) -> None:
+    server = SeriesServer(_checkout_series(hot_series=1000))
+    monkeypatch.setattr(prometheus_service, "urlopen", server)
+
+    result = service.discover_metric_metadata(scope_selector='{service="checkout"}', limit=20, start=START, end=END)
+
+    assert _found(result) == {"checkout_api_calls", "checkout_cpu", "checkout_errors", "checkout_latency", "checkout_memory"}
+    assert result.starved_metrics == []
+    assert server.largest_answer <= 21
+    assert result.series_available is None
+    assert result.truncated is False
+    assert result.warnings == [
+        "Very many series: checkout_api_calls (at least 21 series). This is usually a label with a value per user, "
+        "request or pod. Every metric was still found, but dropping that label (relabeling) makes these metrics "
+        "cheaper to store and query."
+    ]
+
+
+def test_metrics_the_cut_off_list_never_reached_are_asked_for_one_at_a_time(monkeypatch, service) -> None:
+    server = SeriesServer(_checkout_series(hot_series=1000))
+    monkeypatch.setattr(prometheus_service, "urlopen", server)
+
+    service.discover_metric_metadata(scope_selector='{service="checkout"}', limit=20, start=START, end=END)
+
+    single = [request for request in server.for_path("/api/v1/series") if len(_param(request, "match[]")) == 1 and "__name__" in _param(request, "match[]")[0]]
+    assert sorted(_param(request, "match[]")[0] for request in single) == [
+        '{service="checkout",__name__="checkout_cpu"}',
+        '{service="checkout",__name__="checkout_errors"}',
+        '{service="checkout",__name__="checkout_latency"}',
+        '{service="checkout",__name__="checkout_memory"}',
+    ]
+    assert {_param(request, "limit")[0] for request in single} == {"4"}
+
+
+def test_server_that_ignores_limit_still_finds_every_metric(monkeypatch, service) -> None:
+    server = SeriesServer(_checkout_series(hot_series=1000), honor_limit=False)
+    monkeypatch.setattr(prometheus_service, "urlopen", server)
+
+    result = service.discover_metric_metadata(scope_selector='{service="checkout"}', limit=20, start=START, end=END)
+
+    assert _found(result) == {"checkout_api_calls", "checkout_cpu", "checkout_errors", "checkout_latency", "checkout_memory"}
+    assert result.starved_metrics == []
+
+
+def test_cluster_wide_discovery_is_bounded_too(monkeypatch, service) -> None:
+    server = SeriesServer(_checkout_series(hot_series=1000))
+    monkeypatch.setattr(prometheus_service, "urlopen", server)
+
+    result = service.discover_metric_metadata(limit=20, start=START, end=END)
+
+    assert len(_found(result)) == 5
+    assert server.largest_answer <= 21
+
+
+def test_failed_scoped_listing_is_explained_and_discovery_carries_on(monkeypatch, service) -> None:
+    refusal = _http_error(500, json.dumps({"status": "error", "error": "rpc error: code = ResourceExhausted desc = grpc: received message larger than max (382555560 vs. 104857600)"}))
+    server = SeriesServer(_checkout_series(hot_series=3), fail_scoped=refusal)
+    monkeypatch.setattr(prometheus_service, "urlopen", server)
+
+    result = service.discover_metric_metadata(scope_selector='{service="checkout"}', start=START, end=END)
+
+    assert len(_found(result)) == 5
+    [warning] = result.warnings
+    assert warning.startswith(
+        "Listing this scope's series in one request failed (Prometheus HTTP error: 500: the answer was larger than "
+        "the server sends in one response; narrow the scope or the query (rpc error:"
+    )
+    assert warning.endswith("Ops Signals listed them metric by metric instead.")
+
+
+def test_dropped_connection_is_a_clear_503(monkeypatch, service) -> None:
+    from http.client import RemoteDisconnected
+
+    def drop(request, timeout=None, context=None):
+        raise RemoteDisconnected("Remote end closed connection without response")
+
+    monkeypatch.setattr(prometheus_service, "urlopen", drop)
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.preview("up", START, START + timedelta(hours=1), "1m")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Prometheus connection failed"
