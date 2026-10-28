@@ -39,6 +39,7 @@ import { api } from '../api/queries';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 import { CaseRecurrenceBanner } from '../components/CaseRecurrenceBanner';
+import { FixDidNotHoldChip } from '../components/FixCameBack';
 import { RootCauseUnconfirmedBadge, isRootCauseUnconfirmed } from '../components/RootCauseUnconfirmedBadge';
 import { NoveltyBadge } from '../components/NoveltyBadge';
 import { SameFixElsewhere } from '../components/FixHistory';
@@ -320,6 +321,7 @@ export function CaseDetailsPage() {
                 <Chip label={statusLabel(caseData.case_status)} color={caseData.case_status === 'resolved' ? 'success' : 'default'} size="small" />
                 {isRootCauseUnconfirmed({ case_status: caseData.case_status, rootCauseVerified: caseData.root_cause_verified, source: caseData.source }) ? <RootCauseUnconfirmedBadge /> : null}
                 <Chip label={`Case ${memoryLabel}`} size="small" variant="outlined" />
+                <FixDidNotHoldChip caseId={caseData.id} />
               </Stack>
               <Typography variant="h6" color="text.secondary" sx={{ fontWeight: 400 }}>
                 {finding.title}

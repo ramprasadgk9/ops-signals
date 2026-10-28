@@ -39,6 +39,7 @@ _VIEWER_WRITES = [re.compile(pattern) for pattern in (
     r"^/api/prometheus/(preview|test-connection)$",
     r"^/api/cases/\d+/(rca|resolution|writeup)/suggest$",
     r"^/api/findings/\d+/suggested-fixes/runbook-draft$",
+    r"^/api/(cases|findings)/\d+/fix-came-back/why$",
     r"^/api/metric-usage/drop-config$",
     r"^/api/auth/logout$",
 )]

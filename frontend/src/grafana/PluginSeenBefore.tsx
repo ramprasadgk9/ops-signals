@@ -3,6 +3,7 @@ import type { Novelty, PastCaseMatch, SeenBeforeResponse } from '../types';
 import { rankPastMatches } from '../utils/pastCaseMatches';
 import { getFindingSeenBefore } from './backendClient';
 import { styles } from './plainUi';
+import { PluginFixCameBackBanner } from './PluginFixCameBack';
 
 // "Seen before?" (past cases from operational memory resembling a finding) in the Grafana plugin's
 // own styling. Same endpoint and ordering as the web UI's FindingDetailsDrawer + PastCaseMatches.
@@ -47,6 +48,9 @@ export function PluginSeenBefore({ backendUrl, findingId, service, frame }: { ba
       </div>
       {state.status === 'loading' ? <div style={styles.muted}>Searching past cases...</div> : null}
       {state.status === 'error' ? <div style={styles.muted}>Past cases could not be searched. Check the backend connection.</div> : null}
+      {state.status === 'ready' && state.data.came_back ? (
+        <PluginFixCameBackBanner backendUrl={backendUrl} cameBack={state.data.came_back} subject={{ kind: 'findings', id: findingId }} />
+      ) : null}
       {state.status === 'ready' ? <SeenBeforeBody data={state.data} service={service ?? state.data.service} /> : null}
     </section>
   );

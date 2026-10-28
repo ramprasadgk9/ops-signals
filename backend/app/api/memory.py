@@ -12,9 +12,10 @@ from sqlalchemy import func, select
 
 from backend.app.api.assistant import get_assistant
 from backend.app.assistant.service import OperationalIntelligenceAssistant
-from backend.app.config import MemoryConfig
+from backend.app.config import AlertEnrichmentConfig, MemoryConfig, get_alert_enrichment_config
 from backend.app.memory.diversity import leaders_only
 from backend.app.memory.coverage import CoverageReport, build_coverage_report
+from backend.app.memory.fix_came_back import CaseFixCameBackResponse, find_case_fix_came_back
 from backend.app.memory.fix_outcomes import SameFixResponse, find_same_fix
 from backend.app.memory.indexer import CaseMemoryIndexer
 from backend.app.memory.recall_scoring import RecallBoost
@@ -38,7 +39,9 @@ from backend.app.memory.chat_answer import chat_answer_lines
 from backend.app.memory.suggested_fixes import RunbookDraft, SuggestedFixesResponse, draft_runbook, suggest_fixes
 from backend.app.memory.vector_store import VectorStore
 from backend.app.models.db import get_db
+from backend.app.models.api_schema import FixCameBackWhyOut
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
+from backend.app.services.fix_came_back_why import why_facts, write_why
 from backend.app.api.errors import internal_error, memory_error, memory_not_ready
 from backend.app.memory import availability as memory_availability
 from backend.app.memory.catch_up import count_waiting
@@ -326,6 +329,88 @@ def case_same_fix(
     except Exception as e:
         logger.warning(f"Same-fix search failed for case {case_id}: {e}")
         return SameFixResponse(case_id=case_id, available=False, reason="Past fixes could not be searched right now.")
+
+
+@router.get("/cases/{case_id}/fix-came-back", response_model=CaseFixCameBackResponse)
+def case_fix_came_back(
+    case_id: int,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> CaseFixCameBackResponse:
+    """Whether this case is a problem back soon after an earlier case on its service was fixed,
+    and whether this case's own fix held."""
+    case = db.get(OperationalCaseEntity, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    enabled = bool(config and config.enabled and service)
+    try:
+        return find_case_fix_came_back(db, service.vector_store if enabled else None, embedder if enabled else None, case)
+    except Exception as e:
+        logger.warning(f"Fix came-back check failed for case {case_id}: {e}")
+        return CaseFixCameBackResponse(case_id=case_id, available=False, reason="Past fixes could not be checked right now.")
+
+
+@router.post("/findings/{finding_id}/fix-came-back/why", response_model=FixCameBackWhyOut)
+def finding_fix_came_back_why(
+    finding_id: int,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+    change_config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+) -> FixCameBackWhyOut:
+    """AI: possible reasons the fix named on this finding's came-back banner didn't hold. Never saved."""
+    finding = db.get(FindingEntity, finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    ai_services = assistant.services.ai_services if assistant else None
+    if ai_services is None:
+        return FixCameBackWhyOut(available=False, reason="AI assistance is not configured.", reason_code="ai_off")
+    came_back = _seen_before_or_unavailable(db, finding, service, embedder, config).came_back
+    return _why(db, ai_services, came_back, finding=finding, case=None, change_config=change_config)
+
+
+@router.post("/cases/{case_id}/fix-came-back/why", response_model=FixCameBackWhyOut)
+def case_fix_came_back_why(
+    case_id: int,
+    db: Session = Depends(get_db),
+    service: SimilarityService | None = Depends(get_similarity_service),
+    embedder: Embedder | None = Depends(get_embedder),
+    config: MemoryConfig | None = Depends(get_memory_config),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+    change_config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+) -> FixCameBackWhyOut:
+    """AI: possible reasons the earlier fix named on this case's came-back banner didn't hold."""
+    case = db.get(OperationalCaseEntity, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    ai_services = assistant.services.ai_services if assistant else None
+    if ai_services is None:
+        return FixCameBackWhyOut(available=False, reason="AI assistance is not configured.", reason_code="ai_off")
+    came_back = case_fix_came_back(case_id, db, service, embedder, config).came_back
+    finding = db.get(FindingEntity, case.finding_id) if case.finding_id else None
+    return _why(db, ai_services, came_back, finding=finding, case=case, change_config=change_config)
+
+
+def _why(db: Session, ai_services, came_back, *, finding, case, change_config) -> FixCameBackWhyOut:
+    if came_back is None:
+        return FixCameBackWhyOut(available=False, reason="This problem didn't come back after a recent fix.", reason_code="not_enough")
+    facts = why_facts(db, came_back, finding=finding, case=case, change_config=change_config)
+    if not facts.has_material:
+        return FixCameBackWhyOut(available=False, reason="The past case has no cause or fix recorded.", reason_code="not_enough", sources=facts.sources)
+    try:
+        reasons = write_why(ai_services, facts)
+    except Exception as e:
+        logger.warning(f"Fix came-back reasons failed: {e}")
+        reasons = None
+    if reasons is None:
+        return FixCameBackWhyOut(available=False, reason="AI draft generation failed", reason_code="failed")
+    if not reasons:
+        return FixCameBackWhyOut(available=False, reason="Not enough in the cases to say why.", reason_code="not_enough", sources=facts.sources)
+    return FixCameBackWhyOut(available=True, reasons=reasons, sources=facts.sources)
 
 
 @router.get("/cases/{case_id}/similar", response_model=SimilarCasesResponse)

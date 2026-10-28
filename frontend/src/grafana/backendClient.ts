@@ -1,7 +1,9 @@
 import type { SetupCheckResult } from '../utils/setupCheck';
 import { isGrafanaProxyUrl } from './backendUrlSetting';
 import type {
+  AIStatus,
   AlertItem,
+  CaseFixCameBack,
   AnalysisRun,
   AssistantChatResponse,
   AssistantFeedback,
@@ -11,6 +13,7 @@ import type {
   CoverageReport,
   Finding,
   FindingVerdict,
+  FixCameBackWhy,
   MemoryStatsResponse,
   PrometheusConnectionsResponse,
   PrometheusConnectionTestResponse,
@@ -813,6 +816,20 @@ export async function updateCaseResolution(baseUrl: string, caseId: number, payl
   resolved_by?: string | null;
 }) {
   return patchJson<GrafanaCase>(baseUrl, `/api/cases/${caseId}/resolution`, payload);
+}
+
+/** Whether a case is back soon after an earlier fix, and whether its own fix held. */
+export async function getCaseFixCameBack(baseUrl: string, caseId: number) {
+  return fetchJson<CaseFixCameBack>(baseUrl, `/api/cases/${caseId}/fix-came-back`);
+}
+
+/** AI: possible reasons the fix named on a came-back banner didn't hold. Never saved. */
+export async function getFixCameBackWhy(baseUrl: string, subject: 'cases' | 'findings', id: number) {
+  return postJson<FixCameBackWhy>(baseUrl, `/api/${subject}/${id}/fix-came-back/why`, {});
+}
+
+export async function getAiStatus(baseUrl: string) {
+  return fetchJson<AIStatus>(baseUrl, '/api/ai/status');
 }
 
 /** Past cases (Qdrant case memory) that resemble a persisted finding, plus how familiar it is. */

@@ -210,7 +210,7 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
             finding={finding}
             answerOnly={finding.trust.tier === 'context' && !finding.trust.moved}
             seenBefore={seenBefore}
-            onSeePastCases={onViewDetails ? () => onViewDetails(finding, 'seen-before') : undefined}
+            onSeePastCases={onViewDetails ? (section = 'seen-before') => onViewDetails(finding, section) : undefined}
           />
         ) : null}
 

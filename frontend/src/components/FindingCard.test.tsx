@@ -300,6 +300,21 @@ describe('FindingCard seen before', () => {
     expect(onViewDetails).toHaveBeenCalledWith(trusted, 'seen-before');
   });
 
+  it("says the fix didn't hold when it came back soon after a fix, and opens the details at the warning", () => {
+    const onViewDetails = renderWith({
+      ...seenBefore,
+      came_back: { case_id: 3, title: 'Cart errors after a bad deploy', fixed_at: '2026-10-24T15:10:00', days: 1, fix: 'Rolled back to v2.2.' },
+    });
+
+    expect(screen.getByText("↻ Fix didn't hold")).toBeInTheDocument();
+    expect(screen.getByText('Came back 1 day after case #3 was fixed.')).toBeInTheDocument();
+    expect(screen.queryByText('Recurring · 3 past cases')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'See what came back' }));
+
+    expect(onViewDetails).toHaveBeenCalledWith(trusted, 'came-back');
+  });
+
   it('says so when nothing like it was seen', () => {
     renderWith({ ...seenBefore, matches: [], novelty: { ...seenBefore.novelty!, level: 'new', label: 'New pattern' } });
     expect(screen.getByText('New pattern')).toBeInTheDocument();

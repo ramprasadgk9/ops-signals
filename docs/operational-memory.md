@@ -9,6 +9,27 @@ Operational Memory): past cases grouped into problems that keep coming back, mon
 imported incidents, and - folded away for admins - the indexing details and the alert-context
 preview. Case Details shows **Seen before** when the case belongs to one of those groups.
 
+## When a fix didn't stick
+
+When a problem comes back soon after a case for it was fixed, the app says so where people are
+working. The rule: the same service, a symptom at least 80% alike, and within 30 days of the old case
+being resolved. If several past fixes match, the latest one is named.
+
+- **Finding details** (web and plugin): a banner at the top, "This came back 3 days after it was
+  fixed", with the old case, what the fix was and anything its resolution left "Still open".
+- **Findings list:** the card's Seen before column shows **Fix didn't hold** instead of the usual
+  label. **See what came back** opens the details at the banner.
+- **The new case:** the same banner, naming the old case. It replaces the "Seen before" banner, and
+  how often the problem happened moves into it.
+- **The old case:** a **Fix didn't hold** chip and a banner linking to the case it came back in. The
+  old case stays resolved; nothing reopens on its own.
+
+Finding the match uses no AI. With an AI provider on, **Why might it not have held?** on the banner
+lists up to three possible reasons, written only from the old case's saved cause and fix, how soon
+it came back, the new finding and any deploy matched to it. A reason naming a number, name or fix
+that isn't in those facts is dropped. Nothing is saved. A recurrence nobody opened a case for, or a
+past case that was never added to memory, isn't seen.
+
 ## Flow
 
 ```mermaid

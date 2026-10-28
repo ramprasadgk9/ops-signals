@@ -4,13 +4,17 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { ui } from '../standalone/theme';
 import { recurrenceForCase } from '../utils/recurringNextStep';
+import { didNotHoldHeadline } from '../utils/fixCameBack';
+import { FixCameBackBanner, FixDidNotHoldBanner, useCaseFixCameBack } from './FixCameBack';
 
 // The same window and grouping the Recurring problems page opens on, so "See the pattern" lands on
 // the group this banner counted.
 const WINDOW_DAYS = 90;
 
 /** "Seen before" on a case: when the case is one of a problem that keeps coming back, say how often
- * and what was found last time, and link to the pattern. Nothing shows for a one-off case. */
+ * and what was found last time, and link to the pattern. Nothing shows for a one-off case. When the
+ * case is back soon after an earlier fix, or its own fix came back, that banner shows instead, with
+ * the pattern folded into it, so a case has one banner. */
 export function CaseRecurrenceBanner({ caseId }: { caseId: number }) {
   const query = useQuery({
     queryKey: ['recurring-problems-membership', WINDOW_DAYS],
@@ -20,6 +24,19 @@ export function CaseRecurrenceBanner({ caseId }: { caseId: number }) {
     staleTime: 60_000,
   });
   const recurrence = query.data?.available ? recurrenceForCase(query.data.problems, caseId) : null;
+  const fix = useCaseFixCameBack(caseId);
+  const pattern = recurrence ? (
+    <Link component={RouterLink} to={`/recurring-problems?problem=${recurrence.problem.central_case_id}`} underline="hover" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+      See the pattern →
+    </Link>
+  ) : null;
+  const seen = recurrence ? `Seen ${recurrence.problem.occurrences} times in the last ${WINDOW_DAYS} days.` : undefined;
+  if (fix?.came_back) {
+    return <FixCameBackBanner cameBack={fix.came_back} onCase why={() => api.caseFixCameBackWhy(caseId)} note={seen} links={pattern} />;
+  }
+  if (fix?.fix_outcome && didNotHoldHeadline(fix.fix_outcome)) {
+    return <FixDidNotHoldBanner outcome={fix.fix_outcome} note={seen} links={pattern} />;
+  }
   if (!recurrence) return null;
   const { problem, lastCause } = recurrence;
 
@@ -37,9 +54,7 @@ export function CaseRecurrenceBanner({ caseId }: { caseId: number }) {
             : 'No cause recorded on the other cases yet.'}
         </Typography>
       </Stack>
-      <Link component={RouterLink} to={`/recurring-problems?problem=${problem.central_case_id}`} underline="hover" sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
-        See the pattern →
-      </Link>
+      {pattern}
     </Box>
   );
 }

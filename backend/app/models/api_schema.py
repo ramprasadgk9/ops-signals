@@ -349,6 +349,16 @@ class WriteupDraftOut(BaseModel):
     reason_code: DraftReasonCode | None = None
 
 
+class FixCameBackWhyOut(BaseModel):
+    """Possible reasons a past fix didn't hold (services/fix_came_back_why.py); never saved."""
+
+    available: bool
+    reasons: list[str] = Field(default_factory=list)
+    sources: list[CaseDraftSource] = Field(default_factory=list)
+    reason: str | None = None
+    reason_code: DraftReasonCode | None = None
+
+
 class WriteupUpdateRequest(BaseModel):
     writeup: str | None = Field(default=None, max_length=8000)
 

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.memory.diversity import collapse_near_copies
 from backend.app.memory.embedder import Embedder
+from backend.app.memory.fix_came_back import came_back_for_finding
 from backend.app.memory.novelty import assess_novelty
 from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import PastIncidentMatch, SeenBeforeResponse
@@ -117,4 +118,5 @@ def find_seen_before(
         # Counted over every match - folded near-copies and those past MAX_MATCHES included - so
         # "recurring" sees the whole history.
         novelty=assess_novelty(every_match, finding.service),
+        came_back=came_back_for_finding(finding, matches, cases),
     )

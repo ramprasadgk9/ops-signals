@@ -22,6 +22,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 | [Docs check questions](#docs-check-questions) | Assistant → Docs check (admins) | On click |
 | [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | Case → Root Cause, Resolution | On click |
 | [Case write-up](#case-write-up) | Case → Publish Knowledge | On click |
+| [Why a fix didn't hold](#why-a-fix-didnt-hold) | Finding details, Case → "came back" banner | On click |
 
 Each feature below says what AI adds and what you see without it.
 
@@ -105,6 +106,14 @@ Each feature below says what AI adds and what you see without it.
   saved root cause and resolution, the timeline and similar past cases. Never saved by itself.
   Details: [Publish Knowledge](operational-cases.md#publish-knowledge-timeline-and-write-up).
 - **Without AI:** the timeline still shows (it's built by code); you write the write-up yourself.
+
+### Why a fix didn't hold
+
+- **AI adds:** **Why might it not have held?** on the banner shown when a problem came back soon
+  after a fix lists up to three possible reasons from the old case's saved cause and fix, how soon
+  it came back, the new finding and its matched deploy. Reasons naming anything not in those facts
+  are dropped. Never saved. Details: [When a fix didn't stick](operational-memory.md#when-a-fix-didnt-stick).
+- **Without AI:** no button; the banner still shows, since finding the match uses no AI.
 
 ## Never AI-written
 
