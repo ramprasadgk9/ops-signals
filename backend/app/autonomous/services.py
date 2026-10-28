@@ -716,7 +716,12 @@ class MetricPlanBuilder:
 
     @staticmethod
     def _logical_key(metric: DiscoveredMetric, classification: MetricClassification) -> tuple:
+        # Known metrics that measure the same concept (two latency metrics for one service) are one
+        # job. Custom metrics all share the concept "custom", so they are told apart by name: each
+        # metric the user picked gets its own job.
         concept = classification.concepts[0].value if classification.concepts else metric.metric_name
+        if concept == MetricConcept.custom.value:
+            concept = metric.metric_name
         category = classification.categories[0].value if classification.categories else "unclassified"
         return (metric.environment, metric.namespace, metric.service, metric.cluster, category, concept)
 

@@ -7,6 +7,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http.client import HTTPException as HttpClientError
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -28,6 +29,12 @@ _MAX_ERROR_MESSAGE_CHARS = 500
 # buildinfo is optional on some Prometheus-compatible backends and gateways; these statuses mean
 # "endpoint not served", not "connection broken".
 _BUILDINFO_UNSUPPORTED_STATUSES = {400, 404, 405, 501}
+# Series lists are requested with `limit` so a metric with millions of series can't make the answer
+# huge (Mimir refuses answers over 100 MB; the backend needs ~11x the answer size in memory). Each
+# request asks for one row more than it keeps, so exactly that many rows means the list was cut off;
+# metrics it left out are then listed one at a time. A server that ignores `limit` sends the whole
+# list, which is handled as before.
+_LIMIT_WARNING = "results truncated due to limit"
 
 
 @dataclass(frozen=True)
@@ -230,10 +237,12 @@ class PrometheusQueryService:
         start: datetime | None = None,
         end: datetime | None = None,
         warnings: list[str] | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, str]]:
         if not scope_selector or scope_selector == "{}":
             return []
-        payload = self._get_json("/api/v1/series", [("match[]", scope_selector), *_time_range_params(start, end)])
+        params = [("match[]", scope_selector), *_time_range_params(start, end), *_limit_param(limit)]
+        payload = self._get_json("/api/v1/series", params)
         if warnings is not None:
             warnings.extend(_response_warnings(payload))
         data = payload.get("data")
@@ -263,11 +272,15 @@ class PrometheusQueryService:
         effective_limit = max(1, min(limit, 50000))
         warnings: list[str] = []
 
-        # 1. Fast Path for Scoped Policies (Single-Call Pushdown)
+        # 1. Fast Path for Scoped Policies (Single-Call Pushdown). A scope with more series than
+        # effective_limit is listed by the per-metric path below instead, so every metric is found.
         if scope_selector and scope_selector != "{}":
             try:
-                direct_rows = self.direct_scoped_series(scope_selector, start=start, end=end, warnings=warnings)
-            except HTTPException:
+                direct_rows = self.direct_scoped_series(scope_selector, start=start, end=end, warnings=warnings, limit=effective_limit + 1)
+            except HTTPException as exc:
+                warnings.append(f"Listing this scope's series in one request failed ({exc.detail}); Ops Signals listed them metric by metric instead.")
+                direct_rows = None
+            if direct_rows is not None and _cut_off(direct_rows, effective_limit + 1):
                 direct_rows = None
 
             if direct_rows is not None:
@@ -446,44 +459,71 @@ class PrometheusQueryService:
         start: datetime | None = None,
         end: datetime | None = None,
         warnings: list[str] | None = None,
-    ) -> tuple[list[dict[str, str]], list[str], int]:
+    ) -> tuple[list[dict[str, str]], list[str], int | None]:
+        """Up to `quota` series per metric. The third value is how many series exist, or None when a
+        list was cut off by `limit` and the total isn't known."""
         if not metric_names:
             return [], [], 0
         chunk_size = 80
         quota = max(1, min(max_series_per_metric, max(1, limit // max(1, len(metric_names)))))
         series_by_metric: dict[str, list[dict[str, str]]] = defaultdict(list)
-        total_available = 0
+        total_available: int | None = 0
+        crowded: dict[str, int] = {}
+
+        def keep(items: list[object]) -> None:
+            for item in sorted((item for item in items if isinstance(item, dict)), key=self._series_sort_key):
+                name = str(item.get("__name__", ""))
+                if not name or len(series_by_metric[name]) >= quota:
+                    continue
+                series_by_metric[name].append({str(key): str(value) for key, value in item.items()})
 
         for offset in range(0, len(metric_names), chunk_size):
             chunk = metric_names[offset : offset + chunk_size]
-            matchers = self._build_metric_matchers(chunk, scope_selector=scope_selector)
-            params = [*(("match[]", matcher) for matcher in matchers), *_time_range_params(start, end)]
-            payload = self._get_json("/api/v1/series", params)
-            if warnings is not None:
-                warnings.extend(_response_warnings(payload))
-            data = payload.get("data")
-            if isinstance(data, list):
-                total_available += len(data)
-                sorted_chunk = sorted(
-                    (item for item in data if isinstance(item, dict)),
-                    key=self._series_sort_key,
-                )
-                for item in sorted_chunk:
-                    name = str(item.get("__name__", ""))
-                    if not name:
-                        continue
-                    if len(series_by_metric[name]) >= quota:
-                        continue
-                    series_by_metric[name].append({str(key): str(value) for key, value in item.items()})
+            data = self._series_list(self._build_metric_matchers(chunk, scope_selector=scope_selector), start, end, limit + 1, warnings)
+            if _cut_off(data, limit + 1):
+                # Cut off: one or a few metrics filled the list. Name them, and list the metrics the
+                # list never reached one at a time.
+                total_available = None
+                counts: dict[str, int] = defaultdict(int)
+                for item in data:
+                    if isinstance(item, dict) and item.get("__name__"):
+                        counts[str(item["__name__"])] += 1
+                for name, count in counts.items():
+                    if count * 2 > limit:
+                        crowded[name] = max(crowded.get(name, 0), count)
+                keep(data)
+                for name in chunk:
+                    if name not in counts:
+                        keep(self._series_list(self._build_metric_matchers([name], scope_selector=scope_selector), start, end, quota, warnings))
+            else:
+                if total_available is not None:
+                    total_available += len(data)
+                keep(data)
 
             current_total = sum(len(items) for items in series_by_metric.values())
             if current_total >= limit:
                 break
 
+        if crowded and warnings is not None:
+            listed = ", ".join(f"{name} (at least {count:,} series)" for name, count in sorted(crowded.items()))
+            warnings.append(
+                f"Very many series: {listed}. This is usually a label with a value per user, request or pod. "
+                "Every metric was still found, but dropping that label (relabeling) makes these metrics cheaper to store and query."
+            )
         rows = self._round_robin_interleave(series_by_metric, limit=limit)
         discovered_names = {row.get("__name__") for row in rows if row.get("__name__")}
         starved_metrics = [name for name in metric_names if name not in discovered_names]
         return rows, starved_metrics, total_available
+
+    def _series_list(
+        self, matchers: list[str], start: datetime | None, end: datetime | None, limit: int, warnings: list[str] | None
+    ) -> list[object]:
+        params = [*(("match[]", matcher) for matcher in matchers), *_time_range_params(start, end), *_limit_param(limit)]
+        payload = self._get_json("/api/v1/series", params)
+        if warnings is not None:
+            warnings.extend(_response_warnings(payload))
+        data = payload.get("data")
+        return data if isinstance(data, list) else []
 
     def preview(self, query: str, start: datetime, end: datetime, step: str) -> PrometheusPreviewOut:
         if not self.config.base_url:
@@ -658,6 +698,9 @@ class PrometheusQueryService:
             raise HTTPException(status_code=504, detail="Prometheus request timed out") from exc
         except URLError as exc:
             raise HTTPException(status_code=503, detail="Prometheus connection failed") from exc
+        except (OSError, HttpClientError) as exc:
+            # The server closed the connection mid-request (e.g. it ran out of memory) or sent a cut-off body.
+            raise HTTPException(status_code=503, detail="Prometheus connection failed") from exc
         try:
             parsed = json.loads(body)
         except json.JSONDecodeError as exc:
@@ -717,6 +760,9 @@ def _http_error_detail(exc: HTTPError) -> str:
         message = body
     else:
         return detail
+    if "larger than max" in message or "larger than the max" in message:
+        # Mimir and Thanos refuse answers over their gRPC message size (100 MB by default).
+        message = f"the answer was larger than the server sends in one response; narrow the scope or the query ({message})"
     return f"{detail}: {message[:_MAX_ERROR_MESSAGE_CHARS]}"
 
 
@@ -725,7 +771,12 @@ def _response_warnings(payload: dict) -> list[str]:
     warnings = payload.get("warnings")
     if not isinstance(warnings, list):
         return []
-    return [f"Prometheus warning: {warning}" for warning in warnings if isinstance(warning, str) and warning]
+    # Ops Signals sends `limit` itself and handles a cut-off list, so that warning isn't news to the user.
+    return [
+        f"Prometheus warning: {warning}"
+        for warning in warnings
+        if isinstance(warning, str) and warning and not warning.startswith(_LIMIT_WARNING)
+    ]
 
 
 def _time_range_params(start: datetime | None, end: datetime | None) -> list[tuple[str, object]]:
@@ -735,6 +786,16 @@ def _time_range_params(start: datetime | None, end: datetime | None) -> list[tup
     if end is not None:
         params.append(("end", _to_utc(end).timestamp()))
     return params
+
+
+def _limit_param(limit: int | None) -> list[tuple[str, object]]:
+    return [("limit", limit)] if limit else []
+
+
+def _cut_off(rows: list, requested: int) -> bool:
+    """A list asked for with `limit=requested` was cut off when exactly `requested` rows came back.
+    More rows means the server ignored `limit` and sent the complete list."""
+    return len(rows) == requested
 
 
 def _to_utc(value: datetime) -> datetime:
