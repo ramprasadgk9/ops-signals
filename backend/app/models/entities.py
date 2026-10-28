@@ -377,6 +377,8 @@ class OperationalCaseEntity(Base):
     corrective_action: Mapped[str | None] = mapped_column(Text, nullable=True)
     outcome_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     outcome_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The person-saved write-up from Publish Knowledge: summary, likely cause, seen before, still open.
+    writeup: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_indexed")
     memory_indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     memory_error: Mapped[str | None] = mapped_column(Text, nullable=True)

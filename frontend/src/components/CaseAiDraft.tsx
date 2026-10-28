@@ -3,12 +3,12 @@ import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, Dial
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import type { CaseRcaDraft, CaseResolutionDraft } from '../types';
+import type { CaseRcaDraft, CaseResolutionDraft, CaseWriteupDraft } from '../types';
 
 // "Draft from case" on a case's Root Cause and Resolution tabs (backend/app/services/case_ai_drafts.py).
 // The draft fills the boxes and shows what it was written from; only the tab's own Save button saves.
 
-type Draft = CaseRcaDraft | CaseResolutionDraft;
+type Draft = CaseRcaDraft | CaseResolutionDraft | CaseWriteupDraft;
 
 export type DraftField<T extends Draft> = {
   value: string;
@@ -66,7 +66,7 @@ export function useCaseDraft<T extends Draft>(suggest: () => Promise<T>, fields:
 
 type CaseDraft = ReturnType<typeof useCaseDraft>;
 
-export function CaseDraftButton({ draft }: { draft: CaseDraft }) {
+export function CaseDraftButton({ draft, label = 'Draft from case' }: { draft: CaseDraft; label?: string }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end" sx={{ mb: -1 }}>
       {draft.drafted ? <Chip size="small" color="secondary" variant="outlined" label="AI draft · not saved" data-testid="case-draft-chip" /> : null}
@@ -79,7 +79,7 @@ export function CaseDraftButton({ draft }: { draft: CaseDraft }) {
         startIcon={draft.pending ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRoundedIcon fontSize="small" />}
         sx={{ textTransform: 'none' }}
       >
-        {draft.pending ? 'Drafting…' : draft.drafted ? 'Draft again' : 'Draft from case'}
+        {draft.pending ? 'Drafting…' : draft.drafted ? 'Draft again' : label}
       </Button>
       <Dialog open={draft.confirming} onClose={draft.cancel} aria-labelledby="case-draft-replace-title">
         <DialogTitle id="case-draft-replace-title">Replace your text?</DialogTitle>
@@ -95,7 +95,9 @@ export function CaseDraftButton({ draft }: { draft: CaseDraft }) {
   );
 }
 
-export function CaseDraftNotes({ draft, after }: { draft: CaseDraft; after?: string }) {
+const NOT_ENOUGH = 'Not enough on this case to draft from yet. Add an investigation note or link a ticket, then try again.';
+
+export function CaseDraftNotes({ draft, after, notEnough = NOT_ENOUGH }: { draft: CaseDraft; after?: string; notEnough?: string }) {
   const { result } = draft;
   if (!result) return null;
   if (draft.drafted) {
@@ -120,7 +122,7 @@ export function CaseDraftNotes({ draft, after }: { draft: CaseDraft; after?: str
     );
   }
   if (result.reason_code === 'not_enough') {
-    return <Alert severity="warning">Not enough on this case to draft from yet. Add an investigation note or link a ticket, then try again.</Alert>;
+    return <Alert severity="warning">{notEnough}</Alert>;
   }
   if (result.reason_code === 'ai_off') {
     return <Alert severity="info">AI drafts are off on this server.</Alert>;

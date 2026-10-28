@@ -21,16 +21,21 @@ from backend.app.memory.similarity_service import SimilarityService
 from backend.app.models.api_schema import (
     CaseCreateResponse,
     CaseOut,
+    CaseTimelineOut,
     InvestigationUpdateRequest,
     RCADraftOut,
     RCAUpdateRequest,
     ResolutionDraftOut,
     ResolutionUpdateRequest,
+    WriteupDraftOut,
+    WriteupUpdateRequest,
 )
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.analyzer_learning_service import AnalyzerLearningService, LearningOutcomeError
-from backend.app.services.case_ai_drafts import RCA_INSTRUCTION, check_draft, rca_facts, resolution_facts, write_resolution
+from backend.app.services.case_ai_drafts import RCA_INSTRUCTION, check_draft, rca_facts, resolution_facts, write_resolution, write_writeup, writeup_facts
+from backend.app.services.case_timeline import case_timeline
+from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.services.case_status import CLOSING_OUTCOMES, derive_case_status, sync_case_status
 
 logger = logging.getLogger(__name__)
@@ -110,6 +115,7 @@ def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
         import_batch_id=case.import_batch_id,
         created_by=case.created_by,
         resolved_by=case.resolved_by,
+        writeup=case.writeup,
     )
 
 
@@ -474,6 +480,68 @@ def suggest_resolution_summary(
     if not draft or not (draft["outcome_summary"] or draft["corrective_action"]):
         return ResolutionDraftOut(available=False, reason=_FAILED, reason_code="failed")
     return ResolutionDraftOut(available=True, draft=draft["outcome_summary"], corrective_action=draft["corrective_action"], sources=facts.sources)
+
+
+@router.get("/{case_id}/timeline", response_model=CaseTimelineOut)
+def get_case_timeline(
+    case_id: int,
+    db: Session = Depends(get_db),
+    change_config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+) -> CaseTimelineOut:
+    """Publish Knowledge: what happened, in order, built from the case (no AI), and the text memory
+    indexes for it."""
+    case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    timeline = case_timeline(case, db, change_config)
+    return CaseTimelineOut(**timeline, memory_text=CaseDocumentBuilder.build(case))
+
+
+@router.patch("/{case_id}/writeup", response_model=CaseOut)
+def update_writeup(
+    case_id: int,
+    payload: WriteupUpdateRequest,
+    db: Session = Depends(get_db),
+    indexer: CaseMemoryIndexer | None = Depends(get_memory_indexer),
+    config: MemoryConfig | None = Depends(get_memory_config),
+) -> CaseOut:
+    case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    case.writeup = (payload.writeup or "").strip() or None
+    case.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(case)
+    _refresh_case_memory(case, db, indexer, config)
+    return _to_case_out(case)
+
+
+@router.post("/{case_id}/writeup/suggest", response_model=WriteupDraftOut)
+def suggest_writeup(
+    case_id: int,
+    db: Session = Depends(get_db),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+    similarity_service: SimilarityService | None = Depends(get_similarity_service),
+    change_config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+) -> WriteupDraftOut:
+    """Draft-only write-up from the saved root cause and resolution, the timeline and similar past
+    cases. Never writes anything - PATCH /writeup saves."""
+    case = db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id == case_id)).scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if not assistant or not assistant.services.ai_services:
+        return WriteupDraftOut(available=False, reason=_AI_OFF, reason_code="ai_off")
+
+    facts = writeup_facts(case, db, timeline=case_timeline(case, db, change_config), similarity=similarity_service)
+    if not facts.has_material:
+        return WriteupDraftOut(available=False, reason="Save a root cause or a resolution first", reason_code="not_enough")
+    try:
+        draft = write_writeup(assistant.services.ai_services, facts)
+    except Exception:
+        draft = None
+    if not draft:
+        return WriteupDraftOut(available=False, reason=_FAILED, reason_code="failed")
+    return WriteupDraftOut(available=True, draft=draft, sources=facts.sources)
 
 
 @router.patch("/{case_id}/resolution", response_model=CaseOut)

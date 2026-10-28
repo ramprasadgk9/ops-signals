@@ -126,6 +126,13 @@ class CaseDocumentBuilder:
             parts.append(case.outcome_summary)
             parts.append("")
 
+        # Write-up from Publish Knowledge (optional). A case without one builds the same text as
+        # before, so CONTENT_VERSION stays and nothing is re-indexed.
+        if case.writeup and case.writeup.strip():
+            parts.append("Write-up:")
+            parts.append(case.writeup.strip())
+            parts.append("")
+
         return parts
 
     @staticmethod

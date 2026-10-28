@@ -53,6 +53,7 @@ import { findingLevel } from '../utils/findingLevel';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { CaseDraftButton, CaseDraftNotes, useAiActive, useCaseDraft } from '../components/CaseAiDraft';
 import { EnableAiHint } from '../components/EnableAiHint';
+import { CaseWriteup, WriteupChip } from '../components/CaseWriteup';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -901,57 +902,21 @@ export function CaseDetailsPage() {
                     <Box>
                       <Typography variant="h6">Publish Knowledge</Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Final step. Index this case into Operational Memory so future similar cases can retrieve it.
+                        Final step. Write up what the next person needs to know, then publish the case to Operational Memory so future similar cases find it.
                       </Typography>
                     </Box>
-                    <Chip
-                      label={statusLabel(caseData.memory_status)}
-                      color={caseData.memory_status === 'indexed' ? 'success' : caseData.memory_status === 'failed' ? 'error' : 'default'}
-                    />
+                    <WriteupChip status={caseData.memory_status} />
                   </Stack>
-
-                  <Stack spacing={2}>
-                    <Alert severity={caseData.memory_status === 'indexed' ? 'success' : 'info'}>
-                      {caseData.memory_status === 'indexed'
-                        ? 'This case is already published to Operational Memory.'
-                        : caseData.memory_status === 'stale'
-                          ? 'This case was changed after indexing. Publish again to refresh memory.'
-                          : 'Resolution does not automatically publish to vector memory. Use this action when the case is ready to become reusable knowledge.'}
-                    </Alert>
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 12, md: 4 }}>
-                        <Box sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Root Cause</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{caseData.root_cause_summary ? 'Captured' : 'Missing'}</Typography>
-                        </Box>
-                      </Grid>
-                      <Grid size={{ xs: 12, md: 4 }}>
-                        <Box sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Resolution</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{caseData.outcome_summary || caseData.corrective_action ? 'Captured' : 'Missing'}</Typography>
-                        </Box>
-                      </Grid>
-                      <Grid size={{ xs: 12, md: 4 }}>
-                        <Box sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Memory</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{statusLabel(caseData.memory_status)}</Typography>
-                        </Box>
-                      </Grid>
-                    </Grid>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                      <Button
-                        variant="contained"
-                        onClick={() => indexMemoryMutation.mutate()}
-                        disabled={indexMemoryMutation.isPending || caseData.memory_status === 'indexed' || !canEdit}
-                      >
-                        {indexMemoryMutation.isPending ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-                        {caseData.memory_status === 'indexed' ? 'Published' : caseData.memory_status === 'stale' ? 'Refresh Knowledge' : 'Publish Knowledge'}
-                      </Button>
-                      <Button variant="outlined" onClick={() => setTabValue(6)} endIcon={<ArrowForwardRoundedIcon />}>
-                        Next: Similar Cases
-                      </Button>
-                    </Stack>
-                  </Stack>
+                  <CaseWriteup
+                    key={caseData.id}
+                    caseData={caseData}
+                    canEdit={canEdit}
+                    canAdmin={canAdmin}
+                    aiActive={aiActive}
+                    onPublish={() => indexMemoryMutation.mutateAsync()}
+                    onSaved={() => queryClient.invalidateQueries({ queryKey: ['case', caseId] })}
+                    onNext={() => setTabValue(6)}
+                  />
                 </CardContent>
               </Card>
             </Grid>
@@ -962,6 +927,7 @@ export function CaseDetailsPage() {
                   <Stack spacing={1.5}>
                     <WorkflowHint done={Boolean(caseData.root_cause_summary)} text="Root cause has been captured." />
                     <WorkflowHint done={Boolean(caseData.outcome_summary || caseData.corrective_action)} text="Resolution or corrective action has been recorded." />
+                    <WorkflowHint done={Boolean(caseData.writeup)} text="Write-up saved (optional, makes the case much easier to reuse)." />
                     <WorkflowHint done={caseData.memory_status === 'indexed'} text="Case is indexed in Operational Memory." />
                   </Stack>
                 </CardContent>

@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS ops_operational_cases (
     corrective_action TEXT,
     outcome_status VARCHAR(32) NOT NULL DEFAULT 'pending',
     outcome_summary TEXT,
+    writeup TEXT,
     memory_status VARCHAR(32) NOT NULL DEFAULT 'not_indexed',
     memory_indexed_at TIMESTAMPTZ,
     memory_error TEXT,
