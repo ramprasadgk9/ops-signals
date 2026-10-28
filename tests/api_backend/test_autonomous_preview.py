@@ -293,6 +293,55 @@ def test_duplicate_concept_ranking() -> None:
     assert len(excluded) == 1
 
 
+CHECKOUT_CUSTOM_METRICS = [
+    "checkout_orders_total",
+    "checkout_payment_failures_total",
+    "checkout_cart_abandon_total",
+    "checkout_refunds_total",
+    "checkout_queue_depth",
+]
+
+
+def test_every_explicit_custom_metric_gets_its_own_job() -> None:
+    plan = build_plan(
+        [metric(name, "checkout") for name in CHECKOUT_CUSTOM_METRICS],
+        categories=[MonitoringCategory.custom],
+        custom=CustomMetricConstraints(explicit_metrics=CHECKOUT_CUSTOM_METRICS),
+    )
+
+    assert sorted(item.metric_name for item in plan.items if item.planned) == sorted(CHECKOUT_CUSTOM_METRICS)
+    assert not [item for item in plan.items if item.exclusion_reason == "duplicate_lower_rank"]
+
+
+def test_every_custom_pattern_match_gets_its_own_job() -> None:
+    plan = build_plan(
+        [metric(name, "checkout") for name in CHECKOUT_CUSTOM_METRICS],
+        categories=[MonitoringCategory.custom],
+        custom=CustomMetricConstraints(include_patterns=["checkout_.*"]),
+    )
+
+    assert len([item for item in plan.items if item.planned]) == len(CHECKOUT_CUSTOM_METRICS)
+
+
+def test_custom_metric_sampled_from_several_series_is_still_one_job() -> None:
+    """Discovery hands the planner several example series per metric; they are one job, not one each."""
+    pods = [metric("checkout_orders_total", "checkout", labels={"pod": f"pod-{index}"}) for index in range(3)]
+    plan = build_plan(pods, categories=[MonitoringCategory.custom], custom=CustomMetricConstraints(explicit_metrics=["checkout_orders_total"]))
+
+    assert len([item for item in plan.items if item.planned]) == 1
+
+
+def test_custom_metric_is_one_job_per_service() -> None:
+    plan = build_plan(
+        [metric("checkout_orders_total", "checkout"), metric("checkout_orders_total", "payments")],
+        AnalysisScope(all_services=True),
+        categories=[MonitoringCategory.custom],
+        custom=CustomMetricConstraints(explicit_metrics=["checkout_orders_total"]),
+    )
+
+    assert sorted(item.service for item in plan.items if item.planned) == ["checkout", "payments"]
+
+
 def test_preview_api_validation_and_response() -> None:
     app = create_app("sqlite+pysqlite:///:memory:")
     app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider([metric("http_request_duration_seconds")])

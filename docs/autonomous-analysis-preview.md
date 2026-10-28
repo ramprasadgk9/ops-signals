@@ -94,7 +94,7 @@ Examples:
 - Counter request rate: `sum by (service) (rate(http_requests_total{service="payments"}[5m]))`
 - Histogram latency: `histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{service="payments"}[5m])))`
 
-The planner deduplicates lower-ranked metrics that represent the same service, category, and primary concept, then applies the max-metrics budget.
+The planner deduplicates lower-ranked metrics that represent the same service, category, and primary concept, then applies the max-metrics budget. Custom metrics (an explicit list or an include pattern) all share the concept `custom`, so they are told apart by metric name: every custom metric gets its own job per service.
 
 ## Preview Response
 
@@ -147,7 +147,7 @@ Execution respects `max_metrics_per_run` (default 500, max 5,000). When classifi
 | Classification | none (a filter, not a cap) | Discovered series narrowed to ones matching a known exact/pattern rule *and* an enabled monitoring category |
 | Planning | `max_metrics_per_run` | Classified, deduplicated, ranked metrics that actually get queried and executed |
 
-**Worked example**: Prometheus has 5,000 series and `metadata_limit = 5,000`. Discovery pulls up to all 5,000 rows, fairly distributed by the round-robin/quota process described above. Those rows then go through `MetricClassificationService`: only rows matching a rule in `config/prometheus_metric_knowledge.yaml` *and* belonging to an enabled monitoring category are `selected` - typically a small fraction of the 5,000, since most raw series (custom app metrics, `_bucket`/`_sum`/`_count` variants, unrecognized names) don't match a known pattern. The selected set is then deduplicated by `(environment, namespace, service, category, concept)`, keeping the highest-ranked row per group, and ranked by:
+**Worked example**: Prometheus has 5,000 series and `metadata_limit = 5,000`. Discovery pulls up to all 5,000 rows, fairly distributed by the round-robin/quota process described above. Those rows then go through `MetricClassificationService`: only rows matching a rule in `config/prometheus_metric_knowledge.yaml` *and* belonging to an enabled monitoring category are `selected` - typically a small fraction of the 5,000, since most raw series (custom app metrics, `_bucket`/`_sum`/`_count` variants, unrecognized names) don't match a known pattern. The selected set is then deduplicated by `(environment, namespace, service, category, concept)` - with the metric name in place of the concept for custom metrics - keeping the highest-ranked row per group, and ranked by:
 
 1. classification confidence (descending)
 2. demo-lab priority (internal, for local preview data only)
