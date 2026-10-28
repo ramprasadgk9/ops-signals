@@ -136,10 +136,17 @@ class CaseMemoryIndexer:
         formula reads. The full-document vector is kept, so each case costs two embeddings, not
         three. It does nothing once every point has a symptom vector, so it runs at every startup.
 
+        A point whose case is gone from Postgres (the record, ADR-004) is deleted: it can't be
+        backfilled, and while any point lacks a symptom vector every symptom search falls back to
+        the full-document vector (VectorStore._is_complete), so its scores stop meaning the same
+        thing. Nothing is deleted while Postgres holds no cases at all, so a backend pointed at an
+        empty or wrong database can't wipe the index.
+
         Returns:
             Number of points backfilled
         """
-        filled = 0
+        filled = removed = 0
+        has_cases = db.execute(select(OperationalCaseEntity.id).limit(1)).first() is not None
         while True:
             points = self.vector_store.points_missing(SYMPTOM_VECTOR)
             case_ids = [point["payload"].get("case_id") for point in points if point["payload"].get("case_id")]
@@ -155,6 +162,13 @@ class CaseMemoryIndexer:
             for point in points:
                 case = cases.get(point["payload"].get("case_id"))
                 if case is None:
+                    if has_cases:
+                        try:
+                            self.vector_store.delete(point["point_id"])
+                            removed += 1
+                            progressed = True
+                        except Exception as e:
+                            logger.warning(f"Failed to remove memory point {point['point_id']} of deleted case {point['payload'].get('case_id')}: {e}")
                     continue
                 try:
                     self.vector_store.set_vectors(
@@ -167,12 +181,14 @@ class CaseMemoryIndexer:
                     progressed = True
                 except Exception as e:
                     logger.warning(f"Case {case.id}: Failed to backfill vectors: {e}")
-            # Points whose case is gone (or that keep failing) stay as they are; stop rather
-            # than re-reading the same page forever.
+            # Points that keep failing stay as they are; stop rather than re-reading the same page
+            # forever.
             if not progressed:
                 break
         if filled:
             logger.info(f"Backfilled symptom, resolution and keyword vectors for {filled} indexed cases")
+        if removed:
+            logger.info(f"Removed {removed} memory points whose case no longer exists")
         return filled
 
     def mark_stale(self, case: OperationalCaseEntity, db: Session) -> None:
