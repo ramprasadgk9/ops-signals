@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from backend.app.models.entities import AutonomousMetricJobEntity, AutonomousPolicyEntity, AutonomousPolicyRunEntity
@@ -73,10 +73,29 @@ class AutonomousPolicyRepository:
     def list_due(self, *, now: datetime) -> list[AutonomousPolicyEntity]:
         query = select(AutonomousPolicyEntity).where(
             AutonomousPolicyEntity.enabled.is_(True),
+            AutonomousPolicyEntity.schedule_minutes.is_not(None),
             AutonomousPolicyEntity.next_run_at.is_not(None),
             AutonomousPolicyEntity.next_run_at <= now,
         )
         return list(self.db.execute(query).scalars().all())
+
+    def claim_due(self, policy: AutonomousPolicyEntity, *, now: datetime) -> bool:
+        """Claims a due policy for this backend by moving next_run_at one interval ahead, but only if
+        it is still due. When several backends share the database, exactly one of them gets True for
+        each due run; the others see next_run_at already in the future and skip it. A row lock would
+        not do here: the run commits several times, which would release it before the run ends."""
+        claimed = self.db.execute(
+            update(AutonomousPolicyEntity)
+            .where(
+                AutonomousPolicyEntity.id == policy.id,
+                AutonomousPolicyEntity.enabled.is_(True),
+                AutonomousPolicyEntity.next_run_at <= now,
+            )
+            .values(next_run_at=now + _minutes(policy.schedule_minutes))
+            .execution_options(synchronize_session=False)
+        )
+        self.db.commit()
+        return claimed.rowcount == 1
 
     def update_config(
         self,

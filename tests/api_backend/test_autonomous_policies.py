@@ -158,3 +158,57 @@ def test_disabled_policy_is_never_picked_up_as_due() -> None:
         repo = AutonomousPolicyRepository(db)
         due = repo.list_due(now=datetime.now(timezone.utc) + timedelta(days=1))
         assert created["id"] not in [policy.id for policy in due]
+
+
+def _create_due_policy() -> str:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        created = client.post("/api/autonomous/policies", json={**POLICY_BODY, "schedule_minutes": 10}).json()
+    with get_session_local()() as db:
+        policy = AutonomousPolicyRepository(db).get(created["id"])
+        policy.next_run_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+    return created["id"]
+
+
+def test_only_one_backend_claims_a_due_policy() -> None:
+    policy_id = _create_due_policy()
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    # Two backends sharing one database both list the policy as due before either claims it.
+    with session_local() as db_a, session_local() as db_b:
+        repo_a, repo_b = AutonomousPolicyRepository(db_a), AutonomousPolicyRepository(db_b)
+        [seen_by_a] = [policy for policy in repo_a.list_due(now=now) if policy.id == policy_id]
+        [seen_by_b] = [policy for policy in repo_b.list_due(now=now) if policy.id == policy_id]
+
+        assert repo_a.claim_due(seen_by_a, now=now) is True
+        assert repo_b.claim_due(seen_by_b, now=now) is False
+
+    with session_local() as db:
+        policy = AutonomousPolicyRepository(db).get(policy_id)
+        next_run_at = policy.next_run_at.replace(tzinfo=timezone.utc) if policy.next_run_at.tzinfo is None else policy.next_run_at
+        assert next_run_at > now
+        assert AutonomousPolicyRepository(db).list_due(now=now) == []
+
+
+def test_scheduler_skips_a_policy_another_backend_already_claimed() -> None:
+    policy_id = _create_due_policy()
+    session_local = get_session_local()
+    now = datetime.now(timezone.utc)
+    fake_result = type("FakeResult", (), {"status": "completed"})()
+    with session_local() as db_b:
+        # Backend B listed the policy as due, then backend A's tick claimed and ran it first.
+        stale = AutonomousPolicyRepository(db_b).list_due(now=now)
+        with (
+            patch("backend.app.api.autonomous.preview_autonomous_plan", return_value=object()),
+            patch("backend.app.autonomous.scheduler.execute_autonomous_plan_once", return_value=fake_result) as mock_execute,
+            patch("backend.app.autonomous.scheduler.PrometheusQueryService"),
+        ):
+            _run_due_policies_once()
+            assert mock_execute.call_count == 1
+
+            # B's tick works from its stale list; the claim fails, so it does not run again.
+            with patch.object(AutonomousPolicyRepository, "list_due", return_value=stale):
+                _run_due_policies_once()
+            assert mock_execute.call_count == 1
+            assert [policy.id for policy in stale] == [policy_id]
