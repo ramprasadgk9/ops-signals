@@ -41,6 +41,7 @@ _VIEWER_WRITES = [re.compile(pattern) for pattern in (
     r"^/api/findings/\d+/suggested-fixes/runbook-draft$",
     r"^/api/(cases|findings)/\d+/fix-came-back/why$",
     r"^/api/metric-usage/drop-config$",
+    r"^/api/overview/handoff/note$",
     r"^/api/auth/logout$",
 )]
 

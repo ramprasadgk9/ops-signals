@@ -23,6 +23,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 | [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | Case → Root Cause, Resolution | On click |
 | [Case write-up](#case-write-up) | Case → Publish Knowledge | On click |
 | [Why a fix didn't hold](#why-a-fix-didnt-hold) | Finding details, Case → "came back" banner | On click |
+| [Shift handoff note](#shift-handoff-note) | Overview → Shift handoff button, plugin overview | On click |
 
 Each feature below says what AI adds and what you see without it.
 
@@ -115,9 +116,20 @@ Each feature below says what AI adds and what you see without it.
   are dropped. Never saved. Details: [When a fix didn't stick](operational-memory.md#when-a-fix-didnt-stick).
 - **Without AI:** no button; the banner still shows, since finding the match uses no AI.
 
+### Shift handoff note
+
+- **AI adds:** **Write with AI** in the Shift handoff dialog adds 1-2 sentences on what to watch
+  first, after the counts (which code writes, never AI). The ranking is code too. A sentence that
+  names no item, names anything not in the items, or adds an amount nothing measured is dropped.
+  Never saved; **Copy for Slack** copies the note instead of the plain summary. Details:
+  [Shift handoff](standalone-overview-api.md#shift-handoff).
+- **Without AI:** no button; the dialog shows the same counts, what to watch first and a plain
+  summary to copy.
+
 ## Never AI-written
 
 - Detection: analyzers, the router, scores, priority, trust numbers, drill-down, deploy matching
+- What the shift handoff lists to watch first, and in what order
 - Finding cards' plain wording on the list, and Slack finding and alert messages
 - What gets saved: an RCA, a resolution or a runbook is saved only when a person saves it
 

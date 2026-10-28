@@ -8,12 +8,16 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.app.api.assistant import get_assistant
+from backend.app.assistant.service import OperationalIntelligenceAssistant
+from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.active_findings import active_findings as still_active
 from backend.app.services.active_findings import is_closed as _is_closed
 from backend.app.services.active_findings import problem_of as _problem
 from backend.app.services.finding_trust import finding_trust
+from backend.app.services.shift_handoff import MAX_LIMIT, WATCH_LIMIT, Handoff, build_handoff, write_handoff
 
 router = APIRouter(prefix="/api/overview", tags=["overview"])
 
@@ -129,3 +133,90 @@ def get_overview_summary(
             for category, count in sorted(category_counts.items(), key=lambda item: (-item[1], item[0]))
         ],
     )
+
+
+class HandoffWatchOut(BaseModel):
+    kind: Literal["case", "pattern", "finding"]
+    title: str
+    severity: str | None = None
+    service: str | None = None
+    metric_name: str | None = None
+    since: datetime | None = None
+    case_id: int | None = None
+    finding_id: int | None = None
+    pattern_id: int | None = None
+    case_status: str | None = None
+    deploy_version: str | None = None
+    deploy_at: datetime | None = None
+    reason: str
+    # Something happened to it in the window; an open case nobody touched is not live.
+    live: bool
+
+
+class HandoffOut(BaseModel):
+    generated_at: datetime
+    hours: int
+    since: datetime
+    new_findings: int
+    cases_opened: int
+    cases_resolved: int
+    cases_still_open: int
+    older_open_cases: int
+    watch: list[HandoffWatchOut]
+    # The note without AI, ready to paste into a channel.
+    summary: str
+
+
+class HandoffNoteOut(BaseModel):
+    available: bool
+    note: str | None = None
+    reason: str | None = None
+    reason_code: Literal["ai_off", "failed"] | None = None
+
+
+HandoffHours = Query(default=12, ge=1, le=72)
+
+
+def _handoff_out(handoff: Handoff) -> HandoffOut:
+    return HandoffOut(
+        generated_at=handoff.generated_at,
+        hours=handoff.hours,
+        since=handoff.since,
+        new_findings=handoff.new_findings,
+        cases_opened=handoff.cases_opened,
+        cases_resolved=handoff.cases_resolved,
+        cases_still_open=handoff.cases_still_open,
+        older_open_cases=handoff.older_open_cases,
+        watch=[HandoffWatchOut(**{name: getattr(item, name) for name in HandoffWatchOut.model_fields}) for item in handoff.watch],
+        summary=handoff.summary,
+    )
+
+
+@router.get("/handoff", response_model=HandoffOut)
+def get_handoff(
+    hours: int = HandoffHours,
+    limit: int = Query(default=WATCH_LIMIT, ge=1, le=MAX_LIMIT),
+    db: Session = Depends(get_db),
+    change_config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+) -> HandoffOut:
+    """For the next person on call: counts for the last `hours` and what to watch first
+    (services/shift_handoff.py), the first `limit` items in order. The Overview's Look at this first
+    and Needs attention list come from here too, so the page names one top problem. No AI."""
+    return _handoff_out(build_handoff(db, hours, change_config, limit=limit))
+
+
+@router.post("/handoff/note", response_model=HandoffNoteOut)
+def write_handoff_note(
+    hours: int = HandoffHours,
+    db: Session = Depends(get_db),
+    change_config: AlertEnrichmentConfig = Depends(get_alert_enrichment_config),
+    assistant: OperationalIntelligenceAssistant | None = Depends(get_assistant),
+) -> HandoffNoteOut:
+    """The same handoff written up by AI. Changes nothing; available=False (never a made-up
+    note) when AI is off or the call fails, and the page keeps the plain summary."""
+    if not assistant or not assistant.services.ai_services:
+        return HandoffNoteOut(available=False, reason="AI assistance is not configured", reason_code="ai_off")
+    note = write_handoff(assistant.services.ai_services, build_handoff(db, hours, change_config))
+    if not note:
+        return HandoffNoteOut(available=False, reason="AI note could not be written", reason_code="failed")
+    return HandoffNoteOut(available=True, note=note)

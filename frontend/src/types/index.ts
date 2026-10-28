@@ -687,6 +687,50 @@ export type OverviewSummaryResponse = {
   category_breakdown: CategoryBreakdown[];
 };
 
+/** GET /api/overview/handoff: for the next person on call (backend/app/services/shift_handoff.py). */
+export type HandoffWatchItem = {
+  /** A case, a combined pattern with no case, or a single finding with no case. */
+  kind: 'case' | 'pattern' | 'finding';
+  title: string;
+  severity?: string | null;
+  service?: string | null;
+  metric_name?: string | null;
+  since?: string | null;
+  case_id?: number | null;
+  finding_id?: number | null;
+  pattern_id?: number | null;
+  case_status?: string | null;
+  deploy_version?: string | null;
+  deploy_at?: string | null;
+  /** Plain words: "open 8 hours, started after deploy v2.3, critical". */
+  reason: string;
+  /** Something happened to it in the window; an open case nobody touched is not live. */
+  live: boolean;
+};
+
+export type ShiftHandoff = {
+  generated_at: string;
+  hours: number;
+  since: string;
+  new_findings: number;
+  cases_opened: number;
+  cases_resolved: number;
+  cases_still_open: number;
+  /** Open cases nothing happened to in the window. */
+  older_open_cases: number;
+  watch: HandoffWatchItem[];
+  /** The note without AI, ready to paste. */
+  summary: string;
+};
+
+/** POST /api/overview/handoff/note: the same handoff written up by AI. */
+export type ShiftHandoffNote = {
+  available: boolean;
+  note?: string | null;
+  reason?: string | null;
+  reason_code?: 'ai_off' | 'failed' | null;
+};
+
 export type MemoryStatsResponse = {
   generated_at: string;
   enabled: boolean;

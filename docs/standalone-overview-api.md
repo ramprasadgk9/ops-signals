@@ -159,6 +159,48 @@ Optional dependency behavior:
 | Qdrant collection missing | Current vector-store health does not distinguish this from an empty collection; `GET /api/memory/stats` still returns PostgreSQL case metadata counts. |
 | Vector store health check raises | HTTP `500`; UI shows memory unavailable instead of zero. |
 
+## Shift handoff
+
+`GET /api/overview/handoff?hours=12&limit=3`
+
+For the next person on call: what happened in the last `hours` (1 to 72; the dialog offers 8, 12
+and 24) and what to watch first, the first `limit` items (1 to 20). Built from Postgres with no AI.
+It feeds two places, so they always name the same thing first:
+
+- the **Shift handoff** button on the Overview and the Grafana plugin's overview (`hours` 8, 12 or
+  24, `limit=3`);
+- the Overview's **Look at this first** block and **Needs Attention** list (`hours=24&limit=8`).
+  The list shows the `live` items; `older_open_cases` becomes its "N older open cases" line. If
+  this read fails, the Overview shows its summary sentence and findings table instead.
+
+| Field | Definition |
+| --- | --- |
+| `new_findings` | Problems first seen in the window. A problem every run sees again counts once. |
+| `cases_opened` | Cases created in the window. Imported past incidents are not counted. |
+| `cases_resolved` | Cases closed in the window (by `resolved_at`, else the last update). |
+| `cases_still_open` | All open cases, whenever they were opened. |
+| `older_open_cases` | Open cases nothing happened to in the window (not opened or updated, problem not seen again). |
+| `watch` | Up to `limit` items: open cases, combined patterns seen in the window with no case (`kind: "pattern"`, `metric_name` like "2 metrics"), and problems in the window that need attention and have no case yet. Each has `kind`, `title`, `service`, `metric_name`, `case_id`, `pattern_id` or `finding_id`, the deploy it started after (`deploy_version`, `deploy_at`), `live` (something happened to it in the window) and a plain `reason`, such as "open 8 hours, started after deploy v2.3, high importance". |
+| `summary` | The same in one paragraph, ready to paste. |
+
+How `watch` is ordered:
+
+1. Items with something new in the window come first: a case opened or updated, or its problem seen again. A case nobody touched for days goes below this shift's problems.
+2. Then by importance (High, Medium, Low, as on the Findings page).
+3. Then one that started after a deploy (deploy matching as on finding cards), then cases, then combined patterns (several metrics agreeing), then single findings, then the newest.
+
+**Copy for Slack** copies the summary and the list, with links in the web UI. Nothing is posted
+by itself.
+
+`POST /api/overview/handoff/note?hours=12` (any role, changes nothing)
+
+With an AI provider on, writes a short note: the counts sentence exactly as code writes it, then
+1-2 sentences by AI on what to watch, from the first three items' lines only. A sentence is dropped
+when it names no item (by case number or service), names a number, version or name not in those
+lines, or adds an amount nothing measured ("many", "high volume"). Returns
+`{"available": false, "reason_code": "ai_off" | "failed"}` instead of a made-up note when AI is
+off, the call fails or no sentence is left. See [Where AI is used](ai-features.md#shift-handoff-note).
+
 ## UI Semantics
 
 The standalone Overview page does not synthesize chart points or fake counts.
