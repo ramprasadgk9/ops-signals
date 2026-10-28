@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import gzip
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from google.protobuf import json_format
 from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
@@ -578,3 +579,57 @@ def test_a_running_total_counter_is_stored_as_its_rate() -> None:
     with get_session_local()() as db:
         stored = db.query(OtlpPendingPointEntity).filter(OtlpPendingPointEntity.service == "rates-test").all()
     assert [row.value for row in stored] == [20.0]
+
+
+def _postgres_engine(*, lock_free: bool) -> tuple[MagicMock, list[str]]:
+    """A stand-in Postgres engine whose advisory lock is free or held by another backend."""
+    statements: list[str] = []
+    conn = MagicMock()
+
+    def execute(statement, params=None):
+        statements.append(str(statement))
+        result = MagicMock()
+        result.scalar.return_value = lock_free
+        return result
+
+    conn.execute.side_effect = execute
+    engine = MagicMock()
+    engine.dialect.name = "postgresql"
+    engine.connect.return_value.__enter__.return_value = conn
+    return engine, statements
+
+
+def test_otlp_cycle_is_skipped_while_another_backend_holds_the_lock() -> None:
+    engine, statements = _postgres_engine(lock_free=False)
+    with (
+        patch("backend.app.autonomous.scheduler.get_engine", return_value=engine),
+        patch("backend.app.autonomous.scheduler._analyze_pending_otlp") as analyze,
+    ):
+        _run_pending_otlp_analysis_once()
+
+    analyze.assert_not_called()
+    assert statements == ["SELECT pg_try_advisory_lock(:key)"]
+
+
+def test_otlp_cycle_runs_and_releases_the_lock() -> None:
+    engine, statements = _postgres_engine(lock_free=True)
+    with (
+        patch("backend.app.autonomous.scheduler.get_engine", return_value=engine),
+        patch("backend.app.autonomous.scheduler._analyze_pending_otlp") as analyze,
+    ):
+        _run_pending_otlp_analysis_once()
+
+    analyze.assert_called_once()
+    assert statements == ["SELECT pg_try_advisory_lock(:key)", "SELECT pg_advisory_unlock(:key)"]
+
+
+def test_otlp_lock_is_released_when_the_cycle_fails() -> None:
+    engine, statements = _postgres_engine(lock_free=True)
+    with (
+        patch("backend.app.autonomous.scheduler.get_engine", return_value=engine),
+        patch("backend.app.autonomous.scheduler._analyze_pending_otlp", side_effect=RuntimeError("synthetic failure")),
+        pytest.raises(RuntimeError),
+    ):
+        _run_pending_otlp_analysis_once()
+
+    assert statements[-1] == "SELECT pg_advisory_unlock(:key)"
