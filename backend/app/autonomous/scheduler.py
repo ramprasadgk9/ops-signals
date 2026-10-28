@@ -1,10 +1,9 @@
 """Recurring execution for saved autonomous policies.
 
 No scheduler infrastructure (APScheduler, Celery, a worker container) exists anywhere in this
-repo, and docker-compose only ever runs one backend instance - so this is deliberately a simple
-in-process polling loop, not a distributed job queue. It is only correct for a single backend
-instance; scaling the backend to multiple replicas would need this revisited (each replica would
-poll independently and could double-fire a due policy).
+repo, so this is deliberately a simple in-process polling loop, not a distributed job queue. Every
+backend instance polls; each due policy run is claimed in the database first
+(AutonomousPolicyRepository.claim_due), so backends sharing one database never run it twice.
 """
 
 from __future__ import annotations
@@ -89,8 +88,11 @@ def _run_due_policies_once() -> None:
     session_local = get_session_local()
     with session_local() as db:
         repo = AutonomousPolicyRepository(db)
-        due = repo.list_due(now=datetime.now(timezone.utc))
-        for policy in due:
+        now = datetime.now(timezone.utc)
+        for policy in repo.list_due(now=now):
+            # Another backend claimed it between our list and this claim: it runs there.
+            if not repo.claim_due(policy, now=now):
+                continue
             _run_one_policy(db, repo, policy)
 
 
