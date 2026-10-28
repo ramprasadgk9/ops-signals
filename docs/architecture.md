@@ -148,7 +148,10 @@ alike, so groups don't chain. **Fix outcomes** (`backend/app/memory/fix_outcomes
 held: no case with the same symptom on the same service within 30 days. They feed **Same fix elsewhere**
 (`GET /api/cases/{id}/same-fix`, resolution vectors) and **Suggested fixes** for a finding
 (`backend/app/memory/suggested_fixes.py`, `GET /api/findings/{id}/suggested-fixes`, with a draft-only
-runbook from the configured LLM). **Monitoring coverage** (`backend/app/memory/coverage.py`,
+runbook from the configured LLM). **Fix came back** (`backend/app/memory/fix_came_back.py`) looks the
+other way: a finding (from its Seen before? matches) or a case (`GET /api/cases/{id}/fix-came-back`)
+that is back within 30 days of a fix on the same service; the optional AI reasons are in
+`backend/app/services/fix_came_back_why.py`. **Monitoring coverage** (`backend/app/memory/coverage.py`,
 `GET /api/memory/coverage`) checks each imported incident against analysis runs on its service that
 overlapped it and the findings they raised whose anomalies overlapped it, scoring each finding's text
 against the incident's symptom - detected, flagged something else, missed, or not watched.

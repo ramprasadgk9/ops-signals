@@ -300,6 +300,24 @@ describe('FindingDetailsDrawer deploys', () => {
 });
 
 describe('FindingDetailsDrawer seen before', () => {
+  it('warns at the top when the finding is back soon after a fix', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue(null as never);
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.findingSeenBefore).mockResolvedValue({
+      finding_id: 41, available: true, service: 'test-otlp-service', matches: [],
+      came_back: { case_id: 25, title: 'CPU pinned after release', fixed_at: '2026-10-24T15:10:00', days: 3, fix: 'Rolled back the release.' },
+    });
+
+    renderDrawer(otlpFinding);
+
+    const banner = await screen.findByTestId('fix-came-back');
+    expect(banner).toHaveTextContent('This came back 3 days after it was fixed.');
+    expect(within(banner).getByRole('link', { name: '#25 CPU pinned after release' })).toHaveAttribute('href', '/cases/25');
+    expect(banner).toHaveTextContent('Fix then: Rolled back the release.');
+    // AI status unknown here, so no AI button.
+    expect(within(banner).queryByRole('button')).not.toBeInTheDocument();
+  });
+
   it('lists past cases on the same service first, including imported postmortems', async () => {
     vi.mocked(api.analysisRun).mockResolvedValue(null as never);
     vi.mocked(api.timeseries).mockResolvedValue([]);

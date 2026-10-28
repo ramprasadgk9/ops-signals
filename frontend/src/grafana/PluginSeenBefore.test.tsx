@@ -4,7 +4,7 @@ import type { PastCaseMatch, SeenBeforeResponse } from '../types';
 import { getFindingSeenBefore } from './backendClient';
 import { PluginSeenBefore } from './PluginSeenBefore';
 
-vi.mock('./backendClient', () => ({ getFindingSeenBefore: vi.fn() }));
+vi.mock('./backendClient', () => ({ getFindingSeenBefore: vi.fn(), getAiStatus: vi.fn(async () => ({ active: false })), getFixCameBackWhy: vi.fn() }));
 const seenBefore = vi.mocked(getFindingSeenBefore);
 
 function match(overrides: Partial<PastCaseMatch>): PastCaseMatch {
@@ -18,6 +18,20 @@ function response(overrides: Partial<SeenBeforeResponse>): SeenBeforeResponse {
 describe('PluginSeenBefore', () => {
   beforeEach(() => {
     seenBefore.mockReset();
+  });
+
+  it('warns first when the finding is back soon after a fix, without an AI button when AI is off', async () => {
+    seenBefore.mockResolvedValue(response({
+      came_back: { case_id: 3, title: 'Checkout CPU after deploy', fixed_at: '2026-10-24T15:10:00', days: 0, fix: 'Rolled back to v2.2' },
+      matches: [match({ case_id: 3, title: 'Checkout CPU after deploy' })],
+    }));
+
+    render(<PluginSeenBefore backendUrl="http://backend" findingId={42} service="checkout" />);
+
+    const banner = await screen.findByTestId('plugin-fix-came-back');
+    expect(banner).toHaveTextContent('This came back less than a day after it was fixed.');
+    expect(banner).toHaveTextContent('Case #3 Checkout CPU after deploy was resolved on');
+    expect(screen.queryByRole('button', { name: /Why might it not have held/ })).not.toBeInTheDocument();
   });
 
   it('lists same-service matches first with cause, fix and score, and folds other services away', async () => {

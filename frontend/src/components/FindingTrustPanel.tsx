@@ -1,7 +1,9 @@
 import { Box, Button, LinearProgress, Link, Stack, Typography } from '@mui/material';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/queries';
-import type { Finding, FindingVerdict, SeenBeforeResponse } from '../types';
+import type { Finding, FindingDetailsSection, FindingVerdict, SeenBeforeResponse } from '../types';
+import { ui } from '../standalone/theme';
+import { afterDays } from '../utils/fixCameBack';
 import { answerLine, movedNote, serviceCaption, serviceHeadline, serviceLabel, serviceProgress, serviceRateLeads, VERDICTS } from '../utils/findingTrust';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { LockNote } from './LockNote';
@@ -12,8 +14,8 @@ type Props = {
   answerOnly?: boolean;
   /** Past cases like this finding; the column shows only when past cases can be searched. */
   seenBefore?: SeenBeforeResponse;
-  /** Opens the finding's details at its past cases. */
-  onSeePastCases?: () => void;
+  /** Opens the finding's details at its past cases, or at the "came back after a fix" banner. */
+  onSeePastCases?: (section?: FindingDetailsSection) => void;
 };
 
 function Column({ label, headline, caption, value, color }: {
@@ -35,8 +37,26 @@ function Column({ label, headline, caption, value, color }: {
   );
 }
 
-function SeenBeforeColumn({ seenBefore, onSeePastCases }: { seenBefore: SeenBeforeResponse; onSeePastCases?: () => void }) {
+function SeenBeforeColumn({ seenBefore, onSeePastCases }: { seenBefore: SeenBeforeResponse; onSeePastCases?: (section?: FindingDetailsSection) => void }) {
   const closest = seenBefore.matches[0];
+  const cameBack = seenBefore.came_back;
+  if (cameBack) {
+    return (
+      <Box sx={{ minWidth: 0 }} data-testid="finding-seen-before">
+        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: '.04em', color: 'text.secondary' }}>Seen before</Typography>
+        <Typography sx={{ fontSize: 20, fontWeight: 800, lineHeight: 1.3, color: ui.yellow }}>↻ Fix didn't hold</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4, mt: 0.75 }}>
+          Came back {afterDays(cameBack.days)} after case #{cameBack.case_id} was fixed.
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4 }}>Fix then: {cameBack.fix}</Typography>
+        {onSeePastCases ? (
+          <Link component="button" type="button" variant="caption" onClick={() => onSeePastCases('came-back')} sx={{ fontWeight: 700, mt: 0.5 }}>
+            See what came back
+          </Link>
+        ) : null}
+      </Box>
+    );
+  }
   return (
     <Box sx={{ minWidth: 0 }} data-testid="finding-seen-before">
       <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: '.04em', color: 'text.secondary' }}>Seen before</Typography>
@@ -50,7 +70,7 @@ function SeenBeforeColumn({ seenBefore, onSeePastCases }: { seenBefore: SeenBefo
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.4 }}>Fixed by: {closest.corrective_action}</Typography>
           ) : null}
           {onSeePastCases ? (
-            <Link component="button" type="button" variant="caption" onClick={onSeePastCases} sx={{ fontWeight: 700, mt: 0.5 }}>
+            <Link component="button" type="button" variant="caption" onClick={() => onSeePastCases()} sx={{ fontWeight: 700, mt: 0.5 }}>
               See past cases
             </Link>
           ) : null}

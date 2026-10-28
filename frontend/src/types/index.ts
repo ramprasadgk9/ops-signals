@@ -484,7 +484,36 @@ export type Novelty = {
 };
 
 /** A part of the finding details drawer that a card can open it at. */
-export type FindingDetailsSection = 'seen-before';
+export type FindingDetailsSection = 'seen-before' | 'came-back';
+
+/** The problem is back within 30 days of a past case on the same service being fixed: that fix
+ * didn't stick (backend/app/memory/fix_came_back.py). */
+export type CameBackAfterFix = {
+  case_id: number;
+  title: string;
+  fixed_at: string;
+  days: number;
+  fix: string;
+  still_open?: string | null;
+};
+
+/** Both directions for a case: back after an earlier fix, and whether its own fix held. */
+export type CaseFixCameBack = {
+  case_id: number;
+  available: boolean;
+  reason?: string | null;
+  came_back?: CameBackAfterFix | null;
+  fix_outcome?: FixOutcome | null;
+};
+
+/** "Why might it not have held?" (AI, never saved). */
+export type FixCameBackWhy = {
+  available: boolean;
+  reasons: string[];
+  sources?: CaseDraftSource[];
+  reason?: string | null;
+  reason_code?: 'ai_off' | 'not_enough' | 'failed' | null;
+};
 
 export type SeenBeforeResponse = {
   finding_id: number;
@@ -493,6 +522,7 @@ export type SeenBeforeResponse = {
   service?: string | null;
   matches: PastCaseMatch[];
   novelty?: Novelty | null;
+  came_back?: CameBackAfterFix | null;
 };
 
 export type SimilarCasesResponse = {

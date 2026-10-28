@@ -9,6 +9,7 @@ import { FindingBreakdown } from './FindingBreakdown';
 import { FoundDeployTag } from './FoundDeployTag';
 import { NoveltyBadge } from './NoveltyBadge';
 import { SuggestedFixes } from './FixHistory';
+import { FixCameBackBanner } from './FixCameBack';
 import { PastCaseMatches } from './PastCaseMatches';
 import type { Finding, FindingDetailsSection, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
@@ -65,9 +66,9 @@ function providerColor(provider?: string | null): string {
 
 export function FindingDetailsDrawer({ open, finding, signals = [], section = null, onClose }: Props) {
   useEffect(() => {
-    if (!open || section !== 'seen-before') return;
+    if (!open || !section) return;
     // After the drawer has slid in and laid out its sections.
-    const timer = window.setTimeout(() => document.getElementById('finding-details-seen-before')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 250);
+    const timer = window.setTimeout(() => document.getElementById(`finding-details-${section}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 250);
     return () => window.clearTimeout(timer);
   }, [open, section, finding?.id]);
 
@@ -155,6 +156,12 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
             </Stack>
           )}
         </Box>
+
+        {seenBeforeQuery.data?.came_back && typeof finding.id === 'number' ? (
+          <Box sx={{ mb: 3 }}>
+            <FixCameBackBanner id="finding-details-came-back" cameBack={seenBeforeQuery.data.came_back} why={() => api.findingFixCameBackWhy(finding.id as number)} />
+          </Box>
+        ) : null}
 
         {customSettings(finding) ? <CustomSettingsBox custom={customSettings(finding)!} /> : null}
 

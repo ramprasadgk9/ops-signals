@@ -190,6 +190,19 @@ class PastIncidentMatch(BaseModel):
     more_like_this: list["PastIncidentMatch"] = Field(default_factory=list)
 
 
+class CameBackAfterFix(BaseModel):
+    """The problem is back within fix_outcomes.RECURRENCE_DAYS of a past case on the same service
+    being fixed: that fix didn't stick (fix_came_back.py)."""
+
+    case_id: int
+    title: str
+    fixed_at: datetime
+    days: int
+    fix: str
+    # What the resolution said was still to do ("Still open: fix the retry loop"), split off the fix.
+    still_open: str | None = None
+
+
 class SeenBeforeResponse(BaseModel):
     """Past cases resembling a finding, found without opening a case for it."""
 
@@ -199,6 +212,7 @@ class SeenBeforeResponse(BaseModel):
     service: str | None = None
     matches: list[PastIncidentMatch] = Field(default_factory=list)
     novelty: Novelty | None = None
+    came_back: CameBackAfterFix | None = None
 
 
 class AlertContextHistory(BaseModel):

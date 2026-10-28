@@ -51,6 +51,8 @@ import type {
   CoverageReport,
   RunbookDraft,
   SameFixResponse,
+  CaseFixCameBack,
+  FixCameBackWhy,
   SuggestedFixesResponse,
   AlertItem,
   AlertListParams,
@@ -369,6 +371,9 @@ export const api = {
   runbookDraft: (findingId: number) =>
     postJson<Record<string, never>, RunbookDraft>(`/api/findings/${findingId}/suggested-fixes/runbook-draft`, {}),
   sameFix: (caseId: number) => getJson<SameFixResponse>(`/api/cases/${caseId}/same-fix`),
+  caseFixCameBack: (caseId: number) => getJson<CaseFixCameBack>(`/api/cases/${caseId}/fix-came-back`),
+  caseFixCameBackWhy: (caseId: number) => postJson<Record<string, never>, FixCameBackWhy>(`/api/cases/${caseId}/fix-came-back/why`, {}),
+  findingFixCameBackWhy: (findingId: number) => postJson<Record<string, never>, FixCameBackWhy>(`/api/findings/${findingId}/fix-came-back/why`, {}),
   caseImportProfiles: () => getJson<CaseImportProfiles>('/api/case-imports/profiles'),
   caseImportTemplateUrl: (name: string) => `${import.meta.env.VITE_API_BASE ?? ''}/api/case-imports/templates/${encodeURIComponent(name)}`,
   previewCaseImport: (payload: FormData) => postForm<CaseImportPreview>('/api/case-imports/preview', payload),

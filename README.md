@@ -83,7 +83,7 @@ How Ops Signals closes each gap:
 | --- | --- |
 | A line on a chart, or a threshold that was crossed | A **finding** that names the change in words ("sustained baseline shift ~621 → ~425 ms, started around 23:59 UTC") and shows which analyzers produced it |
 | Change history in a different tool | Findings and alerts name the **deploy or config change** just before the problem and, with drill-down, which pods it came from |
-| Past fixes buried in tickets | Resolved cases and imported postmortems become **searchable memory**; an alert shows the most similar resolved case and how it was fixed |
+| Past fixes buried in tickets | Resolved cases and imported postmortems become **searchable memory**; an alert shows the most similar resolved case and how it was fixed, and a problem back soon after its fix says **Fix didn't hold** |
 | Unwatched metrics fail silently | **Metric Usage** compares your Grafana dashboards and alert rules with every metric, and flags metrics that had problems nothing would have shown |
 | Each page triaged from scratch | **Alert enrichment** posts one Slack message that answers all three questions, and `GET /api/alert-context` lets an alert manager ask "seen before, real or noise?" before it pages anyone |
 
