@@ -12,10 +12,12 @@ import asyncio
 import logging
 import math
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
-from sqlalchemy import func
+from sqlalchemy import Engine, func, text
 from sqlalchemy.orm import Session
 
 from backend.app.autonomous.execution import execute_autonomous_plan_once
@@ -24,7 +26,7 @@ from backend.app.autonomous.repository import AutonomousPolicyRepository
 from backend.app.autonomous.schemas import AnalysisScope, AutonomousRunRequest, ExecutionPolicy, MonitoringSelection
 from backend.app.deploy_discovery.service import run_if_due as run_deploy_discovery_if_due
 from backend.app.metric_usage.service import run_scheduled_check_if_due
-from backend.app.models.db import get_session_local
+from backend.app.models.db import get_engine, get_session_local
 from backend.app.models.entities import AutonomousPolicyEntity, NormalizedPoint, OtlpPendingPointEntity
 from backend.app.otlp.limits import (
     MAX_BACKLOG_PER_CYCLE,
@@ -39,6 +41,8 @@ from backend.app.services.timeseries_routing_service import build_csv_routing_co
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECONDS = 60
+# Any fixed 64-bit number, unique to this lock among the app's advisory locks.
+OTLP_ANALYSIS_LOCK_KEY = 7_140_020_263
 
 
 def _build_run_request(policy: AutonomousPolicyEntity) -> AutonomousRunRequest:
@@ -249,7 +253,35 @@ def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[
         db.commit()
 
 
+@contextmanager
+def _otlp_analysis_lock(engine: Engine) -> Iterator[bool]:
+    """Yields True when this backend may run the OTLP cycle: one backend at a time, since two would
+    analyze the same pending points twice. A session-level lock on its own connection, because each
+    group commits as it goes and a transaction-level lock would end at the first commit. Postgres
+    drops it if the backend dies. SQLite serializes writers on its own."""
+    if engine.dialect.name != "postgresql":
+        yield True
+        return
+    with engine.connect() as conn:
+        acquired = bool(conn.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": OTLP_ANALYSIS_LOCK_KEY}).scalar())
+        # Don't sit idle in a transaction for the whole cycle; the lock outlives it.
+        conn.commit()
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": OTLP_ANALYSIS_LOCK_KEY})
+                conn.commit()
+
+
 def _run_pending_otlp_analysis_once() -> None:
+    with _otlp_analysis_lock(get_engine()) as acquired:
+        # Another backend is running this cycle; the next tick tries again.
+        if acquired:
+            _analyze_pending_otlp()
+
+
+def _analyze_pending_otlp() -> None:
     """Synchronous body of one OTLP backlog analysis tick - groups buffered otlp_pending_points
     rows by (service, metric_name) and runs each group that is due (_due_otlp_groups), with its
     stored history, through the same MetricAnalysisExecutor

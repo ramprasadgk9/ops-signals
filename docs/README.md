@@ -22,6 +22,9 @@ What the project is, and how to get it running.
 - [`security-model.md`](security-model.md) - what's open by default, the API token, the switches
   for the reset and file-writing endpoints, and CORS. Read it before exposing Ops Signals beyond
   your own machine.
+- [`running-multiple-backends.md`](running-multiple-backends.md) - running several backends on one
+  database: what they must share, which background jobs run once and which may repeat, and the
+  recommended setup.
 - [`grafana-plugin-local-setup.md`](grafana-plugin-local-setup.md) - installing the Grafana app
   plugin specifically, if that's how you plan to use Ops Signals.
 - [`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md) - signing in through
