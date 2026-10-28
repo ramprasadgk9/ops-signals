@@ -56,6 +56,6 @@ test('Setup check shows the per-service settings row with How to set', async ({ 
   const howToSet = page.getByRole('button', { name: 'How to set: Per-service analyzer settings' });
   await expect(howToSet).toBeVisible({ timeout: 20_000 });
   await howToSet.click();
-  await expect(page.getByText(/Copy config\/analyzer_overrides\.d\/example\.yml\.example/)).toBeVisible();
+  await expect(page.getByText(/Copy config\/analyzer_overrides\.d\/payments-team\.yml\.example/)).toBeVisible();
   await expect(page.getByText(/Trend Analysis: Smallest steady climb or drop that counts/)).toBeVisible();
 });
