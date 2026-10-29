@@ -25,6 +25,7 @@ from backend.app.api.admin_analyzers import (
 from backend.app.api.ingestion import PreviewPipelineStore
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalyzerConfigSuggestionEntity, AnalyzerDraftEntity, NormalizedPoint
+from backend.app.services.run_points import run_points_filter
 from backend.app.security import require_file_writes
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from experiments.analyzer_router.analyzer_registry import AnalyzerRegistry
@@ -898,7 +899,7 @@ def run_execution_test(draft_id: int, payload: ExecutionTestIn = Body(default=Ex
         # the pattern it was written for.
         data_source: Literal["real", "synthetic"] = "synthetic"
         if payload.analysis_run_id:
-            query = select(NormalizedPoint).where(NormalizedPoint.analysis_run_id == payload.analysis_run_id)
+            query = select(NormalizedPoint).where(run_points_filter(db, payload.analysis_run_id))
             if payload.service:
                 query = query.where(NormalizedPoint.service == payload.service)
             points = db.execute(query.order_by(NormalizedPoint.timestamp)).scalars().all()

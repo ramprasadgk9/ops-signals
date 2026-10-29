@@ -64,9 +64,10 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
         run_metadata: dict[str, object] | None = None,
         db: Session | None = None,
         persist_points_after: datetime | None = None,
+        series_key: str | None = None,
     ) -> MetricAnalysisExecutionResult:
         normalized = normalize_timeseries(dataframe, self.config.input)
-        return self.execute_normalized(normalized, run_metadata=run_metadata, db=db, persist_points_after=persist_points_after)
+        return self.execute_normalized(normalized, run_metadata=run_metadata, db=db, persist_points_after=persist_points_after, series_key=series_key)
 
     def execute_normalized(
         self,
@@ -75,18 +76,23 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
         run_metadata: dict[str, object] | None = None,
         db: Session | None = None,
         persist_points_after: datetime | None = None,
+        series_key: str | None = None,
     ) -> MetricAnalysisExecutionResult:
         """`persist_points_after`: store only the normalized points after this time, when the
-        earlier ones are history that is already stored (OTLP runs)."""
+        earlier ones are history that is already stored (OTLP runs). `series_key`: the stored
+        series these points belong to; only points after its newest stored one are saved, since
+        the earlier ones were saved by an earlier run of the same window (backend/app/services/run_points.py)."""
         analysis_run_id = uuid4().hex
-        self._create_analysis_run(analysis_run_id, normalized, run_metadata)
+        self._create_analysis_run(analysis_run_id, normalized, run_metadata, series_key=series_key)
         try:
             if self.config.output.save_normalized_data:
                 to_save = normalized
+                if series_key and persist_points_after is None:
+                    persist_points_after = self.store.latest_point_time(series_key)
                 if persist_points_after is not None:
                     to_save = normalized[pd.to_datetime(normalized["timestamp"], utc=True) > pd.Timestamp(persist_points_after)]
                 if not to_save.empty:
-                    self.store.save_normalized_points(to_save, analysis_run_id=analysis_run_id)
+                    self.store.save_normalized_points(to_save, analysis_run_id=analysis_run_id, series_key=series_key)
 
             analyzer_routing, series_profile, registry_version = self._route_analyzers(normalized)
             # Per-service settings for this series, if any override applies to it.
@@ -180,7 +186,9 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
             signals.extend(generated)
         return signals, failed_analyzers
 
-    def _create_analysis_run(self, analysis_run_id: str, normalized: pd.DataFrame, run_metadata: dict[str, object] | None) -> None:
+    def _create_analysis_run(
+        self, analysis_run_id: str, normalized: pd.DataFrame, run_metadata: dict[str, object] | None, series_key: str | None = None
+    ) -> None:
         if normalized.empty:
             return
         payload = {
@@ -189,6 +197,7 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
             "file_name": str(run_metadata.get("file_name")) if run_metadata and run_metadata.get("file_name") else None,
             # The Prometheus connection (Mimir tenant) it queried, as SignalPipeline records it.
             "connection_id": str(run_metadata["connection_id"]) if run_metadata and run_metadata.get("connection_id") else None,
+            "series_key": series_key,
             "provider": (self.config.input.provider or "generic").lower(),
             "service": str(normalized["service"].dropna().iloc[0]) if "service" in normalized.columns and not normalized["service"].dropna().empty else "unknown",
             "metric_name": str(normalized["metric_name"].dropna().iloc[0]),

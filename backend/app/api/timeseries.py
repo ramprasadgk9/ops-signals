@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.models.db import get_db
 from backend.app.models.entities import NormalizedPoint
+from backend.app.services.run_points import run_points_filter
 
 router = APIRouter(prefix="/api/timeseries", tags=["timeseries"])
 
@@ -31,7 +32,7 @@ def get_timeseries(
     if end_time:
         query = query.where(NormalizedPoint.timestamp <= end_time)
     if analysis_run_id:
-        query = query.where(NormalizedPoint.analysis_run_id == analysis_run_id)
+        query = query.where(run_points_filter(db, analysis_run_id))
     if cluster:
         query = query.where(NormalizedPoint.cluster == cluster)
     points = db.execute(query.order_by(NormalizedPoint.timestamp.asc())).scalars().all()

@@ -4,7 +4,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -114,9 +114,11 @@ class PostgresStore:
             Column("cluster", Text),
             Column("tags_json", JSON),
             Column("analysis_run_id", Text),
+            Column("series_key", String(64)),
             Column("created_at", TIMESTAMP(timezone=True), server_default=func.now()),
         )
         Index(f"idx_{prefix}norm_metric_ts", self.normalized_table.c.metric_name, self.normalized_table.c.timestamp)
+        Index(f"idx_{prefix}norm_series_ts", self.normalized_table.c.series_key, self.normalized_table.c.timestamp)
         Index(f"idx_{prefix}norm_service_ts", self.normalized_table.c.service, self.normalized_table.c.timestamp)
         Index(f"idx_{prefix}norm_env_ts", self.normalized_table.c.env, self.normalized_table.c.timestamp)
 
@@ -227,6 +229,7 @@ class PostgresStore:
             Column("executed_analyzers_json", JSON),
             Column("generated_findings_json", JSON),
             Column("connection_id", String(64)),
+            Column("series_key", String(64)),
             Column("created_at", TIMESTAMP(timezone=True), server_default=func.now()),
         )
 
@@ -264,10 +267,12 @@ class PostgresStore:
         with self.engine.begin() as connection:
             connection.exec_driver_sql(sql_text)
 
-    def save_normalized_points(self, dataframe: pd.DataFrame, analysis_run_id: str | None = None) -> None:
+    def save_normalized_points(self, dataframe: pd.DataFrame, analysis_run_id: str | None = None, series_key: str | None = None) -> None:
         dataframe = dataframe.copy()
         if analysis_run_id:
             dataframe["analysis_run_id"] = analysis_run_id
+        if series_key:
+            dataframe["series_key"] = series_key
         # A missing label (env, host, cluster...) is NaN after normalizing; written to a text column
         # it became the string 'NaN', which /api/timeseries returned and cluster grouping treated as
         # a real cluster. Store NULL instead.
@@ -277,6 +282,16 @@ class PostgresStore:
         records = dataframe.to_dict(orient="records")
         with self.engine.begin() as connection:
             connection.execute(self.normalized_table.insert(), records)
+
+    def latest_point_time(self, series_key: str) -> datetime | None:
+        """The newest stored point of this series, or None when none is stored yet."""
+        with self.engine.begin() as connection:
+            latest = connection.execute(
+                select(func.max(self.normalized_table.c.timestamp)).where(self.normalized_table.c.series_key == series_key)
+            ).scalar()
+        if isinstance(latest, str):
+            latest = datetime.fromisoformat(latest)
+        return latest.replace(tzinfo=timezone.utc) if latest is not None and latest.tzinfo is None else latest
 
     def save_signals(self, signals: list[OperationalSignal], embeddings: dict[int, Any] | None = None) -> None:
         records: list[dict[str, Any]] = []

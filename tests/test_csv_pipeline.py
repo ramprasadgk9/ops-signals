@@ -28,7 +28,7 @@ class InMemoryStore:
     def init_db_from_sql(self, sql_path: Path) -> None:
         self.initialized = True
 
-    def save_normalized_points(self, dataframe, analysis_run_id=None) -> None:
+    def save_normalized_points(self, dataframe, analysis_run_id=None, series_key=None) -> None:
         self.normalized_points = dataframe.copy()
 
     def save_signals(self, signals, embeddings=None) -> None:

@@ -16,6 +16,7 @@ from backend.app.autonomous.schemas import AutonomousJobRunResult, AutonomousPre
 from backend.app.config import DrillDownConfig, PrometheusConnectionConfig, get_drilldown_config
 from backend.app.models.entities import AutonomousMetricJobEntity
 from backend.app.services.prometheus_service import PrometheusQueryService, configured_connection
+from backend.app.services.run_points import series_key
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 
 
@@ -288,6 +289,7 @@ def _execute_plan_item(
                 "selection_reason": item.selection_reason,
             },
             db=db,
+            series_key=series_key(config.id, item.promql),
         )
         if drilldown is not None and drilldown.enabled:
             drill_down_findings(db=db, prometheus=prometheus, promql=item.promql, step=step, result=result, config=drilldown)

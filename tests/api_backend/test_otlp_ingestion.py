@@ -531,7 +531,7 @@ def test_executor_stores_only_the_points_after_the_history(monkeypatch) -> None:
     class _Store:
         engine = None
 
-        def save_normalized_points(self, frame, analysis_run_id=None):
+        def save_normalized_points(self, frame, analysis_run_id=None, series_key=None):
             saved.append(frame)
 
         def __getattr__(self, name):

@@ -61,7 +61,7 @@ class FakeMetricAnalysisExecutor:
     def __init__(self, config):
         self.config = config
 
-    def execute_dataframe(self, dataframe, *, run_metadata=None, db=None):
+    def execute_dataframe(self, dataframe, *, run_metadata=None, db=None, series_key=None):
         metric = str(run_metadata.get("promql", "metric")) if run_metadata else "metric"
         suffix = "memory" if "memory_usage" in metric else "cpu"
         return type(

@@ -95,7 +95,7 @@ class PreviewPipelineStore:
     def create_analysis_run(self, payload: dict[str, object]) -> None:
         self.analysis_run = payload
 
-    def save_normalized_points(self, dataframe: pd.DataFrame, analysis_run_id: str | None = None) -> None:
+    def save_normalized_points(self, dataframe: pd.DataFrame, analysis_run_id: str | None = None, series_key: str | None = None) -> None:
         self.normalized_points = dataframe.copy()
 
     def update_analysis_run_learning_snapshot(self, analysis_run_id: str, snapshot: dict[str, object]) -> None:
