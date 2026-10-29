@@ -33,6 +33,7 @@ run:
 | Slack notifications and retries | Each message waiting to be sent is claimed by one backend. | No |
 | Reference data at startup | One backend at a time, by database lock. | No |
 | Operational memory catch-up | Every backend runs it. A case always gets the same entry in Qdrant, so the second one rewrites the same entry. | No, but the work is repeated |
+| Stored point cleanup | Every backend with the scheduler on deletes points past the retention period, about once an hour. Two backends deleting at once delete the same rows. | No, but the work is repeated |
 | Metric Usage check | The guard against two checks at once only works inside one backend. Two backends can both start a scheduled check at the same moment. | Possible: an extra check and twice the reads from Grafana and Prometheus |
 | Jira ticket outbox | Each ticket operation is claimed with a lease, but two backends polling at the same instant can both claim the same one. Before creating an issue, the Jira adapter searches for one already made for that operation, which usually stops a second ticket. | Unlikely, not impossible |
 

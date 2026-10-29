@@ -119,6 +119,7 @@ class PostgresStore:
         )
         Index(f"idx_{prefix}norm_metric_ts", self.normalized_table.c.metric_name, self.normalized_table.c.timestamp)
         Index(f"idx_{prefix}norm_series_ts", self.normalized_table.c.series_key, self.normalized_table.c.timestamp)
+        Index(f"idx_{prefix}norm_ts", self.normalized_table.c.timestamp)
         Index(f"idx_{prefix}norm_service_ts", self.normalized_table.c.service, self.normalized_table.c.timestamp)
         Index(f"idx_{prefix}norm_env_ts", self.normalized_table.c.env, self.normalized_table.c.timestamp)
 

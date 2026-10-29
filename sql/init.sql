@@ -106,6 +106,10 @@ ALTER TABLE IF EXISTS ops_normalized_timeseries_points
 CREATE INDEX IF NOT EXISTS idx_ops_norm_series_ts
     ON ops_normalized_timeseries_points (series_key, timestamp);
 
+-- Finds points older than the retention period (point_retention.py).
+CREATE INDEX IF NOT EXISTS idx_ops_norm_ts
+    ON ops_normalized_timeseries_points (timestamp);
+
 ALTER TABLE IF EXISTS ops_operational_signals
     ADD COLUMN IF NOT EXISTS cluster TEXT;
 

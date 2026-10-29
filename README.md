@@ -714,6 +714,10 @@ quiet. Each run takes at most `max_metrics_per_run` metrics (default 500); the r
 that run, not carried over, and shown as budget-limited. Jobs run one after another. Results,
 coverage and history are on the **Overview** tab and in the Grafana plugin.
 
+Each run stores the points it analyzed, once per series, for the chart on a finding. Points older
+than 30 days are deleted (`OPS_SIGNALS_POINT_RETENTION_DAYS`; 0 keeps them all), except those behind
+a finding that has a case. Findings themselves are kept.
+
 See [`docs/autonomous-analysis-preview.md`](docs/autonomous-analysis-preview.md) for planning,
 discovery, the budget and scheduling, and
 [`docs/autonomous-pipeline-architecture.md`](docs/autonomous-pipeline-architecture.md) for how it

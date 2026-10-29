@@ -868,6 +868,9 @@ export type AnalyzerExecution = {
 
 export type AnalysisRun = {
   id: string;
+  // The run ended before the stored-point retention period; its chart is empty unless a case kept it.
+  points_deleted?: boolean;
+  points_retention_days?: number | null;
   source_type: string;
   file_name?: string | null;
   provider: string;
