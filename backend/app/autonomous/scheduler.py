@@ -35,6 +35,7 @@ from backend.app.otlp.limits import (
     OTLP_IMMEDIATE_BATCH_POINTS,
 )
 from backend.app.otlp.metrics import OTLP_ANALYSIS_CYCLE_DURATION_SECONDS, OTLP_ANALYSIS_CYCLE_GROUPS_PROCESSED
+from backend.app.services.point_retention import run_if_due as run_point_retention_if_due
 from backend.app.services.prometheus_service import PrometheusQueryService, resolve_prometheus_connection
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 
@@ -345,6 +346,10 @@ async def run_scheduler_loop() -> None:
                 await asyncio.to_thread(run_deploy_discovery_if_due)
             except Exception:
                 logger.exception("Deploy discovery tick failed")
+            try:
+                await asyncio.to_thread(run_point_retention_if_due)
+            except Exception:
+                logger.exception("Stored point cleanup tick failed")
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     except asyncio.CancelledError:
         logger.info("Autonomous policy scheduler stopped")

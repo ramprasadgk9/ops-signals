@@ -131,6 +131,12 @@ Run-once behavior:
   schedule that looks at the last 24h every 30 minutes adds about 30 minutes of points per run
   instead of another 24h copy. A finding's chart reads the series between the run's start and
   end time, so it still shows the whole window.
+- deletes stored points older than `OPS_SIGNALS_POINT_RETENTION_DAYS` (default 30; 0 keeps them
+  all), about once an hour. Findings stay, with their numbers and wording; the chart of an older
+  finding then has no data. Points behind a finding that has a case are kept at any age. Keep the
+  setting longer than your longest analysis window, or a run's earliest points go before its chart
+  is read. The service list comes from stored points, so a service with no data in that time
+  drops out of it.
 - surfaces execution budget coverage (`budget_limited_jobs`, `budget_excluded_metrics_count`, `budget_excluded_metrics`) in the response root and `summary` object
 - returns per-job status, sample count, signal count, finding count, behavior finding count, warnings, and errors
 - does not create a persistent autonomous policy or background schedule

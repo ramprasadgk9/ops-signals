@@ -344,12 +344,14 @@ def _add_missing_columns(engine: Engine, table_name: str, column_sql: dict[str, 
 
 def ensure_point_series_key_schema(engine: Engine) -> None:
     """Adds series_key to points tables created before it existed, with the index that finds a
-    series' newest stored point (run_points.py)."""
+    series' newest stored point (run_points.py), and the index that finds points older than the
+    retention period (point_retention.py)."""
     if "ops_normalized_timeseries_points" not in set(inspect(engine).get_table_names()):
         return
     _add_missing_columns(engine, "ops_normalized_timeseries_points", {"series_key": "VARCHAR(64)"})
     with engine.begin() as connection:
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_ops_norm_series_ts ON ops_normalized_timeseries_points (series_key, timestamp)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_ops_norm_ts ON ops_normalized_timeseries_points (timestamp)"))
 
 
 def ensure_case_memory_schema(engine: Engine) -> None:

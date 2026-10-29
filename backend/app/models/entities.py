@@ -37,7 +37,11 @@ class NormalizedPoint(Base):
     series_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
-    __table_args__ = (Index("idx_ops_norm_series_ts", "series_key", "timestamp"),)
+    __table_args__ = (
+        Index("idx_ops_norm_series_ts", "series_key", "timestamp"),
+        # Finds points older than the retention period (point_retention.py).
+        Index("idx_ops_norm_ts", "timestamp"),
+    )
 
 
 class SignalEntity(Base):
