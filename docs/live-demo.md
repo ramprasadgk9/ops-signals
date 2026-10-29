@@ -10,8 +10,8 @@ to `/api/integrations/alertmanager`, the backend runs the analyzers and the pod 
 message is posted to a Slack webhook. The only thing made up is the data. The script serves
 per-pod metrics and changes them on demand.
 
-For a demo with no setup at all, use [`docs/demo.md`](demo.md) (one `docker compose` command, one
-pre-built incident). Use this one when you want to show several scenarios live.
+For a demo with no setup at all, use [`docs/demo.md`](demo.md) (one `docker compose` command, a
+pre-built story). Use this one when you want to show several scenarios live.
 
 ## Setup (once)
 

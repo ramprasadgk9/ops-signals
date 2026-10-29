@@ -10,9 +10,9 @@ What the project is, and how to get it running.
 
 - [`vision.md`](vision.md) - the fuller product vision, including the MTTR framing referenced
   throughout these docs.
-- [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with an incident already
-  in progress (a deploy, a latency shift, an enriched alert, a matching past case). Start here to
-  see it working before installing anything.
+- [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with four services already
+  in trouble (an enriched alert, a fix that didn't stick, an unannounced deploy, an OTLP service
+  with a case in progress). Start here to see it working before installing anything.
 - [`live-demo.md`](live-demo.md) - a live, menu-driven demo next to `run_all.sh`: rollouts, slow
   rises, spikes and staging deploys, with real alerts and pod breakdowns.
 - **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,

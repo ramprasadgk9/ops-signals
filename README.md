@@ -31,9 +31,11 @@ cd ops-signals
 docker compose -f docker-compose.demo.yml up
 ```
 
-This starts Ops Signals with an incident already in progress: a deploy, then a latency shift, then
-a Prometheus alert. About a minute later, open **http://localhost:8090** to see the enriched alert
-as it would appear in Slack, and **http://localhost:8080** for the full UI. You only need Docker:
+This starts Ops Signals with four services of an online shop already in trouble: a deploy that
+broke latency (and fired an alert), a database problem back 9 days after its fix, a release nobody
+announced, and an OTLP service with a case in progress. A few minutes later, open
+**http://localhost:8090** to see the enriched alert as it would appear in Slack, and
+**http://localhost:8080** for the full UI. You only need Docker:
 no Python, Node, Slack workspace or data of your own. See [`docs/demo.md`](docs/demo.md) for what's
 running and how it works.
 
@@ -246,7 +248,7 @@ message.
 
 | You want to | Use | Needs |
 | --- | --- | --- |
-| See it working in a minute, with a scripted incident | `docker compose -f docker-compose.demo.yml up` ([demo](docs/demo.md)) | Docker |
+| See it working in a few minutes, with a scripted story | `docker compose -f docker-compose.demo.yml up` ([demo](docs/demo.md)) | Docker |
 | Try it on your laptop, with sample metrics or your own Prometheus | `./scripts/setup.sh`, then `./scripts/run_all.sh` (the steps below) | Docker, Python, Node |
 | Try it on your laptop against your own Mimir, Thanos or several Prometheus servers | The same, with one extra step: [Point It at Your Own Prometheus](#point-it-at-your-own-prometheus-optional) | Docker, Python, Node |
 | Run it for your team on one server | `docker compose -f docker-compose.packaged.yml up -d` ([Deploy for Your Team](#deploy-for-your-team)) | Docker |
