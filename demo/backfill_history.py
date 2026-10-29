@@ -1,5 +1,6 @@
-"""One-shot: write the demo timeline and 7h of metric history as OpenMetrics, for promtool to turn
-into Prometheus blocks before Prometheus starts (docker-compose.demo.yml: demo-history).
+"""One-shot: write the demo timeline and 7h of metric history for every Prometheus service in the
+story as OpenMetrics, for promtool to turn into Prometheus blocks before Prometheus starts
+(docker-compose.demo.yml: demo-history).
 
 Idempotent: if a timeline already exists the history was already backfilled, so this exits
 without touching anything - a second `docker compose up` keeps the original incident. Reset with
@@ -28,21 +29,21 @@ def main() -> int:
     # Stop one step short of now: the live scrape takes over from there, and promtool blocks must
     # not overlap the samples Prometheus is about to scrape.
     end = scenario.parse_time(timeline["anchor"]).timestamp() - scenario.STEP_SECONDS
-    shift_at = scenario.parse_time(timeline["shift_at"]).timestamp()
     target = {"job": scenario.SCRAPE_JOB, "instance": scenario.SCRAPE_INSTANCE}
 
-    families = [
-        (scenario.LATENCY_METRIC, lambda t: scenario.latency_ms(t, shift_at)),
-        (scenario.RPS_METRIC, scenario.rps),
-    ]
     lines: list[str] = []
-    for name, value_at in families:
-        # OpenMetrics wants each family's samples together, in time order.
-        lines.append(f"# TYPE {name} gauge")
-        series_labels = scenario.format_labels(scenario.labels(target))
+    family = None
+    for series in scenario.prometheus_series(timeline):
+        # OpenMetrics wants each family's samples together, in time order, one series after another.
+        if series.name != family:
+            family = series.name
+            lines.append(f"# TYPE {family} gauge")
+        series_labels = scenario.format_labels({**series.labels, **target})
         t = start
         while t <= end:
-            lines.append(f"{name}{{{series_labels}}} {value_at(t):.3f} {int(t)}")
+            value = series.value_at(t)
+            if value is not None:
+                lines.append(f"{series.name}{{{series_labels}}} {value:.4f} {int(t)}")
             t += scenario.STEP_SECONDS
     lines.append("# EOF")
 

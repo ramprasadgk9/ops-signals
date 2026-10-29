@@ -1,5 +1,5 @@
-"""Live Prometheus scrape target for the demo: continues the backfilled checkout-api series from
-where the history ends (docker-compose.demo.yml: demo-metrics)."""
+"""Live Prometheus scrape target for the demo: continues every backfilled series from where the
+history ends (docker-compose.demo.yml: demo-metrics)."""
 
 from __future__ import annotations
 
@@ -16,26 +16,30 @@ import scenario  # noqa: E402
 STATE_DIR = Path(os.environ.get("DEMO_STATE_DIR", "/demo-state"))
 PORT = int(os.environ.get("DEMO_METRICS_PORT", "9102"))
 
+_series: list[scenario.Series] | None = None
 
-def _shift_at() -> float | None:
-    timeline = scenario.read_timeline(STATE_DIR)
-    # No timeline yet (history not written): serve the post-shift level, which is what "now" looks like.
-    return scenario.parse_time(timeline["shift_at"]).timestamp() if timeline else None
+
+def _all_series() -> list[scenario.Series]:
+    global _series
+    if _series is None:
+        # demo-history writes the timeline before this container starts (depends_on in compose).
+        timeline = scenario.read_timeline(STATE_DIR) or scenario.new_timeline()
+        _series = scenario.prometheus_series(timeline)
+    return _series
 
 
 def render(now: float) -> str:
-    series_labels = scenario.format_labels(scenario.labels())
-    return "\n".join(
-        [
-            f"# HELP {scenario.LATENCY_METRIC} p95 request latency in milliseconds",
-            f"# TYPE {scenario.LATENCY_METRIC} gauge",
-            f"{scenario.LATENCY_METRIC}{{{series_labels}}} {scenario.latency_ms(now, _shift_at()):.3f}",
-            f"# HELP {scenario.RPS_METRIC} requests per second",
-            f"# TYPE {scenario.RPS_METRIC} gauge",
-            f"{scenario.RPS_METRIC}{{{series_labels}}} {scenario.rps(now):.3f}",
-            "",
-        ]
-    )
+    lines: list[str] = []
+    family = None
+    for series in _all_series():
+        value = series.value_at(now)
+        if value is None:
+            continue
+        if series.name != family:
+            family = series.name
+            lines += [f"# HELP {family} {series.help}", f"# TYPE {family} gauge"]
+        lines.append(f"{series.name}{{{scenario.format_labels(series.labels)}}} {value:.4f}")
+    return "\n".join(lines) + "\n"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -61,5 +65,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"demo-metrics: serving {scenario.SERVICE} metrics on :{PORT}/metrics", flush=True)
+    print(f"demo-metrics: serving {len(_all_series())} demo series on :{PORT}/metrics", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

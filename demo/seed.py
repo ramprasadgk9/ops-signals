@@ -1,16 +1,19 @@
-"""One-shot: seed the demo story through the public API, then exit (docker-compose.demo.yml:
-demo-seeder). Alertmanager only starts after this succeeds, so the alert always lands on a fully
-seeded backend.
+"""One-shot: seed the demo story's history through the public API, then exit
+(docker-compose.demo.yml: demo-seeder). Alertmanager only starts after this succeeds, so the alert
+always lands on a fully seeded backend. The story itself is in demo/scenario.py.
 
-1. Change events: today's deploy v2.14.0, yesterday's v2.13.2, and v2.9.0 three weeks ago.
-2. A past incident: analyze a CSV of the v2.9.0 latency shift, open a case from its finding, record
-   the root cause and the rollback that fixed it, and index it into operational memory.
-3. Move that past incident's rows back to when it happened. The API stamps everything "now", which
-   would make a three-week-old incident look like it happened a minute ago (and alert enrichment
-   would reuse its finding as today's analysis).
+1. CI deploy events: checkout-api (today, yesterday, five weeks ago) and orders (today).
+   search-svc's deploy is left for deploy discovery to find.
+2. Past problems: analyze a CSV of each, open a case from its finding, record the root cause and
+   fix (and the checkout write-up), and index the cases into operational memory.
+3. "Was this real?" answers on past payments-db and search-svc findings.
+4. Move the past problems back to when they happened. The API stamps everything "now".
+5. A scheduled analysis every 5 minutes over the demo Prometheus, and one run right away.
+6. Once the OTLP analysis reports the orders problem, a case on it, left in progress.
 
-The alert itself comes from the real path: a Prometheus rule fires, Alertmanager routes it to
-/api/integrations/alertmanager, and the backend enriches it and posts to the Slack sink.
+Today's problems come from the real paths: live metrics, the scheduled analysis, OTLP ingestion,
+deploy discovery, and the alert (a Prometheus rule fires, Alertmanager routes it to
+/api/integrations/alertmanager, and the backend enriches it and posts to the Slack sink).
 
 Idempotent via a marker file in the demo state volume.
 """
@@ -105,133 +108,191 @@ def wait_for_backend(timeout_seconds: int = 600) -> None:
 # --- seeding steps ------------------------------------------------------------------------------
 
 
-def seed_change_events(timeline: dict[str, str], past: dict[str, datetime]) -> None:
-    base = {"service": scenario.SERVICE, "type": "deploy", "env": scenario.ENV, "source": "github-actions"}
+def seed_change_events(timeline: dict[str, str], anchor: datetime) -> None:
+    ci = {"type": "deploy", "env": scenario.ENV, "source": "github-actions"}
+    checkout_past = next(i for i in scenario.PAST_INCIDENTS if i.key == "checkout-rollback").times(anchor)
     events = [
         {
-            **base,
-            "timestamp": past["deploy_at"].isoformat(),
+            **ci,
+            "service": scenario.SERVICE,
+            "timestamp": checkout_past["deploy_at"].isoformat(),
             "version": scenario.PAST_DEPLOY_VERSION,
             "author": "maya",
             "description": "Switch checkout pricing lookups to the new catalog client",
         },
         {
-            **base,
+            **ci,
+            "service": scenario.SERVICE,
             "timestamp": timeline["previous_deploy_at"],
             "version": scenario.PREVIOUS_DEPLOY_VERSION,
             "author": "dev-bot",
             "description": "Dependency bumps",
         },
         {
-            **base,
+            **ci,
+            "service": scenario.SERVICE,
             "timestamp": timeline["deploy_at"],
             "version": scenario.CURRENT_DEPLOY_VERSION,
             "author": "alex",
             "description": "Enable per-item tax calculation in checkout",
         },
+        {
+            **ci,
+            "service": scenario.ORDERS_SERVICE,
+            "timestamp": timeline["orders_deploy_at"],
+            "version": scenario.ORDERS_DEPLOY_VERSION,
+            "author": "sam",
+            "description": "Switch address validation to the new provider client",
+        },
+        # search-svc's deploy is not sent: Ops Signals finds it on search_build_info by itself.
     ]
     # A seeder run that failed halfway may already have recorded some of these.
-    existing = {event.get("version") for event in get(f"/api/events?service={scenario.SERVICE}&limit=500")}
-    events = [event for event in events if event["version"] not in existing]
+    existing = {
+        (event.get("service"), event.get("version"))
+        for service in {event["service"] for event in events}
+        for event in get(f"/api/events?service={service}&limit=500")
+    }
+    events = [event for event in events if (event["service"], event["version"]) not in existing]
     if events:
         send("POST", "/api/events", events)
-    log(f"recorded {len(events)} deploy events (current: {scenario.CURRENT_DEPLOY_VERSION} at {timeline['deploy_at']})")
+    log(f"recorded {len(events)} CI deploy events (checkout-api {scenario.CURRENT_DEPLOY_VERSION} at {timeline['deploy_at']})")
 
 
-def seed_past_incident(anchor: datetime) -> dict[str, object]:
+def significant_findings(run_id: str) -> list[dict]:
+    # The API returns them by importance, highest first.
+    return [f for f in get(f"/api/findings?analysis_run_id={run_id}") if f.get("health_status") != "normal"]
+
+
+def seed_past_incident(incident: scenario.PastIncident, anchor: datetime) -> dict[str, object]:
     run = post_csv(
         "/api/ingestion/csv-run",
-        "checkout-api-latency-incident.csv",
-        scenario.past_incident_csv(anchor),
-        {
-            "provider": "generic",
-            "service": scenario.SERVICE,
-            "metric_name": scenario.LATENCY_METRIC,
-            "interval": "30s",
-        },
+        f"{incident.key}.csv",
+        incident.csv(anchor),
+        {"provider": "generic", "service": incident.service, "metric_name": incident.metric, "interval": "30s"},
     )
     run_id = run["analysis_run_id"]
-    findings = [
-        finding
-        for finding in get(f"/api/findings?analysis_run_id={run_id}")
-        if finding.get("health_status") != "normal"
-    ]
+    findings = significant_findings(run_id)
     if not findings:
-        raise RuntimeError(f"past-incident analysis {run_id} produced no significant finding")
-    finding = findings[0]  # the API returns them by importance, highest first
-    log(f"past incident analyzed: {finding['title']!r} (finding #{finding['id']})")
+        raise RuntimeError(f"past problem {incident.key} (run {run_id}) produced no significant finding")
+    seeded: dict[str, object] = {"key": incident.key, "analysis_run_id": run_id, "finding_ids": [f["id"] for f in findings]}
+    log(f"{incident.key}: {incident.days_ago:g} days ago, {len(findings)} finding(s), top {findings[0]['title']!r}")
+    if not incident.case:
+        return seeded
 
-    case = send("POST", f"/api/cases/findings/{finding['id']}/create", {})
-    case_id = case["case_id"]
-    send(
-        "PATCH",
-        f"/api/cases/{case_id}/investigation",
-        {
-            "investigation_status": "completed",
-            "investigation_note": (
-                f"p95 latency on {scenario.SERVICE} stepped from ~175ms to ~310ms four minutes after "
-                f"deploy {scenario.PAST_DEPLOY_VERSION}. Traces show every checkout request making "
-                "an extra synchronous call to the catalog service for pricing."
-            ),
-        },
-    )
-    send(
-        "PATCH",
-        f"/api/cases/{case_id}/rca",
-        {
-            "root_cause_status": "confirmed",
-            "root_cause_summary": (
-                f"Deploy {scenario.PAST_DEPLOY_VERSION} added a synchronous per-item catalog lookup to "
-                "the checkout request path, raising p95 latency by ~130ms."
-            ),
-            "root_cause_confidence": 0.9,
-            "root_cause_verified": True,
-        },
-    )
-    send(
-        "PATCH",
-        f"/api/cases/{case_id}/resolution",
-        {
-            "outcome_status": "resolved",
-            "outcome_summary": (
-                f"Rolled back {scenario.PAST_DEPLOY_VERSION}; p95 latency returned to baseline within 5 minutes."
-            ),
-            "corrective_action": "Roll back the deploy, then batch the catalog lookups before re-releasing.",
-            "learning_outcome_status": "confirmed",
-            "root_cause_category": "deploy regression",
-            "resolved_by": "oncall",
-        },
-    )
-    log(f"past case #{case_id} resolved (rollback of {scenario.PAST_DEPLOY_VERSION})")
-    return {"analysis_run_id": run_id, "case_id": case_id, "finding_id": finding["id"]}
+    case_id = send("POST", f"/api/cases/findings/{findings[0]['id']}/create", {})["case_id"]
+    for step in ("investigation", "rca", "resolution", "writeup"):
+        if step in incident.case:
+            send("PATCH", f"/api/cases/{case_id}/{step}", incident.case[step])
+    seeded["case_id"] = case_id
+    log(f"{incident.key}: case #{case_id} resolved: {incident.case['resolution']['corrective_action']}")
+    return seeded
 
 
-def backdate_past_incident(past: dict[str, object], times: dict[str, datetime]) -> None:
+def backdate(seeded: list[dict[str, object]], anchor: datetime) -> None:
+    """Move each past problem's rows back to when it happened. The API stamps everything "now",
+    which would make a three-week-old incident look like it happened a minute ago (and alert
+    enrichment would reuse its finding as today's analysis)."""
     from sqlalchemy import create_engine, text
 
+    incidents = {incident.key: incident for incident in scenario.PAST_INCIDENTS}
     url = os.environ.get("OPS_SIGNALS_DATABASE_URL") or os.environ["OPS_INTEL_DATABASE_URL"]
-    run_id, case_id = past["analysis_run_id"], past["case_id"]
-    detected, resolved = times["detected_at"], times["resolved_at"]
     engine = create_engine(url)
     with engine.begin() as conn:
-        conn.execute(text("UPDATE analysis_runs SET created_at = :t WHERE id = :run"), {"t": detected, "run": run_id})
-        for table in ("ops_operational_signals", "ops_operational_findings"):
-            conn.execute(text(f"UPDATE {table} SET created_at = :t WHERE analysis_run_id = :run"), {"t": detected, "run": run_id})
-        conn.execute(
-            text(
-                "UPDATE ops_operational_cases SET created_at = :created, updated_at = :resolved, "
-                "resolved_at = :resolved WHERE id = :case"
-            ),
-            {"created": detected + timedelta(minutes=2), "resolved": resolved, "case": case_id},
-        )
-        conn.execute(
-            text("UPDATE analyzer_learning_outcomes SET created_at = :t, resolved_at = :t WHERE case_id = :case"),
-            {"t": resolved, "case": case_id},
-        )
+        for item in seeded:
+            times = incidents[str(item["key"])].times(anchor)
+            run_id, detected, resolved = item["analysis_run_id"], times["detected_at"], times["resolved_at"]
+            conn.execute(text("UPDATE analysis_runs SET created_at = :t WHERE id = :run"), {"t": detected, "run": run_id})
+            for table in ("ops_operational_signals", "ops_operational_findings"):
+                conn.execute(text(f"UPDATE {table} SET created_at = :t WHERE analysis_run_id = :run"), {"t": detected, "run": run_id})
+            # Patterns matched in the past run, so Behavior Intelligence doesn't list them as active now.
+            conn.execute(
+                text("UPDATE ops_behavior_findings SET created_at = :t, last_seen_at = :t WHERE analysis_run_id = :run"),
+                {"t": detected, "run": run_id},
+            )
+            conn.execute(
+                text("UPDATE ops_finding_feedback SET created_at = :t, updated_at = :t WHERE finding_id = ANY(:ids)"),
+                {"t": detected + timedelta(hours=2), "ids": list(item["finding_ids"])},
+            )
+            case_id = item.get("case_id")
+            if case_id is None:
+                continue
+            conn.execute(
+                text(
+                    "UPDATE ops_operational_cases SET created_at = :created, updated_at = :resolved, "
+                    "resolved_at = :resolved WHERE id = :case"
+                ),
+                {"created": detected + timedelta(minutes=2), "resolved": resolved, "case": case_id},
+            )
+            conn.execute(
+                text("UPDATE analyzer_learning_outcomes SET created_at = :t, resolved_at = :t WHERE case_id = :case"),
+                {"t": resolved, "case": case_id},
+            )
     engine.dispose()
-    # Re-index so the memory entry carries the backdated timestamps too.
-    send("POST", f"/api/cases/{case_id}/memory/index", {})
-    log(f"past incident dated {detected.date()} ({scenario.PAST_INCIDENT_DAYS_AGO} days ago) and indexed into operational memory")
+    # Re-index so the memory entries carry the backdated timestamps too.
+    for item in seeded:
+        if item.get("case_id") is not None:
+            send("POST", f"/api/cases/{item['case_id']}/memory/index", {})
+    log("past problems moved back to when they happened and indexed into operational memory")
+
+
+def seed_feedback(seeded: list[dict[str, object]]) -> None:
+    """The team's answers to "Was this real?" on past findings: five on payments-db (enough for its
+    own rate), two on search-svc (it shows "2 of 5 answers")."""
+    wanted = {"payments": 5, "search": 2}
+    answered = {key: 0 for key in wanted}
+    for item in seeded:
+        group = str(item["key"]).split("-", 1)[0]
+        for finding_id in item["finding_ids"]:
+            if group in wanted and answered[group] < wanted[group]:
+                send("POST", f"/api/findings/{finding_id}/feedback", {"verdict": "real_problem"})
+                answered[group] += 1
+    log(f"recorded 'Was this real?' answers: {answered}")
+
+
+def scheduled_analysis_request() -> dict[str, object]:
+    return {
+        "name": "Demo shop, every 5 minutes",
+        "connection_id": "default",
+        "scope": {"environment": scenario.ENV, "all_services": True, "max_series_per_metric": 20},
+        "monitoring_selection": {
+            "categories": ["performance", "capacity", "availability", "reliability", "custom"],
+            "custom_constraints": {
+                "explicit_metrics": [scenario.BACKLOG_METRIC, scenario.DB_WAIT_METRIC, scenario.DB_ACTIVE_METRIC]
+            },
+        },
+        "execution": {"interval": "1m", "analysis_window": "6h", "max_metrics_per_run": 100},
+    }
+
+
+def start_scheduled_analysis() -> None:
+    """A scheduled analysis every 5 minutes over the demo Prometheus, plus one run now so the
+    findings are there when the first visitor opens the UI."""
+    request = scheduled_analysis_request()
+    if not any(policy.get("name") == request["name"] for policy in get("/api/autonomous/policies")):
+        policy = send("POST", "/api/autonomous/policies", {**request, "schedule_minutes": 5})
+        send("PATCH", f"/api/autonomous/policies/{policy['id']}/status", {"enabled": True})
+    result = send("POST", "/api/autonomous/run-once", request)
+    log(f"scheduled analysis every 5 minutes; first run: {json.dumps(result.get('summary') or {}, default=str)[:300]}")
+
+
+def seed_orders_case(timeout_seconds: int = 420) -> int | None:
+    """Wait for the OTLP analysis to report the orders problem, then open a case on it and leave it
+    in progress. Skipped (not failed) if the finding doesn't show up in time."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        findings = [
+            f for f in get(f"/api/findings?service={scenario.ORDERS_SERVICE}&limit=50")
+            if f.get("health_status") != "normal" and scenario.ORDERS_FAILED_METRIC in (f.get("metric_name") or "")
+        ]
+        if findings:
+            case_id = send("POST", f"/api/cases/findings/{findings[0]['id']}/create", {})["case_id"]
+            for step, body in scenario.orders_case_notes().items():
+                send("PATCH", f"/api/cases/{case_id}/{step}", body)
+            log(f"orders: case #{case_id} opened on {findings[0]['title']!r}, left in progress")
+            return case_id
+        time.sleep(10)
+    log(f"orders: no OTLP finding after {timeout_seconds}s; skipping the in-progress case")
+    return None
 
 
 def main() -> int:
@@ -244,17 +305,23 @@ def main() -> int:
     if timeline is None:
         raise RuntimeError(f"no demo timeline in {STATE_DIR} - demo-history must run first")
     anchor = scenario.parse_time(timeline["anchor"])
-    past_times = scenario.past_incident_times(anchor)
 
     log(f"waiting for the backend at {BACKEND} (first start loads the embedding model)...")
     wait_for_backend()
 
-    seed_change_events(timeline, past_times)
-    past = seed_past_incident(anchor)
-    backdate_past_incident(past, past_times)
+    seed_change_events(timeline, anchor)
+    seeded = [seed_past_incident(incident, anchor) for incident in scenario.PAST_INCIDENTS]
+    seed_feedback(seeded)
+    backdate(seeded, anchor)
+    start_scheduled_analysis()
+    orders_case = seed_orders_case()
 
     marker.write_text(
-        json.dumps({**past, "seeded_at": datetime.now(timezone.utc).isoformat()}, indent=2) + "\n",
+        json.dumps(
+            {"past": seeded, "orders_case_id": orders_case, "seeded_at": datetime.now(timezone.utc).isoformat()},
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
     log("done. The CheckoutApiLatencyHigh alert fires next and is enriched within about a minute.")
