@@ -17,6 +17,7 @@ from sqlalchemy import and_, delete, false, not_, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
+from backend.app.behavior_intelligence.schemas import run_ids_of
 from backend.app.models.entities import (
     AnalysisRunEntity,
     BehaviorFindingEntity,
@@ -64,13 +65,13 @@ def _kept_for_cases(db: Session) -> ColumnElement[bool]:
             select(FindingEntity.analysis_run_id).join(OperationalCaseEntity, OperationalCaseEntity.finding_id == FindingEntity.id)
         ).scalars()
     )
-    run_ids |= set(
-        db.execute(
-            select(BehaviorFindingEntity.analysis_run_id).join(
-                OperationalCaseEntity, OperationalCaseEntity.behavior_finding_id == BehaviorFindingEntity.id
-            )
-        ).scalars()
-    )
+    # A pattern from a scheduled analysis spans one run per metric; keep them all.
+    for run_id, correlation in db.execute(
+        select(BehaviorFindingEntity.analysis_run_id, BehaviorFindingEntity.correlation_json).join(
+            OperationalCaseEntity, OperationalCaseEntity.behavior_finding_id == BehaviorFindingEntity.id
+        )
+    ).all():
+        run_ids |= set(run_ids_of(run_id, correlation))
     run_ids.discard(None)
     run_ids.discard("")
     if not run_ids:

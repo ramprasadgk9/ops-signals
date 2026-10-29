@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from backend.app.main import create_app
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import AnalysisRunEntity, FindingEntity, NormalizedPoint, OperationalCaseEntity
+from backend.app.models.entities import AnalysisRunEntity, BehaviorFindingEntity, FindingEntity, NormalizedPoint, OperationalCaseEntity
 from backend.app.services import point_retention
 from backend.app.services.point_retention import delete_old_points
 
@@ -97,6 +97,29 @@ def test_points_behind_a_case_are_kept_at_any_age(db) -> None:
     assert _count(db, metric_name="csv_upload") == 0
     # The finding itself is never touched.
     assert db.get(FindingEntity, finding_id) is not None
+
+
+def test_a_case_on_a_pattern_keeps_the_points_of_every_run_it_came_from(db) -> None:
+    # A scheduled analysis runs each metric on its own, so a pattern over two metrics spans two runs.
+    _points(db, day=0, run_id="wait-run", metric="db_connection_wait_seconds")
+    _points(db, day=0, run_id="active-run", metric="db_connections_active")
+    _points(db, day=0, run_id="noise")
+    pattern = BehaviorFindingEntity(
+        behavior_id="pool_exhaustion:2:wait-run", definition_id="pool_exhaustion", definition_version=2,
+        title="Database connection pool exhaustion", summary="Pool full", category="resource_constraint",
+        severity="critical", service="checkout", analysis_run_id="wait-run",
+        correlation_json={"analysis_run_ids": ["wait-run", "active-run"]},
+    )
+    db.add(pattern)
+    db.commit()
+    db.add(OperationalCaseEntity(behavior_finding_id=pattern.id, analysis_run_id="wait-run", case_title="Pool", finding_snapshot={}))
+    db.commit()
+
+    delete_old_points(db, days=30, now=NOW)
+
+    assert _count(db, analysis_run_id="wait-run") == 24
+    assert _count(db, analysis_run_id="active-run") == 24
+    assert _count(db, analysis_run_id="noise") == 0
 
 
 def test_a_case_keeps_the_series_points_in_its_runs_window_whoever_saved_them(db) -> None:

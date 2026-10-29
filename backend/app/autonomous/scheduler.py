@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.autonomous.execution import execute_autonomous_plan_once
 from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
+from backend.app.behavior_intelligence.service import evaluate_runs_together
 from backend.app.autonomous.repository import AutonomousPolicyRepository
 from backend.app.autonomous.schemas import AnalysisScope, AutonomousRunRequest, ExecutionPolicy, MonitoringSelection
 from backend.app.deploy_discovery.service import run_if_due as run_deploy_discovery_if_due
@@ -194,7 +195,8 @@ def _otlp_history(db: Session, service: str, metric_name: str, before: datetime)
     ]
 
 
-def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[OtlpPendingPointEntity]) -> None:
+def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[OtlpPendingPointEntity]) -> str | None:
+    """Analyzes one series' pending points with its history; returns the run's id, or None if it failed."""
     new_from = min(_as_utc(row.timestamp) for row in rows)
     history = _otlp_history(db, service, metric_name, before=new_from)
     records = [
@@ -228,7 +230,7 @@ def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[
 
     row_ids = [row.id for row in rows]
     try:
-        MetricAnalysisExecutor(pipeline_config).execute_dataframe(
+        result = MetricAnalysisExecutor(pipeline_config).execute_dataframe(
             pd.DataFrame.from_records([*history, *records]),
             run_metadata={
                 "trigger": "otlp_push",
@@ -243,6 +245,7 @@ def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[
         )
         db.query(OtlpPendingPointEntity).filter(OtlpPendingPointEntity.id.in_(row_ids)).delete(synchronize_session=False)
         db.commit()
+        return result.analysis_run_id
     except Exception:
         logger.exception(
             "OTLP analysis failed for service=%s metric_name=%s; dropping its %d new points", service, metric_name, len(row_ids)
@@ -252,6 +255,7 @@ def _analyze_otlp_group(db: Session, service: str, metric_name: str, rows: list[
         # until no series was analyzed at all. Dropped, it costs this series one interval.
         db.query(OtlpPendingPointEntity).filter(OtlpPendingPointEntity.id.in_(row_ids)).delete(synchronize_session=False)
         db.commit()
+        return None
 
 
 @contextmanager
@@ -297,6 +301,7 @@ def _analyze_pending_otlp() -> None:
 
         started = time.perf_counter()
         processed = 0
+        run_ids: list[str] = []
         budget = MAX_BACKLOG_PER_CYCLE
         for service, metric_name, count in due:
             # Whole series only, so none is analyzed on a slice of its points; the first always
@@ -309,9 +314,15 @@ def _analyze_pending_otlp() -> None:
                 .order_by(OtlpPendingPointEntity.timestamp)
                 .all()
             )
-            _analyze_otlp_group(db, service, metric_name, rows)
+            run_id = _analyze_otlp_group(db, service, metric_name, rows)
+            if run_id:
+                run_ids.append(run_id)
             processed += 1
             budget -= count
+
+        # Each series ran on its own, so rules over several metrics of a service are checked here,
+        # for the series analyzed in this cycle (a Collector's series usually arrive together).
+        evaluate_runs_together(db, run_ids)
 
         OTLP_ANALYSIS_CYCLE_DURATION_SECONDS.set(time.perf_counter() - started)
         OTLP_ANALYSIS_CYCLE_GROUPS_PROCESSED.set(processed)

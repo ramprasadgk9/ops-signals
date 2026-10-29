@@ -131,6 +131,17 @@ independent packs, not one shared file) and restart the backend to pick it up.
   one shared file), so a new definition pack can be added without editing an existing one
 - The backend exposes behavior definition and evaluation APIs
 - The batch pipeline can evaluate matching behaviors after signals are generated
+- Where the rules are checked:
+  - **CSV upload and Interactive Analysis**: all the metrics in the upload are analyzed together,
+    and the rules are checked on that one run.
+  - **Scheduled analysis and OTLP**: each metric is analyzed in its own run. When all the runs of
+    a scheduled analysis (or of one OTLP cycle) are done, the rules are checked again across them,
+    per service, so a rule over two metrics can match. The match is listed under each of those runs
+    (`analysis_run_ids` in `GET /api/behavior-evaluations`), so the findings it was made from carry
+    "Part of". For OTLP, both metrics have to be analyzed in the same cycle; a Collector's metrics
+    usually are.
+  - The time rule still applies: the metrics' changes must overlap (or sit within `max_time_gap`),
+    whichever way they were analyzed.
 - Behavior findings are stored in PostgreSQL
 - The React UI includes an inline collapsible reasoning block for each matched finding
 

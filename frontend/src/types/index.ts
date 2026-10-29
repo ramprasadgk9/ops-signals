@@ -172,6 +172,8 @@ export type BehaviorFinding = {
   severity: string;
   service?: string;
   analysis_run_id?: string;
+  /** Every run the match came from: one per metric for a scheduled analysis or OTLP cycle. */
+  analysis_run_ids?: string[];
   input_metrics_json: Record<string, unknown>;
   facts_json: Record<string, unknown>;
   evidence_json: string[];

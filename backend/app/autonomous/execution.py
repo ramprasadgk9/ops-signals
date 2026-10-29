@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from backend.app.autonomous.drilldown import drill_down_findings
+from backend.app.behavior_intelligence.service import evaluate_runs_together
 from backend.app.autonomous.metric_executor import MetricAnalysisExecutor
 from backend.app.autonomous.repository import AutonomousJobRepository, AutonomousPolicyRunRepository, utc_now
 from backend.app.autonomous.schemas import AutonomousJobRunResult, AutonomousPreviewResponse, AutonomousRunResponse, MetricPlanItem
@@ -169,7 +170,11 @@ def execute_autonomous_plan_once(
     skipped = sum(1 for result in results if result.status == "skipped")
     excluded = len(skipped_items)
     status = "completed" if executed and not failed else "partial" if executed else "failed"
-    findings_created = sum(result.findings_count + result.behavior_findings_count for result in results)
+    # Each metric ran on its own, so rules over several metrics of a service are checked here.
+    patterns_across_metrics = evaluate_runs_together(
+        db, [result.analysis_run_id for result in results if result.status == "completed" and result.analysis_run_id]
+    )
+    findings_created = sum(result.findings_count + result.behavior_findings_count for result in results) + patterns_across_metrics
     error_summary = "; ".join(result.error for result in results if result.error) or None
     completed_run = run_repo.mark_completed(
         policy_run.id,
