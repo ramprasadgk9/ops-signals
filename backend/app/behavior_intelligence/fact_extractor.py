@@ -83,17 +83,25 @@ def _change_facts(
     }
 
 
-def input_facts(metric_names: list[str], analyzers: list[str], signals: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Facts for one behavior input: the signals of the first of its metric names that has any
-    (from the input's analyzers, when it lists some). None when none of the names has signals."""
+def input_signals(metric_names: list[str], analyzers: list[str], signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The signals one behavior input reads: those of the first of its metric names that has any
+    (from the input's analyzers, when it lists some). Empty when none of the names has signals."""
     for name in metric_names:
         matched = [
             signal for signal in signals
             if signal.get("metric_name") == name and (not analyzers or signal.get("analyzer_id") in analyzers)
         ]
         if matched:
-            return extract_facts(matched)[name]
-    return None
+            return matched
+    return []
+
+
+def input_facts(metric_names: list[str], analyzers: list[str], signals: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Facts for one behavior input (see input_signals). None when none of its names has signals."""
+    matched = input_signals(metric_names, analyzers, signals)
+    if not matched:
+        return None
+    return extract_facts(matched)[str(matched[0].get("metric_name"))]
 
 
 def extract_facts(signals: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

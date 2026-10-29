@@ -113,6 +113,16 @@ describe('patternsByFinding', () => {
     expect(partFindings(pool, byFinding, findings).map((item) => item.id)).toEqual([1, 2]);
   });
 
+  it('links findings from each run of a pattern a scheduled analysis found across metrics', () => {
+    const spanning = { ...pool, analysis_run_id: 'wait-run', analysis_run_ids: ['wait-run', 'active-run'] };
+    const findings = [
+      finding(1, 'db_connection_wait_seconds', { analysis_run_id: 'wait-run' }),
+      finding(2, 'db_connections_active', { analysis_run_id: 'active-run' }),
+      finding(3, 'db_connections_active', { analysis_run_id: 'other-run' }),
+    ];
+    expect([...patternsByFinding([spanning], findings).keys()]).toEqual([1, 2]);
+  });
+
   it('links nothing when the pattern has no run', () => {
     expect(patternsByFinding([{ ...pool, analysis_run_id: undefined }], [finding(1, 'db_connection_wait_seconds')]).size).toBe(0);
   });
