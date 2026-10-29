@@ -99,17 +99,18 @@ export function searchPatterns(behaviors: BehaviorFinding[], query: string): Beh
 
 /**
  * The single-metric findings a pattern was made from: same service, one of the rule's metrics, and
- * found by the same analysis run the pattern last matched in. Keyed by finding id; a finding can
- * belong to more than one pattern.
+ * found by a run the pattern last matched in (a scheduled analysis runs each metric on its own, so a
+ * pattern can span several). Keyed by finding id; a finding can belong to more than one pattern.
  */
 export function patternsByFinding(behaviors: BehaviorFinding[], findings: Finding[]): Map<number, BehaviorFinding[]> {
   const byFinding = new Map<number, BehaviorFinding[]>();
   for (const behavior of behaviors) {
-    if (!behavior.analysis_run_id) continue;
+    const runs = new Set(behavior.analysis_run_ids?.length ? behavior.analysis_run_ids : behavior.analysis_run_id ? [behavior.analysis_run_id] : []);
+    if (!runs.size) continue;
     const metrics = new Set(patternParts(behavior).map((part) => part.metric));
     for (const finding of findings) {
       if (finding.id === undefined || finding.id === null) continue;
-      if (finding.analysis_run_id !== behavior.analysis_run_id) continue;
+      if (!finding.analysis_run_id || !runs.has(finding.analysis_run_id)) continue;
       if ((finding.service ?? null) !== (behavior.service ?? null) || !metrics.has(finding.metric_name)) continue;
       byFinding.set(finding.id, [...(byFinding.get(finding.id) ?? []), behavior]);
     }

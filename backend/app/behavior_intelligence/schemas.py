@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 # A bare file name inside config/behavior_definitions.d/ - no directories, so no path traversal.
 PACK_FILE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml$"
@@ -121,6 +121,18 @@ class BehaviorFindingOut(BaseModel):
     occurrence_count: int = 1
     last_seen_at: datetime
     created_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def analysis_run_ids(self) -> list[str]:
+        """Every run the match's signals came from: one for a single run (a CSV upload), one per
+        metric for a scheduled analysis or OTLP cycle, which analyze each metric in its own run."""
+        return run_ids_of(self.analysis_run_id, self.correlation_json)
+
+
+def run_ids_of(analysis_run_id: str | None, correlation: dict | None) -> list[str]:
+    runs = [str(run) for run in (correlation or {}).get("analysis_run_ids") or []]
+    return runs or ([analysis_run_id] if analysis_run_id else [])
 
 
 class BehaviorPatternSuggestionOut(BaseModel):
