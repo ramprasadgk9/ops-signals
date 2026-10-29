@@ -1,4 +1,4 @@
-import { Box, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
@@ -313,9 +313,17 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
               </Typography>
             )}
             {timeseriesQuery.data && timeseriesQuery.data.length === 0 && (
-              <Typography variant="body2" color="text.secondary">
-                No raw points found for this analysis run.
-              </Typography>
+              analysisRunQuery.data?.points_deleted ? (
+                <Alert severity="info" variant="outlined">
+                  The data behind this chart was deleted after {analysisRunQuery.data.points_retention_days} days, as set in
+                  OPS_SIGNALS_POINT_RETENTION_DAYS. The finding and its numbers above are kept. Open a case for a finding to
+                  keep its chart.
+                </Alert>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No raw points found for this analysis run.
+                </Typography>
+              )
             )}
             {timeseriesQuery.data && timeseriesQuery.data.length > 0 && (
               <ResponsiveContainer width="100%" height={200}>

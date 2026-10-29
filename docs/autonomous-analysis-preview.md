@@ -133,7 +133,7 @@ Run-once behavior:
   end time, so it still shows the whole window.
 - deletes stored points older than `OPS_SIGNALS_POINT_RETENTION_DAYS` (default 30; 0 keeps them
   all), about once an hour. Findings stay, with their numbers and wording; the chart of an older
-  finding then has no data. Points behind a finding that has a case are kept at any age. Keep the
+  finding then says its data was deleted. Points behind a finding that has a case are kept at any age. Keep the
   setting longer than your longest analysis window, or a run's earliest points go before its chart
   is read. The service list comes from stored points, so a service with no data in that time
   drops out of it.

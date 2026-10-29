@@ -128,6 +128,29 @@ describe('FindingDetailsDrawer ingested data section', () => {
 
     expect(await screen.findByText('No raw points found for this analysis run.')).toBeInTheDocument();
   });
+
+  it('says the chart data was deleted when the run is older than the retention period', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue({
+      id: 'c06d17a3dd9143ef8ebd8c454031fd89',
+      source_type: 'prometheus',
+      provider: 'prometheus',
+      service: 'test-otlp-service',
+      metric_name: 'cpu_usage',
+      start_time: '2026-08-21T17:47:00Z',
+      end_time: '2026-08-22T17:47:00Z',
+      sample_count: 1440,
+      status: 'completed',
+      created_at: '2026-08-22T17:47:07Z',
+      points_deleted: true,
+      points_retention_days: 30,
+    });
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+
+    renderDrawer(otlpFinding);
+
+    expect(await screen.findByText(/The data behind this chart was deleted after 30 days/)).toBeInTheDocument();
+    expect(screen.queryByText('No raw points found for this analysis run.')).not.toBeInTheDocument();
+  });
 });
 
 describe('FindingDetailsDrawer drill-down breakdown', () => {

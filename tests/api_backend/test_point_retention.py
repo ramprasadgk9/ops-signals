@@ -164,3 +164,21 @@ class _NullSession:
 
     def __exit__(self, *args):
         return False
+
+
+def test_a_run_says_when_its_points_were_deleted(db, monkeypatch) -> None:
+    from backend.app.api.analysis_runs import get_analysis_run
+
+    _run(db, "old", day=0)
+    _run(db, "recent", day=0)
+    db.get(AnalysisRunEntity, "recent").end_time = datetime.now(timezone.utc) - timedelta(days=1)
+    db.commit()
+    monkeypatch.setenv("OPS_SIGNALS_POINT_RETENTION_DAYS", "30")
+
+    old, recent = get_analysis_run("old", db), get_analysis_run("recent", db)
+    assert (old.points_deleted, old.points_retention_days) == (True, 30)
+    assert recent.points_deleted is False
+
+    monkeypatch.setenv("OPS_SIGNALS_POINT_RETENTION_DAYS", "0")
+    old = get_analysis_run("old", db)
+    assert (old.points_deleted, old.points_retention_days) == (False, None)

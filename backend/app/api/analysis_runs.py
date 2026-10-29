@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from backend.app.models.api_schema import AnalysisRunOut
 from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity
+from backend.app.services.point_retention import points_deleted, retention_days
 
 router = APIRouter(prefix="/api/analysis-runs", tags=["analysis-runs"])
 
@@ -138,4 +139,6 @@ def get_analysis_run(run_id: str, db: Session = Depends(get_db)) -> AnalysisRunO
         executed_analyzers_json=run.get("executed_analyzers_json"),
         generated_findings_json=run.get("generated_findings_json"),
         created_at=run["created_at"],
+        points_deleted=points_deleted(run["end_time"]),
+        points_retention_days=retention_days() or None,
     )

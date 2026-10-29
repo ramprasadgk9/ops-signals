@@ -43,6 +43,10 @@ class AnalysisRunOut(BaseModel):
     executed_analyzers_json: list[dict] | None = None
     generated_findings_json: list[dict] | None = None
     created_at: datetime
+    # Single-run reads only: the run ended before the stored-point retention period
+    # (point_retention.py), so its chart is empty unless a case kept the points.
+    points_deleted: bool = False
+    points_retention_days: int | None = None
 
 
 class CapabilityOut(BaseModel):
