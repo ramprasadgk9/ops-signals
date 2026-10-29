@@ -126,6 +126,11 @@ Run-once behavior:
 - executes only rows marked `planned`
 - requires each planned PromQL query to return exactly one logical series
 - persists normal analysis runs, signals, findings, and behavior findings through shared storage
+- stores each point of a series once: a run analyzes its whole window, but saves only the points
+  newer than the series' last stored point. A series is one query on one connection, so a
+  schedule that looks at the last 24h every 30 minutes adds about 30 minutes of points per run
+  instead of another 24h copy. A finding's chart reads the series between the run's start and
+  end time, so it still shows the whole window.
 - surfaces execution budget coverage (`budget_limited_jobs`, `budget_excluded_metrics_count`, `budget_excluded_metrics`) in the response root and `summary` object
 - returns per-job status, sample count, signal count, finding count, behavior finding count, warnings, and errors
 - does not create a persistent autonomous policy or background schedule

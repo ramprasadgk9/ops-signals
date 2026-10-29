@@ -32,7 +32,12 @@ class NormalizedPoint(Base):
     cluster: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     analysis_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The stored series these points belong to (run_points.series_key); each point is stored once
+    # per series, by the first run that fetched it. None for CSV, OTLP and older points.
+    series_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+
+    __table_args__ = (Index("idx_ops_norm_series_ts", "series_key", "timestamp"),)
 
 
 class SignalEntity(Base):
@@ -120,6 +125,9 @@ class AnalysisRunEntity(Base):
     generated_findings_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     # The Prometheus connection (Mimir tenant) a run queried; None for CSV, OTLP and older runs.
     connection_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Set when the run's points are stored by series rather than by run: its points are then the
+    # series' points between start_time and end_time, some saved by earlier runs (run_points.py).
+    series_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 

@@ -84,6 +84,7 @@ from backend.app.models.schema_compat import (
     ensure_cluster_schema,
     ensure_finding_problem_schema,
     ensure_metric_usage_schema,
+    ensure_point_series_key_schema,
     ensure_server_defaults,
     ensure_learning_schema,
     ensure_ticketing_schema,
@@ -310,6 +311,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         ensure_cluster_schema(get_engine())
         ensure_finding_problem_schema(get_engine())
         ensure_metric_usage_schema(get_engine())
+        ensure_point_series_key_schema(get_engine())
         ensure_case_memory_schema(get_engine())
         ensure_actor_schema(get_engine())
         session_local = get_session_local()

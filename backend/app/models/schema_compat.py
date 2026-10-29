@@ -16,6 +16,7 @@ ANALYSIS_RUN_COLUMN_SQL = {
     "executed_analyzers_json": "JSON",
     "generated_findings_json": "JSON",
     "connection_id": "VARCHAR(64)",
+    "series_key": "VARCHAR(64)",
 }
 
 
@@ -339,6 +340,16 @@ def _add_missing_columns(engine: Engine, table_name: str, column_sql: dict[str, 
             if not postgres:
                 ddl = ddl.replace("TIMESTAMPTZ", "DATETIME").replace("JSON ", "TEXT ")
             connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {'IF NOT EXISTS ' if postgres else ''}{name} {ddl}"))
+
+
+def ensure_point_series_key_schema(engine: Engine) -> None:
+    """Adds series_key to points tables created before it existed, with the index that finds a
+    series' newest stored point (run_points.py)."""
+    if "ops_normalized_timeseries_points" not in set(inspect(engine).get_table_names()):
+        return
+    _add_missing_columns(engine, "ops_normalized_timeseries_points", {"series_key": "VARCHAR(64)"})
+    with engine.begin() as connection:
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_ops_norm_series_ts ON ops_normalized_timeseries_points (series_key, timestamp)"))
 
 
 def ensure_case_memory_schema(engine: Engine) -> None:

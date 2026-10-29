@@ -266,7 +266,7 @@ class CapturingExecutor:
     def __init__(self, config):
         self.config = config
 
-    def execute_dataframe(self, dataframe, *, run_metadata=None, db=None):
+    def execute_dataframe(self, dataframe, *, run_metadata=None, db=None, series_key=None):
         CapturingExecutor.frames.append(dataframe)
         CapturingExecutor.metadata.append(run_metadata or {})
         return type("Result", (), {"analysis_run_id": f"run-{len(CapturingExecutor.frames)}", "signal_count": 0, "findings_count": 0, "behavior_findings_count": 0})()

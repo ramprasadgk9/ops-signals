@@ -45,7 +45,7 @@ class _FakeMetricAnalysisExecutor:
     def __init__(self, config) -> None:
         self.config = config
 
-    def execute_dataframe(self, dataframe, *, run_metadata=None, db=None):
+    def execute_dataframe(self, dataframe, *, run_metadata=None, db=None, series_key=None):
         return type("Result", (), {"analysis_run_id": "analysis-run-cpu", "signal_count": 1, "findings_count": 1, "behavior_findings_count": 0})()
 
 

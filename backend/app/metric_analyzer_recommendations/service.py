@@ -20,6 +20,7 @@ from experiments.analyzer_router.router import UniversalTimeSeriesRouter
 from backend.app.ai.factory import OptionalAIServices
 from backend.app.metric_analyzer_recommendations.gemma_advisor import GemmaAnalyzerAdvisor
 from backend.app.models.entities import AnalysisRunEntity, NormalizedPoint
+from backend.app.services.run_points import run_points_filter
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ class MetricAnalyzerRecommendationService:
             if latest is None:
                 return None
             analysis_run_id = latest[0]
-        run_filter = NormalizedPoint.analysis_run_id.is_(None) if analysis_run_id is None else NormalizedPoint.analysis_run_id == analysis_run_id
+        run_filter = NormalizedPoint.analysis_run_id.is_(None) if analysis_run_id is None else run_points_filter(db, analysis_run_id)
         rows = db.execute(
             select(NormalizedPoint.timestamp, NormalizedPoint.value)
             .where(NormalizedPoint.service == service, NormalizedPoint.metric_name == metric_name, run_filter)
@@ -166,7 +167,7 @@ class MetricAnalyzerRecommendationService:
             NormalizedPoint.metric_name == metric_name,
         )
         if analysis_run_id:
-            query = query.where(NormalizedPoint.analysis_run_id == analysis_run_id)
+            query = query.where(run_points_filter(db, analysis_run_id))
         points = db.execute(query.order_by(NormalizedPoint.timestamp.asc())).scalars().all()
         if not points:
             raise ValueError("sample not found")

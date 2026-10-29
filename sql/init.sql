@@ -99,6 +99,13 @@ ALTER TABLE IF EXISTS ops_operational_findings
 ALTER TABLE IF EXISTS ops_normalized_timeseries_points
     ADD COLUMN IF NOT EXISTS cluster TEXT;
 
+-- The stored series a point belongs to; each point is stored once per series (run_points.py).
+ALTER TABLE IF EXISTS ops_normalized_timeseries_points
+    ADD COLUMN IF NOT EXISTS series_key VARCHAR(64);
+
+CREATE INDEX IF NOT EXISTS idx_ops_norm_series_ts
+    ON ops_normalized_timeseries_points (series_key, timestamp);
+
 ALTER TABLE IF EXISTS ops_operational_signals
     ADD COLUMN IF NOT EXISTS cluster TEXT;
 
@@ -216,6 +223,9 @@ ALTER TABLE IF EXISTS analysis_runs
 
 ALTER TABLE IF EXISTS analysis_runs
     ADD COLUMN IF NOT EXISTS connection_id VARCHAR(64);
+
+ALTER TABLE IF EXISTS analysis_runs
+    ADD COLUMN IF NOT EXISTS series_key VARCHAR(64);
 
 CREATE TABLE IF NOT EXISTS question_answers (
     id BIGSERIAL PRIMARY KEY,
