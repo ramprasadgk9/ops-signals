@@ -87,19 +87,40 @@ def test_the_demos_own_services_are_not_refused(demo_client) -> None:
 
 def test_nothing_is_refused_when_demo_mode_is_off(monkeypatch) -> None:
     monkeypatch.delenv("OPS_SIGNALS_DEMO_MODE", raising=False)
+    monkeypatch.delenv("OPS_SIGNALS_DEMO_TOUR", raising=False)
     with patch("backend.app.main.load_memory_config", return_value=MemoryConfig(enabled=False)):
         with TestClient(create_app("sqlite+pysqlite:///:memory:")) as client:
             assert client.get("/api/setup/check", headers=VISITOR).status_code == 200
             assert client.get("/api/demo").json() == {
-                "enabled": False, "resets_at": None, "reset_hours": None, "run_yourself_url": None, "ai": "off", "ai_model": None, "samples": [],
+                "enabled": False, "tour": False, "resets_at": None, "reset_hours": None, "run_yourself_url": None, "ai": "off", "ai_model": None, "samples": [],
             }
             assert client.post("/api/demo/samples/sudden-jump").status_code == 404
+
+
+def test_the_tour_alone_shows_the_guide_and_leaves_everything_open(monkeypatch) -> None:
+    # The local demo (docker-compose.demo.yml): Things to try, without the banner or view-only settings.
+    monkeypatch.delenv("OPS_SIGNALS_DEMO_MODE", raising=False)
+    monkeypatch.setenv("OPS_SIGNALS_DEMO_TOUR", "true")
+    with patch("backend.app.main.load_memory_config", return_value=MemoryConfig(enabled=False)):
+        with TestClient(create_app("sqlite+pysqlite:///:memory:")) as client:
+            body = client.get("/api/demo", headers=VISITOR).json()
+            assert body["enabled"] is False
+            assert body["tour"] is True
+            assert client.get("/api/setup/check", headers=VISITOR).status_code == 200
+
+
+@pytest.mark.parametrize("value", ["false", "0", ""])
+def test_the_tour_can_be_turned_off(monkeypatch, value: str) -> None:
+    monkeypatch.delenv("OPS_SIGNALS_DEMO_MODE", raising=False)
+    monkeypatch.setenv("OPS_SIGNALS_DEMO_TOUR", value)
+    assert demo.get_demo_config().tour is False
 
 
 def test_the_ui_learns_the_reset_time_ai_mode_and_samples(demo_client) -> None:
     body = demo_client.get("/api/demo", headers=VISITOR).json()
 
     assert body["enabled"] is True
+    assert body["tour"] is True
     assert body["reset_hours"] == 2
     assert datetime.fromisoformat(body["resets_at"].replace("Z", "+00:00")) > datetime.now(timezone.utc)
     assert body["ai"] == "off"

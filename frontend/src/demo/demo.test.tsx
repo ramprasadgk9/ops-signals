@@ -95,11 +95,19 @@ describe('demo helpers', () => {
 
 describe('Things to try', () => {
   it('shows nothing outside demo mode', async () => {
-    vi.mocked(api.demo).mockResolvedValue({ ...DEMO, enabled: false });
+    vi.mocked(api.demo).mockResolvedValue({ ...DEMO, enabled: false, tour: false });
     renderWith(<><ThingsToTry /><DemoBanner /></>);
     await waitFor(() => expect(api.demo).toHaveBeenCalled());
     expect(screen.queryByTestId('demo-guide')).toBeNull();
     expect(screen.queryByTestId('demo-banner')).toBeNull();
+  });
+
+  it('shows on its own with the tour on, without the demo banner or view-only notices', async () => {
+    vi.mocked(api.demo).mockResolvedValue({ ...DEMO, enabled: false, tour: true, resets_at: null });
+    renderWith(<><ThingsToTry /><DemoBanner /><DemoTurnedOff /></>, '/integrations');
+    expect(await screen.findByTestId('demo-guide')).toHaveTextContent('Things to try');
+    expect(screen.queryByTestId('demo-banner')).toBeNull();
+    expect(screen.queryByTestId('demo-turned-off')).toBeNull();
   });
 
   it('ticks off the page you open and the thing you do, and takes you to the next step', async () => {

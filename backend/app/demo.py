@@ -37,16 +37,23 @@ class DemoConfig:
     # How often the hosted demo is wiped and seeded again; 0 = not on a schedule (no countdown).
     reset_hours: float = 0
     run_yourself_url: str = DEFAULT_RUN_YOURSELF_URL
+    # The "Things to try" guide. Always on in demo mode; OPS_SIGNALS_DEMO_TOUR shows it on its own,
+    # without the banner or view-only settings (the local demo, docker-compose.demo.yml).
+    tour: bool = False
+
+
+def _env_on(name: str) -> bool:
+    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_demo_config() -> DemoConfig:
-    enabled = (os.getenv("OPS_SIGNALS_DEMO_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
+    enabled = _env_on("OPS_SIGNALS_DEMO_MODE")
     try:
         reset_hours = max(0.0, float(os.getenv("OPS_SIGNALS_DEMO_RESET_HOURS") or 0))
     except ValueError:
         reset_hours = 0.0
     url = (os.getenv("OPS_SIGNALS_DEMO_RUN_YOURSELF_URL") or "").strip() or DEFAULT_RUN_YOURSELF_URL
-    return DemoConfig(enabled=enabled, reset_hours=reset_hours, run_yourself_url=url)
+    return DemoConfig(enabled=enabled, reset_hours=reset_hours, run_yourself_url=url, tour=enabled or _env_on("OPS_SIGNALS_DEMO_TOUR"))
 
 
 def next_reset(config: DemoConfig, now: datetime | None = None) -> datetime | None:

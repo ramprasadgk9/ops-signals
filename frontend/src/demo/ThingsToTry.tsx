@@ -3,14 +3,15 @@ import { Box, Button, LinearProgress, Paper, Stack, Typography } from '@mui/mate
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api/queries';
-import { DEMO_STEP_EVENT, DEMO_STEPS, OPEN_HANDOFF_EVENT, loadProgress, saveProgress, stepDoneBy, stepTarget, useDemo } from './demo';
+import { DEMO_STEP_EVENT, DEMO_STEPS, OPEN_HANDOFF_EVENT, loadProgress, saveProgress, stepDoneBy, stepTarget, useDemoTour } from './demo';
 import type { DemoProgress, DemoStep } from './demo';
 import { OPEN_GUIDE_EVENT } from './DemoBanner';
 
-/** The "Things to try" guide in demo mode: ten steps through the demo story. Each has a button that
- * goes there and ticks itself off when the visitor does it (a page visit or a markDemoStep). */
+/** The "Things to try" guide, in demo mode or with the tour on its own: ten steps through the demo
+ * story. Each has a button that goes there and ticks itself off when the visitor does it (a page visit
+ * or a markDemoStep). */
 export function ThingsToTry() {
-  const demo = useDemo();
+  const demo = useDemoTour();
   if (!demo) return null;
   return <Guide period={demo.resets_at ?? 'demo'} />;
 }

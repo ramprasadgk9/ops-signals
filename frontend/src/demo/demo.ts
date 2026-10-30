@@ -8,13 +8,25 @@ import type { DemoInfo } from '../types';
 // For components rendered with no QueryClient (some tests, embeds): never queried, so "not a demo".
 const NO_CLIENT = new QueryClient();
 
-export function useDemo(): DemoInfo | null {
+function useDemoInfo(): DemoInfo | undefined {
   const client = useContext(QueryClientContext);
   const query = useQuery(
     { queryKey: ['demo'], queryFn: () => api.demo(), retry: false, refetchOnWindowFocus: false, staleTime: 10 * 60_000, enabled: Boolean(client) },
     client ?? NO_CLIENT,
   );
-  return query.data?.enabled ? query.data : null;
+  return query.data;
+}
+
+/** Demo mode (the hosted demo): banner, view-only settings, recorded AI. Null when it's off. */
+export function useDemo(): DemoInfo | null {
+  const info = useDemoInfo();
+  return info?.enabled ? info : null;
+}
+
+/** The "Things to try" guide: on in demo mode, and on its own in the local demo (OPS_SIGNALS_DEMO_TOUR). */
+export function useDemoTour(): DemoInfo | null {
+  const info = useDemoInfo();
+  return info?.enabled || info?.tour ? info : null;
 }
 
 export { DEMO_STEP_EVENT, markDemoStep } from './events';
