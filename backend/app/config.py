@@ -273,6 +273,9 @@ class AlertEnrichmentConfig(BaseModel):
         return value
 
 
+DEFAULT_SPLIT_LABELS = ("pod", "pod_name", "kubernetes_pod_name", "instance", "host")
+
+
 class DrillDownConfig(BaseModel):
     """Finding drill-down (intelligence/drilldown.py): after an autonomous Prometheus run creates a
     finding, re-query the same metric grouped by pod (or the next label in `labels`) and record which
@@ -284,7 +287,9 @@ class DrillDownConfig(BaseModel):
     """
 
     enabled: bool = False
-    labels: list[str] = Field(default_factory=lambda: ["pod", "instance"])
+    # The pod label under the names common collectors give it, then the machine. Tried in order;
+    # a label a metric doesn't have costs one small query that returns a single part.
+    labels: list[str] = Field(default_factory=lambda: list(DEFAULT_SPLIT_LABELS))
     max_findings_per_job: int = 3
 
     @field_validator("max_findings_per_job")
