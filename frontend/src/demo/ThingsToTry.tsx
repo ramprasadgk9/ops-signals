@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, LinearProgress, Paper, Stack, Typography } from '@mui/material';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { DEMO_STEP_EVENT, DEMO_STEPS, loadProgress, saveProgress, stepDoneBy, useDemo } from './demo';
-import type { DemoProgress } from './demo';
+import { api } from '../api/queries';
+import { DEMO_STEP_EVENT, DEMO_STEPS, OPEN_HANDOFF_EVENT, loadProgress, saveProgress, stepDoneBy, stepTarget, useDemo } from './demo';
+import type { DemoProgress, DemoStep } from './demo';
 import { OPEN_GUIDE_EVENT } from './DemoBanner';
 
 /** The "Things to try" guide in demo mode: ten steps through the demo story. Each has a button that
@@ -45,6 +46,12 @@ function Guide({ period }: { period: string }) {
       window.removeEventListener(OPEN_GUIDE_EVENT, onOpen);
     };
   }, [complete, update]);
+
+  const go = async (step: DemoStep) => {
+    navigate(await stepTarget(step, () => api.findings(step.finding?.service)));
+    // After the page has rendered its button.
+    if (step.open === 'handoff') window.setTimeout(() => window.dispatchEvent(new Event(OPEN_HANDOFF_EVENT)), 300);
+  };
 
   const doneCount = DEMO_STEPS.filter((step) => progress.done.includes(step.id)).length;
   const current = DEMO_STEPS.find((step) => !progress.done.includes(step.id));
@@ -89,7 +96,7 @@ function Guide({ period }: { period: string }) {
                 {now ? (
                   <>
                     <Typography sx={{ fontSize: 12, color: 'var(--os-muted)', mt: 0.25, mb: 0.75 }}>{step.how}</Typography>
-                    <Button size="small" variant="contained" onClick={() => navigate(step.go)} sx={{ textTransform: 'none', fontWeight: 800 }}>{step.goLabel}</Button>
+                    <Button size="small" variant="contained" onClick={() => void go(step)} sx={{ textTransform: 'none', fontWeight: 800 }}>{step.goLabel}</Button>
                   </>
                 ) : null}
               </Box>

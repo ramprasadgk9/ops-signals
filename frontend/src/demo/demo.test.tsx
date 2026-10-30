@@ -12,7 +12,7 @@ import { ThingsToTry } from './ThingsToTry';
 import { DEMO_STEPS, loadProgress, resetText, stepDoneBy, turnedOffReason } from './demo';
 import { markDemoStep } from './events';
 
-vi.mock('../api/queries', () => ({ api: { demo: vi.fn() } }));
+vi.mock('../api/queries', () => ({ api: { demo: vi.fn(), findings: vi.fn() } }));
 
 const DEMO: DemoInfo = {
   enabled: true,
@@ -54,6 +54,10 @@ function memoryStorage(): Storage {
 beforeEach(() => {
   vi.stubGlobal('localStorage', memoryStorage());
   vi.mocked(api.demo).mockResolvedValue(DEMO);
+  vi.mocked(api.findings).mockResolvedValue([
+    { id: 41, service: 'checkout-api', metric_name: 'http_requests_per_second', health_status: 'normal' },
+    { id: 42, service: 'checkout-api', metric_name: 'request_latency_p95', health_status: 'significant' },
+  ] as never);
 });
 
 describe('demo helpers', () => {
@@ -105,8 +109,10 @@ describe('Things to try', () => {
     act(() => markDemoStep('handoff'));
     expect(screen.getByTestId('demo-guide')).toHaveTextContent('2 of 10');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Go to the finding' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/findings?service=checkout-api');
+    // The button opens today's finding itself, where the step happens, not just the list.
+    fireEvent.click(screen.getByRole('button', { name: 'Open the finding' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/findings?service=checkout-api&finding=42'));
+    expect(api.findings).toHaveBeenCalledWith('checkout-api');
     act(() => markDemoStep('finding:checkout-api'));
     expect(screen.getByTestId('demo-step-pods')).toHaveAttribute('data-done', 'true');
     expect(JSON.parse(window.localStorage.getItem('ops-signals.demo.progress') ?? '{}').done).toEqual(['alert', 'overview', 'pods']);
@@ -141,5 +147,20 @@ describe('demo banner, notices and recorded AI', () => {
     vi.mocked(api.demo).mockResolvedValue({ ...DEMO, ai: 'live' });
     renderWith(<AiLabel><Chip label="AI" data-testid="plain-ai" /></AiLabel>);
     expect(await screen.findByTestId('plain-ai')).toHaveTextContent('AI');
+  });
+});
+
+describe('a step that opens something on its page', () => {
+  it('goes to the Overview and asks Shift handoff to open', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const opened = vi.fn();
+    window.addEventListener('ops-signals:demo-open-handoff', opened);
+    renderWith(<ThingsToTry />, '/alerts');
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Shift handoff' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/));
+    await act(async () => { vi.advanceTimersByTime(400); });
+    expect(opened).toHaveBeenCalled();
+    window.removeEventListener('ops-signals:demo-open-handoff', opened);
+    vi.useRealTimers();
   });
 });

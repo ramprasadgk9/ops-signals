@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
@@ -11,6 +11,7 @@ import { useAiActive } from './CaseAiDraft';
 import { HANDOFF_HOURS, handoffCopyText, handoffCounts, openLabel, watchHref, watchLabel } from '../utils/shiftHandoff';
 import type { ShiftHandoffNote } from '../types';
 import { markDemoStep } from '../demo/events';
+import { OPEN_HANDOFF_EVENT } from '../demo/demo';
 import { AiLabel } from '../demo/AiLabel';
 
 // Shift handoff (backend/app/services/shift_handoff.py): a button in the Overview's header that
@@ -19,6 +20,12 @@ import { AiLabel } from '../demo/AiLabel';
 
 export function ShiftHandoffButton() {
   const [open, setOpen] = useState(false);
+  // Demo mode's guide opens it from "Things to try".
+  useEffect(() => {
+    const openFromGuide = () => { setOpen(true); markDemoStep('handoff'); };
+    window.addEventListener(OPEN_HANDOFF_EVENT, openFromGuide);
+    return () => window.removeEventListener(OPEN_HANDOFF_EVENT, openFromGuide);
+  }, []);
   return (
     <>
       <Button variant="outlined" color="warning" startIcon={<SwapHorizRoundedIcon />} onClick={() => { setOpen(true); markDemoStep('handoff'); }} sx={{ textTransform: 'none', fontWeight: 800 }}>

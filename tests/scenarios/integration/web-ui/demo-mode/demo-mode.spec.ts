@@ -20,8 +20,20 @@ test('a visitor sees the banner and the guide, and a step ticks itself off', asy
   await expect(page).toHaveURL(/\/alerts$/);
   await expect(page.getByTestId('demo-step-alert')).toHaveAttribute('data-done', 'true');
 
+  // Each button takes you to the thing that ticks its step off: the handoff dialog, the finding.
+  await guide.getByRole('button', { name: 'Open Shift handoff' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Shift handoff');
+  await expect(page.getByTestId('demo-step-overview')).toHaveAttribute('data-done', 'true');
+  await page.keyboard.press('Escape');
+
+  await guide.getByRole('button', { name: 'Open the finding' }).click();
+  await expect(page).toHaveURL(/\/findings\?service=checkout-api&finding=\d+/);
+  await expect(page.getByTestId('demo-step-pods')).toHaveAttribute('data-done', 'true');
+  // The finding's details are a modal panel; close it to get back to the page.
+  await page.keyboard.press('Escape');
+
   await guide.getByRole('button', { name: 'Hide' }).click();
-  await expect(page.getByTestId('demo-guide-pill')).toContainText('1 of 10');
+  await expect(page.getByTestId('demo-guide-pill')).toContainText('3 of 10');
 });
 
 test('settings are view-only, and the backend refuses them too', async ({ page }) => {

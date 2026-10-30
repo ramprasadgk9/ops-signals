@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { ShiftHandoffButton } from './ShiftHandoffButton';
@@ -51,6 +51,13 @@ describe('ShiftHandoffButton', () => {
     vi.mocked(api.shiftHandoffNote).mockReset();
     vi.mocked(api.aiStatus).mockReset().mockResolvedValue({ ...aiStatus, enabled: false, provider: 'none', active: false });
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  });
+
+  it('opens when demo mode\'s guide asks', async () => {
+    renderCard(false);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    act(() => { window.dispatchEvent(new Event('ops-signals:demo-open-handoff')); });
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
   it('shows the counts and what to watch first, linked to the case', async () => {

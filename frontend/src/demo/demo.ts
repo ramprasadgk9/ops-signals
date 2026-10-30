@@ -29,6 +29,10 @@ export type DemoStep = {
   pages?: string[];
   /** ...or does something that fires one of these marks (markDemoStep). */
   marks?: string[];
+  /** The button opens today's finding for this service (and metric) instead of the plain page. */
+  finding?: { service: string; metric?: string };
+  /** The button also opens this on the page it goes to. */
+  open?: 'handoff';
 };
 
 // The tour in docs/demo.md, "Things to try". The story's services come from demo/scenario.py.
@@ -44,34 +48,38 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     id: 'overview',
     title: 'See what needs you now',
-    how: 'The Overview ranks today\'s problems. Open Shift handoff for the note the next on-call person would get.',
+    how: 'The Overview ranks today\'s problems. Shift handoff (top right) writes the note the next on-call person would get.',
     go: '/',
-    goLabel: 'Open Overview',
+    goLabel: 'Open Shift handoff',
     marks: ['handoff'],
+    open: 'handoff',
   },
   {
     id: 'pods',
     title: 'Find where checkout\'s slowdown came from',
-    how: 'Open the checkout-api finding. The pods chip says which pods the change came from: the ones the deploy started.',
+    how: 'Today\'s checkout-api finding: under "Where the change came from", the pods the deploy started.',
     go: '/findings?service=checkout-api',
-    goLabel: 'Go to the finding',
+    goLabel: 'Open the finding',
     marks: ['finding:checkout-api'],
+    finding: { service: 'checkout-api', metric: 'request_latency_p95' },
   },
   {
     id: 'case',
     title: 'Make a case and draft a root cause',
-    how: 'Create a case from the checkout-api finding, then click Draft from case on its Root Cause tab.',
+    how: 'On the checkout-api finding, click Create Case. On the case, open the Root Cause tab and click Draft from case.',
     go: '/findings?service=checkout-api',
-    goLabel: 'Go to the finding',
+    goLabel: 'Open the finding',
     marks: ['case-draft'],
+    finding: { service: 'checkout-api', metric: 'request_latency_p95' },
   },
   {
     id: 'came-back',
     title: 'See a fix that didn\'t hold',
-    how: 'Open the payments-db finding: the connection pool ran out again, 9 days after it was fixed.',
+    how: 'The payments-db connection pool ran out again, 9 days after it was fixed. See "Seen before?" in the finding.',
     go: '/findings?service=payments-db',
-    goLabel: 'Go to the finding',
+    goLabel: 'Open the finding',
     marks: ['finding:payments-db'],
+    finding: { service: 'payments-db', metric: 'db_connection_wait_seconds' },
   },
   {
     id: 'recurring',
@@ -92,10 +100,11 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     id: 'found-deploy',
     title: 'Find the deploy nobody announced',
-    how: 'Open a search-svc finding: it started after version 1.9.0, which Ops Signals found in the metrics. No CI sent it.',
+    how: 'search-svc\'s problem started after version 1.9.0, which Ops Signals found in its metrics. No CI sent it. See "What changed" in the finding.',
     go: '/findings?service=search-svc',
-    goLabel: 'Go to the finding',
+    goLabel: 'Open the finding',
     marks: ['finding:search-svc'],
+    finding: { service: 'search-svc', metric: 'error_rate' },
   },
   {
     id: 'analysis',
@@ -169,4 +178,20 @@ export const DEMO_TURNED_OFF: { path: string; reason: string }[] = [
 
 export function turnedOffReason(pathname: string): string | null {
   return DEMO_TURNED_OFF.find((entry) => pathname === entry.path || pathname.startsWith(`${entry.path}/`))?.reason ?? null;
+}
+
+/** Fired by the guide to open Shift handoff on the Overview (ShiftHandoffButton listens). */
+export const OPEN_HANDOFF_EVENT = 'ops-signals:demo-open-handoff';
+
+/** Where a step's button goes: today's finding for its service when it names one (the Findings page
+ * opens ?finding=<id>), else its page. */
+export async function stepTarget(step: DemoStep, findings: () => Promise<{ id?: number | null; service?: string; metric_name?: string; health_status?: string }[]>): Promise<string> {
+  if (!step.finding) return step.go;
+  try {
+    const rows = (await findings()).filter((row) => typeof row.id === 'number' && row.health_status !== 'normal');
+    const match = rows.find((row) => row.metric_name === step.finding?.metric) ?? rows[0];
+    return match ? `${step.go}&finding=${match.id}` : step.go;
+  } catch {
+    return step.go;
+  }
 }
