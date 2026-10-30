@@ -25,32 +25,77 @@ Slack notifications work from OTLP alone; a few features still need Prometheus.
 
 ### Try it in one command
 
+A shop with four services already in trouble: a deploy that broke latency (and fired an alert), a
+database problem back 9 days after its fix, a release nobody announced, and an OTLP service with a
+case in progress. You only need Docker: no Python, Node, Slack workspace or data of your own.
+
+#### Guided tour: Things to try (on by default)
+
+> [!TIP]
+> **Every way below opens with a "Things to try" guide in the corner: ten steps through the
+> demo, each with a button that takes you there and ticks itself off when you've done it.**
+> Nothing to set up. To hide it, put `OPS_SIGNALS_DEMO_TOUR=false` in front of the command.
+
+Get the code once, then pick one of three ways to start it:
+
 ```bash
 git clone https://github.com/ramprasadgk9/ops-signals.git
 cd ops-signals
+```
+
+| | AI features | Downloads | Needs | Start with |
+|---|---|---|---|---|
+| [**1. Demo**](#1-demo-no-ai) | Off | Images only | Docker with 4 GB memory | `up --build` |
+| [**2. Demo + local AI**](#2-demo--local-ai-no-api-key) | A model on your machine | + about 10 GB, once | 8 GB memory, no account | `--profile ai` |
+| [**3. Demo + your AI API**](#3-demo--your-ai-api) | The model behind your API | Nothing extra | An API key (usage billed by the provider) | `--env-file demo/ai-api.env` |
+
+A few minutes after start, open **http://localhost:8080** for the full UI (the guide is in its
+corner) and **http://localhost:8090** for the enriched alert as it would appear in Slack.
+[`docs/demo.md`](docs/demo.md) covers what's running, what to try, and how it works.
+
+##### 1. Demo (no AI)
+
+```bash
 docker compose -f docker-compose.demo.yml up --build
 ```
 
-This starts Ops Signals with four services of an online shop already in trouble: a deploy that
-broke latency (and fired an alert), a database problem back 9 days after its fix, a release nobody
-announced, and an OTLP service with a case in progress. A few minutes later, open
-**http://localhost:8090** to see the enriched alert as it would appear in Slack, and
-**http://localhost:8080** for the full UI. You only need Docker:
-no Python, Node, Slack workspace or data of your own. See [`docs/demo.md`](docs/demo.md) for what's
-running, what to try, and how it works.
+Everything except the AI features: findings, the deploy behind each change, matching past cases,
+the enriched alert, Recurring Problems and Behavior Intelligence. None of these need an AI model;
+AI adds drafts and plain-language explanations on top.
 
-**With AI.** Add `--profile ai` to run a model next to it, in its own container. No account or API
-key, and nothing leaves your machine:
+##### 2. Demo + local AI (no API key)
 
 ```bash
 docker compose -f docker-compose.demo.yml --profile ai up --build
 ```
 
-Then the AI parts work too: root cause and resolution drafts on a case, "why might the fix not have
-held?", runbook drafts, the shift handoff note, and plain explanations of combined patterns. The
-first start downloads about 10 GB (the model server and the `gemma3:4b` model, once) and needs
-about 8 GB of memory for Docker; answers take 5-20 seconds each on CPU. Already running a model
-server, or using an API? See [Turn on AI](docs/demo.md#turn-on-ai).
+Adds a model server in its own container with the `gemma3:4b` model. No account or key, and
+nothing leaves your machine. The AI parts work too: root cause and resolution drafts on a case,
+"why might the fix not have held?", runbook drafts, the shift handoff note, and plain explanations
+of combined patterns. The first start downloads about 10 GB (once) and needs about 8 GB of memory
+for Docker; answers take 5-20 seconds each on CPU.
+
+##### 3. Demo + your AI API
+
+```bash
+cp demo/ai-api.env.example demo/ai-api.env
+docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up --build
+```
+
+The same AI features as option 2, from a model API you already have; nothing to download. Before
+starting, open `demo/ai-api.env` and fill in **one** of its two blocks:
+
+- **Any server that speaks the OpenAI chat completions API** (a hosted API, a gateway, or a model
+  server on your machine): `DEMO_AI_URL`, `DEMO_AI_KEY` and `DEMO_AI_MODEL`.
+- **The Anthropic API**: uncomment the `OPS_SIGNALS_*` lines and set your key and a model name,
+  e.g. `claude-haiku-5-5`.
+
+API usage is billed by the provider, separately from any chat subscription, and the demo's data is
+sent to that API when you use an AI feature. `demo/ai-api.env` is gitignored. More in
+[Turn on AI](docs/demo.md#turn-on-ai).
+
+Putting the demo on a server for others to visit? Turn on demo mode as well: a sample-data banner
+and view-only settings. See [Host it as a public demo](docs/demo.md#host-it-as-a-public-demo).
 
 > **Run it on a trusted network.** The API has no authentication unless you set
 > `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [Security model](#security-model).

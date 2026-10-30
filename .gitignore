@@ -92,3 +92,6 @@ docs/smoke-test-report.html
 
 # Local FAQ for application owners and customers - not meant to be committed.
 docs/faq.md
+
+# The demo's model API settings (demo/ai-api.env.example)
+/demo/ai-api.env
