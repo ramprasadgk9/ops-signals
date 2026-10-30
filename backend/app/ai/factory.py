@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from backend.app.ai.config import AIConfig
 from backend.app.ai.exceptions import LLMDisabledError, LLMRequestError
@@ -13,6 +14,7 @@ from backend.app.ai.providers import anthropic as anthropic_provider
 from backend.app.ai.providers.anthropic import AnthropicLLMClient
 from backend.app.ai.providers.ollama import OllamaLLMClient
 from backend.app.ai.providers.openai_compatible import OpenAICompatibleLLMClient
+from backend.app.ai.providers.recorded import RecordedLLMClient, RecordingLLMClient
 from backend.app.ai.models import StructuredLLMService
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ class OptionalAIServices:
     structured: StructuredLLMService
 
 
-PROVIDERS = ("ollama", "openai_compatible", "anthropic")
+PROVIDERS = ("ollama", "openai_compatible", "anthropic", "recorded")
 
 
 def normalized_provider(config: AIConfig) -> str:
@@ -50,10 +52,22 @@ def llm_client_issue(config: AIConfig | None) -> str | None:
         return None
     if provider == "ollama":
         return None
+    if provider == "recorded":
+        if not Path(config.recorded.file).exists():
+            return f"The recorded provider's answers file {config.recorded.file} doesn't exist (OPS_SIGNALS_AI_RECORDED_FILE)."
+        return None
     return f"Unknown AI provider {config.provider!r}. Use one of: {', '.join(PROVIDERS)}."
 
 
 def build_llm_client(config: AIConfig | None) -> LLMClient:
+    client = _build_provider_client(config)
+    if config and config.enabled and config.record_to and not isinstance(client, (NoOpLLMClient, RecordedLLMClient)):
+        logger.info("Recording AI answers to %s", config.record_to)
+        return RecordingLLMClient(client, config.record_to, model=getattr(client, "model", None))
+    return client
+
+
+def _build_provider_client(config: AIConfig | None) -> LLMClient:
     if not config or not config.enabled:
         return NoOpLLMClient()
     issue = llm_client_issue(config)
@@ -61,6 +75,8 @@ def build_llm_client(config: AIConfig | None) -> LLMClient:
         logger.warning("%s Running without an LLM.", issue)
         return NoOpLLMClient()
     provider = normalized_provider(config)
+    if provider == "recorded":
+        return RecordedLLMClient(config.recorded.file)
     if provider == "ollama":
         return OllamaLLMClient(
             base_url=config.ollama.base_url,

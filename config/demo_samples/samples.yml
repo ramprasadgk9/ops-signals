@@ -1,0 +1,31 @@
+# Sample files a visitor can analyze in demo mode (New Analysis), from
+# sample_data/ops_signals_test_series. Each runs like a CSV upload, under its own service name.
+samples:
+  - id: sudden-jump
+    file: sudden-jump.csv
+    title: A sudden jump that stays
+    description: CPU steps up to a new level and stays there.
+    service: sample-inventory
+    metric: cpu_usage
+    interval: 5m
+  - id: slow-climb
+    file: slow-climb.csv
+    title: Memory creeping up
+    description: Memory rises a little every hour, like a leak.
+    service: sample-search
+    metric: memory_usage
+    interval: 5m
+  - id: short-spikes
+    file: short-spikes.csv
+    title: Short latency spikes
+    description: Latency is normal apart from a few sharp spikes.
+    service: sample-catalog
+    metric: request_latency_p95
+    interval: 5m
+  - id: repeating
+    file: repeating.csv
+    title: A repeating pattern
+    description: Traffic follows the same shape again and again.
+    service: sample-orders
+    metric: http_requests_per_second
+    interval: 5m

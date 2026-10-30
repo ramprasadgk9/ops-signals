@@ -22,6 +22,7 @@ import { api } from '../api/queries';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import type { MetricContext } from '../types';
+import { AiLabel } from '../demo/AiLabel';
 
 const useCaseOptions = [
   'Detect gradual trend',
@@ -613,7 +614,7 @@ export function AnalyzerRecommendationPage() {
         <Paper sx={{ p: 3, border: '1px solid rgba(99, 102, 241, 0.25)' }}>
           <Stack spacing={2}>
             <Stack direction="row" spacing={1} alignItems="center">
-              <Chip size="small" color="info" variant="outlined" label="AI" />
+              <AiLabel><Chip size="small" color="info" variant="outlined" label="AI" /></AiLabel>
               <Typography variant="h6">Second Opinion</Typography>
             </Stack>
             <Typography variant="body2" color="text.secondary">

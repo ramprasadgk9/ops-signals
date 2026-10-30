@@ -114,6 +114,8 @@ def _provider_details(config: AIConfig, provider: str) -> tuple[str | None, str 
     if provider == "anthropic":
         settings = config.anthropic
         return settings.model, _safe_url(settings.base_url) or ANTHROPIC_DEFAULT_ENDPOINT, None
+    if provider == "recorded":
+        return "recorded answers", None, None
     return None, None, None
 
 

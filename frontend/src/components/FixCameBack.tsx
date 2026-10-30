@@ -7,6 +7,7 @@ import { ui } from '../standalone/theme';
 import { useAiActive } from './CaseAiDraft';
 import type { CameBackAfterFix, FixCameBackWhy, FixOutcome } from '../types';
 import { CAME_BACK_RULE, cameBackHeadline, daysBadge, didNotHoldHeadline, fixedOn, whyUnavailable } from '../utils/fixCameBack';
+import { AiLabel } from '../demo/AiLabel';
 
 const BANNER_SX = { p: 1.5, border: `1px solid ${ui.yellow}88`, bgcolor: 'var(--os-tint-amber)', borderRadius: '8px' };
 const LINK_SX = { fontWeight: 800, whiteSpace: 'nowrap' };
@@ -94,7 +95,7 @@ function WhyAnswer({ result }: { result: FixCameBackWhy }) {
     <Box data-testid="fix-came-back-why" sx={{ border: 1, borderColor: 'secondary.light', borderRadius: 1, px: 1.5, py: 1, bgcolor: 'action.hover' }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
         <Typography variant="body2" sx={{ fontWeight: 700 }}>Possible reasons</Typography>
-        <Chip size="small" color="secondary" variant="outlined" label="AI · not saved" />
+        <AiLabel suffix=" · not saved"><Chip size="small" color="secondary" variant="outlined" label="AI · not saved" /></AiLabel>
       </Stack>
       <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
         {result.reasons.map((reason) => <li key={reason}><Typography variant="body2">{reason}</Typography></li>)}

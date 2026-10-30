@@ -56,11 +56,11 @@ function baseCase(overrides: Partial<OperationalCase> = {}): OperationalCase {
   };
 }
 
-function renderPage() {
+function renderPage(path = '/cases/1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/cases/1']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/cases/:caseId" element={<CaseDetailsPage />} />
         </Routes>
@@ -90,6 +90,14 @@ async function pickLearningOutcome(panel: HTMLElement, optionNamePattern: RegExp
 describe('CaseDetailsPage resolution tab', () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('opens on the tab a link names', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+
+    renderPage('/cases/1?tab=root-cause');
+
+    expect(await screen.findByRole('tab', { name: 'Root Cause' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('hides the Learning Outcome field when Outcome Status is not Resolved', async () => {

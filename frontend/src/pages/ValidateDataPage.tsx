@@ -48,6 +48,9 @@ import { PlainBadge, PlainFindingSummary, PlainHeadline } from '../components/Pl
 import { leadSignal, leadSignalText } from '../utils/findingPlain';
 import { useFindingAiWording } from '../hooks/useFindingAiWording';
 import { RouterDecisionPanel } from '../components/RouterDecisionPanel';
+import { Tooltip as MuiTooltip } from '@mui/material';
+import { useDemo } from '../demo/demo';
+import { markDemoStep } from '../demo/events';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -349,6 +352,7 @@ export function ValidateDataPage() {
       return api.runCsvValidation(form);
     },
     onSuccess: (result) => {
+      markDemoStep('analysis');
       setError(null);
       const modeLabel = result.analyzer_selection_mode === 'manual_override' ? 'manual analyzer override' : 'router';
       const executed = result.executed_analyzers?.length ? ` Executed: ${result.executed_analyzers.join(', ')}.` : '';
@@ -370,27 +374,42 @@ export function ValidateDataPage() {
 
   // Validate Data only previews; this stores the run (csv-run, router-chosen analyzers) so its
   // findings show up in Findings and can become cases.
+  const demo = useDemo();
+  const savedRunWithFindings = async (run: CsvRunResult) => {
+    const findings = run.findings_count ? await api.findings(undefined, undefined, run.analysis_run_id) : [];
+    return { run, findings: findings.filter((finding): finding is SavedFinding => typeof finding.id === 'number') };
+  };
+
   const csvSaveMutation = useMutation({
-    mutationFn: async () => {
-      const run = await api.runCsvUpload(buildCsvForm());
-      const findings = run.findings_count ? await api.findings(undefined, undefined, run.analysis_run_id) : [];
-      return { run, findings: findings.filter((finding): finding is SavedFinding => typeof finding.id === 'number') };
-    },
-    onSuccess: (result) => {
-      setError(null);
-      setSavedCsvRun(result);
-      const count = result.run.findings_count;
-      setMessage(`Saved: ${result.run.sample_count} samples${describeInterval(result.run)}, ${count} finding${count === 1 ? '' : 's'}.${count ? ` Create a case from ${count === 1 ? 'it' : 'any of them'} below.` : ''}`);
-      setCsvWarnings(result.run.warnings ?? []);
-      // Refresh the other pages in the background, so the buttons free up as soon as the save is done.
-      ['findings', 'findings-overview', 'analysis-runs', 'overview-summary'].forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
-    },
+    mutationFn: async () => savedRunWithFindings(await api.runCsvUpload(buildCsvForm())),
+    onSuccess: (result) => showSavedRun(result),
     onError: (err: unknown) => {
       setMessage(null);
       setCsvWarnings([]);
       setError(err instanceof Error ? err.message : 'Analysis failed');
     },
   });
+
+  // Demo mode: a bundled sample, analyzed and saved like an upload (backend/app/api/demo.py).
+  const sampleMutation = useMutation({
+    mutationFn: async (sampleId: string) => savedRunWithFindings(await api.demoSample(sampleId)),
+    onSuccess: (result) => showSavedRun(result),
+    onError: (err: unknown) => {
+      setMessage(null);
+      setError(err instanceof Error ? err.message : 'Analysis failed');
+    },
+  });
+
+  function showSavedRun(result: { run: CsvRunResult; findings: SavedFinding[] }) {
+    markDemoStep('analysis');
+    setError(null);
+    setSavedCsvRun(result);
+    const count = result.run.findings_count;
+    setMessage(`Saved: ${result.run.sample_count} samples${describeInterval(result.run)}, ${count} finding${count === 1 ? '' : 's'}.${count ? ` Create a case from ${count === 1 ? 'it' : 'any of them'} below.` : ''}`);
+    setCsvWarnings(result.run.warnings ?? []);
+    // Refresh the other pages in the background, so the buttons free up as soon as the save is done.
+    ['findings', 'findings-overview', 'analysis-runs', 'overview-summary'].forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
+  }
 
   const testConnectionMutation = useMutation({
     mutationFn: () => api.testPrometheusConnection(connectionId),
@@ -473,6 +492,7 @@ export function ValidateDataPage() {
       return results;
     },
     onSuccess: (results) => {
+      markDemoStep('analysis');
       setPromError(null);
       const ranked = [...results].sort((left, right) =>
         (right.findings_count - left.findings_count)
@@ -578,6 +598,26 @@ export function ValidateDataPage() {
           <CardContent>
             <Stack spacing={2}>
               <Typography variant="h6">CSV Upload</Typography>
+              {demo?.samples.length ? (
+                <Box data-testid="demo-samples" sx={{ p: 1.5, borderRadius: '8px', border: '1px solid var(--os-border)', bgcolor: 'var(--os-surface-alt)' }}>
+                  <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Try a sample file</Typography>
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 1 }}>
+                    Everyone shares this demo, so saving your own file is off. Pick a sample to see how it's analyzed; Validate Data still previews your own file without saving it.
+                  </Typography>
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    {demo.samples.map((sample) => (
+                      <MuiTooltip key={sample.id} title={`${sample.description} (${sample.service} · ${sample.metric})`}>
+                        <span>
+                          <Button size="small" variant="outlined" disabled={sampleMutation.isPending} onClick={() => { setMessage(null); setError(null); setSavedCsvRun(null); sampleMutation.mutate(sample.id); }} sx={{ textTransform: 'none', fontWeight: 750 }}>
+                            {sampleMutation.isPending && sampleMutation.variables === sample.id ? <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> : null}
+                            {sample.title}
+                          </Button>
+                        </span>
+                      </MuiTooltip>
+                    ))}
+                  </Stack>
+                </Box>
+              ) : null}
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
                 <FormControl fullWidth><InputLabel>Provider</InputLabel><Select value={provider} label="Provider" onChange={(e) => setProvider(e.target.value as Provider)}><MenuItem value="prometheus">Prometheus CSV</MenuItem><MenuItem value="datadog">Datadog CSV</MenuItem><MenuItem value="generic">Generic CSV</MenuItem><MenuItem value="custom">Custom / Other</MenuItem></Select></FormControl>
                 <FormControl fullWidth><InputLabel>Analyzer</InputLabel><Select value={analyzerId} label="Analyzer" onChange={(e) => setAnalyzerId(e.target.value)}>{analyzerOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}</Select></FormControl>
@@ -635,7 +675,7 @@ export function ValidateDataPage() {
               <Box><Button variant="outlined" component="label">{file ? `Selected: ${file.name}` : 'Choose CSV File'}<input hidden type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Button></Box>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
                 <Button variant="outlined" disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete} onClick={() => { setMessage(null); setError(null); setSavedCsvRun(null); csvMutation.mutate(); }}>{csvMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Validate Data'}</Button>
-                <Button variant="contained" startIcon={csvSaveMutation.isPending ? undefined : <SaveRoundedIcon />} disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete || !canEdit} title={canEdit ? undefined : WEB_LOCK_REASONS.runAnalysis} onClick={() => { setMessage(null); setError(null); csvSaveMutation.mutate(); }}>{csvSaveMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Analyze and Save'}</Button>
+                <Button variant="contained" startIcon={csvSaveMutation.isPending ? undefined : <SaveRoundedIcon />} disabled={csvMutation.isPending || csvSaveMutation.isPending || !file || customMappingIncomplete || !canEdit || Boolean(demo)} title={demo ? 'Turned off in the demo: everyone shares this site, so you can\'t save your own file. Try a sample file above.' : canEdit ? undefined : WEB_LOCK_REASONS.runAnalysis} onClick={() => { setMessage(null); setError(null); csvSaveMutation.mutate(); }}>{csvSaveMutation.isPending ? <CircularProgress size={20} color="inherit" /> : 'Analyze and Save'}</Button>
               </Stack>
               <Typography variant="caption" color="text.secondary">
                 Validate Data previews the analysis without saving it. Analyze and Save stores the run so its findings appear in Findings and can become cases{analyzerId !== 'all' ? '; it uses the router\'s analyzer choice, not the analyzer picked above' : ''}.

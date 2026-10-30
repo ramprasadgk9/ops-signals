@@ -23,6 +23,8 @@ import { testedCaption, testedHeadline, testedTooltip } from '../utils/findingTr
 import { customSettings } from '../utils/customSettings';
 import { useFindingAiWording } from '../hooks/useFindingAiWording';
 import { CustomSettingsBox } from './CustomSettingsBox';
+import { markDemoStep } from '../demo/events';
+import { AiLabel } from '../demo/AiLabel';
 
 type Props = {
   open: boolean;
@@ -71,6 +73,10 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
     const timer = window.setTimeout(() => document.getElementById(`finding-details-${section}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 250);
     return () => window.clearTimeout(timer);
   }, [open, section, finding?.id]);
+  // Demo mode's "Things to try" ticks off the step about this service's finding.
+  useEffect(() => {
+    if (open && finding?.service) markDemoStep(`finding:${finding.service}`);
+  }, [open, finding?.service]);
 
   const analysisRunId = finding?.analysis_run_id;
 
@@ -150,7 +156,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
           ) : (
             <Stack direction="row" spacing={0.75} alignItems="flex-start">
               {finding.ai_summary && (
-                <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
+                <AiLabel><Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} /></AiLabel>
               )}
               <Typography variant="body2">{finding.ai_summary ?? finding.summary}</Typography>
             </Stack>
