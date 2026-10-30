@@ -79,9 +79,11 @@ they show their usual fallback, and everything else works.
 
 ## Turn on AI
 
-AI is off unless you turn it on, and nothing is sent anywhere unless you choose a provider. Two ways:
+The demo's AI is off unless you turn it on. The demo's `ai` profile downloads `gemma3:4b` (the dev
+stack's own `ai` profile in `docker-compose.yml` pulls `qwen2.5:3b` instead, see the README).
+Nothing is sent anywhere unless you choose a provider. Two ways:
 
-**A model in its own container** (the simplest). The `ai` profile adds an Ollama container,
+**A model in its own container** (the simplest). The demo's `ai` profile adds an Ollama container,
 downloads `gemma3:4b` into it, and switches AI on:
 
 ```bash

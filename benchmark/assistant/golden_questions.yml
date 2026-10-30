@@ -57,11 +57,20 @@ questions:
 
   - id: default-ollama-model
     category: docs
-    question: Which model does the ai compose profile pull by default?
+    # Two compose files have an ai profile now: the dev stack's (this one) and the demo's.
+    question: Which model does the ai profile in docker-compose.yml pull by default?
     contains: ["qwen2.5:3b"]
     expect:
       - {source: README.md, section: "Optional: Enable Local AI"}
       - {source: docs/ai-features.md, section: "Turn it on"}
+
+  - id: demo-ai-model
+    category: docs
+    question: Which model does the demo download with --profile ai?
+    contains: ["gemma3:4b"]
+    expect:
+      - {source: docs/demo.md, section: "Turn on AI"}
+      - {source: README.md, section: "Try it in one command"}
 
   - id: assistant-api-key
     category: docs
