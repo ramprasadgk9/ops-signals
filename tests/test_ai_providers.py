@@ -291,3 +291,29 @@ def test_ollama_sends_the_callers_token_limit_and_timeout_unchanged(monkeypatch)
     assert captured["body"]["options"]["num_predict"] == 120
     assert captured["timeout"] == 10
     assert response.content == "deploy regression"
+
+
+def test_ollama_waits_at_least_its_minimum_for_a_model_on_cpu(monkeypatch) -> None:
+    # A feature asking 15 s timed out on every answer from a CPU-only model (10-20 s each).
+    captured: dict = {}
+    body = {"message": {"role": "assistant", "content": "deploy regression"}}
+    monkeypatch.setattr(ollama_provider.urllib.request, "urlopen", _fake_urlopen(captured, body))
+    client = OllamaLLMClient(base_url="http://ollama:11434", model="gemma3:4b", timeout_seconds=30.0, min_timeout_seconds=90.0)
+
+    client.generate(dataclasses.replace(_request(), timeout_seconds=15))
+    assert captured["timeout"] == 90.0
+    client.generate(dataclasses.replace(_request(), timeout_seconds=120))
+    assert captured["timeout"] == 120
+
+
+def test_the_ollama_minimum_comes_from_the_environment(monkeypatch) -> None:
+    monkeypatch.setenv("OPS_SIGNALS_AI_ENABLED", "true")
+    monkeypatch.setenv("OPS_SIGNALS_AI_PROVIDER", "ollama")
+    monkeypatch.setenv("OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS", "90")
+    config = apply_ai_env_overrides(AIConfig())
+
+    assert config.ollama.min_timeout_seconds == 90.0
+    assert build_llm_client(config).min_timeout_seconds == 90.0
+    assert apply_ai_env_overrides(AIConfig()).ollama.min_timeout_seconds == 90.0
+    monkeypatch.delenv("OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS")
+    assert apply_ai_env_overrides(AIConfig()).ollama.min_timeout_seconds is None

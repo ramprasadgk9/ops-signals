@@ -198,7 +198,7 @@ or `ai.provider` in `config.yaml`:
 
 | Provider | Covers | Settings |
 | --- | --- | --- |
-| `ollama` | Local Ollama | `OPS_SIGNALS_OLLAMA_URL`, `OPS_SIGNALS_OLLAMA_MODEL` |
+| `ollama` | Local Ollama | `OPS_SIGNALS_OLLAMA_URL`, `OPS_SIGNALS_OLLAMA_MODEL`, `OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS` (wait at least this long for each answer; set it, e.g. `90`, for a model running on CPU, where answers take 10-20 s and some features otherwise give up after 15 s) |
 | `openai_compatible` | vLLM, Azure OpenAI, Bedrock gateways, LiteLLM, OpenAI | `OPS_SIGNALS_OPENAI_BASE_URL` (the API root, e.g. `http://vllm:8000/v1`), `OPS_SIGNALS_OPENAI_MODEL`, `OPS_SIGNALS_OPENAI_API_KEY`, `OPS_SIGNALS_OPENAI_API_KEY_HEADER` |
 | `anthropic` | Claude | `OPS_SIGNALS_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY`), `OPS_SIGNALS_ANTHROPIC_MODEL` (default `claude-opus-5`) |
 

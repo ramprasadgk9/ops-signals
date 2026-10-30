@@ -77,8 +77,11 @@ def story_checks(api: str) -> list[tuple[str, bool]]:
     checkout_pods = breakdown("checkout-api", "request_latency_p95")
     search_pods = breakdown("search-svc", "error_rate")
     return [
-        ("checkout-api change came from the new pods of the rollout",
-         checkout_pods.get("new_parts", 0) >= 3 and checkout_pods.get("parts_changed") == checkout_pods.get("new_parts")),
+        # The pods that moved are the three the rollout started (named checkout-api-5c8e1-*). Whether
+        # the chip reads "3 new pods" or "3 of 6 pods" depends on where the change point lands.
+        ("checkout-api change came from the three pods of the rollout",
+         checkout_pods.get("parts_changed") == 3
+         and all(part["value"].startswith("checkout-api-5c8e1-") for part in checkout_pods.get("top", []) if part.get("moved"))),
         ("search-svc errors came from 1 of 4 pods",
          search_pods.get("parts_changed") == 1 and search_pods.get("parts_total") == 4),
         ("combined pattern: payments-db pool exhaustion, from the scheduled analysis", pattern("pool_exhaustion", "payments-db")),

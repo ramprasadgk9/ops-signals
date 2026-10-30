@@ -10,8 +10,9 @@ Four services of one online shop, each showing different features (docs/demo.md)
   pool_exhaustion pattern). The pool ran out three times before; the last fix, 9 days ago, raised
   the pool size and left the leak open, so this is the fix that didn't stick.
 - search-svc (Prometheus): a new version shows up on search_build_info with no CI event (a deploy
-  found automatically), then latency and errors jump together (latency_error_cascade) and the index
-  merge backlog grows (a metric the wording file doesn't describe).
+  found automatically), then one of its four pods starts flapping, so latency and errors spike
+  together (latency_error_cascade), and the index merge backlog grows (a metric the wording file
+  doesn't describe).
 - orders (OTLP): the failed-orders counter's rate steps up after CI deploy v3.2.0 and a case is
   being worked on. A short processing slowdown is analyzed with the orders team's own settings
   (demo/config/analyzer-overrides/).
@@ -92,8 +93,8 @@ SEARCH_NEW_VERSION = "1.9.0"
 SEARCH_DEPLOY_MINUTES_AGO = 35
 SEARCH_SHIFT_MINUTES_AGO = 30
 SEARCH_PAST_DAYS_AGO = 2
-# A StatefulSet, so pods keep their names across the release. Only one of them goes bad, so the
-# drill-down says the change came from 1 of 4 pods.
+# A StatefulSet, so pods keep their names across the release. Only one of them goes bad (it flaps),
+# so the drill-down says the change came from 1 of 4 pods.
 SEARCH_PODS = ("search-svc-0", "search-svc-1", "search-svc-2", "search-svc-3")
 SEARCH_BAD_POD = "search-svc-2"
 
@@ -183,28 +184,38 @@ def search_backlog(t: float, shift_at: float | None) -> float:
     return max(0.0, value)
 
 
-def checkout_pod_latency_ms(t: float, shift_at: float | None, pod: str) -> float:
-    """One checkout-api pod's p95 latency: the service's shape plus the pod's own noise."""
-    return max(1.0, latency_ms(t, shift_at) + _noise(t, f"latency-{pod}", 4.0))
+def checkout_pod_latency_ms(t: float, pod: str) -> float:
+    """One checkout-api pod's p95 latency: the old pods at the old level, the new ones slow from
+    their first point. Without a ramp the change point lands on the rollout, so the drill-down sees
+    the new pods as new (fewer than 3 points before the change)."""
+    shifted = pod in CHECKOUT_NEW_PODS
+    return max(1.0, latency_ms(t, None if shifted else math.inf) + _noise(t, f"latency-{pod}", 4.0))
 
 
 def checkout_pod_rps(t: float, pod: str) -> float:
     return max(1.0, rps(t) / len(CHECKOUT_OLD_PODS) + _noise(t, f"rps-{pod}", 3.0))
 
 
+def _search_pod_flapping(t: float, shift_at: float, pod: str) -> bool:
+    """The bad search-svc pod since the release: bad for 1 minute in every 5. Short bursts stay
+    unusual against the 6h window for hours, where a level that stayed high would become the new
+    normal for the outlier checks within about 20 minutes."""
+    return pod == SEARCH_BAD_POD and t >= shift_at and (t - shift_at) % 300 < 60
+
+
 def search_pod_latency_ms(t: float, shift_at: float, pod: str) -> float:
-    """One search-svc pod's p95 latency: about 90ms, and on the bad pod far higher and jumpy."""
+    """One search-svc pod's p95 latency: about 90ms, and over a second while the bad pod flaps."""
     value = 90.0 + _wave(t, 4800.0, 6.0) + _noise(t, f"search-latency-{pod}", 4.0)
-    if pod == SEARCH_BAD_POD:
-        value += _progress(t, shift_at, 60.0) * (1200.0 + abs(_noise(t, "search-latency-hot", 400.0)))
+    if _search_pod_flapping(t, shift_at, pod):
+        value += 1200.0 + abs(_noise(t, "search-latency-hot", 400.0))
     return max(1.0, value)
 
 
 def search_pod_error_rate(t: float, shift_at: float, pod: str) -> float:
-    """One search-svc pod's failed requests, in percent: about 0.2%, and on the bad pod about 15%."""
+    """One search-svc pod's failed requests, in percent: about 0.2%, and about 15% while it flaps."""
     value = 0.2 + abs(_noise(t, f"search-errors-{pod}", 0.05))
-    if pod == SEARCH_BAD_POD:
-        value += _progress(t, shift_at, 60.0) * (14.0 + abs(_noise(t, "search-errors-hot", 5.0)))
+    if _search_pod_flapping(t, shift_at, pod):
+        value += 14.0 + abs(_noise(t, "search-errors-hot", 5.0))
     return value
 
 
@@ -267,7 +278,7 @@ def prometheus_series(timeline: dict[str, str]) -> list[Series]:
     return [
         *(
             Series(LATENCY_METRIC, "p95 request latency in milliseconds", labels(SERVICE, {"pod": pod}),
-                   while_up(pod, lambda t, pod=pod: checkout_pod_latency_ms(t, checkout_shift, pod)))
+                   while_up(pod, lambda t, pod=pod: checkout_pod_latency_ms(t, pod)))
             for pod in checkout_pods
         ),
         *(

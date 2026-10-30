@@ -12,10 +12,16 @@ from backend.app.ai.interfaces import LLMClient, LLMMessage, LLMRequest, LLMResp
 
 
 class OllamaLLMClient(LLMClient):
-    def __init__(self, base_url: str, model: str, timeout_seconds: float = 30.0) -> None:
+    def __init__(self, base_url: str, model: str, timeout_seconds: float = 30.0, min_timeout_seconds: float | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = timeout_seconds
+        self.min_timeout_seconds = min_timeout_seconds
+
+    def timeout_for(self, request: LLMRequest) -> float:
+        """The feature's own limit, raised to min_timeout_seconds when that's set (a model on CPU)."""
+        timeout = request.timeout_seconds or self.timeout_seconds
+        return max(timeout, self.min_timeout_seconds) if self.min_timeout_seconds else timeout
 
     def generate(self, request: LLMRequest) -> LLMResponse:
         start = time.perf_counter()
@@ -40,7 +46,7 @@ class OllamaLLMClient(LLMClient):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=request.timeout_seconds or self.timeout_seconds) as response:
+            with urllib.request.urlopen(req, timeout=self.timeout_for(request)) as response:
                 raw = response.read().decode("utf-8")
             data = json.loads(raw)
             content = ""
