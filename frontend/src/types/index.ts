@@ -1764,6 +1764,8 @@ export type SlackStatus = {
 export type DemoSample = { id: string; title: string; description: string; service: string; metric: string };
 export type DemoInfo = {
   enabled: boolean;
+  /** Show the "Things to try" guide: in demo mode, or on its own (the local demo). */
+  tour?: boolean;
   resets_at?: string | null;
   reset_hours?: number | null;
   run_yourself_url?: string | null;

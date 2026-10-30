@@ -15,6 +15,12 @@
 # needs about 8 GB of memory for Docker):
 #   docker compose -f docker-compose.demo.yml --profile ai up --build
 #
+# With AI from a model API you already have (nothing to download): copy demo/ai-api.env.example to
+# demo/ai-api.env, fill in the URL, key and model, then
+#   docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up --build
+#
+# A "Things to try" guide in the corner walks you through it; OPS_SIGNALS_DEMO_TOUR=false hides it.
+#
 # Start over with a fresh incident:   docker compose -f docker-compose.demo.yml down -v
 # Post to a real Slack channel too:   DEMO_SLACK_WEBHOOK_URL=https://hooks.slack.com/... docker compose -f docker-compose.demo.yml up
 #
@@ -66,18 +72,28 @@ services:
 
   backend:
     <<: *backend-image
-    # AI turns on by itself when the `ai` profile's model server is running (and you haven't set
-    # OPS_SIGNALS_AI_ENABLED yourself); otherwise the backend starts exactly as the image does.
+    # AI turns on by itself when you give a model API (DEMO_AI_URL) or the `ai` profile's model
+    # server is running, unless you set OPS_SIGNALS_AI_ENABLED yourself; otherwise the backend
+    # starts exactly as the image does. The API wins over the `ai` profile.
     command:
       - sh
       - -c
       - |
-        if [ -z "$${OPS_SIGNALS_AI_ENABLED}" ] && getent hosts ollama >/dev/null 2>&1; then
+        if [ -z "$${OPS_SIGNALS_AI_ENABLED}" ] && [ -n "$${DEMO_AI_URL}" ]; then
+          if [ -z "$${DEMO_AI_MODEL}" ]; then
+            echo "AI stays off: DEMO_AI_URL is set but DEMO_AI_MODEL is empty (see demo/ai-api.env.example)"
+          else
+            export OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=openai_compatible
+            export OPS_SIGNALS_OPENAI_BASE_URL="$${DEMO_AI_URL}" OPS_SIGNALS_OPENAI_MODEL="$${DEMO_AI_MODEL}"
+            if [ -n "$${DEMO_AI_KEY}" ]; then export OPS_SIGNALS_OPENAI_API_KEY="$${DEMO_AI_KEY}"; fi
+            echo "AI is on: $${DEMO_AI_MODEL} from $${DEMO_AI_URL} (the key is not printed)"
+          fi
+        elif [ -z "$${OPS_SIGNALS_AI_ENABLED}" ] && getent hosts ollama >/dev/null 2>&1; then
           export OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama
-          export OPS_SIGNALS_OLLAMA_URL=http://ollama:11434 OPS_SIGNALS_OLLAMA_MODEL="$${DEMO_AI_MODEL}"
+          export OPS_SIGNALS_OLLAMA_URL=http://ollama:11434 OPS_SIGNALS_OLLAMA_MODEL="$${DEMO_AI_MODEL:-gemma3:4b}"
           # The model runs on CPU: 5-20 s an answer, more when several queue.
           export OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS=90
-          echo "AI is on: $${DEMO_AI_MODEL} from the ollama container (--profile ai)"
+          echo "AI is on: $${DEMO_AI_MODEL:-gemma3:4b} from the ollama container (--profile ai)"
         fi
         exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
     environment:
@@ -102,11 +118,18 @@ services:
       OPS_SIGNALS_OPENAI_API_KEY: ${OPS_SIGNALS_OPENAI_API_KEY:-}
       OPS_SIGNALS_ANTHROPIC_MODEL: ${OPS_SIGNALS_ANTHROPIC_MODEL:-}
       OPS_SIGNALS_ANTHROPIC_API_KEY: ${OPS_SIGNALS_ANTHROPIC_API_KEY:-}
-      # The model the `ai` profile downloads and the backend uses.
-      DEMO_AI_MODEL: ${DEMO_AI_MODEL:-gemma3:4b}
+      # The model the backend uses: from DEMO_AI_URL when set, else the one the `ai` profile
+      # downloads (gemma3:4b when empty).
+      DEMO_AI_MODEL: ${DEMO_AI_MODEL:-}
+      # A model API instead of the `ai` profile: any server that speaks the OpenAI chat completions
+      # API, URL up to the API root (e.g. .../v1). Key only if it needs one. demo/ai-api.env.example.
+      DEMO_AI_URL: ${DEMO_AI_URL:-}
+      DEMO_AI_KEY: ${DEMO_AI_KEY:-}
       # Recorded AI answers: replay them (OPS_SIGNALS_AI_PROVIDER=recorded), or record new ones.
       OPS_SIGNALS_AI_RECORDED_FILE: ${OPS_SIGNALS_AI_RECORDED_FILE:-}
       OPS_SIGNALS_AI_RECORD_TO: ${OPS_SIGNALS_AI_RECORD_TO:-}
+      # The "Things to try" guide, on by default here. OPS_SIGNALS_DEMO_TOUR=false hides it.
+      OPS_SIGNALS_DEMO_TOUR: ${OPS_SIGNALS_DEMO_TOUR:-true}
       # Demo mode, for a hosted public demo (docs/demo.md, "Host it as a public demo"): banner,
       # Things to try, view-only settings, sample files. Off unless set.
       OPS_SIGNALS_DEMO_MODE: ${OPS_SIGNALS_DEMO_MODE:-}

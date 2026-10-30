@@ -55,6 +55,10 @@ they show their usual fallback, and everything else works.
 
 ## Things to try
 
+The same ten steps are in the app: a **Things to try** guide in the corner, on by default, with a
+button for each step that takes you there and ticks itself off. Progress is kept in your browser.
+`OPS_SIGNALS_DEMO_TOUR=false` in front of the command hides it.
+
 1. **Read the alert as it reached the team** at http://localhost:8090: what happened, the deploy
    (`v2.14.0`), and the past case with its fix (roll back).
 2. **Overview**: what needs attention now, and the **Shift handoff** button.
@@ -81,7 +85,7 @@ they show their usual fallback, and everything else works.
 
 The demo's AI is off unless you turn it on. The demo's `ai` profile downloads `gemma3:4b` (the dev
 stack's own `ai` profile in `docker-compose.yml` pulls `qwen2.5:3b` instead, see the README).
-Nothing is sent anywhere unless you choose a provider. Two ways:
+Nothing is sent anywhere unless you choose a provider. Three ways:
 
 **A model in its own container** (the simplest). The demo's `ai` profile adds an Ollama container,
 downloads `gemma3:4b` into it, and switches AI on:
@@ -98,7 +102,33 @@ docker compose -f docker-compose.demo.yml --profile ai up --build
 - Stop it with `docker compose -f docker-compose.demo.yml --profile ai down -v`. The downloaded
   model is in the `ollama_models` volume; `down -v` removes it too.
 
-**A model server you already run, or an API.** Pass the settings when you start the demo. For
+**A model API you already have** (nothing to download). Any server that speaks the OpenAI chat
+completions API: a hosted API, a gateway, or a model server on your machine. Copy the template,
+fill in three lines, and start the demo with it:
+
+```bash
+cp demo/ai-api.env.example demo/ai-api.env
+docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up --build
+```
+
+| Setting | What to put |
+|---|---|
+| `DEMO_AI_URL` | The API root, ending before `/chat/completions`, e.g. `https://api.example.com/v1`. For a server on your machine use `host.docker.internal` instead of `localhost`. |
+| `DEMO_AI_KEY` | The API key, sent as `Authorization: Bearer <key>`. Leave empty if the server needs none. |
+| `DEMO_AI_MODEL` | The model name the server expects. Required: without it AI stays off and the backend log says why. |
+
+- `demo/ai-api.env` is gitignored. Keeping the key there keeps it out of your shell history; you
+  can also put the three settings in front of the command instead.
+- The backend log shows `AI is on: <model> from <url>` at start; the key is never printed.
+- When you use an AI feature, the case and finding text it needs is sent to that API.
+- Set together with `--profile ai`, the API wins and the downloaded model isn't used.
+- **The Anthropic API** has its own provider: in the same file, uncomment the `OPS_SIGNALS_*` block
+  instead and set the key and a model name (e.g. `claude-haiku-5-5`). Leave the `DEMO_AI_*` lines
+  empty.
+- **Things to try** is on by default in every way of starting the demo. `OPS_SIGNALS_DEMO_TOUR=false`
+  hides it.
+
+**A model server you already run, with your own settings.** Pass the settings when you start the demo. For
 [Ollama](https://ollama.com) on your own machine, with a model already pulled:
 
 ```bash
@@ -120,8 +150,8 @@ To put the demo on a server and share a link, turn on **demo mode**. It's for a 
 visit, so it changes a few things (off by default, and the local demo above stays as it is):
 
 - **A banner** on every page: sample data, nothing real, and when the site resets.
-- **Things to try**: a guide in the corner with the ten steps above. Each has a button that goes
-  there and ticks itself off when the visitor does it. Progress is kept in their browser only.
+- **Things to try**: the guide from the local demo, always on in demo mode; each visitor's progress
+  starts over when the site resets.
 - **Recorded AI answers**: AI buttons show answers a real model gave when the demo was built,
   labeled **Recorded example**. No model runs on the server.
 - **View-only settings**: anything that would change the site for everyone, reach in from outside,

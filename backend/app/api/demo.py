@@ -36,6 +36,8 @@ class DemoSampleOut(BaseModel):
 
 class DemoOut(BaseModel):
     enabled: bool
+    # Show the "Things to try" guide: in demo mode, or on its own with OPS_SIGNALS_DEMO_TOUR.
+    tour: bool = False
     resets_at: datetime | None = None
     reset_hours: float | None = None
     run_yourself_url: str | None = None
@@ -77,10 +79,11 @@ def _recorded_model() -> str | None:
 def demo_status() -> DemoOut:
     config = get_demo_config()
     if not config.enabled:
-        return DemoOut(enabled=False)
+        return DemoOut(enabled=False, tour=config.tour)
     ai, ai_model = _ai()
     return DemoOut(
         enabled=True,
+        tour=True,
         resets_at=next_reset(config),
         reset_hours=config.reset_hours or None,
         run_yourself_url=config.run_yourself_url,
