@@ -524,8 +524,8 @@ def orders_case_notes() -> dict[str, dict[str, object]]:
             "investigation_status": "in_progress",
             "investigation_note": (
                 f"Failed orders went from about 5 a minute to about 65 a minute four minutes after {ORDERS_DEPLOY_VERSION}. "
-                "Failures are all 'address validation timeout'. Checking whether the new address "
-                "provider client has a shorter timeout."
+                "Failures are all 'address validation timeout'. Rolled back the canary pods to the previous "
+                "version; failed orders there went back to about 5 a minute. Full rollback not done yet."
             ),
         },
         "rca": {

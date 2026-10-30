@@ -28,9 +28,9 @@ available, Compose builds them from source instead, which takes 10+ minutes the 
 
 | Service | Data | What happens | What it shows |
 |---|---|---|---|
-| `checkout-api` | Prometheus | CI deploy `v2.14.0`, then p95 latency steps from about 180ms to 320ms; the `CheckoutApiLatencyHigh` alert fires | The enriched Slack alert, the deploy behind it, and a case from five weeks ago fixed by a rollback, published with a write-up |
+| `checkout-api` | Prometheus | CI deploy `v2.14.0` replaces its 3 pods, then p95 latency steps from about 180ms to 320ms; the `CheckoutApiLatencyHigh` alert fires | The enriched Slack alert, the deploy behind it, **which pods** (the 3 new ones from the rollout), and a case from five weeks ago fixed by a rollback, published with a write-up |
 | `payments-db` | Prometheus | Connection wait and active connections climb together | The **Database connection pool exhaustion** pattern; **fix didn't stick** (the pool ran out 9 days ago and was fixed by raising its size, with the leak left open); **Recurring Problems** (the third time in 40 days) |
-| `search-svc` | Prometheus | Version `1.9.0` shows up on `search_build_info` with no CI event, then latency and errors jump together and the index merge backlog grows | A **deploy found automatically**; the **Possible cascading failure** pattern; a metric the wording file doesn't describe; "Was this real?" answers on past findings, counting toward 5 |
+| `search-svc` | Prometheus | Version `1.9.0` shows up on `search_build_info` with no CI event, then latency and errors jump together on one of its 4 pods, and the index merge backlog grows | A **deploy found automatically**; the **Possible cascading failure** pattern; **1 of 4 pods**; a metric the wording file doesn't describe; "Was this real?" answers on past findings, counting toward 5 |
 | `orders` | OTLP | Failed orders climb after CI deploy `v3.2.0`; order processing slows for 3 minutes | **OTLP** next to Prometheus; a case **in progress**; a finding made with the orders team's own analyzer settings (**Custom settings** tag) |
 
 Times are relative to when you ran `up`: the checkout deploy lands 48 minutes before, payments-db
@@ -49,27 +49,51 @@ What's real and what's seeded:
   past cases (analyzed from CSVs of the same shapes, with their root causes and fixes), the
   checkout write-up, the "Was this real?" answers, and the orders case notes.
 
-AI features need a provider (see [ai-features.md](ai-features.md)). Without one, they show their
-usual fallback, and everything else works.
+AI features are off unless you give the demo a provider ([Turn on AI](#turn-on-ai)). Without one,
+they show their usual fallback, and everything else works.
 
 ## Things to try
 
 1. **Read the alert as it reached the team** at http://localhost:8090: what happened, the deploy
    (`v2.14.0`), and the past case with its fix (roll back).
 2. **Overview**: what needs attention now, and the **Shift handoff** button.
-3. **Findings → checkout-api**: the **Seen before** chip opens the past case and its fix. Then
-   **Create Case** and try the root cause and resolution drafts.
+3. **Findings → checkout-api**: the **3 new pods** chip says where the change came from (hover
+   for the pods), and **Seen before** opens the past case and its fix. Then **Create Case**; with AI
+   on, try **Draft from case** on Root Cause.
 4. **Findings → payments-db**: the warning that the problem came back 9 days after a fix, with
-   what was left open. The old case shows the same banner.
+   what was left open; with AI on, **Why might it not have held?**. The old case shows the same
+   banner.
 5. **Recurring Problems**: payments-db's three cases, their causes and fixes, and the next step.
+   With AI on, **Draft a runbook** (Finding details → Seen before?) turns those fixes into steps.
 6. **Findings → Combined patterns** (or **Behavior Intelligence**): pool exhaustion on payments-db
    and cascading failure on search-svc, each with the single-metric findings it was made from.
-7. **Findings → search-svc**: "started after deploy `1.9.0`", tagged **Found automatically**.
+7. **Findings → search-svc**: "started after deploy `1.9.0`", tagged **Found automatically**, and
+   the **1 of 4 pods** chip: only `search-svc-2` went bad.
 8. **Answer "Was this real?"** on a search-svc finding and watch its count move toward 5.
-9. **Cases → In progress**: the orders case. On **Findings → orders**, the processing finding
-   carries **Custom settings**; its details show the team's setting and reason.
+9. **Cases → In progress**: the orders case, with notes and a rollback on the canary pods. With AI
+   on, draft its Root Cause and Resolution. On **Findings → orders**, the processing finding carries
+   **Custom settings**; its details show the team's setting and reason.
 10. **Assistant**: ask "Have we seen payments-db connection pool problems before?". It lists the
     past cases and findings it found; with an AI provider it also writes the answer from them.
+
+## Turn on AI
+
+The demo uses whatever model you point it at; nothing is sent anywhere unless you set this. Pass
+the settings when you start it. For a model server on your own machine, such as
+[Ollama](https://ollama.com) with a model already pulled:
+
+```bash
+OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama OPS_SIGNALS_OLLAMA_URL=http://host.docker.internal:11434 OPS_SIGNALS_OLLAMA_MODEL=gemma3:4b docker compose -f docker-compose.demo.yml up -d
+```
+
+Any OpenAI-compatible endpoint works too (`OPS_SIGNALS_AI_PROVIDER=openai_compatible` with
+`OPS_SIGNALS_OPENAI_BASE_URL`, `OPS_SIGNALS_OPENAI_MODEL` and, if it needs one,
+`OPS_SIGNALS_OPENAI_API_KEY`); [ai-features.md](ai-features.md) lists the providers and every place
+AI is used. **Integrations → AI provider → Test connection** checks it. To switch it off, run `up -d` again
+without them.
+
+Every AI line is checked before it's shown: a sentence naming a number, version or fix that isn't
+in the case is dropped, so a draft can come back shorter, or as "not available", rather than wrong.
 
 ## What runs
 
