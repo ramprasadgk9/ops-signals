@@ -79,7 +79,7 @@ OPS_SIGNALS_DRILLDOWN_ENABLED=true
 | Setting | Default | Meaning |
 |---|---|---|
 | `OPS_SIGNALS_DRILLDOWN_ENABLED` | `false` | Turn drill-down on |
-| `OPS_SIGNALS_DRILLDOWN_LABELS` | `pod,instance` | Labels to split by, tried in order; the first that gives at least 2 parts is used |
+| `OPS_SIGNALS_DRILLDOWN_LABELS` | `pod,pod_name,kubernetes_pod_name,instance,host` | Labels to split by, tried in order; the first that gives at least 2 parts is used. A label the metric doesn't have costs one small query |
 | `OPS_SIGNALS_DRILLDOWN_MAX_FINDINGS` | `3` | Most findings per job to drill into (most important first) |
 
 ## How it works

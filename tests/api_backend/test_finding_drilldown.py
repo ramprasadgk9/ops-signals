@@ -11,7 +11,7 @@ from backend.app.api.autonomous import get_prometheus_query_service
 from backend.app.autonomous import execution as autonomous_execution
 from backend.app.autonomous.drilldown import drill_down_findings
 from backend.app.autonomous.metric_executor import MetricAnalysisExecutionResult
-from backend.app.config import DrillDownConfig
+from backend.app.config import DEFAULT_SPLIT_LABELS, DrillDownConfig
 from backend.app.main import create_app
 from backend.app.models.entities import FindingEntity
 from backend.app.models.prometheus import PrometheusPreviewOut, PrometheusSeriesOut, PrometheusSeriesSample
@@ -47,7 +47,7 @@ class FakePrometheus:
         self.queries.append(query)
         if self.error is not None:
             raise self.error
-        label = next(name for name in ["pod", "instance"] if f", {name})" in query)
+        label = next(name for name in DEFAULT_SPLIT_LABELS if f", {name})" in query)
         series = []
         for part, (before, after) in self.by_label.get(label, {"only": (1.0, 2.0)}).items():
             samples = [
@@ -119,9 +119,21 @@ def test_falls_back_to_instance_when_there_is_no_pod_label(db_session) -> None:
     drill_down_findings(db=db_session, prometheus=prometheus, promql=PROMQL, step="1m", result=result, config=ENABLED)
 
     breakdown = _stored(db_session).comparison_json["breakdown"]
-    assert len(prometheus.queries) == 2
+    # pod, pod_name and kubernetes_pod_name each come back as one part first.
+    assert len(prometheus.queries) == 4
     assert breakdown["label"] == "instance"
     assert breakdown["top"][0]["value"] == "k4"
+
+
+def test_finds_the_pod_under_another_collectors_label_name(db_session) -> None:
+    prometheus = FakePrometheus(by_label={"kubernetes_pod_name": _pod_levels("x2")})
+    result = _result(db_session, [_signal()])
+
+    drill_down_findings(db=db_session, prometheus=prometheus, promql=PROMQL, step="1m", result=result, config=ENABLED)
+
+    breakdown = _stored(db_session).comparison_json["breakdown"]
+    assert breakdown["label"] == "kubernetes_pod_name"
+    assert breakdown["top"][0]["value"] == "x2"
 
 
 def test_too_many_parts_is_recorded_as_skipped(db_session) -> None:
@@ -131,7 +143,7 @@ def test_too_many_parts_is_recorded_as_skipped(db_session) -> None:
     drill_down_findings(db=db_session, prometheus=FakePrometheus(error=error), promql=PROMQL, step="1m", result=result, config=ENABLED)
 
     assert _stored(db_session).comparison_json["breakdown"] == {
-        "status": "skipped", "reason": "too_many_parts", "labels_tried": ["pod", "instance"],
+        "status": "skipped", "reason": "too_many_parts", "labels_tried": list(DEFAULT_SPLIT_LABELS),
     }
 
 

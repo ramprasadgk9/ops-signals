@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
+from backend.app.config import DEFAULT_SPLIT_LABELS
+
 from backend.app.models.prometheus import PrometheusSeriesOut, PrometheusSeriesSample
 from backend.app.services.pod_split import find_pod_split, odd_series, suggested_combine
 
@@ -98,6 +102,19 @@ def test_instance_is_used_when_there_is_no_pod_label() -> None:
 
     assert split.label == "instance"
     assert split.suggested_combine == "min"
+
+
+@pytest.mark.parametrize("label", ["pod_name", "kubernetes_pod_name", "host"])
+def test_pods_under_other_collectors_label_names_are_combined_by_default(label) -> None:
+    series = [
+        PrometheusSeriesOut(labels={"__name__": "request_latency_p95", "service": "checkout", label: name}, samples=[PrometheusSeriesSample(timestamp=START, value=90.0)])
+        for name in ("a", "b", "c")
+    ]
+
+    split = find_pod_split('request_latency_p95{service="checkout"}', series, metric=None, split_labels=list(DEFAULT_SPLIT_LABELS), cluster_label="cluster")
+
+    assert split is not None and split.label == label
+    assert split.queries["avg"] == 'avg by (service) (request_latency_p95{service="checkout"})'
 
 
 def test_hand_written_promql_is_wrapped_but_gets_no_one_pod_query() -> None:

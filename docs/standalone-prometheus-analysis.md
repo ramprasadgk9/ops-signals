@@ -287,8 +287,9 @@ lowest pod.
 Series are combined only when the pod (or instance) label has one value per
 series. If they also differ by something else, such as a status code, or by
 cluster, the run stops with the message naming that label, as before. The
-labels tried are the drill-down labels (`pod`, `instance`;
-`OPS_SIGNALS_DRILLDOWN_LABELS`). The API takes `"combine": "auto"` (or `max`,
+labels tried are the drill-down labels: `pod`, `pod_name`,
+`kubernetes_pod_name`, `instance` and `host` by default
+(`OPS_SIGNALS_DRILLDOWN_LABELS` to change them). The API takes `"combine": "auto"` (or `max`,
 `sum`, `avg`, `min`) on `POST /api/analysis/prometheus`; without it a query is
 analysed exactly as written.
 
