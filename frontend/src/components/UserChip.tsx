@@ -4,6 +4,7 @@ import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownR
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import { useWebPermissions } from '../hooks/useWebPermissions';
+import { useDemo } from '../demo/demo';
 
 const VIA_LABEL: Record<string, string> = { proxy: 'company sign-in', oidc: 'your company account', grafana: 'Grafana', dev: 'OPS_SIGNALS_DEV_USER (dev only)' };
 
@@ -28,10 +29,19 @@ function Row({ label, value }: { label: string; value: string }) {
 /** Top right of the web UI: who is signed in and their role, or that nobody is (and so nothing is limited). */
 export function UserChip() {
   const { me, role } = useWebPermissions();
+  const demo = useDemo();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // The backend clears the session and says where to go: the provider's sign-out, or /signed-out.
   const signOut = useMutation({ mutationFn: api.signOut, onSuccess: ({ redirect }) => window.location.assign(redirect) });
   if (!me) return null;
+
+  if (role === null && demo) {
+    return (
+      <Tooltip title="Anyone can look around, open cases and try the steps. Settings that would change the site for everyone are view-only.">
+        <Chip label="Demo visitor" size="small" sx={{ fontWeight: 800 }} data-testid="demo-visitor" />
+      </Tooltip>
+    );
+  }
 
   if (role === null) {
     return (

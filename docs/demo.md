@@ -114,6 +114,66 @@ Either way, **Integrations → AI provider → Test connection** checks it. Ever
 before it's shown: a sentence naming a number, version or fix that isn't in the case is dropped, so
 a draft can come back shorter, or as "not available", rather than wrong.
 
+## Host it as a public demo
+
+To put the demo on a server and share a link, turn on **demo mode**. It's for a site strangers
+visit, so it changes a few things (off by default, and the local demo above stays as it is):
+
+- **A banner** on every page: sample data, nothing real, and when the site resets.
+- **Things to try**: a guide in the corner with the ten steps above. Each has a button that goes
+  there and ticks itself off when the visitor does it. Progress is kept in their browser only.
+- **Recorded AI answers**: AI buttons show answers a real model gave when the demo was built,
+  labeled **Recorded example**. No model runs on the server.
+- **View-only settings**: anything that would change the site for everyone, reach in from outside,
+  or keep someone's own data is refused, with the reason on screen. Visitors can still open and work
+  cases, answer "Was this real?", ask Ops Signals, and analyze the demo's metrics or a sample file in
+  New Analysis.
+
+```bash
+OPS_SIGNALS_DEMO_MODE=true OPS_SIGNALS_DEMO_RESET_HOURS=2 OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=recorded docker compose -f docker-compose.demo.yml up -d --build
+```
+
+| Setting | What it does |
+|---|---|
+| `OPS_SIGNALS_DEMO_MODE=true` | Turns demo mode on |
+| `OPS_SIGNALS_DEMO_RESET_HOURS` | How often you reset the site; the banner counts down to it. Resetting is up to you (for example `down -v` and `up -d` on a timer). Keep it at 2 or less: search-svc's cascading-failure pattern lasts about 2 hours |
+| `OPS_SIGNALS_AI_PROVIDER=recorded` | Replays `config/demo_ai/recorded_answers.json` (another file: `OPS_SIGNALS_AI_RECORDED_FILE`) |
+| `OPS_SIGNALS_DEMO_RUN_YOURSELF_URL` | Where "Run it yourself" goes (default: the README's one-command install) |
+
+What's refused, and how it tells a visitor from the demo itself: a request that came through the
+web UI's proxy (it carries `X-Forwarded-For`) is checked; the demo's own services (the seeder,
+Alertmanager, the OTLP sender) call the backend directly. The list is in `backend/app/demo.py`.
+Expose only the web UI port (8080) to the internet, not Prometheus, Alertmanager or the Slack sink.
+
+**How recorded answers are matched.** Each reset seeds the story again, so times, case numbers and
+durations change. An answer is replayed for the same question with its numbers ignored, but not if
+it quotes a number from the day it was recorded that today's data doesn't have (a percentage, a case
+number): the feature then shows its usual text without AI. A visitor's own free-form question to
+Ask Ops Signals gets the answer from docs and cases, without AI.
+
+### Record the AI answers
+
+Re-record after the story or an AI feature's prompt changes. With a model in its own container:
+
+```bash
+mkdir -p tmp/recordings
+OPS_SIGNALS_AI_RECORD_TO=/recordings/recorded_answers.json docker compose -f docker-compose.demo.yml -f tmp/recordings.yml --profile ai up -d --build
+./scripts/record_demo_ai.py --web-url http://localhost:8080
+cp tmp/recordings/recorded_answers.json config/demo_ai/recorded_answers.json
+```
+
+`tmp/recordings.yml` mounts the folder the answers are written to:
+
+```yaml
+services:
+  backend:
+    volumes:
+      - ./tmp/recordings:/recordings
+```
+
+The script asks for every AI answer a visitor can get on the story and prints which ones the model
+gave; some can come back "not available" when a feature's checks drop the model's sentences.
+
 ## What runs
 
 | Service | Role |

@@ -88,3 +88,15 @@ def test_record_to_wraps_the_real_provider(tmp_path, monkeypatch) -> None:
 
     assert isinstance(client, RecordingLLMClient)
     assert client.model == "qwen2.5:3b"
+
+
+def test_an_answer_quoting_numbers_todays_data_doesnt_have_is_not_replayed(tmp_path) -> None:
+    path = tmp_path / "answers.json"
+    RecordingLLMClient(_Model("Latency is up 78%, three minutes after deploy v2.14.0."), path).generate(_ask(TODAY))
+    client = RecordedLLMClient(path)
+
+    # Same question after a reset, but latency is up 77% now: "78%" would be wrong today.
+    with pytest.raises(LLMRequestError):
+        client.generate(_ask(NEXT_RESET))
+    # Today's data still says 78%: replayed.
+    assert client.generate(_ask(TODAY.replace("00:09", "02:11"))).content.startswith("Latency is up 78%")

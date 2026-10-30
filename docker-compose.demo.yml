@@ -104,6 +104,14 @@ services:
       OPS_SIGNALS_ANTHROPIC_API_KEY: ${OPS_SIGNALS_ANTHROPIC_API_KEY:-}
       # The model the `ai` profile downloads and the backend uses.
       DEMO_AI_MODEL: ${DEMO_AI_MODEL:-gemma3:4b}
+      # Recorded AI answers: replay them (OPS_SIGNALS_AI_PROVIDER=recorded), or record new ones.
+      OPS_SIGNALS_AI_RECORDED_FILE: ${OPS_SIGNALS_AI_RECORDED_FILE:-}
+      OPS_SIGNALS_AI_RECORD_TO: ${OPS_SIGNALS_AI_RECORD_TO:-}
+      # Demo mode, for a hosted public demo (docs/demo.md, "Host it as a public demo"): banner,
+      # Things to try, view-only settings, sample files. Off unless set.
+      OPS_SIGNALS_DEMO_MODE: ${OPS_SIGNALS_DEMO_MODE:-}
+      OPS_SIGNALS_DEMO_RESET_HOURS: ${OPS_SIGNALS_DEMO_RESET_HOURS:-}
+      OPS_SIGNALS_DEMO_RUN_YOURSELF_URL: ${OPS_SIGNALS_DEMO_RUN_YOURSELF_URL:-}
     # So a model server on your machine (e.g. Ollama) is reachable as host.docker.internal on Linux
     # too; Docker Desktop already provides it.
     extra_hosts:

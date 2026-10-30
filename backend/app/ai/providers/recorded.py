@@ -8,9 +8,9 @@ The demo is seeded again on every reset, so the same question comes back with ot
 numbers and durations. A question is matched with every number taken out: the system message (which
 feature is asking) must be the same, and the closest recorded question must be at least
 MATCH_THRESHOLD alike. With no match the call fails like a model that's down, and the feature shows
-its usual "not available" fallback; a recorded answer is never stretched to another question. Each
-feature still checks the answer against its own facts (case_ai_drafts.check_draft), so a recorded
-sentence naming a number today's facts don't have is dropped as it would be from a live model.
+its usual "not available" fallback; a recorded answer is never stretched to another question. An
+answer that quotes a number from its recorded question that today's question doesn't have (a
+percentage, a case number) isn't replayed either, since not every feature checks its answer.
 """
 
 from __future__ import annotations
@@ -36,6 +36,13 @@ _SPACE = re.compile(r"\s+")
 def normalize(text: str) -> str:
     """The question without the parts a new seed changes: numbers (times, ids, durations, sizes)."""
     return _SPACE.sub(" ", _NUMBER.sub("#", text.lower())).strip()
+
+
+def stale_numbers(reply: str, recorded_question: str, question: str) -> set[str]:
+    """Numbers the recorded answer took from its recorded question that today's question doesn't
+    have. Numbers the answer didn't take from the question ("1-3 steps", a list's "1.") don't count."""
+    from_data = set(_NUMBER.findall(reply)) & set(_NUMBER.findall(recorded_question))
+    return from_data - set(_NUMBER.findall(question))
 
 
 def _split(request: LLMRequest) -> tuple[str, str]:
@@ -66,6 +73,10 @@ class RecordedLLMClient(LLMClient):
                 best, score = entry, ratio
         if best is None or score < MATCH_THRESHOLD:
             raise LLMRequestError("No recorded answer for this question")
+        if stale_numbers(best["reply"], best["user"], user):
+            # The answer quotes data from the day it was recorded ("up 2616%", "case #7") that today's
+            # question doesn't have. Not every feature checks its answer, so it's never shown.
+            raise LLMRequestError("The recorded answer quotes numbers today's data doesn't have")
         return LLMResponse(
             content=best["reply"],
             model=best.get("model") or "recorded",
