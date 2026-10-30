@@ -90,6 +90,8 @@ from backend.app.models.schema_compat import (
     ensure_ticketing_schema,
 )
 from backend.app.roles import require_grafana_role
+from backend.app.demo import refuse_in_demo
+from backend.app.api.demo import router as demo_router
 from backend.app.oidc import setup_problem as oidc_setup_problem
 from backend.app.security import require_api_token
 from backend.app.storage.bootstrap import seed_reference_data
@@ -462,8 +464,9 @@ def create_app(database_url: str | None = None) -> FastAPI:
         title=settings.app_name,
         version=settings.app_version,
         lifespan=lifespan,
-        # The token first (who may call at all), then the Grafana user's role (what they may change).
-        dependencies=[Depends(require_api_token), Depends(require_grafana_role)],
+        # The token first (who may call at all), then the Grafana user's role (what they may change),
+        # then what demo mode turns off for visitors (backend/app/demo.py; nothing when it's off).
+        dependencies=[Depends(require_api_token), Depends(require_grafana_role), Depends(refuse_in_demo)],
         docs_url="/docs" if docs_open else None,
         redoc_url="/redoc" if docs_open else None,
         openapi_url="/openapi.json" if docs_open else None,
@@ -509,6 +512,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(alerts_router)
     app.include_router(ai_router)
+    app.include_router(demo_router)
     app.include_router(events_router)
     app.include_router(metric_usage_router)
     app.include_router(notifications_router)

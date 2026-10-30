@@ -48,6 +48,11 @@ class AnthropicConfig(BaseModel):
     timeout_seconds: float = 60.0
 
 
+class RecordedConfig(BaseModel):
+    # Answers a real model gave, replayed by the `recorded` provider (backend/app/ai/providers/recorded.py).
+    file: str = "config/demo_ai/recorded_answers.json"
+
+
 class AIConfig(BaseModel):
     enabled: bool = False
     # noop | ollama | openai_compatible | anthropic
@@ -59,6 +64,9 @@ class AIConfig(BaseModel):
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     openai_compatible: OpenAICompatibleConfig = Field(default_factory=OpenAICompatibleConfig)
     anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
+    recorded: RecordedConfig = Field(default_factory=RecordedConfig)
+    # Save every answer the provider gives, with its question, to this file (for `recorded`).
+    record_to: str | None = None
 
     @field_validator("provider")
     @classmethod
@@ -80,6 +88,10 @@ def apply_ai_env_overrides(config: AIConfig) -> AIConfig:
         config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
     if os.getenv("OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS"):
         config.ollama.min_timeout_seconds = float(os.environ["OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS"])
+    if os.getenv("OPS_SIGNALS_AI_RECORDED_FILE"):
+        config.recorded.file = os.environ["OPS_SIGNALS_AI_RECORDED_FILE"]
+    if os.getenv("OPS_SIGNALS_AI_RECORD_TO"):
+        config.record_to = os.environ["OPS_SIGNALS_AI_RECORD_TO"]
     if os.getenv("OPS_SIGNALS_OPENAI_BASE_URL"):
         config.openai_compatible.base_url = os.environ["OPS_SIGNALS_OPENAI_BASE_URL"]
     if os.getenv("OPS_SIGNALS_OPENAI_MODEL"):

@@ -42,6 +42,10 @@ import { useFeatureAvailability } from '../hooks/useFeatureAvailability';
 import { ui } from '../standalone/theme';
 import { useColorMode } from '../theme/ThemeProviderWithMode';
 import { showAllNavFeatures, useHiddenNavFeatures } from '../utils/hiddenNavFeatures';
+import { DemoBanner } from '../demo/DemoBanner';
+import { DemoTurnedOff } from '../demo/DemoTurnedOff';
+import { ThingsToTry } from '../demo/ThingsToTry';
+import { turnedOffReason, useDemo } from '../demo/demo';
 
 type NavItem = {
   label: string;
@@ -93,6 +97,8 @@ const systemItems: NavItem[] = [
 
 function NavButton({ item, nested = false, needsSource = false }: { item: NavItem; nested?: boolean; needsSource?: boolean }) {
   const location = useLocation();
+  const demo = useDemo();
+  const viewOnlyInDemo = Boolean(demo && turnedOffReason(item.to));
   const active = item.match ? item.match(location.pathname) : location.pathname === item.to;
   return (
     <Button
@@ -121,6 +127,7 @@ function NavButton({ item, nested = false, needsSource = false }: { item: NavIte
         {item.label}
       </Box>
       {item.badge ? <Chip label={item.badge} size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-violet)', color: ui.purple, fontWeight: 800 }} /> : null}
+      {viewOnlyInDemo ? <Chip label="DEMO" size="small" title="View-only in the demo" sx={{ height: 19, fontSize: 10, fontWeight: 800, color: 'var(--os-muted)', bgcolor: 'transparent', border: '1px solid var(--os-border)' }} /> : null}
       {needsSource ? <Chip label="Connect" size="small" sx={{ height: 21, fontSize: 11, bgcolor: 'var(--os-tint-amber)', color: 'var(--os-ink-amber)', fontWeight: 800 }} /> : null}
     </Button>
   );
@@ -403,6 +410,8 @@ export function AppShell({ children }: PropsWithChildren) {
           </Button>
         </Box>
 
+        <Box sx={{ minWidth: 0 }}>
+        <DemoBanner />
         <Box component="main" sx={{ px: { xs: 2, md: 4 }, py: { xs: 2.5, md: 4 }, minWidth: 0, overflowX: 'auto' }}>
           <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ display: { xs: 'none', lg: isAnalysisPage ? 'none' : 'flex' }, mb: 3 }}>
             <Button startIcon={<CalendarTodayRoundedIcon />} endIcon={<KeyboardArrowDownRoundedIcon />} variant="outlined" disabled sx={{ height: 44, borderColor: ui.border, color: 'var(--os-text-2)', bgcolor: 'var(--os-surface)', textTransform: 'none', fontWeight: 750 }}>
@@ -412,9 +421,12 @@ export function AppShell({ children }: PropsWithChildren) {
               New Analysis
             </Button> : null}
           </Stack>
+          <DemoTurnedOff />
           {children}
         </Box>
+        </Box>
       </Box>
+      <ThingsToTry />
     </Box>
   );
 }

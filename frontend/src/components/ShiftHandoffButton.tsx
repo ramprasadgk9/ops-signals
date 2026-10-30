@@ -10,6 +10,8 @@ import { ui } from '../standalone/theme';
 import { useAiActive } from './CaseAiDraft';
 import { HANDOFF_HOURS, handoffCopyText, handoffCounts, openLabel, watchHref, watchLabel } from '../utils/shiftHandoff';
 import type { ShiftHandoffNote } from '../types';
+import { markDemoStep } from '../demo/events';
+import { AiLabel } from '../demo/AiLabel';
 
 // Shift handoff (backend/app/services/shift_handoff.py): a button in the Overview's header that
 // opens the handoff for the next person on call, ready to paste into the team's channel. A button,
@@ -19,7 +21,7 @@ export function ShiftHandoffButton() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="outlined" color="warning" startIcon={<SwapHorizRoundedIcon />} onClick={() => setOpen(true)} sx={{ textTransform: 'none', fontWeight: 800 }}>
+      <Button variant="outlined" color="warning" startIcon={<SwapHorizRoundedIcon />} onClick={() => { setOpen(true); markDemoStep('handoff'); }} sx={{ textTransform: 'none', fontWeight: 800 }}>
         Shift handoff
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm" aria-labelledby="shift-handoff-title">
@@ -121,7 +123,7 @@ function ShiftHandoffDialogBody({ onClose }: { onClose: () => void }) {
             {aiNote ? (
               <Box sx={{ mt: 1.75, p: 1.5, borderRadius: '8px', border: `1px solid ${ui.border}` }} data-testid="shift-handoff-note">
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                  <Chip size="small" icon={<AutoAwesomeRoundedIcon />} label="AI" />
+                  <AiLabel><Chip size="small" icon={<AutoAwesomeRoundedIcon />} label="AI" /></AiLabel>
                   <Typography sx={{ color: ui.muted, fontSize: 12 }}>Counts by Ops Signals, the rest written by AI from the list above. Check it before you paste.</Typography>
                 </Stack>
                 <Typography>{aiNote}</Typography>

@@ -23,6 +23,7 @@ import { formatDateTime, relativeTime, ui } from '../standalone/theme';
 import { toCaseRows } from '../standalone/casesService';
 import { buildMemorySummaryFromStats } from '../standalone/memoryService';
 import type { AlertContextResponse, MemoryStatsResponse } from '../types';
+import { AiLabel } from '../demo/AiLabel';
 
 const filters = [
   { id: 'indexed', label: 'Indexed' },
@@ -467,7 +468,7 @@ function AlertContextPanel() {
               <Box sx={{ p: 1.5, border: `1px solid ${ui.border}`, borderRadius: '8px', bgcolor: 'var(--os-surface-alt)' }}>
                 <Stack direction="row" spacing={0.75} alignItems="flex-start">
                   {result.raw_activity.ai_summary ? (
-                    <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
+                    <AiLabel><Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} /></AiLabel>
                   ) : null}
                   <Typography sx={{ fontSize: 13 }}>
                     {result.raw_activity.ai_summary ?? (

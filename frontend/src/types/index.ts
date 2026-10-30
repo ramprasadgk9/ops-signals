@@ -1741,3 +1741,16 @@ export type SlackStatus = {
     next_retry_at?: string | null;
   } | null;
 };
+
+// GET /api/demo: demo mode for the hosted demo (backend/app/api/demo.py).
+export type DemoSample = { id: string; title: string; description: string; service: string; metric: string };
+export type DemoInfo = {
+  enabled: boolean;
+  resets_at?: string | null;
+  reset_hours?: number | null;
+  run_yourself_url?: string | null;
+  /** recorded: AI answers written by a real model when the demo was built; live: a model answers now. */
+  ai: 'recorded' | 'live' | 'off';
+  ai_model?: string | null;
+  samples: DemoSample[];
+};

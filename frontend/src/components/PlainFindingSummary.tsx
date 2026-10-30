@@ -3,6 +3,7 @@ import { Box, Button, Chip, CircularProgress, Stack, Tooltip, Typography } from 
 import type { FindingAIWording, FindingPlain } from '../types';
 import { AI_LINE_HINT, aiFooter, hasAiLines, plainLines, plainTimes, plainTone, type PlainTone } from '../utils/findingPlain';
 import { EnableAiHint } from './EnableAiHint';
+import { AiLabel } from '../demo/AiLabel';
 
 // A finding in plain words: what changed, why it matters and what to check, with the stored
 // summary kept under "Technical details". Wording comes from config/finding_templates.yaml.
@@ -99,9 +100,11 @@ export function PlainFindingSummary({
               </Typography>
               <Typography component="dd" variant="body2" sx={{ m: 0, minWidth: 0 }}>
                 {line.ai ? (
-                  <Tooltip title={AI_LINE_HINT} enterTouchDelay={0}>
-                    <Chip label="AI" size="small" variant="outlined" color="info" tabIndex={0} data-testid="finding-plain-ai" sx={{ height: 18, fontSize: '0.65rem', mr: 0.75, verticalAlign: 1 }} />
-                  </Tooltip>
+                  <AiLabel>
+                    <Tooltip title={AI_LINE_HINT} enterTouchDelay={0}>
+                      <Chip label="AI" size="small" variant="outlined" color="info" tabIndex={0} data-testid="finding-plain-ai" sx={{ height: 18, fontSize: '0.65rem', mr: 0.75, verticalAlign: 1 }} />
+                    </Tooltip>
+                  </AiLabel>
                 ) : null}
                 {line.text}
                 {line.findingId && onOpenFinding ? (

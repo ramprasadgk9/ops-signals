@@ -1,3 +1,4 @@
+import { markDemoStep } from '../demo/events';
 import { deleteJson, getHealth, getJson, postForm, postJson, patchJson } from './client';
 import type { SetupCheckResult } from '../utils/setupCheck';
 import type { Me } from '../hooks/useWebPermissions';
@@ -101,6 +102,7 @@ import type {
   MetricUsageDropConfig,
   MetricUsageStatus,
   GrafanaStatus,
+  DemoInfo,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -384,6 +386,8 @@ export const api = {
   runCaseImport: (payload: FormData) => postForm<CaseImportResult>('/api/case-imports', payload),
   caseImports: () => getJson<CaseImportBatch[]>('/api/case-imports'),
   aiStatus: () => getJson<AIStatus>('/api/ai/status'),
+  demo: () => getJson<DemoInfo>('/api/demo'),
+  demoSample: (sampleId: string) => postJson<Record<string, never>, CsvRunResult>(`/api/demo/samples/${encodeURIComponent(sampleId)}`, {}),
   testAiConnection: () => postJson<Record<string, never>, AITestResult>('/api/ai/test', {}),
   undoCaseImport: (batchId: string) => deleteJson<{ batch_id: string; deleted_cases: number }>(`/api/case-imports/${batchId}`),
   alertContext: (metricName: string, service?: string, message?: string) => {
@@ -404,8 +408,10 @@ export const api = {
     }),
   metricAnalyzerChat: (payload: AnalyzerRecommendationChatRequest) =>
     postJson<AnalyzerRecommendationChatRequest, AnalyzerRecommendationChatResponse>('/api/metric-analyzer-recommendations/chat', payload),
-  assistantChat: (payload: AssistantChatRequest) =>
-    postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload),
+  assistantChat: (payload: AssistantChatRequest) => {
+    markDemoStep('ask');
+    return postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload);
+  },
   reindexKnowledge: () => postJson<Record<string, never>, KnowledgeReindexResult>('/api/assistant/knowledge/bootstrap', {}),
   knowledgeStatus: () => getJson<KnowledgeStatus>('/api/assistant/knowledge/status'),
   starterQuestions: () => getJson<StarterQuestions>('/api/assistant/starter-questions'),

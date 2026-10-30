@@ -4,6 +4,8 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '../api/queries';
 import type { CaseRcaDraft, CaseResolutionDraft, CaseWriteupDraft } from '../types';
+import { markDemoStep } from '../demo/events';
+import { AiLabel } from '../demo/AiLabel';
 
 // "Draft from case" on a case's Root Cause and Resolution tabs (backend/app/services/case_ai_drafts.py).
 // The draft fills the boxes and shows what it was written from; only the tab's own Save button saves.
@@ -69,12 +71,12 @@ type CaseDraft = ReturnType<typeof useCaseDraft>;
 export function CaseDraftButton({ draft, label = 'Draft from case' }: { draft: CaseDraft; label?: string }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end" sx={{ mb: -1 }}>
-      {draft.drafted ? <Chip size="small" color="secondary" variant="outlined" label="AI draft · not saved" data-testid="case-draft-chip" /> : null}
+      {draft.drafted ? <AiLabel suffix=" · not saved"><Chip size="small" color="secondary" variant="outlined" label="AI draft · not saved" data-testid="case-draft-chip" /></AiLabel> : null}
       <Button
         size="small"
         variant="outlined"
         color="secondary"
-        onClick={draft.request}
+        onClick={() => { markDemoStep('case-draft'); draft.request(); }}
         disabled={draft.pending}
         startIcon={draft.pending ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRoundedIcon fontSize="small" />}
         sx={{ textTransform: 'none' }}

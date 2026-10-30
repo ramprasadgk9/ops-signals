@@ -15,6 +15,7 @@ import { PlainBadge, PlainFindingSummary } from './PlainFindingSummary';
 import { changeChipLabel, findingChanges, priorChange } from '../utils/findingChanges';
 import { watchedByTag } from '../utils/metricUsage';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
+import { AiLabel } from '../demo/AiLabel';
 
 /** The same finding seen in several runs; the card shows one of them. */
 export type FindingRepeats = {
@@ -108,7 +109,7 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
         ) : (
           <Stack direction="row" spacing={0.75} alignItems="flex-start" sx={{ mb: 2 }}>
             {finding.ai_summary && (
-              <Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} />
+              <AiLabel><Chip label="AI" size="small" variant="outlined" color="info" sx={{ height: 18, fontSize: '0.65rem', mt: 0.25 }} /></AiLabel>
             )}
             <Typography variant="body2" color="text.secondary">
               {finding.ai_summary ?? finding.summary}
