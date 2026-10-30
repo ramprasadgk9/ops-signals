@@ -99,7 +99,7 @@ done
 
 echo "Waiting for qdrant to become ready..."
 for attempt in {1..30}; do
-  if curl -fsS http://localhost:6333/health >/dev/null 2>&1; then
+  if curl -fsS http://localhost:6333/readyz >/dev/null 2>&1 || curl -fsS http://localhost:6333/healthz >/dev/null 2>&1; then
     break
   fi
   if [[ "$attempt" -eq 30 ]]; then

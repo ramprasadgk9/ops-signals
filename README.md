@@ -279,7 +279,7 @@ The steps below set up a development install that you can point at your own data
 #### Prerequisites
 
 - **Git**
-- **Docker**, with Compose v2 (the `docker compose` command, not the older standalone `docker-compose`) - runs PostgreSQL/TimescaleDB and Qdrant for you
+- **Docker**, with Compose v2 (the `docker compose` command, not the older standalone `docker-compose`) - runs PostgreSQL/TimescaleDB and Qdrant for you (make sure Docker Desktop or Docker Engine is running)
 - **Python 3.12** (recommended: it's what the Docker images and CI use). 3.11 and 3.14 also work;
   3.13 is explicitly not supported by `scripts/setup.sh`. The setup script picks 3.12 when it's
   installed, and keeps the version an existing `.venv` already uses
@@ -349,7 +349,7 @@ the bundled Prometheus and mock metrics (`OPS_SIGNALS_LOCAL_PROMETHEUS=true` sta
 ./scripts/run_all.sh
 ```
 
-This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command.
+This starts the backend (`:8001`), frontend (`:5174`), Postgres, Qdrant, Prometheus, and mock metrics together, all from one command. Press `Ctrl+C` to stop the backend and frontend servers (run `docker compose down` when you want to stop the background containers).
 
 #### Open the Application
 
