@@ -1399,6 +1399,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
   return (
     <div style={styles.stack}>
       {workflowError ? <div style={styles.alert}>{workflowError}</div> : null}
+      {result.analyzedAs ? <div data-testid="analyzed-as" style={{ ...styles.alert, borderColor: 'rgba(87, 148, 242, 0.45)', background: 'rgba(87, 148, 242, 0.08)' }}>{result.analyzedAs}</div> : null}
       {(result.warnings ?? []).length ? (
         <div data-testid="run-warnings" style={{ ...styles.alert, borderColor: 'rgba(255, 179, 87, 0.45)', background: 'rgba(255, 179, 87, 0.08)' }}>
           {(result.warnings ?? []).map((warning) => <div key={warning}>{warning}</div>)}

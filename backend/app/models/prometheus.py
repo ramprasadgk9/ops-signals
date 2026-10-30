@@ -56,6 +56,34 @@ class PrometheusSeriesOut(BaseModel):
     samples: list[PrometheusSeriesSample]
 
 
+class OddSeriesOut(BaseModel):
+    value: str
+    message: str
+
+
+class PodSplitOut(BaseModel):
+    """The query returned one series per pod (or instance): how to read them as one line."""
+
+    label: str
+    # The odd one out first, then the rest by name.
+    values: list[str]
+    suggested_combine: Literal["max", "sum", "avg", "min"]
+    # Combined query per choice, and a one-pod query per value (plain selectors only).
+    queries: dict[str, str]
+    one_queries: dict[str, str] = Field(default_factory=dict)
+    odd: OddSeriesOut | None = None
+
+
+class CombinedSeriesOut(BaseModel):
+    """What an analysis run combined: `how` across `count` values of `label`."""
+
+    label: str
+    count: int
+    how: Literal["max", "sum", "avg", "min"]
+    original_query: str
+    odd: OddSeriesOut | None = None
+
+
 class PrometheusPreviewOut(BaseModel):
     query: str
     start: datetime
@@ -66,6 +94,7 @@ class PrometheusPreviewOut(BaseModel):
     sample_count: int
     series: list[PrometheusSeriesOut]
     warnings: list[str] = Field(default_factory=list)
+    pods: PodSplitOut | None = None
 
 
 class DirectPrometheusAnalysisRequest(PrometheusQueryRequest):
@@ -73,6 +102,9 @@ class DirectPrometheusAnalysisRequest(PrometheusQueryRequest):
     metric: str = Field(min_length=1)
     analyzer: str | None = None
     execution_mode: Literal["persist"] = "persist"
+    # When the query returns one series per pod: combine them ("auto" = the metric's usual way, as
+    # scheduled runs do) instead of refusing. None keeps the query exactly as written.
+    combine: Literal["auto", "max", "sum", "avg", "min"] | None = None
 
 
 class DirectPrometheusAnalysisOut(BaseModel):
@@ -103,3 +135,4 @@ class DirectPrometheusAnalysisOut(BaseModel):
     series: list[PrometheusSeriesOut] = Field(default_factory=list)
     signals: list[dict] = Field(default_factory=list)
     findings: list[dict] = Field(default_factory=list)
+    combined: CombinedSeriesOut | None = None

@@ -804,6 +804,21 @@ export type PrometheusPreviewResponse = {
   sample_count: number;
   series: PrometheusPreviewSeries[];
   warnings: string[];
+  pods?: PodSplit | null;
+};
+
+export type CombineChoice = 'max' | 'sum' | 'avg' | 'min';
+
+/** The query returned one series per pod (or instance): how to read them as one line. */
+export type PodSplit = {
+  label: string;
+  /** The odd one out first, then the rest by name. */
+  values: string[];
+  suggested_combine: CombineChoice;
+  queries: Record<CombineChoice, string>;
+  /** One-pod query per value; empty for hand-written PromQL. */
+  one_queries: Record<string, string>;
+  odd?: { value: string; message: string } | null;
 };
 
 export type DirectPrometheusAnalysisRequest = {
@@ -816,6 +831,8 @@ export type DirectPrometheusAnalysisRequest = {
   step: string;
   analyzer?: string | null;
   execution_mode: 'persist';
+  /** Combine per-pod series ('auto' = the metric's usual way) instead of refusing them. */
+  combine?: 'auto' | CombineChoice | null;
 };
 
 export type DirectPrometheusAnalysisResponse = {
@@ -846,6 +863,7 @@ export type DirectPrometheusAnalysisResponse = {
   series: PrometheusPreviewSeries[];
   signals: Signal[];
   findings: Finding[];
+  combined?: { label: string; count: number; how: CombineChoice; original_query: string; odd?: { value: string; message: string } | null } | null;
 };
 
 export type AnalyzerExecution = {

@@ -41,6 +41,22 @@ describe('runConnectionAnalysis', () => {
     expect(result.findings.map((finding) => finding.title)).toEqual(['p95 stepped up']);
   });
 
+  it('asks for per-pod series to be combined and says how the run read them', async () => {
+    const combined = { label: 'pod', count: 4, how: 'avg', odd: { value: 'checkout-2', message: 'checkout-2 is behaving differently from the other 3 pods: it reaches 1,150 while the others stay near 90.' } };
+    fetchMock.mockImplementation(async (url: string) => new Response(JSON.stringify(
+      url.includes('/api/analysis/prometheus') ? { ...RUN, query: 'avg by (service) (request_latency_p95{service="checkout"})', combined } : respond(url),
+    ), { status: 200 }));
+
+    const result = await runConnectionAnalysis('http://backend', {
+      connectionId: 'team-a', connectionName: 'team-a', service: 'checkout', metric: 'request_latency_p95',
+      promql: 'request_latency_p95{service="checkout"}', from: 'S', to: 'E', stepSeconds: 120, combine: 'auto',
+    });
+
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)).combine).toBe('auto');
+    expect(result.promql).toBe('avg by (service) (request_latency_p95{service="checkout"})');
+    expect(result.analyzedAs).toBe(`Analyzed as one line: the average of 4 pods. ${combined.odd.message}`);
+  });
+
   it('lists label values on a connection, narrowed to matching series in a range', async () => {
     fetchMock.mockImplementation(async () => new Response(JSON.stringify({ connection_id: 'team-a', label: 'cluster', values: ['eu', 'us'] }), { status: 200 }));
 

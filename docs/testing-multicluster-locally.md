@@ -133,8 +133,9 @@ the Ops Signals app in Grafana (http://localhost:3000).
 3. **Interactive Analysis → Query through: Ops Signals connection.** Pick `Mimir team-a (eu, us)`,
    service `checkout`, metric `request_latency_p95`: a **Cluster** field appears and Run Analysis
    waits for it. `eu` runs and warns that one HA replica copy was dropped; Run details show the
-   connection and cluster. `us` stops with "This query matched 12 series, which differ by pod…":
-   `checkout` in `us` has one series per pod, so add a `pod="…"` matcher in PromQL mode.
+   connection and cluster. `us` has one series per pod for `checkout`: the run combines the 12 pods into one line and
+   the result says "Analyzed as one line: the average of 12 pods". In PromQL mode the same query
+   stops with "This query matched 12 series, which differ by pod…".
 4. **Open in Interactive Analysis** on an autonomous finding from `team-a` re-runs it on that
    connection and cluster.
 
