@@ -87,9 +87,13 @@ With `Ops Signals connection`:
 - `Cluster` appears when the service and metric exist in two or more clusters.
   `Run Analysis` stays disabled until you choose one: the backend analyses one
   series per run.
-- If one series still isn't enough (e.g. a metric per pod), the run stops with the
-  backend's message saying which label to add, such as `pod="…"`. Switch `Mode` to
-  `PromQL expression` to narrow or aggregate the query.
+- A metric with one series per pod is combined into one line the way scheduled
+  runs read it (for example the average of the pods for latency), and the result
+  says so above Run details, naming a pod that behaves differently from the rest.
+- If the series differ by more than the pod (e.g. a status code too), the run
+  stops with the backend's message saying which label to add. Switch `Mode` to
+  `PromQL expression` to narrow or aggregate the query; a PromQL expression is
+  always run exactly as written.
 
 ### Data source
 

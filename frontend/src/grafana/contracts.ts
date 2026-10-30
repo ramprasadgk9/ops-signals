@@ -93,6 +93,8 @@ export type GrafanaAnalysisResult = {
   service: string;
   metric: string;
   promql?: string;
+  /** Set when per-pod series were combined into the one analyzed line, in plain words. */
+  analyzedAs?: string | null;
   from: string;
   to: string;
   summary: string;

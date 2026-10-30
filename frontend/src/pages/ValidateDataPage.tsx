@@ -51,6 +51,7 @@ import { RouterDecisionPanel } from '../components/RouterDecisionPanel';
 import { Tooltip as MuiTooltip } from '@mui/material';
 import { useDemo } from '../demo/demo';
 import { markDemoStep } from '../demo/events';
+import { combinedPhrase, combineName, combineValues, PodCombineBox, podChoiceQuery, type PodChoice } from '../components/PodCombineBox';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
 type Mode = 'csv' | 'prometheus';
@@ -161,6 +162,9 @@ function minMaxAvg(preview: PrometheusPreviewResponse | null) {
   return { min, max, avg };
 }
 
+const PREVIEW_LINES = 10;
+const SERIES_COLORS = ['#94a3b8', '#a5b4fc', '#86efac', '#fcd34d', '#c4b5fd', '#67e8f9', '#fda4af', '#bef264', '#fdba74', '#cbd5e1'];
+
 function FieldLabel({ children }: { children: string }) {
   return <Typography sx={{ fontSize: 13, fontWeight: 800, color: 'var(--os-text-2)', mb: 0.8 }}>{children}</Typography>;
 }
@@ -250,6 +254,8 @@ export function ValidateDataPage() {
   const [selectedConnectionId, setConnectionId] = useState<string | null>(null);
   const [selectedCluster, setSelectedCluster] = useState('');
   const [promPreview, setPromPreview] = useState<PrometheusPreviewResponse | null>(null);
+  // How Run Analysis reads a preview's per-pod series; null = the metric's usual way.
+  const [podChoice, setPodChoice] = useState<PodChoice | null>(null);
   const [promResult, setPromResult] = useState<DirectPrometheusAnalysisResponse | null>(null);
   const [promResults, setPromResults] = useState<DirectPrometheusAnalysisResponse[]>([]);
   const [promMessage, setPromMessage] = useState<string | null>(null);
@@ -313,7 +319,11 @@ export function ValidateDataPage() {
   const chosenCluster = needsCluster && clusterOptions.includes(selectedCluster) ? selectedCluster : '';
   const clusterSelector = chosenCluster && clusterLabel ? { label: clusterLabel, value: chosenCluster } : null;
   const clusterRequired = needsCluster && !chosenCluster;
-  const effectiveQuery = queryMode === 'simple' ? buildPromql(selectedMetricNames[0] ?? metricName, service, clusterSelector) : promQuery;
+  const baseQuery = queryMode === 'simple' ? buildPromql(selectedMetricNames[0] ?? metricName, service, clusterSelector) : promQuery;
+  // The preview returned one series per pod for exactly this query: say how to read them as one line.
+  const pods = promPreview?.pods && promPreview.query.trim() === baseQuery.trim() && (queryMode !== 'simple' || selectedMetricNames.length <= 1) ? promPreview.pods : null;
+  const activePodChoice: PodChoice | null = pods ? podChoice ?? pods.suggested_combine : null;
+  const effectiveQuery = queryMode === 'simple' && pods && activePodChoice ? podChoiceQuery(pods, activePodChoice) : baseQuery;
   // Nothing to query until a metric is chosen (or a PromQL query typed): the form starts empty.
   const queryMissing = !effectiveQuery.trim();
   const rangeValid = selectedRange.start instanceof Date && selectedRange.end instanceof Date && !Number.isNaN(selectedRange.start.getTime()) && !Number.isNaN(selectedRange.end.getTime()) && selectedRange.start < selectedRange.end;
@@ -428,7 +438,7 @@ export function ValidateDataPage() {
       if (queryMode !== 'simple' || selectedMetricNames.length <= 1) {
         return api.previewPrometheus({
           connection_id: connectionId,
-          query: effectiveQuery,
+          query: baseQuery,
           start: selectedRange.start.toISOString(),
           end: selectedRange.end.toISOString(),
           step,
@@ -450,7 +460,9 @@ export function ValidateDataPage() {
     onSuccess: (result) => {
       setPromError(null);
       const metricText = queryMode === 'simple' && selectedMetricNames.length > 1 ? ` across ${selectedMetricNames.length} metrics` : '';
-      setPromMessage(result.sample_count ? `Preview returned ${result.sample_count} samples across ${result.series_count} series${metricText}.` : 'The query succeeded, but Prometheus returned no samples for the selected time range.');
+      const podText = result.pods ? ` (${result.pods.values.length} ${result.pods.label}s)` : '';
+      setPromMessage(result.sample_count ? `Preview returned ${result.sample_count} samples across ${result.series_count} series${podText}${metricText}.` : 'The query succeeded, but Prometheus returned no samples for the selected time range.');
+      setPodChoice(null);
       setPromPreview(result);
     },
     onError: (err: unknown) => {
@@ -473,6 +485,9 @@ export function ValidateDataPage() {
           step,
           analyzer: analyzerId,
           execution_mode: 'persist',
+          // Simple mode builds the query, so per-pod series are combined the metric's usual way;
+          // a hand-written query is analyzed exactly as written.
+          combine: queryMode === 'simple' ? 'auto' : null,
         })];
       }
       const results: DirectPrometheusAnalysisResponse[] = [];
@@ -487,6 +502,7 @@ export function ValidateDataPage() {
           step,
           analyzer: analyzerId,
           execution_mode: 'persist',
+          combine: 'auto',
         }));
       }
       return results;
@@ -511,7 +527,14 @@ export function ValidateDataPage() {
     },
     onError: (err: unknown) => {
       setPromMessage(null);
-      setPromError(err instanceof Error ? err.message : 'Prometheus analysis failed');
+      const text = err instanceof Error ? err.message : 'Prometheus analysis failed';
+      setPromError(text);
+      // A hand-written query with one series per pod: fetch the preview, whose Pods box offers the fixes.
+      if (queryMode === 'advanced' && text.includes('which differ by') && !pods) {
+        api.previewPrometheus({ connection_id: connectionId, query: baseQuery, start: selectedRange.start.toISOString(), end: selectedRange.end.toISOString(), step })
+          .then((result) => { if (result.pods) { setPodChoice(null); setPromPreview(result); } })
+          .catch(() => undefined);
+      }
     },
   });
 
@@ -530,10 +553,41 @@ export function ValidateDataPage() {
     },
   });
 
-  const chartData = (promPreview?.series[0]?.samples ?? []).slice(-80).map((sample) => ({
-    time: new Date(sample.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    value: sample.value,
-  }));
+  // Every series the preview returned (up to PREVIEW_LINES), plus - for per-pod series - the line
+  // Run Analysis will analyze. `value` is that line, or the only series.
+  const previewSeries = useMemo(() => {
+    const all = promPreview?.series ?? [];
+    const podLabel = promPreview?.pods?.label;
+    const order = promPreview?.pods?.values ?? [];
+    const named = all.map((series, index) => ({ series, name: podLabel ? series.labels[podLabel] ?? `series ${index + 1}` : `series ${index + 1}` }));
+    named.sort((left, right) => (order.indexOf(left.name) === -1 ? 1e9 : order.indexOf(left.name)) - (order.indexOf(right.name) === -1 ? 1e9 : order.indexOf(right.name)));
+    return { drawn: named.slice(0, PREVIEW_LINES), hidden: Math.max(named.length - PREVIEW_LINES, 0) };
+  }, [promPreview]);
+  const previewCombine = pods && activePodChoice && !activePodChoice.startsWith('pod:') ? activePodChoice as 'max' | 'sum' | 'avg' | 'min' : null;
+  const chartData = useMemo(() => {
+    const all = promPreview?.series ?? [];
+    if (all.length <= 1) {
+      return (all[0]?.samples ?? []).slice(-80).map((sample) => ({
+        time: new Date(sample.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        value: sample.value,
+      }));
+    }
+    const rows = new Map<string, Record<string, number | string | null>>();
+    const allValues = new Map<string, number[]>();
+    all.forEach((series) => series.samples.forEach((sample) => {
+      if (typeof sample.value !== 'number') return;
+      allValues.set(sample.timestamp, [...(allValues.get(sample.timestamp) ?? []), sample.value]);
+    }));
+    previewSeries.drawn.forEach(({ series }, index) => series.samples.forEach((sample) => {
+      const row = rows.get(sample.timestamp) ?? { time: new Date(sample.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+      row[`s${index}`] = sample.value;
+      rows.set(sample.timestamp, row);
+    }));
+    return [...rows.entries()]
+      .sort(([left], [right]) => new Date(left).getTime() - new Date(right).getTime())
+      .slice(-80)
+      .map(([timestamp, row]) => ({ ...row, value: previewCombine ? combineValues(allValues.get(timestamp) ?? [], previewCombine) : null }));
+  }, [promPreview, previewSeries, previewCombine]);
   const resultChartData = (promResult?.series[0]?.samples ?? []).slice(-160).map((sample) => ({
     time: new Date(sample.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     value: sample.value,
@@ -834,7 +888,7 @@ export function ValidateDataPage() {
 	                  <Box><FieldLabel>Time Window</FieldLabel><FormControl fullWidth><Select size="small" value={timePreset} onChange={(e) => setTimePreset(e.target.value as TimePreset)} sx={{ height: 44 }}>{PRESETS.map((preset) => <MenuItem key={preset.id} value={preset.id}>{preset.label}</MenuItem>)}</Select></FormControl></Box>
 	                  <Box><FieldLabel>Start</FieldLabel><TextField size="small" fullWidth type="datetime-local" disabled={timePreset !== 'custom'} value={customStart} onChange={(e) => setCustomStart(e.target.value)} /></Box>
 	                  <Box><FieldLabel>End</FieldLabel><TextField size="small" fullWidth type="datetime-local" disabled={timePreset !== 'custom'} value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} /></Box>
-                  <Box><FieldLabel>Step / Interval</FieldLabel><TextField size="small" fullWidth value={step} onChange={(e) => setStep(e.target.value)} /></Box>
+                  <Box><FieldLabel>Step / Interval</FieldLabel><TextField size="small" fullWidth value={step} onChange={(e) => setStep(e.target.value)} inputProps={{ 'aria-label': 'Step / Interval' }} /></Box>
                 </Box>
 
                 <Box sx={{ px: 1.4, py: 1.1, borderRadius: '8px', bgcolor: 'var(--os-tint-cyan)', color: 'var(--os-ink-brand)', fontSize: 13, fontWeight: 750 }}>
@@ -851,6 +905,16 @@ export function ValidateDataPage() {
                   <Alert severity="warning">
                     Did you mean <strong>{suggestedLabService}</strong>? Lab service labels use hyphens, not underscores.
                   </Alert>
+                ) : null}
+
+                {pods && activePodChoice ? (
+                  <PodCombineBox
+                    pods={pods}
+                    mode={queryMode}
+                    choice={activePodChoice}
+                    onChoose={(choice) => { setPodChoice(choice); setPromResult(null); setPromResults([]); }}
+                    onUseQuery={(query) => { setPromQuery(query); setPromPreview(null); setPromResult(null); setPromResults([]); setPromError(null); }}
+                  />
                 ) : null}
 
                 <Stack direction="row" spacing={1.5}>
@@ -876,13 +940,14 @@ export function ValidateDataPage() {
                 <Typography sx={{ fontSize: 12, color: ui.muted, mb: 2 }}>{timePreset === 'custom' ? 'Custom range' : PRESETS.find((preset) => preset.id === timePreset)?.label}</Typography>
                 <Box sx={{ height: 86, border: `1px solid ${ui.border}`, borderRadius: '6px', mb: 2, bgcolor: 'var(--os-surface)' }}>
 	                  {chartData.length ? (
-	                    <ResponsiveContainer><LineChart data={chartData}><Tooltip /><Line type="monotone" dataKey="value" stroke="#009688" dot={false} strokeWidth={2} /></LineChart></ResponsiveContainer>
+	                    <ResponsiveContainer><LineChart data={chartData}><Tooltip /><Line type="monotone" dataKey={(promPreview?.series.length ?? 0) > 1 && !previewCombine ? 's0' : 'value'} stroke="#009688" dot={false} strokeWidth={2} /></LineChart></ResponsiveContainer>
 	                  ) : (
 	                    <Stack alignItems="center" justifyContent="center" sx={{ height: '100%', color: ui.muted, fontSize: 12 }}>Preview data appears here</Stack>
 	                  )}
 	                </Box>
                 <Stack spacing={1.45}>
-                  <SummaryRow icon={<QueryStatsRoundedIcon fontSize="small" />} label="Series Returned" value={formatNumber(promPreview?.series_count)} />
+                  <SummaryRow icon={<QueryStatsRoundedIcon fontSize="small" />} label="Series Returned" value={pods ? `${pods.values.length} ${pods.label}s` : formatNumber(promPreview?.series_count)} />
+                  {pods && activePodChoice ? <SummaryRow icon={<QueryStatsRoundedIcon fontSize="small" />} label="Analyzed as" value={activePodChoice.startsWith('pod:') ? activePodChoice.slice(4) : combineName(activePodChoice as 'max', pods.label)} /> : null}
                   <SummaryRow icon={<AddchartRoundedIcon fontSize="small" />} label="Sample Count" value={formatNumber(promPreview?.sample_count)} />
                   <SummaryRow icon={<ScheduleRoundedIcon fontSize="small" />} label="Start (UTC)" value={formatRangeDate(firstSample ?? selectedRange.start)} />
                   <SummaryRow icon={<ScheduleRoundedIcon fontSize="small" />} label="End (UTC)" value={formatRangeDate(lastSample ?? selectedRange.end)} />
@@ -947,8 +1012,30 @@ export function ValidateDataPage() {
                 <Chip label={`${promPreview.start} to ${promPreview.end}`} />
               </Stack>
               {promPreview.warnings.map((warning) => <Alert key={warning} severity="warning">{warning}</Alert>)}
-              {chartData.length ? <Box sx={{ height: 220 }}><ResponsiveContainer><LineChart data={chartData}><XAxis dataKey="time" /><YAxis /><Tooltip /><Line type="monotone" dataKey="value" stroke="#4f46e5" dot={false} strokeWidth={2} /></LineChart></ResponsiveContainer></Box> : <Typography color="text.secondary">No samples returned for this range.</Typography>}
-              <Typography variant="body2" color="text.secondary">Selected series labels: {JSON.stringify(promPreview.series[0]?.labels ?? {})}</Typography>
+              {chartData.length ? (
+                <Box sx={{ height: 220 }} data-testid="preview-chart">
+                  <ResponsiveContainer>
+                    <LineChart data={chartData}>
+                      <XAxis dataKey="time" /><YAxis /><Tooltip />
+                      {promPreview.series.length > 1 ? previewSeries.drawn.map(({ name }, index) => (
+                        <Line key={name} type="monotone" dataKey={`s${index}`} name={name} stroke={name === pods?.odd?.value ? '#ff4d57' : SERIES_COLORS[index % SERIES_COLORS.length]} dot={false} strokeWidth={1.2} isAnimationActive={false} />
+                      )) : null}
+                      {promPreview.series.length <= 1 || previewCombine ? (
+                        <Line type="monotone" dataKey="value" name={previewCombine && pods ? combineName(previewCombine, pods.label) : 'value'} stroke={promPreview.series.length > 1 ? 'var(--os-text)' : '#4f46e5'} dot={false} strokeWidth={2.2} isAnimationActive={false} />
+                      ) : null}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </Box>
+              ) : <Typography color="text.secondary">No samples returned for this range.</Typography>}
+              {promPreview.series.length > 1 ? (
+                <Typography variant="body2" color="text.secondary">
+                  Thin lines: each series as Prometheus returned it{pods ? ` (one per ${pods.label})` : ''}.
+                  {previewCombine && pods ? ` Bold line: ${combineName(previewCombine, pods.label).toLowerCase()}, what Run Analysis analyzes.` : ''}
+                  {previewSeries.hidden ? ` ${previewSeries.hidden} more not drawn.` : ''}
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">Selected series labels: {JSON.stringify(promPreview.series[0]?.labels ?? {})}</Typography>
+              )}
             </Stack>
           </CardContent>
         </Card>
@@ -970,6 +1057,14 @@ export function ValidateDataPage() {
                     {promResults.length > 1 ? <Chip size="small" label={`${promResults.length} metrics analyzed`} /> : null}
 	                </Stack>
 	              </Stack>
+
+                {promResult.combined ? (
+                  <Alert severity="info" data-testid="combined-note">
+                    Analyzed as one line: {combinedPhrase(promResult.combined.how, promResult.combined.label, promResult.combined.count)}.
+                    {promResult.combined.odd ? ` ${promResult.combined.odd.message}` : ''}
+                    <Box component="div" sx={{ mt: 0.5, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12 }}>{promResult.query}</Box>
+                  </Alert>
+                ) : null}
 
                 {promResults.length > 1 ? (
                   <Box sx={{ border: `1px solid ${ui.border}`, borderRadius: '8px', p: 1.4, bgcolor: 'var(--os-surface)' }}>

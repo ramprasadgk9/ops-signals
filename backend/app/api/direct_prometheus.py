@@ -8,10 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.config import PrometheusConnectionConfig, get_prometheus_connections
+from backend.app.autonomous.drilldown import drill_down_findings
+from backend.app.config import DrillDownConfig, PrometheusConnectionConfig, get_drilldown_config, get_prometheus_connections
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
 from backend.app.models.prometheus import (
+    CombinedSeriesOut,
     DirectPrometheusAnalysisOut,
     DirectPrometheusAnalysisRequest,
     PrometheusConnectionTestOut,
@@ -31,6 +33,7 @@ from backend.app.services.prometheus_service import (
     get_prometheus_connection,
 )
 from backend.app.services.finding_plain import finding_plain
+from backend.app.services.pod_split import find_pod_split
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from backend.app.api.errors import internal_error
 from intelligence.pipeline import SignalPipeline
@@ -122,8 +125,15 @@ def get_prometheus_label_values(
 def preview_prometheus_query(
     payload: PrometheusQueryRequest,
     service: PrometheusQueryService = Depends(get_prometheus_query_service),
+    config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> PrometheusPreviewOut:
-    return service.preview(payload.query, payload.start, payload.end, payload.step)
+    preview = service.preview(payload.query, payload.start, payload.end, payload.step)
+    preview.pods = _pod_split(payload.query, preview, None, config)
+    return preview
+
+
+def _pod_split(query: str, preview: PrometheusPreviewOut, metric: str | None, config: PrometheusConnectionConfig):
+    return find_pod_split(query, preview.series, metric=metric, split_labels=get_drilldown_config().labels, cluster_label=config.cluster_label)
 
 
 @analysis_router.post("/prometheus", response_model=DirectPrometheusAnalysisOut)
@@ -133,11 +143,19 @@ def run_direct_prometheus_analysis(
     service: PrometheusQueryService = Depends(get_prometheus_query_service),
     config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> DirectPrometheusAnalysisOut:
-    preview = service.preview(payload.query, payload.start, payload.end, payload.step)
+    query = payload.query
+    preview = service.preview(query, payload.start, payload.end, payload.step)
     if preview.sample_count == 0:
         raise HTTPException(status_code=400, detail="The query succeeded, but Prometheus returned no samples for the selected time range.")
+    combined: CombinedSeriesOut | None = None
+    pods = _pod_split(query, preview, payload.metric, config) if preview.series_count > 1 and payload.combine else None
+    if pods is not None:
+        how = pods.suggested_combine if payload.combine == "auto" else payload.combine
+        combined = CombinedSeriesOut(label=pods.label, count=len(pods.values), how=how, original_query=payload.query, odd=pods.odd)
+        query = pods.queries[how]
+        preview = service.preview(query, payload.start, payload.end, payload.step)
     if preview.series_count != 1:
-        raise HTTPException(status_code=400, detail=_multi_series_detail(payload.query, preview.series, config.cluster_label))
+        raise HTTPException(status_code=400, detail=_multi_series_detail(query, preview.series, config.cluster_label))
 
     selected_series = preview.series[0]
     labels = selected_series.labels
@@ -169,7 +187,8 @@ def run_direct_prometheus_analysis(
                 "datasource_uid": config.id,
                 "connection_id": config.id,
                 "datasource_name": configured_connection(config).name,
-                "promql": payload.query,
+                "promql": query,
+                **({"combined": combined.model_dump()} if combined else {}),
                 "from": preview.start.isoformat(),
                 "to": preview.end.isoformat(),
                 "step_seconds": preview.step_seconds,
@@ -184,6 +203,21 @@ def run_direct_prometheus_analysis(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise internal_error("Analysis failed", exc) from exc
+
+    if combined is not None:
+        # The pods were combined, so say which of them the change came from - the drill-down
+        # scheduled runs use, here always on. It never fails the run.
+        try:
+            drill_down_findings(
+                db=db,
+                prometheus=service,
+                promql=query,
+                step=payload.step,
+                result=result,
+                config=DrillDownConfig(labels=[combined.label], max_findings_per_job=get_drilldown_config().max_findings_per_job, enabled=True),
+            )
+        except Exception:  # noqa: BLE001
+            db.rollback()
 
     finding_rows = db.execute(select(FindingEntity).where(FindingEntity.analysis_run_id == result.analysis_run_id)).scalars().all()
     signal_rows = db.execute(select(SignalEntity).where(SignalEntity.analysis_run_id == result.analysis_run_id)).scalars().all()
@@ -200,7 +234,7 @@ def run_direct_prometheus_analysis(
         connection_name=configured_connection(config).name,
         service=payload.service,
         metric_name=payload.metric,
-        query=payload.query,
+        query=query,
         requested_start=preview.start,
         requested_end=preview.end,
         actual_start=actual_start,
@@ -254,4 +288,5 @@ def run_direct_prometheus_analysis(
             }
             for finding in finding_rows
         ],
+        combined=combined,
     )

@@ -436,6 +436,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
       stepSeconds: Math.max(Math.round(calculateIntervalMs(timeRange) / 1000), 1),
       cluster: chosenCluster || null,
       startedAt,
+      combine: metricMode === 'promql' ? null : 'auto',
     });
     setResult(backendResult);
   }

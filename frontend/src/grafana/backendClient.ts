@@ -71,6 +71,8 @@ export type BackendPluginAnalysis = {
   service: string;
   metric: string;
   promql?: string;
+  /** Set when per-pod series were combined into the one analyzed line, in plain words. */
+  analyzedAs?: string | null;
   from: string;
   to: string;
   status: 'idle' | 'running' | 'complete' | 'error';
@@ -498,7 +500,18 @@ type RunSummary = {
   analyzer_routing?: GrafanaAnalyzerRoutingDecision[];
   executed_analyzers?: string[];
   analyzer_executions?: GrafanaAnalyzerExecution[];
+  query?: string;
+  combined?: { label: string; count: number; how: 'max' | 'sum' | 'avg' | 'min'; odd?: { value: string; message: string } | null } | null;
 };
+
+const COMBINE_WORDS = { max: 'highest', sum: 'all added up', avg: 'average', min: 'lowest' } as const;
+
+/** "Analyzed as one line: the average of 4 pods." plus the odd pod, when the backend combined series. */
+export function analyzedAsText(combined: RunSummary['combined']): string | null {
+  if (!combined) return null;
+  const how = combined.how === 'sum' ? `all ${combined.count} ${combined.label}s added up` : `the ${COMBINE_WORDS[combined.how]} of ${combined.count} ${combined.label}s`;
+  return `Analyzed as one line: ${how}.${combined.odd ? ` ${combined.odd.message}` : ''}`;
+}
 
 /** Loads what an analysis run produced (timeline, findings, signals, behaviors) into the plugin's result. */
 async function collectRunResult(baseUrl: string, run: RunSummary, target: {
@@ -565,6 +578,8 @@ export async function runConnectionAnalysis(baseUrl: string, target: {
   stepSeconds: number;
   cluster?: string | null;
   startedAt?: number;
+  /** 'auto' for a query built from a metric name: per-pod series are combined, as in the web UI. */
+  combine?: 'auto' | null;
 }): Promise<BackendPluginAnalysis> {
   const run = await postJsonWithTimeout<RunSummary & { connection_name?: string }>(baseUrl, '/api/analysis/prometheus', {
     connection_id: target.connectionId,
@@ -575,19 +590,21 @@ export async function runConnectionAnalysis(baseUrl: string, target: {
     end: target.to,
     step: `${Math.max(target.stepSeconds, 1)}s`,
     execution_mode: 'persist',
+    ...(target.combine ? { combine: target.combine } : {}),
   }, 120000);
-  return collectRunResult(baseUrl, run, {
+  const analysis = await collectRunResult(baseUrl, run, {
     datasource: run.connection_name ?? target.connectionName,
     datasourceUid: target.connectionId,
     service: target.service,
     metric: target.metric,
-    promql: target.promql,
+    promql: run.query ?? target.promql,
     from: target.from,
     to: target.to,
     durationMs: target.startedAt === undefined ? undefined : Math.round(performance.now() - target.startedAt),
     cluster: target.cluster,
     connection: run.connection_name ?? target.connectionName,
   });
+  return { ...analysis, analyzedAs: analyzedAsText(run.combined) };
 }
 
 export async function runPrometheusSampleAnalysis(baseUrl: string, target: {

@@ -233,3 +233,114 @@ def test_run_analysis_reports_why_several_series_came_back() -> None:
 
     assert res.status_code == 400
     assert res.json()["detail"] == 'This query matched 2 series, which differ by service (checkout-0, checkout-1). Add service="checkout-0" to pick one: cpu_usage{service="checkout-0"}'
+
+
+class PerPodPrometheusService(FakePrometheusService):
+    """Four search-svc pods for the plain selector; one combined line for anything aggregated."""
+
+    def __init__(self):
+        self.queries: list[str] = []
+
+    def preview(self, query: str, start: datetime, end: datetime, step: str):
+        self.queries.append(query)
+        begin = datetime(2026, 7, 26, 10, tzinfo=timezone.utc)
+        pods = ["search-svc-0", "search-svc-1", "search-svc-2", "search-svc-3"]
+
+        def value(pod: str, i: int) -> float:
+            return 1150.0 if pod == "search-svc-2" and i >= 30 and i % 5 == 0 else 90.0 + i % 3
+
+        if query.startswith("avg by (") or query.startswith("max by ("):
+            labels_sets = [{"service": "search-svc"}] if " by (service" in query else [{"service": "search-svc", "pod": pod} for pod in pods]
+        else:
+            labels_sets = [{"__name__": "request_latency_p95", "service": "search-svc", "pod": pod} for pod in pods]
+        series = [
+            PrometheusSeriesOut(labels=labels, samples=[PrometheusSeriesSample(timestamp=begin + timedelta(minutes=i), value=value(labels.get("pod", "search-svc-2"), i)) for i in range(60)])
+            for labels in labels_sets
+        ]
+        return PrometheusPreviewOut(query=query, start=begin, end=begin + timedelta(hours=1), step="1m", step_seconds=60,
+                                    series_count=len(series), sample_count=60 * len(series), series=series, warnings=[])
+
+
+_PER_POD_RUN = {"query": 'request_latency_p95{service="search-svc"}', "service": "search-svc", "metric": "request_latency_p95",
+                "start": "2026-07-26T10:00:00Z", "end": "2026-07-26T11:00:00Z", "step": "1m"}
+
+
+def test_preview_says_how_to_read_per_pod_series_as_one_line() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = PerPodPrometheusService
+
+    with TestClient(app) as client:
+        res = client.post("/api/prometheus/preview", json={k: _PER_POD_RUN[k] for k in ("query", "start", "end", "step")})
+
+    pods = res.json()["pods"]
+    assert pods["label"] == "pod"
+    assert pods["suggested_combine"] == "avg"
+    assert pods["queries"]["avg"] == 'avg by (service) (request_latency_p95{service="search-svc"})'
+    assert pods["values"][0] == "search-svc-2"
+    assert pods["odd"]["value"] == "search-svc-2"
+
+
+def test_single_series_preview_has_no_pods() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakePrometheusService(_preview())
+
+    with TestClient(app) as client:
+        res = client.post("/api/prometheus/preview", json={"query": "cpu_usage", "start": "2026-07-26T10:00:00Z", "end": "2026-07-26T11:00:00Z", "step": "5m"})
+
+    assert res.json()["pods"] is None
+
+
+def test_run_without_combine_still_refuses_per_pod_series() -> None:
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = PerPodPrometheusService
+
+    with TestClient(app) as client:
+        res = client.post("/api/analysis/prometheus", json=_PER_POD_RUN)
+
+    assert res.status_code == 400
+    assert "which differ by pod" in res.json()["detail"]
+
+
+def test_run_with_combine_auto_analyzes_the_combined_line() -> None:
+    from unittest.mock import patch
+
+    from backend.app.api.ingestion import PreviewPipelineStore
+    from intelligence.pipeline import SignalPipeline
+
+    service = PerPodPrometheusService()
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: service
+
+    # A bare SignalPipeline writes to the database in config.yaml.
+    with patch("backend.app.api.direct_prometheus.SignalPipeline", lambda config: SignalPipeline(config, store=PreviewPipelineStore())):
+        with TestClient(app) as client:
+            res = client.post("/api/analysis/prometheus", json={**_PER_POD_RUN, "combine": "auto"})
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["query"] == 'avg by (service) (request_latency_p95{service="search-svc"})'
+    assert body["series_count"] == 1
+    assert body["combined"]["how"] == "avg"
+    assert body["combined"]["count"] == 4
+    assert body["combined"]["original_query"] == _PER_POD_RUN["query"]
+    assert body["combined"]["odd"]["value"] == "search-svc-2"
+    assert service.queries[:2] == [_PER_POD_RUN["query"], body["query"]]
+
+
+def test_run_with_a_chosen_combine_uses_it() -> None:
+    from unittest.mock import patch
+
+    from backend.app.api.ingestion import PreviewPipelineStore
+    from intelligence.pipeline import SignalPipeline
+
+    service = PerPodPrometheusService()
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: service
+
+    with patch("backend.app.api.direct_prometheus.SignalPipeline", lambda config: SignalPipeline(config, store=PreviewPipelineStore())):
+        with TestClient(app) as client:
+            res = client.post("/api/analysis/prometheus", json={**_PER_POD_RUN, "combine": "max"})
+
+    assert res.status_code == 200, res.text
+    assert res.json()["combined"]["how"] == "max"
+    assert res.json()["query"].startswith("max by (service) (")

@@ -259,6 +259,39 @@ use a plain `replica` label should set
 it off). Deduplicating in the backend too (Mimir's HA tracker, Thanos
 `--query.replica-label`) is still a good idea.
 
+### One series per pod
+
+Most Kubernetes metrics have one series per pod (or per `instance` on plain
+machines). The analysis reads one line, so New Analysis combines them the way
+scheduled runs do, with the same per-metric choice from
+`config/prometheus_metric_knowledge.yaml`: latency and memory are averaged,
+request and error counts are added up, health checks such as `up` take the
+lowest pod.
+
+- **Simple mode, Run Analysis** combines the pods without asking. The result
+  says how ("Analyzed as one line: the average of 4 pods") and shows the query
+  it ran, such as `avg by (service) (request_latency_p95{service="search-svc"})`.
+- **Preview Data** draws every pod as a thin line and the combined line in dark.
+  A **Pods** box under the form lets you pick another way (highest, added up,
+  average, lowest) or one pod alone. If one pod behaves differently from the
+  rest, the box names it ("search-svc-2 is behaving differently from the other
+  3 pods…") with **Analyze only search-svc-2**.
+- **Findings** from a combined run say which pods the change came from, using
+  the same drill-down as scheduled runs (on for these runs even when
+  `OPS_SIGNALS_DRILLDOWN_ENABLED` is off).
+- **Advanced PromQL** is run exactly as written. If it returns one series per
+  pod, the error stays, and the Pods box offers **Combine** buttons that put a
+  wrapped query (`avg by (…) (your query)`) in the box for you to check and
+  run. A one-pod button is offered only for a plain selector.
+
+Series are combined only when the pod (or instance) label has one value per
+series. If they also differ by something else, such as a status code, or by
+cluster, the run stops with the message naming that label, as before. The
+labels tried are the drill-down labels (`pod`, `instance`;
+`OPS_SIGNALS_DRILLDOWN_LABELS`). The API takes `"combine": "auto"` (or `max`,
+`sum`, `avg`, `min`) on `POST /api/analysis/prometheus`; without it a query is
+analysed exactly as written.
+
 ### Known limitations
 
 - **Hand-written PromQL that aggregates away the cluster** (e.g.
@@ -280,7 +313,8 @@ are handled the same way. They differ only in what each form lets you set.
 | **One metric: connection and cluster** | Validate Data → Prometheus | Interactive Analysis → **Query through: Ops Signals connection** |
 | Cluster asked for when the series is in several; run waits for it | ✅ | ✅ |
 | HA replica copies dropped, with a warning | ✅ | ✅ |
-| "This query matched N series… add `pod="…"`" when one series isn't enough | ✅ | ✅ |
+| Series per pod combined into one line, with the odd pod named | ✅ with a Pods box after Preview | ✅ in Metric mode, noted on the result |
+| "This query matched N series… add `pod="…"`" when the series differ by more than the pod | ✅ | ✅ |
 | Findings labelled with cluster (and connection, when there are several) | Findings page, finding drawer | Symptom rows, finding panel, case drawer |
 | Filter by cluster | Findings page | Autonomous overview chips |
 | Query through a Grafana data source instead | — | ✅ the default; no cluster handling |

@@ -397,3 +397,111 @@ describe('ValidateDataPage clusters', () => {
     expect(screen.getByText('Lab Scenarios')).toBeInTheDocument();
   });
 });
+
+describe('ValidateDataPage pods', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const base = 'ops_signal_lab_value{service="ruptures-lab"}';
+  const pods = {
+    label: 'pod',
+    values: ['lab-2', 'lab-0', 'lab-1', 'lab-3'],
+    suggested_combine: 'avg' as const,
+    queries: { max: `max by (service) (${base})`, sum: `sum by (service) (${base})`, avg: `avg by (service) (${base})`, min: `min by (service) (${base})` },
+    one_queries: { 'lab-2': 'ops_signal_lab_value{service="ruptures-lab",pod="lab-2"}', 'lab-0': 'ops_signal_lab_value{service="ruptures-lab",pod="lab-0"}' },
+    odd: { value: 'lab-2', message: 'lab-2 is behaving differently from the other 3 pods: it reaches 1,150 while the others stay near 90.' },
+  };
+  const runResponse = (extra: Record<string, unknown> = {}) => ({
+    analysis_run_id: 'run-1', provider: 'prometheus', source_type: 'prometheus', connection_id: 'default', connection_name: 'Default',
+    service: 'ruptures-lab', metric_name: 'ops_signal_lab_value', query: pods.queries.avg, requested_start: '', requested_end: '', step: '5m', step_seconds: 300,
+    sample_count: 0, series_count: 1, findings_count: 0, signal_count: 0, behavior_findings_count: 0, warnings: [],
+    analyzer_selection_mode: 'all', analyzer_routing: [], executed_analyzers: [], series: [], signals: [], findings: [], ...extra,
+  });
+
+  function setup() {
+    vi.mocked(api.capabilities).mockResolvedValue([]);
+    vi.mocked(api.prometheusConnections).mockResolvedValue({ connections: [{ id: 'default', name: 'Default', configured: true, is_default: true }] });
+    vi.mocked(api.prometheusLabelValues).mockImplementation(async (label: string) => ({
+      connection_id: 'default', label, values: label === 'service' ? ['ruptures-lab'] : ['ops_signal_lab_value'],
+    }));
+    vi.mocked(api.previewPrometheus).mockImplementation(async ({ query }) => ({
+      query, start: '2026-10-30T08:00:00Z', end: '2026-10-30T14:00:00Z', step: '5m', step_seconds: 300, series_count: 4, sample_count: 8, warnings: [],
+      series: pods.values.map((pod) => ({ labels: { pod }, samples: [{ timestamp: '2026-10-30T08:00:00Z', value: 90 }, { timestamp: '2026-10-30T08:05:00Z', value: pod === 'lab-2' ? 1150 : 91 }] })),
+      pods,
+    }));
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Prometheus' }));
+    fireEvent.click(screen.getByText('Baseline shift: ruptures-lab'));
+  }
+
+  const promql = () => (screen.getByLabelText('PromQL') as HTMLTextAreaElement).value;
+  const runButton = () => screen.getByRole('button', { name: 'Run Analysis' });
+
+  it('combines per-pod series when run without a preview, and says how', async () => {
+    setup();
+    vi.mocked(api.runPrometheusAnalysis).mockResolvedValue(runResponse({
+      combined: { label: 'pod', count: 4, how: 'avg', original_query: base, odd: pods.odd },
+    }) as never);
+
+    await waitFor(() => expect(runButton()).toBeEnabled());
+    fireEvent.click(runButton());
+
+    await waitFor(() => expect(api.runPrometheusAnalysis).toHaveBeenCalled());
+    expect(vi.mocked(api.runPrometheusAnalysis).mock.calls[0][0]).toMatchObject({ query: base, combine: 'auto' });
+    expect(await screen.findByTestId('combined-note')).toHaveTextContent('Analyzed as one line: the average of 4 pods. lab-2 is behaving differently');
+  });
+
+  it('after a preview, shows the pods box, the usual way first, and can analyze the odd pod alone', async () => {
+    setup();
+    vi.mocked(api.runPrometheusAnalysis).mockResolvedValue(runResponse() as never);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Preview Data' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Preview Data' }));
+
+    expect(await screen.findByText('4 pods report this metric.')).toBeInTheDocument();
+    expect(vi.mocked(api.previewPrometheus).mock.calls[0][0].query).toBe(base);
+    expect(promql()).toBe(pods.queries.avg);
+    expect(screen.getByText(/Scheduled runs read this metric the same way/)).toBeInTheDocument();
+    expect(screen.getByText(pods.odd.message)).toBeInTheDocument();
+    expect(screen.getByText(/Preview returned 8 samples across 4 series \(4 pods\)/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze only lab-2' }));
+    expect(promql()).toBe(pods.one_queries['lab-2']);
+
+    fireEvent.click(runButton());
+    await waitFor(() => expect(api.runPrometheusAnalysis).toHaveBeenCalled());
+    expect(vi.mocked(api.runPrometheusAnalysis).mock.calls[0][0].query).toBe(pods.one_queries['lab-2']);
+  });
+
+  it('lets the user pick another way to combine', async () => {
+    setup();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Preview Data' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Preview Data' }));
+    await screen.findByText('4 pods report this metric.');
+
+    fireEvent.mouseDown(screen.getByLabelText('Analyze the pods as'));
+    fireEvent.click(await screen.findByRole('option', { name: /Highest pod/ }));
+
+    expect(promql()).toBe(pods.queries.max);
+  });
+
+  it('keeps a hand-written query as written, and offers fixes when it returns one series per pod', async () => {
+    setup();
+    vi.mocked(api.runPrometheusAnalysis).mockRejectedValue(new Error('This query matched 4 series, which differ by pod (lab-0, lab-1, lab-2, lab-3).'));
+    await waitFor(() => expect(runButton()).toBeEnabled());
+    fireEvent.mouseDown(screen.getByText('Simple'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Advanced PromQL' }));
+
+    fireEvent.click(runButton());
+
+    await waitFor(() => expect(api.runPrometheusAnalysis).toHaveBeenCalled());
+    expect(vi.mocked(api.runPrometheusAnalysis).mock.calls[0][0]).toMatchObject({ query: base, combine: null });
+    expect(await screen.findByText('This query returns 4 lines, one per pod. Analysis needs one line.')).toBeInTheDocument();
+    expect(screen.getByText(/which differ by pod/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Combine: all pods added up' }));
+    expect(promql()).toBe(pods.queries.sum);
+    expect(screen.queryByTestId('pod-combine-box')).not.toBeInTheDocument();
+  });
+});
