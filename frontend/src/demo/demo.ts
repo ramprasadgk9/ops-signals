@@ -33,6 +33,8 @@ export type DemoStep = {
   finding?: { service: string; metric?: string };
   /** The button also opens this on the page it goes to. */
   open?: 'handoff';
+  /** The button creates a case on that finding (or reuses its case) and opens it on Root Cause. */
+  createCase?: boolean;
 };
 
 // The tour in docs/demo.md, "Things to try". The story's services come from demo/scenario.py.
@@ -66,11 +68,12 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     id: 'case',
     title: 'Make a case and draft a root cause',
-    how: 'On the checkout-api finding, click Create Case. On the case, open the Root Cause tab and click Draft from case.',
+    how: 'This opens a case on today\'s checkout-api finding. On its Root Cause tab, click Draft from case.',
     go: '/findings?service=checkout-api',
-    goLabel: 'Open the finding',
+    goLabel: 'Create the case',
     marks: ['case-draft'],
     finding: { service: 'checkout-api', metric: 'request_latency_p95' },
+    createCase: true,
   },
   {
     id: 'came-back',
@@ -185,12 +188,18 @@ export const OPEN_HANDOFF_EVENT = 'ops-signals:demo-open-handoff';
 
 /** Where a step's button goes: today's finding for its service when it names one (the Findings page
  * opens ?finding=<id>), else its page. */
-export async function stepTarget(step: DemoStep, findings: () => Promise<{ id?: number | null; service?: string; metric_name?: string; health_status?: string }[]>): Promise<string> {
+export async function stepTarget(
+  step: DemoStep,
+  findings: () => Promise<{ id?: number | null; service?: string; metric_name?: string; health_status?: string }[]>,
+  createCase: (findingId: number) => Promise<{ case_id: number }>,
+): Promise<string> {
   if (!step.finding) return step.go;
   try {
     const rows = (await findings()).filter((row) => typeof row.id === 'number' && row.health_status !== 'normal');
     const match = rows.find((row) => row.metric_name === step.finding?.metric) ?? rows[0];
-    return match ? `${step.go}&finding=${match.id}` : step.go;
+    if (!match) return step.go;
+    if (step.createCase) return `/cases/${(await createCase(match.id as number)).case_id}?tab=root-cause`;
+    return `${step.go}&finding=${match.id}`;
   } catch {
     return step.go;
   }

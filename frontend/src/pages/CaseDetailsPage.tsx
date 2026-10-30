@@ -32,7 +32,7 @@ import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUncheckedRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, retryUnlessClientError } from '../api/client';
 import { api } from '../api/queries';
@@ -92,6 +92,9 @@ function statusLabel(value: string): string {
     .join(' ');
 }
 
+// The tabs in order, by the name ?tab= uses.
+const CASE_TABS = ['overview', 'evidence', 'investigation', 'root-cause', 'resolution', 'publish-knowledge', 'similar-cases'];
+
 function workflowState(label: string, done: boolean, active: boolean) {
   return { label, done, active };
 }
@@ -99,7 +102,9 @@ function workflowState(label: string, done: boolean, active: boolean) {
 export function CaseDetailsPage() {
   const { caseId } = useParams<{ caseId: string }>();
   const { canEdit, canAdmin } = useWebPermissions();
-  const [tabValue, setTabValue] = useState(0);
+  const [searchParams] = useSearchParams();
+  // ?tab=root-cause and the like open the case on that tab (demo mode's guide links there).
+  const [tabValue, setTabValue] = useState(() => Math.max(0, CASE_TABS.indexOf(searchParams.get('tab') ?? '')));
   const queryClient = useQueryClient();
   const [initialized, setInitialized] = useState(false);
 

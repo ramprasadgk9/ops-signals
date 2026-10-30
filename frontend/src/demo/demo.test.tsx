@@ -12,7 +12,7 @@ import { ThingsToTry } from './ThingsToTry';
 import { DEMO_STEPS, loadProgress, resetText, stepDoneBy, turnedOffReason } from './demo';
 import { markDemoStep } from './events';
 
-vi.mock('../api/queries', () => ({ api: { demo: vi.fn(), findings: vi.fn() } }));
+vi.mock('../api/queries', () => ({ api: { demo: vi.fn(), findings: vi.fn(), createCase: vi.fn() } }));
 
 const DEMO: DemoInfo = {
   enabled: true,
@@ -58,6 +58,7 @@ beforeEach(() => {
     { id: 41, service: 'checkout-api', metric_name: 'http_requests_per_second', health_status: 'normal' },
     { id: 42, service: 'checkout-api', metric_name: 'request_latency_p95', health_status: 'significant' },
   ] as never);
+  vi.mocked(api.createCase).mockResolvedValue({ case_id: 7 } as never);
 });
 
 describe('demo helpers', () => {
@@ -115,6 +116,11 @@ describe('Things to try', () => {
     expect(api.findings).toHaveBeenCalledWith('checkout-api');
     act(() => markDemoStep('finding:checkout-api'));
     expect(screen.getByTestId('demo-step-pods')).toHaveAttribute('data-done', 'true');
+
+    // Step 4 creates the case itself and opens it where Draft from case is.
+    fireEvent.click(screen.getByRole('button', { name: 'Create the case' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/cases/7?tab=root-cause'));
+    expect(api.createCase).toHaveBeenCalledWith(42);
     expect(JSON.parse(window.localStorage.getItem('ops-signals.demo.progress') ?? '{}').done).toEqual(['alert', 'overview', 'pods']);
   });
 
@@ -162,5 +168,20 @@ describe('a step that opens something on its page', () => {
     expect(opened).toHaveBeenCalled();
     window.removeEventListener('ops-signals:demo-open-handoff', opened);
     vi.useRealTimers();
+  });
+});
+
+describe('the guide and panels', () => {
+  it('shrinks to its button while a finding\'s details or a dialog is open', async () => {
+    renderWith(<ThingsToTry />, '/alerts');
+    expect(await screen.findByTestId('demo-guide')).toBeInTheDocument();
+
+    const panel = document.createElement('div');
+    panel.className = 'MuiDrawer-root MuiDrawer-modal';
+    act(() => { document.body.appendChild(panel); });
+    expect(await screen.findByTestId('demo-guide-pill')).toHaveTextContent('1 of 10');
+
+    act(() => { panel.remove(); });
+    expect(await screen.findByTestId('demo-guide')).toBeInTheDocument();
   });
 });

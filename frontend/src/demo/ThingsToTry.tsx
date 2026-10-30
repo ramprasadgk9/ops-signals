@@ -48,16 +48,20 @@ function Guide({ period }: { period: string }) {
   }, [complete, update]);
 
   const go = async (step: DemoStep) => {
-    navigate(await stepTarget(step, () => api.findings(step.finding?.service)));
+    navigate(await stepTarget(step, () => api.findings(step.finding?.service), (findingId) => api.createCase(findingId)));
     // After the page has rendered its button.
     if (step.open === 'handoff') window.setTimeout(() => window.dispatchEvent(new Event(OPEN_HANDOFF_EVENT)), 300);
   };
+
+  // A finding's details or a dialog opens over the right of the page, where the guide sits: shrink to
+  // the button while one is open so it doesn't cover what the step sent the visitor to see.
+  const panelOpen = useModalOpen();
 
   const doneCount = DEMO_STEPS.filter((step) => progress.done.includes(step.id)).length;
   const current = DEMO_STEPS.find((step) => !progress.done.includes(step.id));
   const position = { position: 'fixed', right: 20, bottom: 20, zIndex: 1250 } as const;
 
-  if (progress.hidden) {
+  if (progress.hidden || panelOpen) {
     return (
       <Button variant="contained" onClick={() => update((value) => ({ ...value, hidden: false }))} data-testid="demo-guide-pill"
         sx={{ ...position, borderRadius: 999, px: 2.25, py: 1.1, textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 30px rgba(79,70,229,.35)' }}>
@@ -110,4 +114,17 @@ function Guide({ period }: { period: string }) {
       </Stack>
     </Paper>
   );
+}
+
+/** Whether an MUI drawer or dialog is open over the page. */
+function useModalOpen(): boolean {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const check = () => setOpen(Boolean(document.querySelector('.MuiDrawer-modal, .MuiDialog-root')));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true });
+    return () => observer.disconnect();
+  }, []);
+  return open;
 }

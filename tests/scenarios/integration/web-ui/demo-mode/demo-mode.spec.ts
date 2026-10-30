@@ -23,17 +23,64 @@ test('a visitor sees the banner and the guide, and a step ticks itself off', asy
   // Each button takes you to the thing that ticks its step off: the handoff dialog, the finding.
   await guide.getByRole('button', { name: 'Open Shift handoff' }).click();
   await expect(page.getByRole('dialog')).toContainText('Shift handoff');
-  await expect(page.getByTestId('demo-step-overview')).toHaveAttribute('data-done', 'true');
+  await expect(page.getByTestId('demo-guide-pill')).toContainText('2 of 10');
   await page.keyboard.press('Escape');
+  await expect(page.getByTestId('demo-step-overview')).toHaveAttribute('data-done', 'true');
 
   await guide.getByRole('button', { name: 'Open the finding' }).click();
   await expect(page).toHaveURL(/\/findings\?service=checkout-api&finding=\d+/);
-  await expect(page.getByTestId('demo-step-pods')).toHaveAttribute('data-done', 'true');
-  // The finding's details are a modal panel; close it to get back to the page.
+  // While the finding's details are open the guide shrinks to its button, out of the way.
+  await expect(page.getByTestId('demo-guide-pill')).toContainText('3 of 10');
   await page.keyboard.press('Escape');
 
+  await guide.getByRole('button', { name: 'Create the case' }).click();
+  await expect(page).toHaveURL(/\/cases\/\d+\?tab=root-cause/);
+  await page.getByRole('button', { name: 'Draft from case' }).click();
+  await expect(page.getByTestId('demo-step-case')).toHaveAttribute('data-done', 'true');
+
   await guide.getByRole('button', { name: 'Hide' }).click();
-  await expect(page.getByTestId('demo-guide-pill')).toContainText('3 of 10');
+  await expect(page.getByTestId('demo-guide-pill')).toContainText('4 of 10');
+});
+
+test('the rest of the steps go where they happen and tick themselves off', async ({ page }) => {
+  // Steps 1-4 done (the test above walks them); start from 5.
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const demo = await (await fetch('/api/demo')).json();
+    window.localStorage.setItem('ops-signals.demo.progress', JSON.stringify({ period: demo.resets_at ?? 'demo', done: ['alert', 'overview', 'pods', 'case'], hidden: false }));
+  });
+  await page.reload();
+  const guide = page.getByTestId('demo-guide');
+  const step = (id: string) => page.getByTestId(`demo-step-${id}`);
+
+  await guide.getByRole('button', { name: 'Open the finding' }).click();
+  await expect(page).toHaveURL(/service=payments-db&finding=\d+/);
+  await expect(page.getByText(/This came back \d+ days after it was fixed/)).toBeVisible();
+  await expect(page.getByTestId('demo-guide-pill')).toContainText('5 of 10');
+  await page.goto('/');
+
+  for (const [label, id, url] of [
+    ['Open Recurring problems', 'recurring', /\/recurring-problems$/],
+    ['Open Behavior Intelligence', 'patterns', /\/behavior-intelligence$/],
+  ] as const) {
+    await guide.getByRole('button', { name: label }).click();
+    await expect(page).toHaveURL(url);
+    await expect(step(id)).toHaveAttribute('data-done', 'true');
+  }
+
+  await guide.getByRole('button', { name: 'Open the finding' }).click();
+  await expect(page).toHaveURL(/service=search-svc&finding=\d+/);
+  await expect(page.getByTestId('demo-guide-pill')).toContainText('8 of 10');
+  await page.goto('/');
+
+  await guide.getByRole('button', { name: 'Open New Analysis' }).click();
+  await page.getByTestId('demo-samples').getByRole('button', { name: 'Memory creeping up' }).click();
+  await expect(step('analysis')).toHaveAttribute('data-done', 'true', { timeout: 60_000 });
+
+  await guide.getByRole('button', { name: 'Open Ask Ops Signals' }).click();
+  await page.getByPlaceholder(/Ask about cases/).fill('Have we seen payments-db connection pool problems before?');
+  await page.getByPlaceholder(/Ask about cases/).press('Enter');
+  await expect(guide).toContainText('All done');
 });
 
 test('settings are view-only, and the backend refuses them too', async ({ page }) => {
