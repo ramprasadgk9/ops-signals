@@ -514,3 +514,38 @@ def test_check_draft_drops_a_fix_nobody_recorded(text: str, kept: str | None) ->
     facts = "Ticket comment by Sam: the new release added a JSON validation, we need to fix it.\nInvestigation note: Rolled back."
     assert check_draft(text, facts, actions=True) == kept
     assert check_draft("The validation was removed.", facts) == "The validation was removed."
+
+
+def _prompt(client: _ScriptedClient) -> str:
+    return "\n".join(message.content for message in client.calls[-1].messages)
+
+
+def test_a_case_titled_by_its_finding_is_given_to_the_model_in_plain_words(client_factory, monkeypatch) -> None:
+    # The finding's technical title has jargon ("baseline"); a model repeats it and check_draft then
+    # dropped every sentence, so drafts failed on every case opened from a finding.
+    monkeypatch.setattr("backend.app.services.case_ai_drafts.finding_plain", lambda db, rows: {row.id: {"headline": "CPU went up and stayed higher"} for row in rows})
+    fake_client = _ScriptedClient(response_text="CPU went up and stayed higher, likely from the recent change.")
+    app = client_factory(assistant=_assistant_with(fake_client), similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(531, 531, notes=[{"note": "Started after the morning release.", "timestamp": "2026-10-29T10:00:00Z"}])
+        body = client.post("/api/cases/531/rca/suggest").json()
+
+    assert "Case title: CPU went up and stayed higher" in _prompt(fake_client)
+    assert "Case title: CPU usage baseline shifted" not in _prompt(fake_client)
+    assert body["available"] is True
+
+
+def test_a_title_someone_wrote_is_given_to_the_model_as_it_is(client_factory, monkeypatch) -> None:
+    monkeypatch.setattr("backend.app.services.case_ai_drafts.finding_plain", lambda db, rows: {row.id: {"headline": "CPU went up and stayed higher"} for row in rows})
+    fake_client = _ScriptedClient(response_text="Likely the release.")
+    app = client_factory(assistant=_assistant_with(fake_client), similarity_service=None)
+
+    with TestClient(app) as client:
+        _seed_case(532, 532, notes=[{"note": "Started after the morning release.", "timestamp": "2026-10-29T10:00:00Z"}])
+        with get_session_local()() as db:
+            db.get(OperationalCaseEntity, 532).case_title = "Checkout CPU high after release"
+            db.commit()
+        client.post("/api/cases/532/rca/suggest")
+
+    assert "Case title: Checkout CPU high after release" in _prompt(fake_client)

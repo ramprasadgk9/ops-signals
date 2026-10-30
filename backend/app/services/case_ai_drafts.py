@@ -131,7 +131,7 @@ def rca_facts(
     similarity: SimilarityService | None,
     change_config: AlertEnrichmentConfig | None,
 ) -> CaseFacts:
-    facts = CaseFacts(lines=[f"Case title: {case.case_title}"])
+    facts = CaseFacts(lines=[f"Case title: {_case_title(case, db)}"])
     snapshot = case.finding_snapshot or {}
     finding = db.get(FindingEntity, case.finding_id) if case.finding_id else None
     _add_finding(facts, db, finding, snapshot)
@@ -146,7 +146,7 @@ def rca_facts(
 
 
 def resolution_facts(case: OperationalCaseEntity, db: Session, *, ticketing: CaseTicketing | None) -> CaseFacts:
-    facts = CaseFacts(lines=[f"Case title: {case.case_title}"])
+    facts = CaseFacts(lines=[f"Case title: {_case_title(case, db)}"])
     _add_ticket(facts, db, case.id)
     _add_notes(facts, case)
     _add_comments(facts, case.id, ticketing)
@@ -165,7 +165,7 @@ def writeup_facts(
     similarity: SimilarityService | None,
 ) -> CaseFacts:
     """The saved root cause and resolution (material), the timeline and similar past cases."""
-    facts = CaseFacts(lines=[f"Case title: {case.case_title}"])
+    facts = CaseFacts(lines=[f"Case title: {_case_title(case, db)}"])
     if case.root_cause_summary:
         facts.add(f"Saved root cause: {case.root_cause_summary}", "root_cause", "Saved root cause", case.root_cause_summary, material=True)
     if case.corrective_action:
@@ -268,6 +268,26 @@ def write_resolution(ai_services: OptionalAIServices, facts: CaseFacts) -> dict[
         "outcome_summary": check_draft(reply.outcome_summary, facts.text, actions=True),
         "corrective_action": check_draft(reply.corrective_action, facts.text, actions=True),
     }
+
+
+def _case_title(case: OperationalCaseEntity, db: Session) -> str:
+    """The case title the model reads. A case opened from a finding is titled with the finding's
+    technical title ("... experienced a persistent baseline shift ..."); models repeat it, and
+    check_draft then drops the sentence for the jargon, so every draft of such a case failed. That
+    title is replaced by the finding's plain headline; a title someone wrote is kept as it is."""
+    snapshot = case.finding_snapshot or {}
+    if not case.finding_id or case.case_title != snapshot.get("title"):
+        return case.case_title
+    finding = db.get(FindingEntity, case.finding_id)
+    if finding is None:
+        return case.case_title
+    try:
+        plain = finding_plain(db, [finding]).get(finding.id) or {}
+    except Exception:  # noqa: BLE001 - the stored title still names the case
+        logger.warning("Plain wording for case %s title failed", case.id, exc_info=True)
+        db.rollback()
+        return case.case_title
+    return plain.get("headline") or case.case_title
 
 
 def _add_finding(facts: CaseFacts, db: Session, finding: FindingEntity | None, snapshot: dict[str, Any]) -> None:
