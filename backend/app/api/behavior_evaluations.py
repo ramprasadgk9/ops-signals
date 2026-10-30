@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Text, cast, or_, select
 from sqlalchemy.orm import Session
@@ -18,6 +20,11 @@ from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, SignalEntity
 
 router = APIRouter(prefix="/api/behavior-evaluations", tags=["behavior-evaluations"])
+
+# Writing an explanation takes seconds with a local model, and the list waited for every new one:
+# the Findings page took over 30 s to load the first time with four patterns. New explanations stop
+# after this long; the rest are written on later loads (one already written costs nothing).
+AI_EXPLANATION_BUDGET_SECONDS = 5.0
 
 
 def _service() -> BehaviorIntelligenceService:
@@ -84,7 +91,10 @@ def list_behavior_findings(
     if analysis_run_id:
         # A match from a scheduled analysis spans one run per metric (BehaviorFindingOut.analysis_run_ids).
         rows = [row for row in rows if analysis_run_id in run_ids_of(row.analysis_run_id, row.correlation_json)]
+    deadline = time.monotonic() + AI_EXPLANATION_BUDGET_SECONDS
     for row in rows:
+        if time.monotonic() >= deadline:
+            break
         _ensure_ai_explanation(row, db, assistant)
     return [BehaviorFindingOut.model_validate(row, from_attributes=True) for row in rows]
 
