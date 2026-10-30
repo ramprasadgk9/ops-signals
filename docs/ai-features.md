@@ -11,7 +11,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 |---|---|---|
 | [Finding wording](#finding-wording) | Finding details, Validate Data, plugin evidence panel | First open, then saved |
 | [Finding summary](#finding-summary) | Findings with no plain wording | First open, then saved |
-| [Combined patterns](#combined-patterns) | Behavior Intelligence → Detected | List load, then saved |
+| [Combined patterns](#combined-patterns) | Behavior Intelligence → Detected | After a list load, shown from the next |
 | [Runbook draft](#runbook-draft) | Finding details → Seen before? | On click |
 | [Recurring problem names](#recurring-problem-names) | Recurring Problems | Each page load |
 | [Raw activity summary](#raw-activity-summary) | Recurring Problems → lookup | Each lookup |

@@ -102,10 +102,13 @@ def test_behavior_findings_populate_and_cache_ai_explanation_when_assistant_avai
         _seed_behavior_finding(402)
         first = client.get("/api/behavior-evaluations")
         second = client.get("/api/behavior-evaluations")
+        third = client.get("/api/behavior-evaluations")
 
     assert first.status_code == 200 and second.status_code == 200
-    assert first.json()[0]["ai_explanation"] == "Latency rose alongside CPU, suggesting load-driven slowdown."
+    # Written after the first answer, shown from the next one, and not written again.
+    assert first.json()[0]["ai_explanation"] is None
     assert second.json()[0]["ai_explanation"] == "Latency rose alongside CPU, suggesting load-driven slowdown."
+    assert third.json()[0]["ai_explanation"] == "Latency rose alongside CPU, suggesting load-driven slowdown."
     assert first.json()[0]["summary"] == "Latency and CPU both rose together across the same window."
     assert len(fake_client.calls) == 1
 
@@ -126,33 +129,17 @@ def test_behavior_findings_fall_back_cleanly_when_ai_call_fails(client_factory) 
     assert body[0]["facts_json"] == {"latency_p99": {"trend": "up"}, "cpu_usage": {"trend": "up"}}
 
 
-class _SlowClient(_ScriptedClient):
-    """A model that takes `seconds` per answer, on a fake clock."""
-
-    def __init__(self, clock: list[float], seconds: float) -> None:
-        super().__init__(response_text="Both metrics went up together.")
-        self.clock = clock
-        self.seconds = seconds
-
-    def generate(self, request: LLMRequest) -> LLMResponse:
-        self.clock[0] += self.seconds
-        return super().generate(request)
-
-
-def test_the_list_stops_writing_explanations_after_its_budget_and_writes_the_rest_later(client_factory, monkeypatch) -> None:
-    # A local model takes seconds per explanation; the list used to wait for all of them.
-    clock = [1000.0]
-    monkeypatch.setattr("backend.app.api.behavior_evaluations.time.monotonic", lambda: clock[0])
-    fake_client = _SlowClient(clock, seconds=3.0)
+def test_the_list_answers_first_and_shows_explanations_from_the_next_load(client_factory) -> None:
+    # A local model takes 5-15 s per explanation; the list used to wait for all of them first.
+    fake_client = _ScriptedClient(response_text="Both metrics went up together.")
     app = client_factory(assistant=_assistant_with(fake_client))
 
     with TestClient(app) as client:
-        for finding_id in (411, 412, 413, 414):
+        for finding_id in (411, 412, 413):
             _seed_behavior_finding(finding_id)
         first = client.get("/api/behavior-evaluations").json()
         second = client.get("/api/behavior-evaluations").json()
 
-    # 3 s each against a 5 s budget: two the first time, the other two on the next load.
-    assert sum(1 for row in first if row["ai_explanation"]) == 2
-    assert all(row["ai_explanation"] for row in second)
-    assert len(fake_client.calls) == 4
+    assert not any(row["ai_explanation"] for row in first)
+    assert all(row["ai_explanation"] == "Both metrics went up together." for row in second)
+    assert len(fake_client.calls) == 3
