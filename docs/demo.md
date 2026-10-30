@@ -8,7 +8,7 @@ workspace, or any data of your own.
 ```bash
 git clone https://github.com/ramprasadgk9/ops-signals.git
 cd ops-signals
-docker compose -f docker-compose.demo.yml up
+docker compose -f docker-compose.demo.yml up --build
 ```
 
 Within a few minutes of the containers starting, open:
@@ -20,9 +20,10 @@ Within a few minutes of the containers starting, open:
 | http://localhost:9091 | Prometheus, with the demo series and the firing alert |
 | http://localhost:9094 | Alertmanager |
 
-Requirements: Docker with Compose v2 and about 4 GB of memory for Docker. First start pulls the
-images (a few GB, mostly PyTorch for the embedding model). If the published images aren't
-available, Compose builds them from source instead, which takes 10+ minutes the first time.
+Requirements: Docker with Compose v2.20 or later and about 4 GB of memory for Docker (8 GB with
+`--profile ai`, see [Turn on AI](#turn-on-ai)). `--build` builds the images from this checkout,
+which takes 10+ minutes the first time (mostly PyTorch for the embedding model); without it,
+Compose uses the published images, which can be older than the code.
 
 ## The story
 
@@ -57,8 +58,8 @@ they show their usual fallback, and everything else works.
 1. **Read the alert as it reached the team** at http://localhost:8090: what happened, the deploy
    (`v2.14.0`), and the past case with its fix (roll back).
 2. **Overview**: what needs attention now, and the **Shift handoff** button.
-3. **Findings → checkout-api**: the **3 new pods** chip says where the change came from (hover
-   for the pods), and **Seen before** opens the past case and its fix. Then **Create Case**; with AI
+3. **Findings → checkout-api**: the pods chip (**3 new pods** or **3 of 6 pods**) says where the
+   change came from: hover for the three pods the rollout started. And **Seen before** opens the past case and its fix. Then **Create Case**; with AI
    on, try **Draft from case** on Root Cause.
 4. **Findings → payments-db**: the warning that the problem came back 9 days after a fix, with
    what was left open; with AI on, **Why might it not have held?**. The old case shows the same
@@ -78,22 +79,38 @@ they show their usual fallback, and everything else works.
 
 ## Turn on AI
 
-The demo uses whatever model you point it at; nothing is sent anywhere unless you set this. Pass
-the settings when you start it. For a model server on your own machine, such as
-[Ollama](https://ollama.com) with a model already pulled:
+AI is off unless you turn it on, and nothing is sent anywhere unless you choose a provider. Two ways:
+
+**A model in its own container** (the simplest). The `ai` profile adds an Ollama container,
+downloads `gemma3:4b` into it, and switches AI on:
 
 ```bash
-OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama OPS_SIGNALS_OLLAMA_URL=http://host.docker.internal:11434 OPS_SIGNALS_OLLAMA_MODEL=gemma3:4b docker compose -f docker-compose.demo.yml up -d
+docker compose -f docker-compose.demo.yml --profile ai up --build
+```
+
+- First start: about 10 GB to download (the Ollama image is about 7 GB, the model about 3 GB),
+  kept in Docker for next time. Give Docker about 8 GB of memory.
+- It runs on CPU, so each answer takes 5-20 seconds. Combined pattern explanations are written in
+  the background and show the next time you open the page.
+- Another model: add `DEMO_AI_MODEL=<name>` in front of the command.
+- Stop it with `docker compose -f docker-compose.demo.yml --profile ai down -v`. The downloaded
+  model is in the `ollama_models` volume; `down -v` removes it too.
+
+**A model server you already run, or an API.** Pass the settings when you start the demo. For
+[Ollama](https://ollama.com) on your own machine, with a model already pulled:
+
+```bash
+OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama OPS_SIGNALS_OLLAMA_URL=http://host.docker.internal:11434 OPS_SIGNALS_OLLAMA_MODEL=gemma3:4b docker compose -f docker-compose.demo.yml up -d --build
 ```
 
 Any OpenAI-compatible endpoint works too (`OPS_SIGNALS_AI_PROVIDER=openai_compatible` with
 `OPS_SIGNALS_OPENAI_BASE_URL`, `OPS_SIGNALS_OPENAI_MODEL` and, if it needs one,
 `OPS_SIGNALS_OPENAI_API_KEY`); [ai-features.md](ai-features.md) lists the providers and every place
-AI is used. **Integrations → AI provider → Test connection** checks it. To switch it off, run `up -d` again
-without them.
+AI is used. Settings you pass win over the `ai` profile.
 
-Every AI line is checked before it's shown: a sentence naming a number, version or fix that isn't
-in the case is dropped, so a draft can come back shorter, or as "not available", rather than wrong.
+Either way, **Integrations → AI provider → Test connection** checks it. Every AI line is checked
+before it's shown: a sentence naming a number, version or fix that isn't in the case is dropped, so
+a draft can come back shorter, or as "not available", rather than wrong.
 
 ## What runs
 
@@ -117,9 +134,10 @@ The story itself (services, metrics, shapes, timings, versions, past cases) live
 ## Common tasks
 
 **Start over with a fresh story.** The timeline is fixed on first start, so running `up` again
-later keeps the same one, and after about 6h it has scrolled out of the analysis window. Each
-5-minute analysis also adds the ongoing problems again, so the lists grow the longer it runs. Reset
-everything:
+later keeps the same one. It ages: search-svc's cascading-failure pattern stops matching after
+about 2 hours (its bursts become normal for the 6h window), and after about 6h today's problems
+have scrolled out of the analysis window. Each 5-minute analysis also adds the ongoing problems
+again, so the lists grow the longer it runs. Reset everything:
 
 ```bash
 docker compose -f docker-compose.demo.yml down -v

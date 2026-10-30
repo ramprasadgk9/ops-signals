@@ -28,7 +28,7 @@ Slack notifications work from OTLP alone; a few features still need Prometheus.
 ```bash
 git clone https://github.com/ramprasadgk9/ops-signals.git
 cd ops-signals
-docker compose -f docker-compose.demo.yml up
+docker compose -f docker-compose.demo.yml up --build
 ```
 
 This starts Ops Signals with four services of an online shop already in trouble: a deploy that
@@ -37,7 +37,20 @@ announced, and an OTLP service with a case in progress. A few minutes later, ope
 **http://localhost:8090** to see the enriched alert as it would appear in Slack, and
 **http://localhost:8080** for the full UI. You only need Docker:
 no Python, Node, Slack workspace or data of your own. See [`docs/demo.md`](docs/demo.md) for what's
-running and how it works.
+running, what to try, and how it works.
+
+**With AI.** Add `--profile ai` to run a model next to it, in its own container. No account or API
+key, and nothing leaves your machine:
+
+```bash
+docker compose -f docker-compose.demo.yml --profile ai up --build
+```
+
+Then the AI parts work too: root cause and resolution drafts on a case, "why might the fix not have
+held?", runbook drafts, the shift handoff note, and plain explanations of combined patterns. The
+first start downloads about 10 GB (the model server and the `gemma3:4b` model, once) and needs
+about 8 GB of memory for Docker; answers take 5-20 seconds each on CPU. Already running a model
+server, or using an API? See [Turn on AI](docs/demo.md#turn-on-ai).
 
 > **Run it on a trusted network.** The API has no authentication unless you set
 > `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [Security model](#security-model).

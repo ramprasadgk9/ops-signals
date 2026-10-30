@@ -11,6 +11,10 @@
 # version nobody announced and its latency and errors jump together. orders sends OTLP, and its
 # failed orders climb after a deploy while a case is being worked on.
 #
+# With AI, from a model running in its own container (downloads about 10 GB the first time and
+# needs about 8 GB of memory for Docker):
+#   docker compose -f docker-compose.demo.yml --profile ai up --build
+#
 # Start over with a fresh incident:   docker compose -f docker-compose.demo.yml down -v
 # Post to a real Slack channel too:   DEMO_SLACK_WEBHOOK_URL=https://hooks.slack.com/... docker compose -f docker-compose.demo.yml up
 #
@@ -62,6 +66,20 @@ services:
 
   backend:
     <<: *backend-image
+    # AI turns on by itself when the `ai` profile's model server is running (and you haven't set
+    # OPS_SIGNALS_AI_ENABLED yourself); otherwise the backend starts exactly as the image does.
+    command:
+      - sh
+      - -c
+      - |
+        if [ -z "$${OPS_SIGNALS_AI_ENABLED}" ] && getent hosts ollama >/dev/null 2>&1; then
+          export OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama
+          export OPS_SIGNALS_OLLAMA_URL=http://ollama:11434 OPS_SIGNALS_OLLAMA_MODEL="$${DEMO_AI_MODEL}"
+          # The model runs on CPU: 5-20 s an answer, more when several queue.
+          export OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS=90
+          echo "AI is on: $${DEMO_AI_MODEL} from the ollama container (--profile ai)"
+        fi
+        exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
     environment:
       <<: *backend-env
       OPS_SIGNALS_PROMETHEUS_URL: http://prometheus:9090
@@ -84,6 +102,8 @@ services:
       OPS_SIGNALS_OPENAI_API_KEY: ${OPS_SIGNALS_OPENAI_API_KEY:-}
       OPS_SIGNALS_ANTHROPIC_MODEL: ${OPS_SIGNALS_ANTHROPIC_MODEL:-}
       OPS_SIGNALS_ANTHROPIC_API_KEY: ${OPS_SIGNALS_ANTHROPIC_API_KEY:-}
+      # The model the `ai` profile downloads and the backend uses.
+      DEMO_AI_MODEL: ${DEMO_AI_MODEL:-gemma3:4b}
     # So a model server on your machine (e.g. Ollama) is reachable as host.docker.internal on Linux
     # too; Docker Desktop already provides it.
     extra_hosts:
@@ -96,6 +116,10 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      # Only with --profile ai: start once the model is downloaded, so AI works from the first click.
+      ollama-model:
+        condition: service_completed_successfully
+        required: false
     networks:
       default:
         # docker/nginx.web.conf proxies /api/ to this name.
@@ -119,6 +143,33 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  # --- optional: AI from a local model (--profile ai) --------------------------------------------
+
+  # Runs the model on this machine; nothing is sent anywhere. CPU only, so an answer takes 5-20 s
+  # depending on the machine. The image is about 7 GB.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [ai]
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: downloads the model into the ollama volume (about 3 GB for gemma3:4b, once).
+  ollama-model:
+    image: ollama/ollama:latest
+    profiles: [ai]
+    entrypoint: ["ollama", "pull", "${DEMO_AI_MODEL:-gemma3:4b}"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
 
   # --- the incident ------------------------------------------------------------------------------
 
@@ -247,6 +298,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  ollama_models:
   postgres_data:
   qdrant_data:
   prometheus_data:
