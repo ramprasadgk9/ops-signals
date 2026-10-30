@@ -3,10 +3,11 @@
 
 Waits for the enriched alert to reach the Slack sink and checks every part of it (the analysis
 found the shift, the deploy was correlated, the past case was matched), then checks the rest of the
-story through the API: both combined patterns from the scheduled analysis, the fix that didn't
-stick, the recurring problem, the deploy found automatically, the OTLP service with its case and
-custom settings, and the published write-up (demo/scenario.py). Exits non-zero naming whatever is
-missing. Used by CI (.github/workflows/demo-smoke.yml) and handy locally:
+story through the API: the pods each change came from, both combined patterns from the scheduled
+analysis, the fix that didn't stick, the recurring problem, the deploy found automatically, the
+OTLP service with its case and custom settings, and the published write-up (demo/scenario.py).
+Exits non-zero naming whatever is missing. Used by CI (.github/workflows/demo-smoke.yml) and handy
+locally:
 
     docker compose -f docker-compose.demo.yml up -d
     ./scripts/demo_smoke_test.py
@@ -64,7 +65,22 @@ def story_checks(api: str) -> list[tuple[str, bool]]:
     recurring = fetch_json(f"{api}/memory/recurring-problems?name=false").get("problems") or []
     events = fetch_json(f"{api}/events?service=search-svc&limit=50")
     processing = live_finding("orders", "orders_processing_seconds")
+
+    def breakdown(service: str, metric: str) -> dict:
+        """The pod drill-down on today's finding (the latest one with a breakdown that worked)."""
+        for f in live:
+            found = (f.get("comparison_json") or {}).get("breakdown") or {}
+            if f.get("service") == service and f.get("metric_name") == metric and found.get("status") == "ok":
+                return found
+        return {}
+
+    checkout_pods = breakdown("checkout-api", "request_latency_p95")
+    search_pods = breakdown("search-svc", "error_rate")
     return [
+        ("checkout-api change came from the new pods of the rollout",
+         checkout_pods.get("new_parts", 0) >= 3 and checkout_pods.get("parts_changed") == checkout_pods.get("new_parts")),
+        ("search-svc errors came from 1 of 4 pods",
+         search_pods.get("parts_changed") == 1 and search_pods.get("parts_total") == 4),
         ("combined pattern: payments-db pool exhaustion, from the scheduled analysis", pattern("pool_exhaustion", "payments-db")),
         ("combined pattern: search-svc cascading failure, from the scheduled analysis", pattern("latency_error_cascade", "search-svc")),
         ("payments-db problem came back after the 9-day-old fix",

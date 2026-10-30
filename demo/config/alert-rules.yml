@@ -2,7 +2,9 @@ groups:
   - name: ops-signals-demo
     rules:
       - alert: CheckoutApiLatencyHigh
-        expr: request_latency_p95{service="checkout-api"} > 280
+        # Per service, not per pod: one alert for checkout-api, and the query Ops Signals reads
+        # from it can be split by pod for the "Where" line.
+        expr: avg by (service, env) (request_latency_p95{service="checkout-api"}) > 280
         for: 1m
         labels:
           severity: warning

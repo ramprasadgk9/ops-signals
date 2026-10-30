@@ -58,6 +58,11 @@ BASELINE_RPS = 420.0
 SHIFT_MINUTES_AGO = 45
 DEPLOY_MINUTES_BEFORE_SHIFT = 3
 
+# Kubernetes-style pods: the v2.14.0 rollout replaces all three, and the new ones are the slow ones,
+# so the drill-down says the change came from new pods that started with the deploy.
+CHECKOUT_OLD_PODS = ("checkout-api-7d9f4-a1x2", "checkout-api-7d9f4-b3y4", "checkout-api-7d9f4-c5z6")
+CHECKOUT_NEW_PODS = ("checkout-api-5c8e1-k7m2", "checkout-api-5c8e1-n8p3", "checkout-api-5c8e1-q9r4")
+
 CURRENT_DEPLOY_VERSION = "v2.14.0"
 PREVIOUS_DEPLOY_VERSION = "v2.13.2"
 # More than 30 days back, so today's problem (a different deploy) doesn't read as the rollback
@@ -87,6 +92,10 @@ SEARCH_NEW_VERSION = "1.9.0"
 SEARCH_DEPLOY_MINUTES_AGO = 35
 SEARCH_SHIFT_MINUTES_AGO = 30
 SEARCH_PAST_DAYS_AGO = 2
+# A StatefulSet, so pods keep their names across the release. Only one of them goes bad, so the
+# drill-down says the change came from 1 of 4 pods.
+SEARCH_PODS = ("search-svc-0", "search-svc-1", "search-svc-2", "search-svc-3")
+SEARCH_BAD_POD = "search-svc-2"
 
 # --- orders (OTLP): a case being worked on ----------------------------------------------------
 
@@ -174,6 +183,31 @@ def search_backlog(t: float, shift_at: float | None) -> float:
     return max(0.0, value)
 
 
+def checkout_pod_latency_ms(t: float, shift_at: float | None, pod: str) -> float:
+    """One checkout-api pod's p95 latency: the service's shape plus the pod's own noise."""
+    return max(1.0, latency_ms(t, shift_at) + _noise(t, f"latency-{pod}", 4.0))
+
+
+def checkout_pod_rps(t: float, pod: str) -> float:
+    return max(1.0, rps(t) / len(CHECKOUT_OLD_PODS) + _noise(t, f"rps-{pod}", 3.0))
+
+
+def search_pod_latency_ms(t: float, shift_at: float, pod: str) -> float:
+    """One search-svc pod's p95 latency: about 90ms, and on the bad pod far higher and jumpy."""
+    value = 90.0 + _wave(t, 4800.0, 6.0) + _noise(t, f"search-latency-{pod}", 4.0)
+    if pod == SEARCH_BAD_POD:
+        value += _progress(t, shift_at, 60.0) * (1200.0 + abs(_noise(t, "search-latency-hot", 400.0)))
+    return max(1.0, value)
+
+
+def search_pod_error_rate(t: float, shift_at: float, pod: str) -> float:
+    """One search-svc pod's failed requests, in percent: about 0.2%, and on the bad pod about 15%."""
+    value = 0.2 + abs(_noise(t, f"search-errors-{pod}", 0.05))
+    if pod == SEARCH_BAD_POD:
+        value += _progress(t, shift_at, 60.0) * (14.0 + abs(_noise(t, "search-errors-hot", 5.0)))
+    return value
+
+
 def orders_failed_total(t: float, start: float, shift_at: float) -> int:
     """The orders failed-orders counter, cumulative since `start`: its rate steps up at `shift_at`."""
     elapsed = max(0.0, t - start)
@@ -223,18 +257,38 @@ def prometheus_series(timeline: dict[str, str]) -> list[Series]:
     def build_info(version: str, before_deploy: bool) -> Callable[[float], float | None]:
         return lambda t: 1.0 if (t < search_deploy) == before_deploy else None
 
+    def while_up(pod: str, value_at: Callable[[float], float]) -> Callable[[float], float | None]:
+        """A checkout-api pod reports only while it runs: the old ones until the rollout, the new
+        ones from then on."""
+        old = pod in CHECKOUT_OLD_PODS
+        return lambda t: value_at(t) if (t < checkout_shift) == old else None
+
+    checkout_pods = (*CHECKOUT_OLD_PODS, *CHECKOUT_NEW_PODS)
     return [
-        Series(LATENCY_METRIC, "p95 request latency in milliseconds", labels(SERVICE),
-               lambda t: latency_ms(t, checkout_shift)),
-        Series(LATENCY_METRIC, "p95 request latency in milliseconds", labels(SEARCH_SERVICE),
-               lambda t: search_latency_ms(t, search_shift)),
-        Series(RPS_METRIC, "requests per second", labels(SERVICE), rps),
+        *(
+            Series(LATENCY_METRIC, "p95 request latency in milliseconds", labels(SERVICE, {"pod": pod}),
+                   while_up(pod, lambda t, pod=pod: checkout_pod_latency_ms(t, checkout_shift, pod)))
+            for pod in checkout_pods
+        ),
+        *(
+            Series(LATENCY_METRIC, "p95 request latency in milliseconds", labels(SEARCH_SERVICE, {"pod": pod}),
+                   lambda t, pod=pod: search_pod_latency_ms(t, search_shift, pod))
+            for pod in SEARCH_PODS
+        ),
+        *(
+            Series(RPS_METRIC, "requests per second", labels(SERVICE, {"pod": pod}),
+                   while_up(pod, lambda t, pod=pod: checkout_pod_rps(t, pod)))
+            for pod in checkout_pods
+        ),
         Series(DB_WAIT_METRIC, "time a query waited for a pooled connection, in seconds", labels(PAYMENTS_SERVICE),
                lambda t: db_wait_seconds(t, payments_shift)),
         Series(DB_ACTIVE_METRIC, "connections in use, out of a pool of 40", labels(PAYMENTS_SERVICE),
                lambda t: db_active_connections(t, payments_shift)),
-        Series(ERROR_RATE_METRIC, "failed requests, in percent", labels(SEARCH_SERVICE),
-               lambda t: search_error_rate(t, search_shift)),
+        *(
+            Series(ERROR_RATE_METRIC, "failed requests, in percent", labels(SEARCH_SERVICE, {"pod": pod}),
+                   lambda t, pod=pod: search_pod_error_rate(t, search_shift, pod))
+            for pod in SEARCH_PODS
+        ),
         Series(BACKLOG_METRIC, "index segments waiting to be merged", labels(SEARCH_SERVICE),
                lambda t: search_backlog(t, search_shift)),
         # How most apps report their version; deploy discovery reads it (docs/deploy-discovery.md).
@@ -287,6 +341,9 @@ def parse_time(value: str) -> datetime:
 # --- past problems (seeded as findings and cases) ----------------------------------------------
 
 
+PAST_VALUES_FROM = datetime(2026, 1, 5, tzinfo=timezone.utc)
+
+
 @dataclass(frozen=True)
 class PastIncident:
     """A problem that happened before today, analyzed from a CSV and (with a case) resolved."""
@@ -319,13 +376,17 @@ class PastIncident:
         """6h of 30s points ending `days_ago` before `anchor`, with the problem starting 1h before
         the end (the fix landed right after the window closes)."""
         times = self.times(anchor)
-        shift_at = times["shift_at"].timestamp()
+        start = times["start"].timestamp()
+        # The values come from a fixed day, whatever day the demo starts, so every start seeds the same
+        # history and the analyzers find the same past findings (the noise is seeded by timestamp).
+        offset = PAST_VALUES_FROM.timestamp() - start
+        shift_at = times["shift_at"].timestamp() + offset
         rows = ["timestamp,metric_name,value,service,env"]
         for metric, value_at in ((self.metric, self.value_at), *self.extra_metrics):
-            t = times["start"].timestamp()
+            t = start
             while t <= times["end"].timestamp():
                 stamp = datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                rows.append(f"{stamp},{metric},{value_at(t, shift_at):.4f},{self.service},{ENV}")
+                rows.append(f"{stamp},{metric},{value_at(t + offset, shift_at):.4f},{self.service},{ENV}")
                 t += 30
         return "\n".join(rows) + "\n"
 

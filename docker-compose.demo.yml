@@ -72,6 +72,22 @@ services:
       HF_HUB_OFFLINE: "1"
       # Find search-svc's unannounced deploy soon after start (default: every 5 minutes).
       OPS_SIGNALS_DEPLOY_DISCOVERY_INTERVAL_MINUTES: "2"
+      # Which pods a change came from (checkout-api: the new pods; search-svc: 1 of 4).
+      OPS_SIGNALS_DRILLDOWN_ENABLED: "true"
+      # AI is off unless you pass a provider in (docs/demo.md, "Turn on AI"). Empty means "not set".
+      OPS_SIGNALS_AI_ENABLED: ${OPS_SIGNALS_AI_ENABLED:-}
+      OPS_SIGNALS_AI_PROVIDER: ${OPS_SIGNALS_AI_PROVIDER:-}
+      OPS_SIGNALS_OLLAMA_URL: ${OPS_SIGNALS_OLLAMA_URL:-}
+      OPS_SIGNALS_OLLAMA_MODEL: ${OPS_SIGNALS_OLLAMA_MODEL:-}
+      OPS_SIGNALS_OPENAI_BASE_URL: ${OPS_SIGNALS_OPENAI_BASE_URL:-}
+      OPS_SIGNALS_OPENAI_MODEL: ${OPS_SIGNALS_OPENAI_MODEL:-}
+      OPS_SIGNALS_OPENAI_API_KEY: ${OPS_SIGNALS_OPENAI_API_KEY:-}
+      OPS_SIGNALS_ANTHROPIC_MODEL: ${OPS_SIGNALS_ANTHROPIC_MODEL:-}
+      OPS_SIGNALS_ANTHROPIC_API_KEY: ${OPS_SIGNALS_ANTHROPIC_API_KEY:-}
+    # So a model server on your machine (e.g. Ollama) is reachable as host.docker.internal on Linux
+    # too; Docker Desktop already provides it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # The orders team's own analyzer settings ("Custom settings" on its findings).
       - ./demo/config/analyzer-overrides/orders-team.yml:/app/config/analyzer_overrides.d/orders-team.yml:ro
