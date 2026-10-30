@@ -21,7 +21,7 @@ from backend.app.ai.interfaces import LLMMessage, LLMRequest
 from backend.app.ai.providers import anthropic as anthropic_provider
 from backend.app.ai.providers import openai_compatible
 from backend.app.ai.providers import ollama as ollama_provider
-from backend.app.ai.providers.anthropic import AnthropicLLMClient
+from backend.app.ai.providers.anthropic import THINKING_HEADROOM_TOKENS, AnthropicLLMClient
 from backend.app.ai.providers.noop import NoOpLLMClient
 from backend.app.ai.providers.ollama import OllamaLLMClient
 from backend.app.ai.providers.openai_compatible import OpenAICompatibleLLMClient
@@ -211,7 +211,8 @@ def test_anthropic_moves_system_messages_and_omits_temperature() -> None:
     assert call["model"] == "claude-opus-5"
     assert call["system"] == "You explain operational findings."
     assert call["messages"] == [{"role": "user", "content": "Why did checkout latency rise?"}]
-    assert call["max_tokens"] == 300
+    # The caller's 300 is for the answer; thinking gets its own room on top.
+    assert call["max_tokens"] == 300 + THINKING_HEADROOM_TOKENS
     assert "temperature" not in call
     assert "output_config" not in call
     assert response.content == "Checkout p99 rose after the 14:02 deploy."
@@ -236,6 +237,14 @@ def test_anthropic_refusal_is_an_error() -> None:
     client = AnthropicLLMClient(model="claude-opus-5", client=SimpleNamespace(messages=messages))
 
     with pytest.raises(LLMRequestError, match="refused"):
+        client.generate(_request())
+
+
+def test_anthropic_running_out_of_tokens_while_thinking_says_so() -> None:
+    messages = _FakeAnthropicMessages(_anthropic_response(text="", stop_reason="max_tokens"))
+    client = AnthropicLLMClient(model="claude-haiku-5-5", client=SimpleNamespace(messages=messages))
+
+    with pytest.raises(LLMRequestError, match="ran out of tokens"):
         client.generate(_request())
 
 

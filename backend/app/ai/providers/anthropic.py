@@ -14,6 +14,10 @@ from backend.app.ai.exceptions import LLMRequestError
 from backend.app.ai.interfaces import LLMClient, LLMRequest, LLMResponse
 
 DEFAULT_MAX_TOKENS = 16000
+# Current Claude models think before they answer, and thinking counts against max_tokens. The
+# features ask for budgets sized for the answer alone (8-400 tokens), so add room for the thinking;
+# only the tokens actually written are billed.
+THINKING_HEADROOM_TOKENS = 8000
 
 
 class AnthropicLLMClient(LLMClient):
@@ -39,7 +43,7 @@ class AnthropicLLMClient(LLMClient):
         system = "\n\n".join(message.content for message in request.messages if message.role == "system")
         kwargs: dict[str, Any] = {
             "model": self.model,
-            "max_tokens": request.max_tokens or DEFAULT_MAX_TOKENS,
+            "max_tokens": request.max_tokens + THINKING_HEADROOM_TOKENS if request.max_tokens else DEFAULT_MAX_TOKENS,
             "messages": [
                 {"role": message.role, "content": message.content}
                 for message in request.messages
@@ -65,6 +69,8 @@ class AnthropicLLMClient(LLMClient):
             raise LLMRequestError("Anthropic refused the request")
         content = "".join(block.text for block in response.content if block.type == "text").strip()
         if not content:
+            if response.stop_reason == "max_tokens":
+                raise LLMRequestError("Anthropic ran out of tokens before writing an answer (max_tokens reached while thinking)")
             raise LLMRequestError("Anthropic returned an empty response")
         usage = getattr(response, "usage", None)
         return LLMResponse(
