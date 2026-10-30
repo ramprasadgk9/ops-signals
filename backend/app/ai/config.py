@@ -11,6 +11,9 @@ class OllamaConfig(BaseModel):
     base_url: str = "http://localhost:11434"
     model: str = "qwen2.5:3b"
     timeout_seconds: float = 30.0
+    # Wait at least this long for every answer, whatever limit the feature asks for (some ask 15 s).
+    # For a model on CPU, which takes 10-20 s an answer; unset keeps each feature's own limit.
+    min_timeout_seconds: float | None = None
 
     @field_validator("base_url", "model")
     @classmethod
@@ -75,6 +78,8 @@ def apply_ai_env_overrides(config: AIConfig) -> AIConfig:
         config.ollama.base_url = os.environ["OPS_SIGNALS_OLLAMA_URL"]
     if os.getenv("OPS_SIGNALS_OLLAMA_MODEL"):
         config.ollama.model = os.environ["OPS_SIGNALS_OLLAMA_MODEL"]
+    if os.getenv("OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS"):
+        config.ollama.min_timeout_seconds = float(os.environ["OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS"])
     if os.getenv("OPS_SIGNALS_OPENAI_BASE_URL"):
         config.openai_compatible.base_url = os.environ["OPS_SIGNALS_OPENAI_BASE_URL"]
     if os.getenv("OPS_SIGNALS_OPENAI_MODEL"):

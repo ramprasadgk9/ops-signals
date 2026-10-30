@@ -66,6 +66,7 @@ def build_llm_client(config: AIConfig | None) -> LLMClient:
             base_url=config.ollama.base_url,
             model=config.ollama.model,
             timeout_seconds=config.timeout_seconds or config.ollama.timeout_seconds,
+            min_timeout_seconds=config.ollama.min_timeout_seconds,
         )
     if provider == "openai_compatible":
         settings = config.openai_compatible
