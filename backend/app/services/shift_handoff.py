@@ -25,6 +25,7 @@ from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, Op
 from backend.app.services.active_findings import active_findings, is_closed, problem_of
 from backend.app.services.case_ai_drafts import check_draft
 from backend.app.services.finding_changes import finding_changes
+from backend.app.services.finding_plain import finding_plain
 from backend.app.services.finding_trust import finding_trust
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,9 @@ class WatchItem:
     reason: str = ""
     # Something happened in the window: the case was opened or updated, or the problem seen again.
     live: bool = True
+    # The finding's plain headline, for the AI note, when the title is the finding's technical one
+    # ("... persistent baseline shift ..."): the model repeated it and check_draft dropped it.
+    plain_title: str | None = None
 
 
 @dataclass(slots=True)
@@ -145,7 +149,7 @@ def handoff_summary(handoff: Handoff) -> str:
 
 def handoff_facts(handoff: Handoff) -> str:
     items = handoff.watch[:WATCH_LIMIT]
-    return "\n".join(f"Item {index}: {_label(item)}; {item.title}; {item.reason}." for index, item in enumerate(items, start=1))
+    return "\n".join(f"Item {index}: {_label(item)}; {item.plain_title or item.title}; {item.reason}." for index, item in enumerate(items, start=1))
 
 
 def write_handoff(ai_services: OptionalAIServices, handoff: Handoff) -> str | None:
@@ -189,6 +193,7 @@ def _rank(item: WatchItem, *, deploys_known: bool) -> tuple:
 def _case_items(db: Session, open_cases: list[OperationalCaseEntity], since: datetime, seen_in_window: set[int | None]) -> list[WatchItem]:
     finding_ids = [case.finding_id for case in open_cases if case.finding_id]
     linked = {row.id: row for row in db.execute(select(FindingEntity).where(FindingEntity.id.in_(finding_ids))).scalars().all()} if finding_ids else {}
+    headlines = _plain_headlines(db, list(linked.values()))
     items = []
     for case in open_cases:
         snapshot = case.finding_snapshot or {}
@@ -205,9 +210,24 @@ def _case_items(db: Session, open_cases: list[OperationalCaseEntity], since: dat
                 finding_id=case.finding_id,
                 case_status=case.case_status,
                 live=_after(case.created_at, since) or _after(case.updated_at, since) or (finding is not None and problem_of(finding) in seen_in_window),
+                # A title someone wrote is kept; one copied from the finding reads in plain words.
+                plain_title=headlines.get(case.finding_id) if case.case_title == snapshot.get("title") else None,
             )
         )
     return items
+
+
+def _plain_headlines(db: Session, findings: list[FindingEntity]) -> dict[int, str]:
+    """Finding id -> its plain headline; empty when plain wording can't be built."""
+    if not findings:
+        return {}
+    try:
+        plain = finding_plain(db, findings)
+    except Exception:  # noqa: BLE001 - the technical title still names the item
+        logger.warning("Plain wording for the handoff failed", exc_info=True)
+        db.rollback()
+        return {}
+    return {finding_id: words["headline"] for finding_id, words in plain.items() if (words or {}).get("headline")}
 
 
 def _pattern_items(db: Session, since: datetime, cases: list[OperationalCaseEntity]) -> list[WatchItem]:
@@ -249,6 +269,7 @@ def _finding_items(db: Session, findings: list[FindingEntity], cases: list[Opera
     for row in findings:
         if row.created_at and (problem_of(row) not in first_seen or _epoch(row.created_at) < _epoch(first_seen[problem_of(row)])):
             first_seen[problem_of(row)] = row.created_at
+    headlines = _plain_headlines(db, list(latest.values()))
     return [
         WatchItem(
             kind="finding",
@@ -258,6 +279,7 @@ def _finding_items(db: Session, findings: list[FindingEntity], cases: list[Opera
             metric_name=row.metric_name,
             since=first_seen.get(problem, row.created_at),
             finding_id=row.id,
+            plain_title=headlines.get(row.id),
         )
         for problem, row in latest.items()
     ]
