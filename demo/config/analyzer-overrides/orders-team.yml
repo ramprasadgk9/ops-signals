@@ -1,0 +1,13 @@
+# The orders team's own analyzer settings, mounted into the demo backend's
+# config/analyzer_overrides.d/. Findings made with them carry a "Custom settings" tag.
+# How these files work: docs/configuration.md, "Per-service analyzer settings".
+overrides:
+  orders_processing_time:
+    scope:
+      service: orders
+      metric: orders_processing_seconds
+    reason: Slow order processing makes payments time out; even a few minutes of it matters here, so flag shorter stretches.
+    analyzers:
+      pyod_outlier:
+        finding_rule:
+          min_sustained_points: 4

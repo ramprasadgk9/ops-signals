@@ -1,4 +1,4 @@
-# Prometheus for docker-compose.demo.yml: scrapes the demo checkout-api target and evaluates the
+# Prometheus for docker-compose.demo.yml: scrapes the demo shop's metrics target and evaluates the
 # demo alert rule. History for the last 7h is backfilled before startup (demo/backfill_history.py).
 global:
   scrape_interval: 15s
@@ -16,7 +16,7 @@ alerting:
 scrape_configs:
   # job/instance must match SCRAPE_JOB/SCRAPE_INSTANCE in demo/scenario.py, or the backfilled
   # history and the live scrape become two separate series.
-  - job_name: checkout-api
+  - job_name: demo-shop
     static_configs:
       - targets:
           - demo-metrics:9102
