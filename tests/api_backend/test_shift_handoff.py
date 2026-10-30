@@ -247,3 +247,17 @@ def test_note_failure_keeps_the_plain_summary(seeded) -> None:
 def test_viewers_may_ask_for_the_note() -> None:
     assert required_role("POST", "/api/overview/handoff/note") is None
     assert required_role("GET", "/api/overview/handoff") is None
+
+
+def test_note_reads_findings_by_their_plain_headline(seeded, monkeypatch) -> None:
+    # Technical titles ("... persistent baseline shift ...") were repeated by the model and every
+    # sentence dropped for the jargon, so the note was never available on real data.
+    monkeypatch.setattr(shift_handoff, "finding_plain", lambda _db, rows: {row.id: {"headline": f"Errors on {row.service} went up and stayed higher"} for row in rows})
+    client = _ScriptedClient(response_text="Watch case #10 on payments first: still open 8 hours after deploy v2.3.")
+    seeded(_assistant_with(client)).post("/api/overview/handoff/note", params={"hours": 12})
+
+    facts = client.calls[0].messages[1].content
+    assert "Errors on search went up and stayed higher" in facts
+    assert "search error_rate went up;" not in facts
+    # A case title someone wrote is kept as it is.
+    assert "Case 10;" in facts
