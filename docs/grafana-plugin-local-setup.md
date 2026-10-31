@@ -15,6 +15,11 @@ The local setup has three moving parts:
 
 The plugin is an app inside Grafana. It is not published to the Grafana plugin catalog, so Grafana will show it as unsigned. That is expected for local development.
 
+`./scripts/run_grafana_stack.sh` does all of this in one command: it builds the plugin and starts
+Grafana on `3000`, Prometheus on `9090`, mock metrics, and the plugin backend on port `8002` (not
+`8000`; `8002` is reserved for the Grafana plugin backend, so it doesn't clash with the standalone
+app's `8001`). The steps below are the manual way.
+
 ## Architecture
 
 ```text

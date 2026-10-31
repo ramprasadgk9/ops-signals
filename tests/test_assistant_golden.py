@@ -21,14 +21,15 @@ def test_golden_set_matches_the_corpus() -> None:
 
 
 # One question below the scores recorded when each fix landed (33, 39, 38, 38 and 27 of 40
-# scored questions): a floor is (count - 1) / 40, rounded down. Raise a floor when a change
-# genuinely improves its metric; lowering one needs a reason in the commit message.
+# scored questions): a floor is (count - 1) / scored questions, rounded down. Raise a floor when a
+# change genuinely improves its metric; lowering one needs a reason in the commit message.
+# section_hit@3 and answer_has_answer raised with the README split (48 and 36 of 50).
 FLOORS = {
     "doc_hit@1": 0.80,
     "doc_hit@3": 0.95,
-    "section_hit@3": 0.92,
+    "section_hit@3": 0.94,
     "evidence_has_answer": 0.92,
-    "answer_has_answer": 0.65,
+    "answer_has_answer": 0.70,
 }
 
 

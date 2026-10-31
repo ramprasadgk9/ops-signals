@@ -851,7 +851,7 @@ def _lead_with_analyzer_catalog(groups: list[AssistantEvidenceGroup]) -> None:
 
 # Documentation reranking, both chosen by sweeping the golden set (0-0.2 and 0.8-1.0):
 # - a section whose heading shares the question's words gets up to this much added to its score, so
-#   "Where do I point my OTel Collector?" leads with the README's OTLP setup section;
+#   "Where do I point my OTel Collector?" leads with the OTLP doc's Collector setup section;
 # - design and proposal docs (docs/design/) count this fraction of their score, so a plan's
 #   "non-goals" section doesn't outrank the user doc describing what was built.
 # Larger heading weights moved more right docs to first place but made quoted answers worse.

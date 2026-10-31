@@ -86,7 +86,7 @@ export function aiFooter(ai: FindingAIWording): string {
 }
 
 /** How to turn the AI provider on, for the hint shown to admins when it's off. Same steps as the
- * README's "Optional: Enable Local AI" (docker-compose.yml profile "ai", backend/app/ai/config.py). */
+ * docs/ask-ops-signals-assistant.md "Enabling Local AI" (docker-compose.yml profile "ai", backend/app/ai/config.py). */
 export const AI_SETUP = {
   intro: "With AI on, finding details get Why it matters, What to check and Happened with written for the metric and service, not the same sentence for every finding of a kind. Everything else works the same with it off.",
   steps: [

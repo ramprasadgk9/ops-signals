@@ -4,7 +4,7 @@ import { cleanupMetricUsageSnapshot, seedMetricUsageSnapshot } from '../../share
 /**
  * Unwatched metrics on Metric Usage offer Add to Grafana (a query and the Grafana steps) and Drop
  * (Prometheus scrape config built by the backend, grouped by scrape job), and recording rules
- * nobody reads say how to remove them (README.md#metric-usage).
+ * nobody reads say how to remove them (docs/metric-usage.md).
  */
 test('unused metrics can be added to Grafana or dropped with ready-made scrape config', async ({ page }) => {
   const id = `it-unused-actions-${Date.now()}`;

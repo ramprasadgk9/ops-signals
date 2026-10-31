@@ -24,6 +24,14 @@ Base config
   (`backend/app/api/otlp.py`) to look up via `provider="otel"`, not for CSV upload - OTLP data
   never goes through `CSVAdapter`, so it isn't (and shouldn't be) selectable in the upload form.
   See [`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md).
+- `config/analyzer_overrides.d/*.yml`: per-service analyzer settings, one file per team - see
+  [Per-service analyzer settings](#per-service-analyzer-settings)
+- `config/behavior_definitions.d/*.yml`: cross-metric behavior rules, one file per behavior - see
+  [`behavior-intelligence.md`](behavior-intelligence.md)
+- `config.yaml` (repo root): operational memory - Qdrant and embeddings
+
+The router's suitability weights aren't a threshold you tune; they're heuristic and documented in
+[`analyzer-recommendation.md`](analyzer-recommendation.md).
 
 ## Analyzer Settings
 
