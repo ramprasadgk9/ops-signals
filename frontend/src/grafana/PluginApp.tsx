@@ -15,6 +15,7 @@ import { activeBackendUrl, backendOptionsFor, configuredBackendUrl, configuredWe
 import { ApiTokenField } from './ApiTokenField';
 import { Card, Field, styles } from './plainUi';
 import { PluginShiftHandoff } from './PluginShiftHandoff';
+import { PluginWhatsWhat } from './PluginWhatsWhat';
 import { PluginSetupBanner, SetupChips, useSetupCheck } from './SetupCheckPanel';
 import { asGrafanaRole, grafanaUserRole, LockReason, LOCK_REASONS, PermissionsProvider, usePermissions } from './permissions';
 import { behaviorAnchor, PluginBehaviorFindings } from './PluginBehaviorFindings';
@@ -2840,7 +2841,7 @@ export function GrafanaAutonomousOverview({
         <div>
           <div style={{ ...styles.helperText, marginTop: 0 }}>Overview / Autonomous Monitoring</div>
           <h2 style={{ margin: '4px 0 0' }}>Autonomous Monitoring Overview</h2>
-          <p style={{ ...styles.muted, margin: '5px 0 0' }}>Current run result with historical executions shown separately.</p>
+          <p style={{ ...styles.muted, margin: '5px 0 0' }}>Current run result with historical executions shown separately.<PluginWhatsWhat page="overview" /></p>
         </div>
         <div style={{ ...styles.row, justifyContent: 'flex-end' }}>
           <span style={styles.chip}>Source: {context.sourceLabel || context.datasource || 'Prometheus'}</span>

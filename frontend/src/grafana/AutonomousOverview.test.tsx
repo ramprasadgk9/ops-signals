@@ -154,6 +154,14 @@ describe('GrafanaAutonomousOverview symptom triage', () => {
     expect(cases).toHaveBeenCalledWith('http://backend', { service: 'trend-lab', limit: 200 });
   });
 
+  it("explains the words on the page from What's what? in the header", async () => {
+    await renderOverview();
+
+    fireEvent.click(screen.getByRole('button', { name: "What's what?" }));
+
+    expect(within(screen.getByRole('dialog', { name: "What's what?" })).getByText('Finding vs case')).toBeInTheDocument();
+  });
+
   it('shows a clicked row right under the top card, above coverage and run history', async () => {
     await renderOverview();
 

@@ -20,6 +20,7 @@ import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme
 import { buildBehaviorSummary, toBehaviorRows, type BehaviorRow } from '../standalone/behaviorService';
 import type { BehaviorDefinition, BehaviorFinding, BehaviorPatternSuggestion, CatalogPattern, CatalogSignal } from '../types';
 import { patternFindingsHref } from '../utils/combinedPatterns';
+import { WhatsWhat } from '../components/WhatsWhat';
 
 type PageTab = 'detected' | 'patterns';
 
@@ -447,6 +448,7 @@ export function BehaviorIntelligencePage() {
       <PageHeader
         title="Behavior Intelligence"
         subtitle="Problems that show up in several metrics at once: what has been detected, and the patterns that look for it."
+        help={<WhatsWhat page="behavior" />}
         action={canAdmin ? (
           <Button onClick={() => openBuilder('new')} startIcon={<AddRoundedIcon />} variant="contained" sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>
             New pattern

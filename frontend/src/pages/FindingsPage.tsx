@@ -21,6 +21,7 @@ import { inWindow, partFindings, patternsByFinding, searchPatterns } from '../ut
 import { CombinedPatternCard } from '../components/CombinedPatternCard';
 import { ServiceFilterField } from '../components/ServiceFilterField';
 import { inService, serviceFilterLabel, serviceOptions, showServiceFilter } from '../utils/serviceFilter';
+import { WhatsWhat } from '../components/WhatsWhat';
 
 type FindingsWindow = '6h' | '24h' | '7d';
 
@@ -204,7 +205,8 @@ export function FindingsPage() {
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 900 }}>Findings</Typography>
           <Typography variant="body2" color="text.secondary">
-            Showing findings for the same window used by the Overview severity trend and category charts.
+            Symptoms: something about a metric changed. Open a case when you decide one is a real problem.
+            <WhatsWhat page="findings" />
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>

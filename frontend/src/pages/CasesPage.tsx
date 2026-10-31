@@ -24,6 +24,7 @@ import { api } from '../api/queries';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
+import { WhatsWhat } from '../components/WhatsWhat';
 import { formatDateTime, relativeTime, titleCase, ui } from '../standalone/theme';
 import { CASE_TABS, filterCaseRows, inCaseTab, isCaseTab, toCaseRows, type CaseRow, type CaseTab } from '../standalone/casesService';
 import { CaseTicketCard } from '../components/CaseTicketCard';
@@ -83,7 +84,8 @@ export function CasesPage() {
     <Stack spacing={3}>
       <PageHeader
         title="Cases"
-        subtitle="Track every investigation, from first look to confirmed root cause"
+        subtitle="Problems you're working on, opened from a finding: the investigation, the root cause and the fix."
+        help={<WhatsWhat page="cases" />}
         action={<Button variant="contained" disabled sx={{ bgcolor: ui.blue, textTransform: 'none', fontWeight: 850 }}>New Case Requires Finding</Button>}
       />
       <JiraTicketingHint />

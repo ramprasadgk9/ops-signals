@@ -19,6 +19,7 @@ import { RecurringProblemsPanel } from '../components/RecurringProblemsPanel';
 import { CoveragePanel } from '../components/CoveragePanel';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 import { PageHeader, Pill, WorkspacePanel } from '../standalone/components';
+import { WhatsWhat } from '../components/WhatsWhat';
 import { formatDateTime, relativeTime, ui } from '../standalone/theme';
 import { toCaseRows } from '../standalone/casesService';
 import { buildMemorySummaryFromStats } from '../standalone/memoryService';
@@ -74,6 +75,7 @@ export function RecurringProblemsPage() {
       <PageHeader
         title="Recurring problems"
         subtitle="Problems that keep coming back. Fix these for good instead of firefighting them again."
+        help={<WhatsWhat page="recurring" />}
         action={
           <Button
             onClick={() => setImportOpen(true)}

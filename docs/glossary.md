@@ -4,6 +4,9 @@ What the words in Ops Signals mean, in plain language. Part 1 covers Ops Signals
 (finding, case, analyzer, ...); part 2 covers the tech around it (Prometheus, Mimir, tenant, OTLP,
 ...). Each term links to the doc that explains it in full.
 
+In the app, **What's what?** in the subtitle of Findings, Cases, Behavior Intelligence and Recurring
+problems (and of the Grafana plugin's Overview) shows the same chain and the words that page uses.
+
 ## How the pieces fit
 
 Ops Signals goes from signal to finding to case to memory. An analyzer checks one metric and
