@@ -1,5 +1,8 @@
 # Core Domain Model
 
+The stored objects behind each term. For what the words mean in plain language, see the
+[glossary](glossary.md).
+
 ## Canonical Point
 
 The normalized timeseries point is the base unit of analysis.

@@ -8,6 +8,8 @@ just orders them.
 
 What the project is, and how to get it running.
 
+- [`glossary.md`](glossary.md) - what the words mean: finding, case, analyzer and the other Ops
+  Signals terms, then Prometheus, Mimir, tenants, OTLP and the rest of the tech around it.
 - [`vision.md`](vision.md) - the fuller product vision, including the MTTR framing referenced
   throughout these docs.
 - [`demo.md`](demo.md) - one `docker compose up` that starts Ops Signals with four services already
