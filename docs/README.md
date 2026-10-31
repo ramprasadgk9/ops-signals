@@ -17,6 +17,16 @@ What the project is, and how to get it running.
   rises, spikes and staging deploys, with real alerts and pod breakdowns.
 - **[Quick Start](../README.md#quick-start)** (root `README.md`) - clone, setup script, run script,
   open the UI. Start here to actually install it.
+- [`getting-started.md`](getting-started.md) - after the Quick Start: point it at your own
+  Prometheus or Mimir, connect a data source, turn on AI, troubleshooting, and every script.
+- [`deploy.md`](deploy.md) - running it for a team: one server with Docker Compose, Kubernetes with
+  Helm, and adding the Grafana plugin to your own Grafana.
+- [`data-sources.md`](data-sources.md) - Prometheus and Mimir connections, CSV input, deploy and
+  change events, and findings as Prometheus metrics.
+- [`otlp.md`](otlp.md) - sending metrics from an OTel SDK or Collector, and what works with OTLP
+  only.
+- [`metric-usage.md`](metric-usage.md) - blind spots, missing and unwatched metrics, and the Add to
+  Grafana and Drop actions.
 - [`comparison.md`](comparison.md) - how Ops Signals relates to Robusta/HolmesGPT, Keep and
   Grafana Sift, including where those tools are ahead.
 - [`security-model.md`](security-model.md) - what's open by default, the API token, the switches

@@ -2,8 +2,27 @@
 
 The "Ask Ops Signals" chat is a retrieval-and-explanation layer over the application's own
 operational data and documentation - not a general-purpose chatbot. It works with zero AI
-configuration (deterministic retrieval + template answers) and gets better, not different, when
-pointed at a local model.
+configuration - no API key, no cloud LLM (deterministic retrieval + template answers) - and gets
+better, not different, when pointed at a local model.
+
+## What to Expect
+
+- Ask natural-language questions about findings, cases, signals, behaviors, analyzers, and architecture
+- Retrieve relevant cases, documentation, and evidence from vector search
+- Get plain-language summaries grounded in stored operational data and repo docs
+- Ask follow-up questions like "what changed?", "have we seen this before?", or "what is behavior intelligence?"
+- See source links, case IDs, or documentation references used in the answer
+
+Every response labels which mode produced it (`ai_synthesis_used`), so it's never ambiguous
+whether an answer came from a model or from a template.
+
+What not to expect:
+
+- Guaranteed root-cause truth from the chat output alone
+- Autoremediation or direct system changes
+- Free-form guesses without evidence
+- Answers that go beyond the stored data, docs, and retrieval context
+- Replacement for the underlying analyzers, rules, or source observability tools
 
 ## Why It's Built This Way
 
@@ -171,8 +190,11 @@ the UI shows this as an "AI-generated" vs. "Evidence summary (no AI)" label.
 
 ## Enabling Local AI
 
-AI is used in other places too (finding wording, recurring problems, ticket triage...): see
-[Where AI is used](ai-features.md).
+By default, Ask Ops Signals, the analyzer recommendation advisor and finding wording run on
+deterministic retrieval and templates - no AI, no API key, no network calls out. A local model adds
+LLM-assisted answers on top of that, never instead of it: the deterministic behavior stays the
+fallback. AI is used in other places too (finding wording, recurring problems, ticket triage...):
+see [Where AI is used](ai-features.md).
 
 No API key, no cloud calls. Bundle a local model via Ollama:
 
@@ -180,11 +202,15 @@ No API key, no cloud calls. Bundle a local model via Ollama:
 docker compose --profile ai up -d   # opt-in; pulls qwen2.5:3b unless OPS_SIGNALS_OLLAMA_MODEL is set
 ```
 
-Then point the backend at it (env vars, or `ai:` in `config.yaml`):
+This starts a local Ollama container and pulls a small default model (`qwen2.5:3b`, ~2GB, one-time
+download). Then point the backend at it (env vars, or `ai:` in `config.yaml`):
 
 ```bash
-OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama OPS_SIGNALS_OLLAMA_MODEL=<model-you-have-pulled>
+OPS_SIGNALS_AI_ENABLED=1 OPS_SIGNALS_AI_PROVIDER=ollama ./scripts/run_all.sh
 ```
+
+Set `OPS_SIGNALS_OLLAMA_MODEL=<model-you-have-pulled>` to use another model. Prefer a model you
+already run or pay for? See [Other AI Providers](#other-ai-providers).
 
 Any Ollama chat-capable model works - there's no dependency on a specific one, and the routing
 safety net above means a smaller/weaker model degrades in quality of prose, not correctness of

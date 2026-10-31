@@ -28,3 +28,5 @@
 - deeper evaluation tooling
 - richer extensibility for analyzers and capabilities
 - better support for iterative operational learning
+- Kubernetes and cloud-provider ingestion; ITSM/automation and generic external-system consumers -
+  see [Roadmap (Not Yet Implemented)](architecture.md#roadmap-not-yet-implemented)

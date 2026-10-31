@@ -21,7 +21,7 @@ questions:
     contains: ["3.13"]
     expect:
       - {source: README.md, section: "Prerequisites"}
-      - {source: README.md, section: "Troubleshooting"}
+      - {source: docs/getting-started.md, section: "Troubleshooting"}
 
   - id: frontend-port
     category: docs
@@ -30,28 +30,30 @@ questions:
     expect:
       - {source: README.md, section: "Start Ops Signals"}
       - {source: README.md, section: "Open the Application"}
-      - {source: README.md, section: "Scripts Reference"}
+      - {source: docs/getting-started.md, section: "Scripts Reference"}
 
   - id: grafana-backend-port
     category: docs
     question: Which port does the Grafana plugin backend use?
     contains: ["8002"]
     expect:
-      - {source: README.md, section: "Scripts Reference"}
+      - {source: docs/getting-started.md, section: "Scripts Reference"}
+      - {source: docs/deploy.md, section: "Add the Grafana Plugin"}
+      - {source: docs/grafana-plugin-local-setup.md, section: "What You Are Running"}
 
   - id: postgres-not-ready
     category: docs
     question: Setup says postgres did not become ready in time. What should I check?
     contains: ["docker compose ps"]
     expect:
-      - {source: README.md, section: "Troubleshooting"}
+      - {source: docs/getting-started.md, section: "Troubleshooting"}
 
   - id: enable-local-ai
     category: docs
     question: How do I enable local AI answers?
     contains: ["--profile ai"]
     expect:
-      - {source: README.md, section: "Optional: Enable Local AI"}
+      - {source: docs/getting-started.md, section: "Optional: Enable Local AI"}
       - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
       - {source: docs/ai-features.md, section: "Turn it on"}
 
@@ -61,7 +63,8 @@ questions:
     question: Which model does the ai profile in docker-compose.yml pull by default?
     contains: ["qwen2.5:3b"]
     expect:
-      - {source: README.md, section: "Optional: Enable Local AI"}
+      - {source: docs/getting-started.md, section: "Optional: Enable Local AI"}
+      - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
       - {source: docs/ai-features.md, section: "Turn it on"}
 
   - id: demo-ai-model
@@ -77,16 +80,18 @@ questions:
     question: Does Ask Ops Signals need an API key or cloud LLM?
     contains: ["no api key"]
     expect:
+      - {source: docs/ask-ops-signals-assistant.md}
+      - {source: README.md, section: "Features"}
+      - {source: docs/getting-started.md, section: "Optional: Enable Local AI"}
       - {source: docs/ask-ops-signals-assistant.md, section: "Enabling Local AI"}
-      - {source: README.md, section: "Optional: Enable Local AI"}
-      - {source: README.md, section: "Operational Intelligence Assistant"}
 
   - id: test-mcp
     category: docs
     question: How do I check the MCP server works locally?
     contains: ["test_mcp.sh"]
     expect:
-      - {source: README.md, section: "Scripts Reference"}
+      - {source: docs/getting-started.md, section: "Scripts Reference"}
+      - {source: docs/mcp-server.md, section: "Testing it locally"}
 
   # --- Security ---------------------------------------------------------------------------------
   - id: auth-default
@@ -95,7 +100,6 @@ questions:
     contains: ["no authentication"]
     expect:
       - {source: docs/security-model.md, section: "What's open by default"}
-      - {source: README.md, section: "Security model"}
 
   - id: enable-auth
     category: docs
@@ -103,7 +107,6 @@ questions:
     contains: ["OPS_SIGNALS_API_TOKEN", "Bearer"]
     expect:
       - {source: docs/security-model.md, section: "Turning on authentication"}
-      - {source: README.md, section: "Security model"}
 
   - id: file-writes-flag
     category: docs
@@ -118,7 +121,6 @@ questions:
     contains: ["OPS_SIGNALS_CORS_ORIGINS"]
     expect:
       - {source: docs/security-model.md, section: "CORS"}
-      - {source: README.md, section: "Security model"}
 
   # --- Configuration ----------------------------------------------------------------------------
   - id: config-merge-order
@@ -149,7 +151,7 @@ questions:
     contains: ["/api/otlp"]
     expect:
       - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
-      - {source: README.md, section: "OTLP Metrics Ingestion"}
+      - {source: docs/otlp.md, section: "Point a Collector at Ops Signals"}
 
   - id: otlp-not-root-path
     category: docs
@@ -279,7 +281,7 @@ questions:
     question: Where do I point my OTel Collector?
     contains: ["/api/otlp"]
     expect:
-      - {source: README.md, section: "OTLP Metrics Ingestion"}
+      - {source: docs/otlp.md, section: "Point a Collector at Ops Signals"}
       - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
 
   - id: starter-behavior-intelligence
@@ -311,8 +313,6 @@ questions:
     contains: ["slack"]
     expect:
       - {source: docs/alert-enrichment.md}
-      - {source: README.md, section: "Slack Notifications"}
-      - {source: README.md, section: "Alert Enrichment"}
 
   - id: informal-otel
     category: informal
@@ -320,7 +320,7 @@ questions:
     contains: ["/api/otlp"]
     expect:
       - {source: docs/design/otlp-metrics-ingestion-plan.md, section: "3. Endpoint"}
-      - {source: README.md, section: "OTLP Metrics Ingestion"}
+      - {source: docs/otlp.md, section: "Point a Collector at Ops Signals"}
 
   - id: informal-wipe-data
     category: informal

@@ -6,7 +6,24 @@ Autonomous analysis now previews concrete Prometheus metric jobs from three inpu
 - analysis scope: environment, service, namespace, and the Prometheus label names that identify them
 - execution policy: interval, analysis window, max metrics per run, and max parallel jobs
 
-This capability supports previewing a metric plan and running that plan once on demand. It does not start a repeating scheduler.
+This page covers previewing a metric plan and how the plan is built. Running a policy once or on a
+schedule is summarized below; how runs execute is in
+[`autonomous-pipeline-architecture.md`](autonomous-pipeline-architecture.md).
+
+## In Short
+
+Metrics are discovered from Prometheus and classified by the rules in
+`config/prometheus_metric_knowledge.yaml` and `config/autonomous_metric_taxonomy.yaml`, with
+sampling that keeps one noisy service from crowding out the rest.
+
+A policy runs once or on a recurring schedule, and a failing schedule is surfaced rather than going
+quiet. Each run takes at most `max_metrics_per_run` metrics (default 500); the rest are excluded for
+that run, not carried over, and shown as budget-limited. Jobs run one after another. Results,
+coverage and history are on the **Overview** tab and in the Grafana plugin.
+
+Each run stores the points it analyzed, once per series, for the chart on a finding. Points older
+than 30 days are deleted (`OPS_SIGNALS_POINT_RETENTION_DAYS`; 0 keeps them all), except those behind
+a finding that has a case. Findings themselves are kept.
 
 ## Intent Expansion
 

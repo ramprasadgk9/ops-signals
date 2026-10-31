@@ -73,6 +73,11 @@ kube-state-metrics ReplicaSet) and stored in the same table with an `ops-signals
 - `backend/app/deploy_discovery/` (run from `backend/app/autonomous/scheduler.py`)
 - `intelligence/normalize/normalizer.py`
 
+Two pipelines run the same analyzers and routing: **Interactive Analysis** (`SignalPipeline`, used
+by Grafana, REST, CSV and the CLI) and **Autonomous Analysis** (`MetricAnalysisExecutor`, used by
+the scheduler). They share the router and analyzer implementations but not orchestration code - see
+[`autonomous-pipeline-architecture.md`](autonomous-pipeline-architecture.md).
+
 ### 2. Route & Analyze
 
 The Universal Router extracts features from the normalized series (seasonality, trend, variance, shift

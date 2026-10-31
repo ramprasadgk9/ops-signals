@@ -176,7 +176,7 @@ connections:
 - `grafana_datasources` (file only) lists the Grafana datasources, by uid or
   name, that read the connection. Metric Usage uses it to tell which tenant a
   panel shows; without it a datasource belongs to the connections with the
-  same URL. See [Metric Usage](../README.md#metric-usage).
+  same URL. See [Metric Usage](metric-usage.md).
 - **Secrets stay out of the file.** `bearer_token`, `username`, `password` and
   header values may use `${ENV_VAR}`; nothing else is expanded. A reference to
   an unset variable stops startup with an error naming it.
