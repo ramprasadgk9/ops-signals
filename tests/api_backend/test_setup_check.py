@@ -59,7 +59,9 @@ def test_fresh_install_says_what_is_missing_and_never_fails() -> None:
     assert (checks["metrics"]["group"], checks["metrics"]["status"]) == ("required", "fail")
     assert "OPS_SIGNALS_PROMETHEUS_URL" in checks["metrics"]["snippet"]
     assert (checks["login"]["group"], checks["login"]["status"]) == ("recommended", "warn")
-    assert checks["login"]["docs"] == "docs/security-model.md"
+    # Step 1 of docs/access.md: lock the API, with the command to copy.
+    assert (checks["login"]["docs"], checks["login"]["step"], checks["login"]["action"]) == ("docs/access.md", 1, "lock_api")
+    assert "OPS_SIGNALS_API_TOKEN" in checks["login"]["snippet"]
     assert (checks["first_analysis"]["status"], checks["first_analysis"]["action"]) == ("warn", "run_analysis")
     assert checks["risky_switches"]["status"] == "ok"
     for optional in ("alerts", "events", "notifications", "ticketing", "ai", "schedule"):
@@ -89,7 +91,8 @@ def test_api_token_and_risky_switches_are_reported(monkeypatch: pytest.MonkeyPat
 
     checks = _by_id(res.json())
     # A token alone: nobody signs in to the web UI, so it has no roles.
-    assert checks["login"]["status"] == "warn"
+    assert (checks["login"]["status"], checks["login"]["step"], checks["login"]["action"]) == ("warn", 2, "choose_sign_in")
+    assert checks["login"]["detail"].startswith("API locked. But nobody signs in to the web UI")
     assert checks["risky_switches"]["status"] == "warn"
     assert checks["risky_switches"]["detail"].startswith("2 switches are on")
     assert "s3cret-token" not in res.text

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixLabel, hasFixDetails, proxyUnreachableSetupResult, setupBanner, setupChips, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
+import { fixLabel, hasFixDetails, loginStepStates, proxyUnreachableSetupResult, setupBanner, setupChips, setupDocsUrl, setupReport, setupSummary, unreachableSetupResult, type SetupCheckResult } from './setupCheck';
 
 const RESULT: SetupCheckResult = {
   generated_at: '2026-10-19T14:02:31Z',
@@ -168,5 +168,28 @@ describe('how_to_set checks', () => {
     expect(hasFixDetails({ ...overrides, status: 'off' })).toBe(true);
     expect(fixLabel(overrides)).toBe('How to set');
     expect(fixLabel(RESULT.checks[2])).toBe('How to fix');
+  });
+});
+
+describe('loginStepStates', () => {
+  const login = { id: 'login', group: 'recommended', title: 'Login', detail: '' } as const;
+
+  it('marks the steps before the current one done, and the rest still to do', () => {
+    expect(loginStepStates({ ...login, status: 'warn', step: 1 })).toEqual(['now', 'todo', 'todo']);
+    expect(loginStepStates({ ...login, status: 'warn', step: 2 })).toEqual(['done', 'now', 'todo']);
+    expect(loginStepStates({ ...login, status: 'ok', step: 3 })).toEqual(['done', 'done', 'done']);
+  });
+
+  it('shows a broken step as failing', () => {
+    expect(loginStepStates({ ...login, status: 'fail', step: 2 })).toEqual(['done', 'fail', 'todo']);
+  });
+
+  it('has no strip for other checks', () => {
+    expect(loginStepStates({ ...login, id: 'backend', status: 'ok' })).toBeNull();
+  });
+
+  it('names the first step on its button', () => {
+    expect(fixLabel({ ...login, status: 'warn', step: 1, action: 'lock_api' })).toBe('Lock the API · 1 min');
+    expect(fixLabel({ ...login, status: 'warn', step: 2, action: 'choose_sign_in' })).toBe('Choose how people sign in');
   });
 });

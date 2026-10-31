@@ -123,3 +123,21 @@ describe('SetupCheckPanel per-service analyzer settings', () => {
     expect(screen.getByText('Copy the example file.')).toBeInTheDocument();
   });
 });
+
+describe('SetupCheckPanel Login steps', () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it('shows the three steps: step 1 names its button, and done links who can do what', async () => {
+    const login = { id: 'login', group: 'recommended', title: 'Login' } as const;
+    vi.mocked(getSetupCheck).mockResolvedValue({ ...RESULT, checks: [{ ...login, status: 'warn', step: 1, action: 'lock_api', detail: 'Open.', fix: ['Create a token.'] }] });
+    const { unmount } = render(<SetupCheckPanel backendUrl="http://localhost:8002" />);
+    expect(await screen.findByRole('listitem', { name: 'Step 1, Lock the API: next' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lock the API · 1 min: Login' })).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(getSetupCheck).mockResolvedValue({ ...RESULT, checks: [{ ...login, status: 'ok', step: 3, detail: 'API locked. You are admin (Admin) through Grafana.' }] });
+    render(<SetupCheckPanel backendUrl="http://localhost:8002" />);
+    expect(await screen.findByRole('listitem', { name: 'Step 2, Give people roles: done' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Who can do what' })).toHaveAttribute('href', 'https://github.com/ramprasadgk9/ops-signals/blob/main/docs/access.md#what-each-role-can-do');
+  });
+});

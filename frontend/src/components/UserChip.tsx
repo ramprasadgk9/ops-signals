@@ -44,13 +44,33 @@ export function UserChip() {
   }
 
   if (role === null) {
+    const label = me.problem ? 'Sign-in problem · see Setup check' : 'Not signed in · everyone can change things';
     return (
-      <Tooltip title={me.problem ?? 'No sign-in is set up, so the web UI has no roles. See Setup check → Login.'}>
+      <>
         <Chip
-          label={me.problem ? 'Sign-in problem · see Setup check' : 'Not signed in · everyone can change things'}
+          clickable
+          onClick={(event) => setAnchor(event.currentTarget)}
+          aria-label={label}
+          label={
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <span>{label}</span>
+              <KeyboardArrowDownRoundedIcon sx={{ fontSize: 18 }} />
+            </Stack>
+          }
           sx={{ bgcolor: 'var(--os-tint-amber, #fff7ed)', color: 'var(--os-ink-amber, #b45309)', border: '1px solid var(--os-tint-amber-border, #fed7aa)', fontWeight: 700 }}
         />
-      </Tooltip>
+        <Popover open={Boolean(anchor)} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}>
+          <Box sx={{ p: 2, width: 320 }}>
+            <Typography variant="body2" sx={{ mb: 1.5 }}>
+              {me.problem ?? 'Nobody signs in to this web UI yet, so there are no roles and no names on what people do.'}
+            </Typography>
+            {/* Without sign-in every page is open, so whoever reads this can open Setup check. */}
+            <Button size="small" variant="contained" disableElevation href="/setup-check" sx={{ textTransform: 'none', fontWeight: 750 }}>
+              {me.problem ? 'Open Setup check' : 'Set up sign-in on Setup check'}
+            </Button>
+          </Box>
+        </Popover>
+      </>
     );
   }
 

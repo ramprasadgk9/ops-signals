@@ -45,6 +45,13 @@ describe('UserChip', () => {
     expect(await screen.findByText('Not signed in · everyone can change things')).toBeInTheDocument();
   });
 
+  it('points to the sign-in step when nobody is signed in', async () => {
+    renderWith(NOBODY, <UserChip />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Not signed in · everyone can change things' }));
+    expect(screen.getByText(/there are no roles and no names on what people do/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Set up sign-in on Setup check' })).toHaveAttribute('href', '/setup-check');
+  });
+
   it('flags a sign-in that is on but not working', async () => {
     renderWith({ ...NOBODY, mode: 'proxy-headers', problem: 'Sign-in is on, but this request had no user header.' }, <UserChip />);
     expect(await screen.findByText('Sign-in problem · see Setup check')).toBeInTheDocument();

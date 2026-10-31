@@ -3,6 +3,9 @@
 How people sign in to Ops Signals through the Grafana plugin, what each Grafana role can do, how the
 plugin records who did what, and how to check it all on your own machine.
 
+Setting it up for the first time? Start at [`access.md`](access.md): lock the API, connect the
+plugin through Grafana, check it.
+
 ## In short
 
 - **Nobody signs in to Ops Signals.** People use the plugin as the Grafana user they already are.
@@ -10,8 +13,8 @@ plugin records who did what, and how to check it all on your own machine.
   usual (or by the company login system that feeds Grafana).
 - **Names are recorded** on what people do: "Answered Expected change by priya", "Created by
   admin", "Resolved by sam", "Owner sam · last edited by priya".
-- **This is the Grafana plugin.** The standalone web UI signs in through your company's sign-in
-  proxy instead (see [Plugin or web UI?](#plugin-or-web-ui)).
+- **This is the Grafana plugin.** The standalone web UI signs people in with your company login or
+  a sign-in proxy instead (see [Plugin or web UI?](#plugin-or-web-ui)).
 
 ## How it works
 
@@ -29,18 +32,8 @@ The backend reads it in `backend/app/identity.py` and applies the roles in `back
 
 ## Who can do what
 
-| Action | Viewer | Editor | Admin |
-| --- | :-: | :-: | :-: |
-| See Overview, findings, cases, schedules, alerts, memory | ✓ | ✓ | ✓ |
-| Ask Ops Signals, rate its answers | ✓ | ✓ | ✓ |
-| Preview an autonomous metric plan (nothing is saved) | ✓ | ✓ | ✓ |
-| Answer "Was this real?" (it changes the trust numbers for everyone) | – | ✓ | ✓ |
-| Create a case; investigate, add the root cause, resolve, publish to memory | – | ✓ | ✓ |
-| Create or sync a ticket from a case | – | ✓ | ✓ |
-| Run Analysis (Interactive), Run once (Autonomous) | – | ✓ | ✓ |
-| Save, edit, pause or delete a schedule | – | ✓ | ✓ |
-| Configuration page, test alerts, analyzer and behavior labs, case imports, test-data reset | – | – | ✓ |
-| See set-up details: the full Setup check, analyzer settings, lab work, case imports | – | – | ✓ |
+Grafana's Viewer, Editor and Admin roles apply, as in one table:
+[`access.md`](access.md#what-each-role-can-do).
 
 What a Viewer sees: the locked buttons stay visible with a 🔒 and the reason underneath, for example
 "Editors can run analyses. Ask your Grafana admin for the Editor role." The case drawer is
@@ -92,12 +85,12 @@ To set it up with provisioning, see the plugin's [`README`](../frontend/README.m
 
 | | Grafana plugin (`localhost:3000` locally) | Web UI (`localhost:5174` locally) |
 | --- | --- | --- |
-| Sign-in | Grafana's | Your company's sign-in proxy, when set up |
+| Sign-in | Grafana's | Your company login or sign-in proxy, when set up |
 | Roles | Viewer / Editor / Admin, from Grafana | Viewer / Editor / Admin, from company groups |
 | Records who did what | Yes | Yes, with sign-in on |
 
-Without a sign-in proxy the web UI has no roles: everyone can do everything. Setting it up is in
-[`web-ui-sign-in.md`](web-ui-sign-in.md).
+Without sign-in the web UI has no roles: everyone can do everything. Setting it up is step 2 in
+[`access.md`](access.md).
 
 ## Check it on your machine
 

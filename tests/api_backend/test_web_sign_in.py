@@ -103,13 +103,13 @@ def test_without_sign_in_nothing_changes(monkeypatch: pytest.MonkeyPatch, client
 
 def test_the_setup_check_login_row_says_who_signed_in(sign_in_env, client: TestClient) -> None:
     checks = {check["id"]: check for check in client.get("/api/setup/check", headers=_signed_in("ada@example.com", "platform-admins")).json()["checks"]}
-    assert checks["login"]["status"] == "ok"
+    assert (checks["login"]["status"], checks["login"]["step"]) == ("ok", 3)
     assert checks["login"]["detail"] == "Company sign-in (proxy headers) is on · you are ada@example.com (Admin, group platform-admins) through company sign-in."
     # Only Admins read the details; an Editor gets the summary.
     assert client.get("/api/setup/check", headers=_signed_in("priya@example.com", "sre")).status_code == 403
 
     missing = {check["id"]: check for check in client.get("/api/setup/check", headers=AUTH).json()["checks"]}
-    assert missing["login"]["status"] == "warn"
+    assert (missing["login"]["status"], missing["login"]["step"]) == ("warn", 2)
     assert "no X-Forwarded-Email header" in missing["login"]["detail"]
 
 

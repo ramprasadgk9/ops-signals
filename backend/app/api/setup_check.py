@@ -88,9 +88,13 @@ class SetupCheck(BaseModel):
     snippet: str | None = None
     # A page in docs/, e.g. "docs/security-model.md"; the UI links it.
     docs: str | None = None
-    # Something the UI can offer as a button: test_connection, run_analysis, send_test_alert.
+    # Something the UI can offer as a button: test_connection, run_analysis, send_test_alert, and on
+    # Login lock_api (step 1), choose_sign_in (step 2, the three ways to sign in), sign_in (company sign-in on).
     action: str | None = None
     connection_id: str | None = None
+    # Only on the Login row: which of the three steps in docs/access.md it's on. 1 lock the API,
+    # 2 give people roles, 3 done (checked). The UI draws them as a strip with one next button.
+    step: Literal[1, 2, 3] | None = None
 
 
 class SetupActorOut(BaseModel):
@@ -290,9 +294,9 @@ def _who(actor: Actor) -> str:
 def login_check(actor: Actor | None) -> SetupCheck | None:
     """The Login row once a token is set, or with a dev user: which sign-in is on, and who this is."""
     security, auth = get_security_config(), get_auth_config()
-    base = dict(id="login", group="recommended", title="Login", docs="docs/web-ui-sign-in.md")
+    base = dict(id="login", group="recommended", title="Login", docs="docs/access.md")
     if actor is not None and actor.via == "dev":
-        return SetupCheck(**base, status="warn", detail=f"Pretending to be {_who(actor)} with OPS_SIGNALS_DEV_USER: for trying sign-in on your own machine only.",
+        return SetupCheck(**base, status="warn", step=1, detail=f"Pretending to be {_who(actor)} with OPS_SIGNALS_DEV_USER: for trying sign-in on your own machine only.",
                           fix=["Unset OPS_SIGNALS_DEV_USER and restart the backend when you are done."])
     if auth.mode == "oidc":
         return oidc_login_check(actor, auth, security.api_token, base)
@@ -300,29 +304,29 @@ def login_check(actor: Actor | None) -> SetupCheck | None:
         return None
     if auth.mode != "proxy-headers":
         if actor is not None:
-            return SetupCheck(**base, status="ok", detail=f"An API token is required on every request. You are {_who(actor)} through Grafana.")
+            return SetupCheck(**base, status="ok", step=3, detail=f"API locked. You are {_who(actor)} through Grafana, so Grafana's roles apply.")
         return SetupCheck(
-            **base, status="warn", action="sign_in",
-            detail="An API token is required on every request, but nobody signs in to the web UI, so everyone who uses it can see and change everything.",
+            **base, status="warn", action="choose_sign_in", step=2,
+            detail="API locked. But nobody signs in to the web UI, so everyone who uses it can see and change everything.",
             fix=["To give people Viewer, Editor or Admin roles in the web UI, turn on company sign-in (OPS_SIGNALS_AUTH_MODE=oidc), or put it behind your company's sign-in proxy and set OPS_SIGNALS_AUTH_MODE=proxy-headers.",
                  "In the Grafana plugin, roles come from Grafana when it connects through Grafana."],
         )
     if actor is None:
         return SetupCheck(
-            **base, status="warn",
+            **base, status="warn", step=2,
             detail=f"Company sign-in is on, but this request had no {auth.user_header} header.",
             cause="The web UI isn't behind the sign-in proxy, or the proxy doesn't pass the user on.",
             fix=[f"Put the web UI behind the sign-in proxy and have it set {auth.user_header} (and {auth.groups_header}).",
                  "Or set OPS_SIGNALS_AUTH_USER_HEADER to the header your proxy uses, then restart the backend."],
         )
     where = "through Grafana" if actor.via == "grafana" else "through company sign-in"
-    return SetupCheck(**base, status="ok", detail=f"Company sign-in (proxy headers) is on · you are {_who(actor)} {where}.")
+    return SetupCheck(**base, status="ok", step=3, detail=f"Company sign-in (proxy headers) is on · you are {_who(actor)} {where}.")
 
 
 def oidc_login_check(actor: Actor | None, auth: AuthConfig, api_token: str | None, base: dict) -> SetupCheck:
     """The Login row with the backend's own sign-in: set up, reachable, a test provider, groups arriving.
     action "sign_in" gives the row its Copy redirect address, Test sign-in and set-up help."""
-    base = base | {"action": "sign_in"}
+    base = base | {"action": "sign_in", "step": 2}
     problem = oidc.setup_problem(auth, api_token)
     if problem:
         return SetupCheck(**base, status="fail", detail=problem,
@@ -346,7 +350,7 @@ def oidc_login_check(actor: Actor | None, auth: AuthConfig, api_token: str | Non
         groups = oidc.arrived_groups(actor.name)
         # What the provider sent at your sign-in, so the Admin and Editor lists can name it exactly.
         arrived = " · no groups arrived at your sign-in" if actor.groups_missing else f" · groups that arrived: {', '.join(groups)}" if groups else ""
-    return SetupCheck(**base, status="ok", detail=f"Company sign-in is on{who}{arrived} · provider {auth.oidc_issuer_url} · sessions last {auth.session_hours:g} h")
+    return SetupCheck(**base | {"step": 3}, status="ok", detail=f"Company sign-in is on{who}{arrived} · provider {auth.oidc_issuer_url} · sessions last {auth.session_hours:g} h")
 
 
 def security_checks(actor: Actor | None = None) -> list[SetupCheck]:
@@ -356,14 +360,15 @@ def security_checks(actor: Actor | None = None) -> list[SetupCheck]:
         login
         if login is not None else
         SetupCheck(
-            id="login", group="recommended", status="warn", title="Login",
-            detail="Open: no API token is set, so anyone who can reach the backend can change things.",
+            id="login", group="recommended", status="warn", title="Login", action="lock_api", step=1,
+            detail="Open: no API token is set, so anyone who can reach Ops Signals can see and change everything.",
             fix=[
-                "Create a token and set it on the backend (and the web container):",
-                "Restart, then enter the token in the plugin's API token field, or give it to your scripts.",
+                "In the folder with your .env, run the command below. It makes a token and saves it.",
+                "Restart: docker compose -f docker-compose.packaged.yml up -d. Compose gives the token to the backend and the web UI. With Helm, put it in a Secret (see the guide).",
+                "Check again: this row moves to step 2. In the Grafana plugin, paste the token into API token on its Configuration page; scripts send it as a Bearer token.",
             ],
-            snippet='OPS_SIGNALS_API_TOKEN="$(openssl rand -hex 32)"',
-            docs="docs/security-model.md",
+            snippet='echo "OPS_SIGNALS_API_TOKEN=$(openssl rand -hex 32)" >> .env',
+            docs="docs/access.md",
         )
     ]
     risky = [name for name, on in (
@@ -600,7 +605,7 @@ def setup_summary(
     """The same checks with only their name and status, for everyone: the setup reminder and the
     plugin's header chips. Details can name addresses and secrets, so they stay in /check."""
     result = run_setup_checks(db, store, memory_config, actor)
-    checks = [SetupCheck(id=check.id, group=check.group, status=check.status, title=check.title, detail="") for check in result.checks]
+    checks = [SetupCheck(id=check.id, group=check.group, status=check.status, title=check.title, detail="", step=check.step) for check in result.checks]
     return result.model_copy(update={"checks": checks})
 
 
