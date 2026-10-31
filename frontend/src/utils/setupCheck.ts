@@ -3,7 +3,7 @@
 
 export type SetupCheckStatus = 'ok' | 'fail' | 'warn' | 'off';
 export type SetupCheckGroup = 'required' | 'recommended' | 'optional';
-export type SetupCheckAction = 'test_connection' | 'run_analysis' | 'send_test_alert' | 'how_to_set';
+export type SetupCheckAction = 'test_connection' | 'run_analysis' | 'send_test_alert' | 'how_to_set' | 'lock_api' | 'choose_sign_in' | 'sign_in';
 
 export interface SetupCheck {
   id: string;
@@ -18,6 +18,8 @@ export interface SetupCheck {
   docs?: string | null;
   action?: SetupCheckAction | string | null;
   connection_id?: string | null;
+  /** Only on Login: which of the three steps in docs/access.md it's on (3 = done). */
+  step?: 1 | 2 | 3 | null;
 }
 
 export interface SetupCheckResult {
@@ -50,10 +52,34 @@ export function hasFixDetails(check: SetupCheck): boolean {
   return (check.status !== 'ok' || check.action === 'how_to_set') && Boolean(check.tried || check.cause || check.fix?.length || check.snippet);
 }
 
-/** The details button's label: how to fix something broken, or how to set up something optional. */
+/** The details button's label: how to fix something broken, how to set up something optional, or
+ * Login's first step. */
 export function fixLabel(check: SetupCheck): string {
+  if (check.action === 'lock_api') return 'Lock the API · 1 min';
+  // The web UI shows step 2's cards instead; the plugin opens the steps.
+  if (check.action === 'choose_sign_in') return 'Choose how people sign in';
   return check.action === 'how_to_set' ? 'How to set' : 'How to fix';
 }
+
+/** The three steps in docs/access.md, the same words on the Login row's strip. */
+export const LOGIN_STEPS = ['Lock the API', 'Give people roles', 'Check it'] as const;
+
+export type LoginStepState = 'done' | 'now' | 'fail' | 'todo';
+
+/** Each step's state for the Login row's strip, or null for a check without steps. */
+export function loginStepStates(check: SetupCheck): LoginStepState[] | null {
+  const step = check.step;
+  if (!step) return null;
+  return LOGIN_STEPS.map((_, index) => {
+    const number = index + 1;
+    if (step === 3 || number < step) return 'done';
+    if (number > step) return 'todo';
+    return check.status === 'fail' ? 'fail' : 'now';
+  });
+}
+
+/** Where the access guide lives, for links next to the Login row. */
+export const ACCESS_DOC = 'docs/access.md';
 
 export function setupSummary(result: SetupCheckResult) {
   const required = checksIn(result, 'required');

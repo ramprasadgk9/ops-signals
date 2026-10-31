@@ -29,6 +29,9 @@ What the project is, and how to get it running.
   Grafana and Drop actions.
 - [`comparison.md`](comparison.md) - how Ops Signals relates to Robusta/HolmesGPT, Keep and
   Grafana Sift, including where those tools are ahead.
+- [`access.md`](access.md) - **start here before others use it.** Who can use Ops Signals in three
+  steps: lock the API, give people roles (Grafana plugin, company login or a sign-in proxy), check
+  it on Setup check. One table of what each role can do.
 - [`security-model.md`](security-model.md) - what's open by default, the API token, the switches
   for the reset and file-writing endpoints, and CORS. Read it before exposing Ops Signals beyond
   your own machine.

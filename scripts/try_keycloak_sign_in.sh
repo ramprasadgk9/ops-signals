@@ -12,14 +12,15 @@
 #
 # Users (password Passw0rd-<name>): john = Admin, elena = Editor, vic = Viewer (group "support").
 # For this computer only. The settings live in tmp/keycloak/keycloak.env (git ignores tmp/); .env and
-# the Grafana stack are not touched. KEYCLOAK_PORT (8180) and FRONTEND_PORT (5174) can be changed.
+# the Grafana stack are not touched. KEYCLOAK_PORT (8180) and FRONTEND_PORT (5174) can be changed;
+# KEYCLOAK_CONTAINER and KEYCLOAK_DIR run a second copy next to this one (the walkthrough recorder does).
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-HERE="$ROOT_DIR/tmp/keycloak"
+HERE="${KEYCLOAK_DIR:-$ROOT_DIR/tmp/keycloak}"
 ENV_FILE="$HERE/keycloak.env"
-CONTAINER=ops-signals-keycloak-try
+CONTAINER="${KEYCLOAK_CONTAINER:-ops-signals-keycloak-try}"
 # Lines in .env that would override these settings: run_all.sh loads .env after them.
 SIGN_IN_SETTINGS='OPS_SIGNALS_(AUTH_MODE|OIDC_[A-Z_]+|AUTH_ADMIN_GROUPS|AUTH_EDITOR_GROUPS|PUBLIC_URL|TEST_SIGN_IN|DEV_USER)=' 
 IMAGE=quay.io/keycloak/keycloak:26.0.7
@@ -134,6 +135,7 @@ up() {
 
   # 5. Ops Signals settings (step 3), kept out of .env
   echo "Step 5: writing $ENV_FILE..."
+  mkdir -p "$HERE"
   local token=""
   if [[ -f "$ENV_FILE" ]]; then
     token="$(grep '^OPS_SIGNALS_API_TOKEN=' "$ENV_FILE" | cut -d= -f2- || true)"

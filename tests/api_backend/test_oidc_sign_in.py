@@ -231,7 +231,7 @@ def test_the_client_secret_never_shows(provider, client: TestClient, caplog: pyt
 def test_the_setup_check_login_row(provider, client: TestClient) -> None:
     sign_in(client, provider, "ada@example.com")
     login = next(check for check in client.get("/api/setup/check").json()["checks"] if check["id"] == "login")
-    assert (login["status"], login["action"]) == ("ok", "sign_in")
+    assert (login["status"], login["action"], login["step"]) == ("ok", "sign_in", 3)
     assert login["detail"].startswith("Company sign-in is on · you are ada@example.com (Admin, group ops-signals-admins) · groups that arrived: ops-signals-admins")
 
 
@@ -250,7 +250,7 @@ def test_the_setup_check_says_when_the_provider_cant_be_reached(provider, monkey
     monkeypatch.setattr(oidc, "http_transport", httpx.MockTransport(lambda request: httpx.Response(503)))
     oidc.clear_cache()
     login = next(check for check in client.get("/api/setup/check", headers={"Authorization": f"Bearer {TOKEN}"}).json()["checks"] if check["id"] == "login")
-    assert (login["status"], login["detail"]) == ("fail", "Company sign-in is on, but Ops Signals can't reach your provider.")
+    assert (login["status"], login["step"], login["detail"]) == ("fail", 2, "Company sign-in is on, but Ops Signals can't reach your provider.")
     assert "openid-configuration" in login["tried"]
 
 

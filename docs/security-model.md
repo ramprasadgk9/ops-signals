@@ -4,6 +4,9 @@ Ops Signals is built to run **inside a trusted network**, next to your Prometheu
 is not hardened to face the internet. Read this page before you run it anywhere other people can
 reach.
 
+To lock it down step by step (token, then roles, then a check), start at
+[`access.md`](access.md). This page is the reference behind it.
+
 ## What's open by default
 
 With no configuration, **the API has no authentication**. Anyone who can reach the backend (port
@@ -65,8 +68,9 @@ token (`authorization: { credentials: <token> }`).
 | **Alertmanager / CI** | `authorization: { credentials: <token> }` in the Alertmanager receiver, or `-H "Authorization: Bearer <token>"` in the deploy step. |
 | **Scripts and curl** | `-H "Authorization: Bearer <token>"`. |
 
-The web UI run by the Vite dev server (`npm run dev`) doesn't send a token, so use it against a
-backend without one.
+The web UI run by the Vite dev server (`npm run dev`) sends no token unless you start it with
+`OPS_SIGNALS_DEV_PROXY_API_TOKEN` set: then its proxy adds the token on the server side, as nginx
+does. Leave it unset with company sign-in on, as nginx does in that mode.
 
 ### Where to set it
 
@@ -95,15 +99,10 @@ UI from the same origin as `/api/`.
 ## Roles
 
 When the plugin connects through Grafana, each request is limited by the person's Grafana role in
-the organization (`backend/app/roles.py`):
+the organization (`backend/app/roles.py`). What Viewer, Editor and Admin may do is in one table:
+[`access.md`](access.md#what-each-role-can-do).
 
-| Role | May |
-| --- | --- |
-| **Viewer** | Read everything except set-up details, ask Ops Signals and rate its answers, preview an autonomous plan, test a connection |
-| **Editor** | Also answer "Was this real?", create and work on cases (investigation, root cause, resolution, memory, tickets), run analyses, save, change, pause or delete schedules |
-| **Admin** | Also the plugin's Configuration page, test alerts, the analyzer and behavior labs, case imports, and the test-data reset; and reading set-up details: the full Setup check (addresses, which secrets are set, fixes), analyzer settings, lab work and case imports. Everyone else gets each check's name and status from `GET /api/setup/summary` |
-
-Setup, the plugin-or-web-UI question and step-by-step checks are in
+The plugin's setup and step-by-step checks are in
 [`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md). A refused request gets a 403 saying why ("Editors can change schedules. Ask your Grafana admin for
 the Editor role."), and the plugin shows the same reason under the locked button. Grafana sets the
 role on every request and a browser can't change it, so with `OPS_SIGNALS_API_TOKEN` set (only
@@ -140,14 +139,14 @@ directly" mode) record no name.
 ## Known limitations
 
 - **Roles only for signed-in people.** Requests through the plugin's Grafana proxy, or through the
-  web UI behind a sign-in proxy, are limited by the person's role. Anything else with the token -
+  web UI with sign-in on, are limited by the person's role. Anything else with the token -
   the web UI without sign-in, scripts, the plugin in "Browser, directly" mode - can do everything
   the API allows, including the file writes and the reset when those are on. One shared token for
   everything; separate tokens per integration are planned ([`adoption-roadmap.md`](adoption-roadmap.md)).
 - **In the Grafana plugin's "Browser, directly" mode, the token sits in the browser.** Connect the
   plugin through Grafana to keep it on the Grafana server.
-- **The web UI knows who is using it only behind a sign-in proxy.** Without one, its actions
-  record no name.
+- **The web UI knows who is using it only with sign-in on** (company sign-in or a sign-in proxy).
+  Without it, its actions record no name.
 - **No TLS in the backend.** Put it behind a TLS-terminating proxy or ingress if traffic leaves
   the host.
 - **The dev `docker-compose.yml` uses default passwords** for Postgres and Grafana and publishes

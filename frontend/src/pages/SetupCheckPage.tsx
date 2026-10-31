@@ -5,8 +5,10 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/queries';
 import { PageHeader, WorkspacePanel } from '../standalone/components';
 import { SignInSetupHelp } from '../components/SignInSetupHelp';
+import { AccessWalkthroughButton, LoginStepStrip, SignInPaths } from '../components/LoginSteps';
 import { ui } from '../standalone/theme';
 import {
+  ACCESS_DOC,
   SETUP_GROUPS,
   checksIn,
   connectionTestText,
@@ -59,11 +61,15 @@ function CheckRow({ check }: { check: SetupCheck }) {
   const [open, setOpen] = useState(false);
   const test = useMutation({ mutationFn: () => api.testPrometheusConnection(check.connection_id ?? 'default') });
   const testAlert = useMutation({ mutationFn: () => api.sendTestAlert() });
-  const details = hasFixDetails(check);
+  const [choosing, setChoosing] = useState(false);
+  // Step 2 with nobody signing in: the three ways to sign people in replace the list of fixes.
+  const choose = check.action === 'choose_sign_in';
+  const details = hasFixDetails(check) && !choose;
   const label = { fontSize: 11.5, letterSpacing: '.06em', textTransform: 'uppercase', color: ui.muted, fontWeight: 800, mb: 0.5 } as const;
 
   return (
     <Box sx={{ borderTop: `1px solid ${ui.border}` }}>
+      <LoginStepStrip check={check} />
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '22px 1fr', md: '22px 220px 1fr auto' }, gap: { xs: 1, md: 2 }, alignItems: 'center', py: 1.5, px: 0.5 }}>
         <StatusIcon status={check.status} />
         <Typography sx={{ fontWeight: 750 }}>{check.title}</Typography>
@@ -81,13 +87,24 @@ function CheckRow({ check }: { check: SetupCheck }) {
           ) : null}
         </Box>
         <Stack direction="row" spacing={1} sx={{ gridColumn: { xs: '2', md: 'auto' }, justifySelf: { md: 'end' } }}>
+          {check.step && check.step < 3 ? <AccessWalkthroughButton /> : null}
           {details ? (
-            <Button size="small" variant="outlined" sx={buttonSx} aria-expanded={open} aria-label={`${open ? 'Hide' : fixLabel(check)}: ${check.title}`} onClick={() => setOpen(!open)}>
+            <Button size="small" variant={check.action === 'lock_api' && !open ? 'contained' : 'outlined'} disableElevation sx={buttonSx} aria-expanded={open} aria-label={`${open ? 'Hide' : fixLabel(check)}: ${check.title}`} onClick={() => setOpen(!open)}>
               {open ? 'Hide' : fixLabel(check)}
             </Button>
           ) : check.docs && check.status !== 'ok' ? (
             <Button size="small" variant="outlined" sx={buttonSx} href={setupDocsUrl(check.docs)} target="_blank" rel="noreferrer">
               Guide
+            </Button>
+          ) : null}
+          {choose ? (
+            <Button size="small" variant={choosing ? 'outlined' : 'contained'} disableElevation sx={buttonSx} aria-expanded={choosing} onClick={() => setChoosing(!choosing)}>
+              {choosing ? 'Hide' : 'Choose how people sign in'}
+            </Button>
+          ) : null}
+          {check.step === 3 && check.status === 'ok' ? (
+            <Button size="small" variant="outlined" sx={buttonSx} href={`${setupDocsUrl(ACCESS_DOC)}#what-each-role-can-do`} target="_blank" rel="noreferrer">
+              Who can do what
             </Button>
           ) : null}
           {check.action === 'test_connection' ? (
@@ -108,6 +125,7 @@ function CheckRow({ check }: { check: SetupCheck }) {
         </Stack>
       </Box>
       {check.action === 'sign_in' ? <SignInSetupHelp /> : null}
+      {choose && choosing ? <SignInPaths /> : null}
       {open && details ? (
         <Box sx={{ ml: { md: 4.5 }, mb: 1.5, p: 2, borderRadius: '6px', border: `1px solid ${check.status === 'fail' ? 'rgba(255, 77, 87, 0.35)' : ui.border}`, bgcolor: check.status === 'fail' ? 'rgba(255, 77, 87, 0.04)' : 'transparent', display: 'grid', gridTemplateColumns: { xs: '1fr', md: check.tried || check.cause ? '1fr 1fr' : '1fr' }, gap: 2.5 }}>
           {check.tried || check.cause ? (

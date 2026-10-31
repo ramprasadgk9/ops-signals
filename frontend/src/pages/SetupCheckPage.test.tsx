@@ -151,3 +151,61 @@ describe('SetupCheckPage per-service analyzer settings', () => {
     expect(screen.getByText(/payments_memory_trend/)).toBeInTheDocument();
   });
 });
+
+describe('SetupCheckPage Login steps', () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const login = { id: 'login', group: 'recommended', title: 'Login', docs: 'docs/access.md' } as const;
+  const withLogin = (check: SetupCheckResult['checks'][number]): SetupCheckResult => ({ ...RESULT, checks: [RESULT.checks[0], check] });
+
+  it('starts at step 1 with the command to lock the API', async () => {
+    vi.mocked(api.setupCheck).mockResolvedValue(withLogin({ ...login, status: 'warn', step: 1, action: 'lock_api', detail: 'Open.', fix: ['Create a token.'], snippet: 'OPS_SIGNALS_API_TOKEN="$(openssl rand -hex 32)"' }));
+    renderPage();
+
+    expect(await screen.findByRole('listitem', { name: 'Step 1, Lock the API: next' })).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { name: 'Step 3, Check it: not yet' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Lock the API · 1 min: Login' }));
+    expect(screen.getByText(/openssl rand -hex 32/)).toBeInTheDocument();
+  });
+
+  it('plays the walkthrough next to the row while a step is left', async () => {
+    vi.mocked(api.setupCheck).mockResolvedValue(withLogin({ ...login, status: 'warn', step: 1, action: 'lock_api', detail: 'Open.', fix: ['Create a token.'] }));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Watch how (2 min)' }));
+    expect(screen.getByLabelText('Walkthrough video: who can use Ops Signals')).toHaveAttribute('src', expect.stringMatching(/walkthroughs\/access\.webm$/));
+  });
+
+  it('offers the three ways to sign people in at step 2, each step saying where it happens', async () => {
+    vi.mocked(api.setupCheck).mockResolvedValue(withLogin({ ...login, status: 'warn', step: 2, action: 'choose_sign_in', detail: 'API locked. But nobody signs in to the web UI.', fix: ['Turn on company sign-in.'] }));
+    renderPage();
+
+    expect(await screen.findByRole('listitem', { name: 'Step 1, Lock the API: done' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /How to fix: Login/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose how people sign in' }));
+
+    const company = screen.getByRole('region', { name: 'Web UI · company login' });
+    expect(within(company).getAllByText('Company login').length).toBeGreaterThan(0);
+    expect(within(company).getByText(/\/api\/auth\/callback$/)).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Grafana plugin' })).getByText(/Plugins and data/)).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Web UI · sign-in proxy' })).getByRole('link', { name: 'Details' })).toHaveAttribute(
+      'href',
+      'https://github.com/ramprasadgk9/ops-signals/blob/main/docs/access.md#2c-web-ui-behind-your-sign-in-proxy'
+    );
+    fireEvent.click(within(company).getByRole('button', { name: 'How to set up company sign-in' }));
+    expect(screen.getByRole('dialog', { name: 'Set up company sign-in' })).toBeInTheDocument();
+  });
+
+  it('marks a broken step 2 and, once done, links who can do what', async () => {
+    vi.mocked(api.setupCheck).mockResolvedValue(withLogin({ ...login, status: 'fail', step: 2, detail: "Can't reach your provider.", fix: ['Check the issuer.'] }));
+    const { unmount } = renderPage();
+    expect(await screen.findByRole('listitem', { name: 'Step 2, Give people roles: needs fixing' })).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.setupCheck).mockResolvedValue(withLogin({ ...login, status: 'ok', step: 3, detail: 'Company sign-in is on.' }));
+    renderPage();
+    expect(await screen.findByRole('listitem', { name: 'Step 3, Check it: done' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Watch how (2 min)' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Who can do what' })).toHaveAttribute('href', 'https://github.com/ramprasadgk9/ops-signals/blob/main/docs/access.md#what-each-role-can-do');
+  });
+});

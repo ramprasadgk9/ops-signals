@@ -35,9 +35,8 @@ docker compose -f docker-compose.packaged.yml up -d
 - **Check it:** open http://localhost:8080 → **Setup check** (bottom of the sidebar). It tests the
   database, each metrics connection and memory search, and says what to fix for anything that isn't
   green. From a terminal: `curl http://localhost:8000/api/setup/check`.
-- **Before others can reach it,** add `OPS_SIGNALS_API_TOKEN=<a long random string>` to `.env` and
-  run the `up` command again. Without it, anyone who can reach port 8000 can use the API (see
-  [`security-model.md`](security-model.md)).
+- **Before others can reach it,** lock it down: a token, then sign-in and roles
+  ([`access.md`](access.md)). Without a token, anyone who can reach port 8000 can use the API.
 
 Stop it with `docker compose -f docker-compose.packaged.yml down`. Your data is kept; add `-v` to
 delete it too. To update, `git pull`, then run the `up` command with `--build` added, so the images

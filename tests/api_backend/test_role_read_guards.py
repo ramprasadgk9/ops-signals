@@ -78,3 +78,15 @@ def test_a_token_without_sign_in_warns_that_everyone_can_change_everything(monke
     assert checks["login"]["status"] == "warn"
     assert "everyone who uses it can see and change everything" in checks["login"]["detail"]
     assert any("OPS_SIGNALS_AUTH_MODE=proxy-headers" in step for step in checks["login"]["fix"])
+
+
+def test_through_grafana_with_a_token_the_login_steps_are_done(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setenv("OPS_SIGNALS_API_TOKEN", "s3cret")
+    monkeypatch.delenv("OPS_SIGNALS_AUTH_MODE", raising=False)
+    headers = {"Authorization": "Bearer s3cret", **_grafana("Admin")}
+    login = next(check for check in client.get("/api/setup/check", headers=headers).json()["checks"] if check["id"] == "login")
+    assert (login["status"], login["step"]) == ("ok", 3)
+    assert login["detail"] == "API locked. You are sam (Admin) through Grafana, so Grafana's roles apply."
+    # The step is no detail: every role's summary carries it, for the plugin's strip.
+    summary = client.get("/api/setup/summary", headers={"Authorization": "Bearer s3cret", **_grafana("Viewer")}).json()
+    assert next(check["step"] for check in summary["checks"] if check["id"] == "login") == 3

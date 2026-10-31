@@ -98,7 +98,8 @@ Putting the demo on a server for others to visit? Turn on demo mode as well: a s
 and view-only settings. See [Host it as a public demo](docs/demo.md#host-it-as-a-public-demo).
 
 > **Run it on a trusted network.** The API has no authentication unless you set
-> `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. See [`docs/security-model.md`](docs/security-model.md).
+> `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. Before others use it, lock it down in
+> three steps: [`docs/access.md`](docs/access.md).
 
 New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
 
@@ -332,7 +333,7 @@ Features are covered [above](#features); this is for connecting, configuring and
 | Send metrics over OTLP, or use OTLP only | [`docs/otlp.md`](docs/otlp.md) |
 | Link cases to Jira, or see every integration | [`docs/integrations.md`](docs/integrations.md) |
 | Configure analyzers and per-service settings | [`docs/configuration.md`](docs/configuration.md) |
-| Turn on sign-in and roles | [`docs/security-model.md`](docs/security-model.md), [`docs/web-ui-sign-in.md`](docs/web-ui-sign-in.md) |
+| Lock it down: token, sign-in and roles | [`docs/access.md`](docs/access.md) |
 | Understand the architecture | [`docs/architecture.md`](docs/architecture.md) |
 | See what's planned | [`docs/roadmap.md`](docs/roadmap.md) |
 

@@ -4,6 +4,9 @@ How people sign in to the standalone web UI, how their company groups become Vie
 Admin, and how to try it before a team uses it. For the Grafana plugin, see
 [`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md).
 
+Setting it up for the first time? Start at [`access.md`](access.md): lock the API, pick how people
+sign in, check it. This page has every setting and what people see.
+
 ## In short
 
 - **Two ways to sign people in.** Ops Signals can sign people in itself with your company's identity
@@ -27,17 +30,7 @@ Admin, and how to try it before a team uses it. For the Grafana plugin, see
 
 ## Who can do what
 
-| Action | Viewer | Editor | Admin |
-| --- | :-: | :-: | :-: |
-| See Overview, findings, cases, schedules, alerts, memory | ✓ | ✓ | ✓ |
-| Ask Ops Signals, rate its answers | ✓ | ✓ | ✓ |
-| Preview an autonomous metric plan (nothing is saved) | ✓ | ✓ | ✓ |
-| Answer "Was this real?" (it changes the trust numbers for everyone) | – | ✓ | ✓ |
-| Create a case; investigate, resolve, add to memory, create or sync a ticket | – | ✓ | ✓ |
-| Run Analysis, Analyze and Save, Run once (Autonomous) | – | ✓ | ✓ |
-| Save, edit, pause or resume a schedule | – | ✓ | ✓ |
-| Analyzer labs, Add Analyzer, the behavior pattern builder, case imports, test alerts | – | – | ✓ |
-| See set-up details: the full Setup check, analyzer settings, lab work, case imports | – | – | ✓ |
+The same roles as in the Grafana plugin, in one table: [`access.md`](access.md#what-each-role-can-do).
 
 What people see:
 
@@ -100,8 +93,8 @@ gives it. Scripts, CI, Alertmanager and the Grafana plugin keep using the API to
 
 ### Register Ops Signals with your provider
 
-The Setup check page's **Login** row has these steps next to it (**How to set up company sign-in**)
-and a **Test sign-in** button.
+Setup check → **Login** has these steps next to it: before sign-in is on, under **Choose how people
+sign in** → **How to set up company sign-in**; once it's on, with a **Test sign-in** button.
 
 1. **In your provider's admin console, register Ops Signals as a web app**, with the redirect
    address `<your web UI address>/api/auth/callback` (Setup check → Login shows it, with a Copy

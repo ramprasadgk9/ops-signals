@@ -17,6 +17,10 @@ test('the Configuration page runs the Setup check against the plugin backend', a
   await expect(needed).toBeVisible({ timeout: 30_000 });
   await expect(needed.getByText('Backend', { exact: true })).toBeVisible();
   await expect(needed.getByText('Database', { exact: true })).toBeVisible();
+  // Login walks through the three steps of docs/access.md, whichever one this stack is on.
+  const steps = panel.getByRole('list', { name: 'Steps to control who can use Ops Signals' });
+  await expect(steps).toBeVisible();
+  await expect(steps.getByRole('listitem')).toHaveCount(3);
 
   expect(pageErrors, pageErrors.map((error) => error.message).join('; ')).toHaveLength(0);
 });

@@ -4,11 +4,14 @@ import { getSetupCheck, getSetupSummary, sendTestAlert, testPrometheusConnection
 import { isGrafanaProxyUrl } from './backendUrlSetting';
 import { styles } from './plainUi';
 import {
+  ACCESS_DOC,
+  LOGIN_STEPS,
   SETUP_GROUPS,
   checksIn,
   connectionTestText,
   fixLabel,
   hasFixDetails,
+  loginStepStates,
   setupBanner,
   setupChips,
   setupDocsUrl,
@@ -16,6 +19,7 @@ import {
   setupSummary,
   proxyUnreachableSetupResult,
   unreachableSetupResult,
+  type LoginStepState,
   type SetupCheck,
   type SetupCheckResult,
   type SetupCheckStatus,
@@ -93,6 +97,34 @@ export function useSetupCheck(backendUrl: string, grafanaTarget?: string, summar
   return { result, unreachable, checking, run };
 }
 
+const STEP_LOOK: Record<LoginStepState, { mark?: string; style: React.CSSProperties }> = {
+  done: { mark: '✓', style: { background: '#73bf69', border: '1.5px solid #73bf69', color: '#111217' } },
+  now: { style: { border: '1.5px solid #ffb357', color: '#ffb357' } },
+  fail: { mark: '!', style: { background: '#f2495c', border: '1.5px solid #f2495c', color: '#111217' } },
+  todo: { style: { border: '1.5px solid rgba(204, 204, 220, 0.45)', color: 'rgba(204, 204, 220, 0.45)' } },
+};
+const STEP_STATE_LABEL: Record<LoginStepState, string> = { done: 'done', now: 'next', fail: 'needs fixing', todo: 'not yet' };
+
+/** Login's three steps (docs/access.md): lock the API, give people roles, check it. */
+function LoginStepStrip({ check }: { check: SetupCheck }) {
+  const states = loginStepStates(check);
+  if (!states) return null;
+  return (
+    <ol aria-label="Steps to control who can use Ops Signals" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, listStyle: 'none', margin: 0, padding: '10px 4px 0' }}>
+      {LOGIN_STEPS.map((label, index) => {
+        const state = states[index];
+        return (
+          <li key={label} aria-label={`Step ${index + 1}, ${label}: ${STEP_STATE_LABEL[state]}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {index > 0 && <span aria-hidden style={{ width: 36, height: 1.5, background: states[index - 1] === 'done' && state !== 'todo' ? '#73bf69' : 'rgba(204, 204, 220, 0.2)' }} />}
+            <span aria-hidden style={{ ...local.icon, ...STEP_LOOK[state].style }}>{STEP_LOOK[state].mark ?? index + 1}</span>
+            <span style={{ fontSize: 13, fontWeight: state === 'now' || state === 'fail' ? 600 : 400, opacity: state === 'todo' ? 0.66 : 1 }}>{label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function CheckRow({ check, backendUrl }: { check: SetupCheck; backendUrl: string }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -113,6 +145,7 @@ function CheckRow({ check, backendUrl }: { check: SetupCheck; backendUrl: string
 
   return (
     <div>
+      <LoginStepStrip check={check} />
       <div style={local.row}>
         <span role="img" aria-label={icon.label} style={{ ...local.icon, ...icon.style }}>{icon.mark}</span>
         <span style={{ fontWeight: 500 }}>{check.title}</span>
@@ -128,6 +161,9 @@ function CheckRow({ check, backendUrl }: { check: SetupCheck; backendUrl: string
           ) : check.docs && check.status !== 'ok' ? (
             <a style={{ ...local.smallButton, textDecoration: 'none' }} href={setupDocsUrl(check.docs)} target="_blank" rel="noreferrer">Guide</a>
           ) : null}
+          {check.step === 3 && check.status === 'ok' && (
+            <a style={{ ...local.smallButton, textDecoration: 'none' }} href={`${setupDocsUrl(ACCESS_DOC)}#what-each-role-can-do`} target="_blank" rel="noreferrer">Who can do what</a>
+          )}
           {check.action === 'test_connection' && (
             <button type="button" style={local.smallButton} disabled={busy} aria-label={`Test ${check.title}`}
               onClick={() => act(async () => {

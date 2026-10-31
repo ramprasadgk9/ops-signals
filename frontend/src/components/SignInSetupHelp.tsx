@@ -23,7 +23,7 @@ export function callbackAddress(origin: string = window.location.origin): string
   return `${origin}/api/auth/callback`;
 }
 
-function CopyLine({ value }: { value: string }) {
+export function CopyLine({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -41,7 +41,7 @@ function CopyLine({ value }: { value: string }) {
   );
 }
 
-function SetUpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function SetUpDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth aria-labelledby="set-up-sign-in-title">
       <DialogTitle id="set-up-sign-in-title" sx={{ fontWeight: 850 }}>Set up company sign-in</DialogTitle>
