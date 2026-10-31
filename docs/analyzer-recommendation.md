@@ -11,6 +11,8 @@ This is the single reference for how that works. It replaces five previously-sca
 
 ## Definitions
 
+The routing terms used on this page. The [glossary](glossary.md) has every other Ops Signals term.
+
 | Term | Meaning |
 | --- | --- |
 | **Analyzer** | A component that inspects a time series for a particular kind of behavior (a spike, a trend, a repeating pattern, ...). |

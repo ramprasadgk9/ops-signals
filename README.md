@@ -101,7 +101,9 @@ and view-only settings. See [Host it as a public demo](docs/demo.md#host-it-as-a
 > `OPS_SIGNALS_API_TOKEN`. Don't expose it to the internet. Before others use it, lock it down in
 > three steps: [`docs/access.md`](docs/access.md).
 
-New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below.
+New here? [`docs/README.md`](docs/README.md) is a guided path through every doc referenced below,
+and the [glossary](docs/glossary.md) says what each word means: a finding is a symptom, a case is a
+problem you're working on, a tenant is one team's space in Mimir.
 
 ## Contents
 

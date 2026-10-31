@@ -25,12 +25,13 @@ def test_golden_set_matches_the_corpus() -> None:
 # change genuinely improves its metric; lowering one needs a reason in the commit message.
 # section_hit@3 and answer_has_answer raised with the README split (48 and 36 of 50).
 # doc_hit@1, doc_hit@3 and answer_has_answer raised with the doc-writing guide (43, 51 and 38 of 51).
+# doc_hit@1 and answer_has_answer raised with the glossary (45 and 40 of 53).
 FLOORS = {
-    "doc_hit@1": 0.82,
+    "doc_hit@1": 0.83,
     "doc_hit@3": 0.98,
     "section_hit@3": 0.94,
     "evidence_has_answer": 0.92,
-    "answer_has_answer": 0.72,
+    "answer_has_answer": 0.73,
 }
 
 

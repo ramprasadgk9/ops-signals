@@ -7,10 +7,13 @@ import { panelSx, severityTone, statusTone, titleCase, ui } from './theme';
 export function PageHeader({
   title,
   subtitle,
+  help,
   action,
 }: {
   title: string;
   subtitle: string;
+  /** Shown at the end of the subtitle, e.g. <WhatsWhat page="cases" />. */
+  help?: ReactNode;
   action?: ReactNode;
 }) {
   return (
@@ -21,6 +24,7 @@ export function PageHeader({
         </Typography>
         <Typography variant="body2" sx={{ mt: 0.75, color: ui.muted, fontWeight: 500 }}>
           {subtitle}
+          {help}
         </Typography>
       </Box>
       {action}

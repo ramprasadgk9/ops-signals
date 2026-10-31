@@ -184,6 +184,21 @@ def test_design_docs_rank_below_a_close_user_doc() -> None:
     assert [source.source_path for source in _rerank_documentation([plan, readme], "Where do I point my OTel Collector?")] == ["README.md", "docs/design/otlp-metrics-ingestion-plan.md"]
 
 
+def test_glossary_ranks_below_the_how_to_doc() -> None:
+    glossary = _source("docs/glossary.md", "API token", 0.49)
+    security = _source("docs/security-model.md", "Turning on authentication", 0.45)
+
+    assert [source.source_path for source in _rerank_documentation([glossary, security], "How do I turn on API authentication?")] == ["docs/security-model.md", "docs/glossary.md"]
+
+
+def test_glossary_leads_when_the_question_asks_what_a_word_means() -> None:
+    glossary = _source("docs/glossary.md", "OTLP", 0.50)
+    otlp = _source("docs/otlp.md", "Try it", 0.54)
+
+    for question in ("What is OTLP?", "What's a tenant?", "What does OTLP mean?", "finding vs case"):
+        assert _rerank_documentation([otlp, glossary], question)[0].source_path == "docs/glossary.md", question
+
+
 def test_reranking_leaves_the_shown_score_alone() -> None:
     plan = _source("docs/design/plan.md", "Scope", 0.40)
 

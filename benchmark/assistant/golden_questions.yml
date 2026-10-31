@@ -467,6 +467,43 @@ questions:
       - {source: docs/standalone-prometheus-analysis.md, section: "Mimir, Thanos and Other Multi-Source Backends"}
       - {source: docs/data-sources.md, section: "Mimir, Thanos and several clusters"}
 
+  # --- What a word means (docs/glossary.md) ------------------------------------------------------
+  - id: glossary-finding-vs-case
+    category: docs
+    question: What is the difference between a finding and a case?
+    contains: ["a case is a problem you decided to work on"]
+    expect:
+      - {source: docs/glossary.md, section: "Finding vs case"}
+
+  - id: glossary-what-is-finding
+    category: docs
+    question: What is a finding?
+    contains: ["A finding is a symptom"]
+    expect:
+      - {source: docs/glossary.md, section: "Finding"}
+      - {source: docs/glossary.md, section: "Finding vs case"}
+
+  - id: glossary-tenant
+    category: docs
+    question: What is a tenant?
+    contains: ["separate space inside a shared backend"]
+    expect:
+      - {source: docs/glossary.md, section: "Tenant"}
+
+  - id: glossary-otlp
+    category: docs
+    question: What is OTLP?
+    contains: ["how OpenTelemetry data is sent"]
+    expect:
+      - {source: docs/glossary.md, section: "OTLP"}
+
+  - id: glossary-analyzer
+    category: docs
+    question: What is an analyzer?
+    contains: ["asks one question about one metric"]
+    expect:
+      - {source: docs/glossary.md, section: "Analyzer"}
+
   # --- Not answerable from the corpus -----------------------------------------------------------
   - id: oos-kafka
     category: out_of_scope

@@ -674,8 +674,10 @@ class OperationalIntelligenceAssistant:
         # API default 0.55), so the same question used to find different documentation depending on
         # where it was asked. A good match for a casual question ("Application Overview" against
         # "whats use of this application") scores ~0.38 with this embedding model.
-        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 2, score_threshold=DOCUMENT_SCORE_FLOOR)
-        sources = _rerank_documentation([_documentation_source(row) for row in results if _is_documentation(row)], payload.message)
+        # Reranking picks from extra candidates, so short glossary entries that it moves down can't
+        # crowd the right doc out of the search results first; as many are kept as before.
+        results = self.services.docs_store.search(vector=vector, limit=payload.top_k * 3, score_threshold=DOCUMENT_SCORE_FLOOR)
+        sources = _rerank_documentation([_documentation_source(row) for row in results if _is_documentation(row)], payload.message)[: payload.top_k * 2]
         used_fallback = False
         if not sources:
             used_fallback = True
@@ -857,6 +859,17 @@ def _lead_with_analyzer_catalog(groups: list[AssistantEvidenceGroup]) -> None:
 # Larger heading weights moved more right docs to first place but made quoted answers worse.
 HEADING_MATCH_WEIGHT = 0.05
 DESIGN_DOC_WEIGHT = 0.9
+# The glossary (docs/glossary.md) answers "what is X?": its short "API token" or "Collector" entries
+# otherwise outrank the doc that says how to turn on authentication or point a Collector. It counts
+# this fraction of its score unless the question asks what a word means, and gets this much added
+# when it does.
+GLOSSARY_PATH = "docs/glossary.md"
+GLOSSARY_WEIGHT = 0.85
+DEFINITION_MATCH_WEIGHT = 0.05
+_DEFINITION_QUESTION = re.compile(
+    r"\bwhat(?:'s| is| are)\b|\bwhat does .+ mean\b|\bmeaning of\b|\bdefine\b|\bdifference between\b|\bvs\.?\b|\bversus\b",
+    re.IGNORECASE,
+)
 
 
 def _stem(word: str) -> str:
@@ -877,12 +890,15 @@ def _rerank_documentation(sources: list[AssistantSource], message: str) -> list[
     """Documentation sources reordered by search score adjusted as above. The shown score is left
     as the search returned it."""
     question = _content_terms(message)
-    if not question or (HEADING_MATCH_WEIGHT == 0 and DESIGN_DOC_WEIGHT == 1.0):
+    if not question:
         return sources
+    asks_definition = bool(_DEFINITION_QUESTION.search(message))
     def adjusted(source: AssistantSource) -> float:
         score = source.score
         if source.source_path and source.source_path.startswith("docs/design/"):
             score *= DESIGN_DOC_WEIGHT
+        if source.source_path == GLOSSARY_PATH:
+            score = score + DEFINITION_MATCH_WEIGHT if asks_definition else score * GLOSSARY_WEIGHT
         heading = _content_terms(f"{source.title} {source.section or ''}")
         return score + HEADING_MATCH_WEIGHT * len(question & heading) / len(question)
     return sorted(sources, key=adjusted, reverse=True)
