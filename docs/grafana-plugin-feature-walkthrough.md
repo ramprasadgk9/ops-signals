@@ -78,6 +78,14 @@ Shown only when the backend has named Prometheus connections
   tenants: it asks for a cluster when the series is in more than one, tags the
   findings with it, and keeps one copy of series an HA Prometheus pair wrote twice.
 
+With either source, a metric with one series per pod (`pod`, `pod_name`,
+`kubernetes_pod_name`, `instance` or `host`) is combined into one line the way
+scheduled runs read it (for example the average of the pods for latency). The
+result says so above Run details and names a pod that behaves differently from
+the rest; findings show which pod the change came from. A `PromQL` query is run
+exactly as written: if it returns one series per pod, the run stops and says
+which label to add or how to combine them.
+
 ### Prometheus connection and Cluster
 
 With `Ops Signals connection`:
@@ -87,9 +95,6 @@ With `Ops Signals connection`:
 - `Cluster` appears when the service and metric exist in two or more clusters.
   `Run Analysis` stays disabled until you choose one: the backend analyses one
   series per run.
-- A metric with one series per pod is combined into one line the way scheduled
-  runs read it (for example the average of the pods for latency), and the result
-  says so above Run details, naming a pod that behaves differently from the rest.
 - If the series differ by more than the pod (e.g. a status code too), the run
   stops with the backend's message saying which label to add. Switch `Mode` to
   `PromQL expression` to narrow or aggregate the query; a PromQL expression is

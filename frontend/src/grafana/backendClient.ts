@@ -621,8 +621,10 @@ export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
   sampleCount: number;
   warnings: string[];
   durationMs: number;
+  /** 'auto' for a query built from a metric name: per-pod series are combined, as in the web UI. */
+  combine?: 'auto' | null;
 }): Promise<BackendPluginAnalysis> {
-  const run = await postJson<RunSummary>(baseUrl, '/api/ingestion/prometheus-run', {
+  const run = await postJson<RunSummary & { promql?: string }>(baseUrl, '/api/ingestion/prometheus-run', {
     provider: 'prometheus',
     datasource_uid: target.datasourceUid,
     datasource_name: target.datasourceName,
@@ -638,18 +640,20 @@ export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
     max_series: 20,
     max_samples_per_series: 10000,
     warnings: target.warnings,
+    ...(target.combine ? { combine: target.combine } : {}),
   });
 
-  return collectRunResult(baseUrl, run, {
+  const analysis = await collectRunResult(baseUrl, run, {
     datasource: target.datasourceName ?? target.datasourceUid,
     datasourceUid: target.datasourceUid,
     service: target.service,
     metric: target.metric,
-    promql: target.promql,
+    promql: run.promql ?? target.promql,
     from: target.from,
     to: target.to,
     durationMs: target.durationMs,
   });
+  return { ...analysis, analyzedAs: analyzedAsText(run.combined) };
 }
 
 export async function listAvailableQuestions(baseUrl: string, target: {

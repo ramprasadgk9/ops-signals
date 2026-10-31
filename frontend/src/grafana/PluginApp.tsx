@@ -488,11 +488,12 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
         sampleCount: normalized.sampleCount,
         warnings: normalized.warnings,
         durationMs: Math.round(performance.now() - startedAt),
+        combine: metricMode === 'promql' ? null : 'auto',
       });
       setResult(backendResult);
     } catch (runError) {
       const message = runError instanceof Error ? runError.message : 'Unknown error';
-      setError(`${stage || 'Analysis'} failed. ${interactiveSource === 'connection' ? message.replace(/^Request failed: \d+ - /, '') : message}`);
+      setError(`${stage || 'Analysis'} failed. ${message.replace(/^Request failed: \d+ - /, '')}`);
     } finally {
       setIsRunning(false);
       setStage('');

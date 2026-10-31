@@ -10,10 +10,13 @@ from the rest so the user can analyze it alone.
 from __future__ import annotations
 
 import re
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from statistics import median
 
-from backend.app.models.prometheus import OddSeriesOut, PodSplitOut, PrometheusSeriesOut
+from backend.app.models.prometheus import OddSeriesOut, PodSplitOut, PrometheusSeriesOut, PrometheusSeriesSample
 
 COMBINE_CHOICES = ("max", "sum", "avg", "min")
 _SIMPLE_SELECTOR = re.compile(r"^\s*([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(?:\{(.*)\})?\s*$", re.DOTALL)
@@ -116,6 +119,53 @@ def odd_series(series: list[PrometheusSeriesOut], label: str) -> OddSeriesOut | 
         value=name,
         message=f"{name} is behaving differently from the other {count} {label}s: it {reach} {_number(level)} while the others stay near {_number(typical)}.",
     )
+
+
+def series_from_samples(samples) -> list[PrometheusSeriesOut]:
+    """Samples the plugin read through a Grafana data source (one row per sample, each with its
+    series' labels) as series, so they can be checked for a pod split like a preview."""
+    grouped: dict[str, PrometheusSeriesOut] = {}
+    for sample in samples:
+        labels = dict(sample.labels or {})
+        key = sample.series_id or repr(sorted(labels.items()))
+        series = grouped.setdefault(key, PrometheusSeriesOut(labels=labels, samples=[]))
+        series.samples.append(PrometheusSeriesSample(timestamp=sample.timestamp, value=sample.value))
+    return list(grouped.values())
+
+
+def combine_series(series: list[PrometheusSeriesOut], how: str) -> list[PrometheusSeriesSample]:
+    """The pods as one line, combined per timestamp - what `how by (...) (query)` returns."""
+    by_time: dict[datetime, list[float]] = defaultdict(list)
+    for item in series:
+        for sample in item.samples:
+            by_time[sample.timestamp].append(sample.value)
+    combine = {"max": max, "min": min, "sum": sum, "avg": lambda values: sum(values) / len(values)}[how]
+    return [PrometheusSeriesSample(timestamp=moment, value=combine(values)) for moment, values in sorted(by_time.items())]
+
+
+def common_labels(series: list[PrometheusSeriesOut]) -> dict[str, str]:
+    """The labels every series has with the same value: the combined line's labels."""
+    first = series[0].labels if series else {}
+    return {key: value for key, value in first.items() if all(item.labels.get(key) == value for item in series)}
+
+
+@dataclass
+class _Preview:
+    series: list[PrometheusSeriesOut]
+
+
+class SeriesAlreadyRead:
+    """Stands in for Prometheus in the drill-down when the per-pod series were already read
+    (through Grafana): `preview` returns them for the window asked, whatever the query."""
+
+    def __init__(self, series: list[PrometheusSeriesOut]):
+        self._series = series
+
+    def preview(self, query: str, start: datetime, end: datetime, step: str) -> _Preview:
+        return _Preview(series=[
+            PrometheusSeriesOut(labels=item.labels, samples=[sample for sample in item.samples if start <= sample.timestamp <= end])
+            for item in self._series
+        ])
 
 
 def _one_series_query(query: str, label: str, value: str) -> str | None:
