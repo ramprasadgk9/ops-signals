@@ -174,6 +174,10 @@ tokens.
   signed-in person.
 - **A session can't pose as a Grafana user:** `X-Grafana-Context` counts only on requests with the
   API token (Grafana's plugin proxy adds it), and the sign-in proxy's user headers count for nothing.
+- **Signing out ends the provider's session too, without asking again.** The ID token from sign-in
+  is kept in an `HttpOnly` cookie sent only to `/api/auth/logout`, and handed back to the provider as
+  `id_token_hint`. A token too big for a cookie is left out; the provider then asks "Do you want to
+  log out?" first.
 - **Cutting someone off now:** remove them from `OPS_SIGNALS_OIDC_ALLOWED_GROUPS`, or rotate
   `OPS_SIGNALS_SESSION_SECRET` to sign everyone out. Otherwise a session lasts until it ends.
 

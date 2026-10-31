@@ -20,7 +20,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlencode, urlsplit
 
 import httpx
@@ -35,6 +35,12 @@ FLOW_COOKIE = "ops_signals_sign_in"
 FLOW_SECONDS = 600
 CALLBACK_PATH = "/api/auth/callback"
 LOGIN_PATH = "/api/auth/login"
+LOGOUT_PATH = "/api/auth/logout"
+# The ID token from sign-in, sent back to the provider as id_token_hint on sign-out so it ends its own
+# session without asking "Do you want to log out?". HttpOnly and sent only to the sign-out endpoint;
+# a token too big for a cookie is left out, and the provider asks as before.
+SIGN_OUT_HINT_COOKIE = "ops_signals_sign_out_hint"
+MAX_SIGN_OUT_HINT = 3500
 _CACHE_SECONDS = 3600
 _TIMEOUT_SECONDS = 5.0
 _LEEWAY_SECONDS = 60
@@ -96,6 +102,8 @@ class SignedIn:
     groups: tuple[str, ...]
     groups_missing: bool
     next_path: str
+    # The raw ID token, only for the sign-out hint: never logged or shown.
+    id_token: str = field(default="", repr=False)
 
 
 @dataclass(frozen=True)
@@ -320,7 +328,8 @@ def finish(auth: AuthConfig, flow_cookie: str | None, secret: bytes, code: str |
     if not code or not state or not hmac.compare_digest(state, flow["s"]):
         raise SignInError("expired", "The state from the provider doesn't match this browser's sign-in.")
     document = discovery(auth.oidc_issuer_url or "")
-    claims = verify_id_token(auth, document, _exchange(auth, document, code, flow)["id_token"], flow["n"])
+    id_token = _exchange(auth, document, code, flow)["id_token"]
+    claims = verify_id_token(auth, document, id_token, flow["n"])
     user = next((str(claims[name]).strip() for name in ([auth.oidc_user_claim] if auth.oidc_user_claim else ["email", "preferred_username", "sub"])
                  if claims.get(name) and str(claims[name]).strip()), None)
     if not user:
@@ -332,7 +341,7 @@ def finish(auth: AuthConfig, flow_cookie: str | None, secret: bytes, code: str |
     _remember_groups(user[:_MAX_NAME], groups, missing)
     name = claims.get("name")
     return SignedIn(user=user[:_MAX_NAME], display_name=str(name)[:_MAX_NAME] if name else None, groups=groups,
-                    groups_missing=missing, next_path=flow["next"])
+                    groups_missing=missing, next_path=flow["next"], id_token=id_token)
 
 
 def session_cookie(auth: AuthConfig, signed_in: SignedIn, secret: bytes) -> tuple[str, int]:
@@ -354,13 +363,17 @@ def read_session(value: str | None, secret: bytes) -> Session | None:
                    groups_missing=bool(payload.get("gm")), expires_at=payload["exp"])
 
 
-def sign_out_url(auth: AuthConfig, signed_out_url: str) -> str | None:
-    """The provider's own sign-out address, coming back to signed_out_url; None if it has none."""
+def sign_out_url(auth: AuthConfig, signed_out_url: str, id_token_hint: str | None = None) -> str | None:
+    """The provider's own sign-out address, coming back to signed_out_url; None if it has none. With
+    the ID token from sign-in as a hint, the provider ends its session without asking first."""
     try:
         endpoint = discovery(auth.oidc_issuer_url or "").get("end_session_endpoint")
     except SignInError:
         return None
     if not endpoint:
         return None
-    params = urlencode({"client_id": auth.oidc_client_id, "post_logout_redirect_uri": signed_out_url})
+    query = {"client_id": auth.oidc_client_id, "post_logout_redirect_uri": signed_out_url}
+    if id_token_hint:
+        query["id_token_hint"] = id_token_hint
+    params = urlencode(query)
     return f"{endpoint}{'&' if '?' in endpoint else '?'}{params}"
