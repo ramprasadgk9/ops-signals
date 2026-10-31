@@ -21,6 +21,8 @@ from backend.app.models.prometheus import OddSeriesOut, PodSplitOut, PrometheusS
 COMBINE_CHOICES = ("max", "sum", "avg", "min")
 _SIMPLE_SELECTOR = re.compile(r"^\s*([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(?:\{(.*)\})?\s*$", re.DOTALL)
 _LABEL_NAME = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+# Names of metrics that count things (per pod, so the service's value is the pods' sum).
+_COUNT_OR_RATE = re.compile(r"(_per_second|_per_sec|_per_minute|_rps|_qps|_total|_count)$")
 
 
 def find_pod_split(
@@ -74,7 +76,12 @@ def suggested_combine(metric: str | None) -> str:
     """The aggregation scheduled runs use for this metric, so a manual run reads the same line."""
     if not metric:
         return "avg"
-    aggregation = _classifier().classify(_discovered(metric), [], _constraints()).suggested_query_strategy.aggregation
+    classification = _classifier().classify(_discovered(metric), [], _constraints())
+    if classification.selection_reason is None and _COUNT_OR_RATE.search(metric):
+        # No rule knows the metric (scheduled runs don't watch it), but its name says it counts
+        # something: the pods' requests per second add up to the service's.
+        return "sum"
+    aggregation = classification.suggested_query_strategy.aggregation
     # service_level is how the planner names "avg across the service".
     return aggregation if aggregation in COMBINE_CHOICES else "avg"
 

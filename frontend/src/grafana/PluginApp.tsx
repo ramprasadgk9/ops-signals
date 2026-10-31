@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, listPrometheusLabelValues, previewAutonomousPlan, runAutonomousPlanOnce, runConnectionAnalysis, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, type AutonomousQuestionAnswer, type FindingsWindow } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, listPrometheusLabelValues, connectionPodSplit, podSplit, previewAutonomousPlan, runAutonomousPlanOnce, runConnectionAnalysis, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, MAX_SENT_SERIES, type AutonomousQuestionAnswer, type FindingsWindow, type PreCombined } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -26,6 +26,7 @@ import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginCustomSettings, PluginCustomSettingsChip } from './PluginCustomSettings';
 import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
 import { PluginMemoryAlertsView } from './PluginMemoryAlertsView';
+import { PluginPodCombineBox } from './PluginPodCombineBox';
 import { connectionName, findingClusters, findingSource, findingsInCluster } from './findingSource';
 import { casesInService, inService, serviceOptions, showServiceFilter, type ServiceOption } from '../utils/serviceFilter';
 import { readServiceParam, writeServiceParam } from './serviceUrlState';
@@ -36,9 +37,9 @@ import { findingBreakdown } from '../utils/findingBreakdown';
 import { findingLevel } from '../utils/findingLevel';
 import { byLine, scheduleAuthorLine } from '../utils/actorLine';
 import { buildMetricQuery, buildServiceMatcher, type MetricMode } from './prometheusQueryBuilder';
-import { normalizePrometheusFrames } from './prometheusFrameNormalizer';
+import { frameSeriesLabels, normalizePrometheusFrames } from './prometheusFrameNormalizer';
 import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, CaseTicketLink, CaseTicketOperation, GrafanaAnalysisResult, GrafanaCase, GrafanaQueryTarget, MonitoringCategory } from './contracts';
-import type { AnalysisRun, BehaviorFinding, Finding, PrometheusConnection } from '../types';
+import type { AnalysisRun, BehaviorFinding, Finding, PodSplit, PrometheusConnection } from '../types';
 import { autonomousSourceFor, buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
 import { buildAutonomousDashboardData, formatMatchedRule, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
 
@@ -122,6 +123,10 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
   // Interactive Analysis can query a Grafana data source (as before) or a backend connection (one per
   // Mimir tenant), which also picks a cluster and tags the run with it, as the web UI's Validate Data.
   const [interactiveSource, setInteractiveSource] = useState<'grafana' | 'connection'>('grafana');
+  // A PromQL query that returned one series per pod: the Combine buttons, and the query a button put
+  // in the box (to say so under it).
+  const [promqlPods, setPromqlPods] = useState<PodSplit | null>(null);
+  const [replacedQuery, setReplacedQuery] = useState<string | null>(null);
   const [interactiveConnectionId, setInteractiveConnectionId] = useState<string | null>(null);
   const [interactiveCluster, setInteractiveCluster] = useState('');
   const [connectionServices, setConnectionServices] = useState<string[]>([]);
@@ -425,19 +430,28 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     const clusterSelector = chosenCluster && interactiveClusterLabel ? { label: interactiveClusterLabel, value: chosenCluster } : null;
     const promql = buildMetricQuery({ metric: target.metric, mode: metricMode, service: target.service, serviceLabel, cluster: clusterSelector });
     setStage(`Querying ${interactiveConnection.name}: ${promql}`);
-    const backendResult = await runConnectionAnalysis(backendUrl, {
-      connectionId: interactiveConnection.id,
-      connectionName: interactiveConnection.name,
-      service: target.service,
-      metric: target.metric,
-      promql,
-      from: timeRange.from.toISOString(),
-      to: timeRange.to.toISOString(),
-      stepSeconds: Math.max(Math.round(calculateIntervalMs(timeRange) / 1000), 1),
-      cluster: chosenCluster || null,
-      startedAt,
-      combine: metricMode === 'promql' ? null : 'auto',
-    });
+    const range = { from: timeRange.from.toISOString(), to: timeRange.to.toISOString(), stepSeconds: Math.max(Math.round(calculateIntervalMs(timeRange) / 1000), 1) };
+    let backendResult: GrafanaAnalysisResult;
+    try {
+      backendResult = await runConnectionAnalysis(backendUrl, {
+        connectionId: interactiveConnection.id,
+        connectionName: interactiveConnection.name,
+        service: target.service,
+        metric: target.metric,
+        promql,
+        ...range,
+        cluster: chosenCluster || null,
+        startedAt,
+        combine: metricMode === 'promql' ? null : 'auto',
+      });
+    } catch (runError) {
+      // A PromQL query with one series per pod: offer the Combine buttons instead of the error.
+      if (metricMode !== 'promql' || !(runError instanceof Error) || !/which differ by /.test(runError.message)) throw runError;
+      const split = await connectionPodSplit(backendUrl, { connectionId: interactiveConnection.id, query: promql, ...range }).catch(() => null);
+      if (!split) throw runError;
+      setPromqlPods(split);
+      return;
+    }
     setResult(backendResult);
   }
 
@@ -445,6 +459,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     if (!ready || !timeRangeValid) return;
     setIsRunning(true);
     setError('');
+    setPromqlPods(null);
     setStage('Resolving Prometheus datasource');
     const startedAt = performance.now();
     try {
@@ -460,26 +475,52 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
       });
       const intervalMs = calculateIntervalMs(timeRange);
       setStage(`Querying Prometheus: ${promql}`);
-      const frames = await queryPrometheusDatasource({
+      let frames = await queryPrometheusDatasource({
         datasourceUid: selectedPrometheusUid,
         promql,
         range: timeRange,
         intervalMs,
       });
+      // More pods than are sent as samples: ask how to read them as one line from their labels,
+      // then have Grafana run the combined query.
+      let analyzedQuery = promql;
+      let combined: PreCombined | null = null;
+      const seriesLabels = frameSeriesLabels(frames as any[]);
+      if (metricMode === 'metric' && seriesLabels.length > MAX_SENT_SERIES) {
+        setStage(`Combining ${seriesLabels.length} series`);
+        const split = await podSplit(backendUrl, { query: promql, metric: target.metric, labels: seriesLabels });
+        if (split) {
+          analyzedQuery = split.queries[split.suggested_combine];
+          combined = { label: split.label, count: split.values.length, how: split.suggested_combine, original_query: promql };
+          setStage(`Querying Prometheus: ${analyzedQuery}`);
+          frames = await queryPrometheusDatasource({ datasourceUid: selectedPrometheusUid, promql: analyzedQuery, range: timeRange, intervalMs });
+        }
+      }
       setStage('Normalizing Prometheus samples');
-      const normalized = normalizePrometheusFrames(frames as any[], {
+      const normalize = () => normalizePrometheusFrames(frames as any[], {
         metricName: target.metric,
         service: target.service,
-        maxSeries: 20,
+        maxSeries: MAX_SENT_SERIES,
         maxSamplesPerSeries: 10000,
       });
+      // A PromQL query with one series per pod is run as written, so it can't be analyzed: offer
+      // the Combine buttons, as New Analysis does, instead of an error.
+      if (metricMode === 'promql' && seriesLabels.length > 1) {
+        const many = seriesLabels.length > MAX_SENT_SERIES;
+        const split = await podSplit(backendUrl, { query: promql, metric: target.metric, ...(many ? { labels: seriesLabels } : { samples: normalize().samples }) });
+        if (split) {
+          setPromqlPods(split);
+          return;
+        }
+      }
+      const normalized = normalize();
       setStage('Running Ops Signals analyzers');
       const backendResult = await runPrometheusSampleAnalysis(backendUrl, {
         datasourceUid: selectedPrometheusUid,
         datasourceName: selectedDatasource?.name,
         service: target.service,
         metric: target.metric,
-        promql,
+        promql: analyzedQuery,
         from: timeRange.from.toISOString(),
         to: timeRange.to.toISOString(),
         stepSeconds: Math.max(Math.round(intervalMs / 1000), 1),
@@ -488,7 +529,8 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
         sampleCount: normalized.sampleCount,
         warnings: normalized.warnings,
         durationMs: Math.round(performance.now() - startedAt),
-        combine: metricMode === 'promql' ? null : 'auto',
+        combine: metricMode === 'promql' || combined ? null : 'auto',
+        combined,
       });
       setResult(backendResult);
     } catch (runError) {
@@ -499,6 +541,11 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
       setStage('');
     }
   }
+
+  // The buttons answer the query that was run; any change to the form makes them stale.
+  useEffect(() => {
+    setPromqlPods(null);
+  }, [target.metric, target.service, metricMode, interactiveSource, interactiveConnectionId, selectedPrometheusUid]);
 
   // Set when Autonomous Analysis hands a finding over: run it once the form has its service and
   // metric, so the user lands on results rather than an unrun form.
@@ -652,6 +699,16 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
             isRunning={isRunning}
             onClearResult={() => setResult(null)}
             onRun={runInteractiveAnalysis}
+            replacedQuery={metricMode === 'promql' && replacedQuery === target.metric ? replacedQuery : null}
+            podCombine={promqlPods ? (
+              <PluginPodCombineBox
+                pods={promqlPods}
+                onUseQuery={(query) => {
+                  setTarget((current) => ({ ...current, metric: query }));
+                  setReplacedQuery(query);
+                }}
+              />
+            ) : null}
           />
           <PanelPreview result={result} backendUrl={backendUrl} />
         </>
@@ -1129,6 +1186,10 @@ export type InteractiveCardProps = {
   isRunning: boolean;
   onClearResult: () => void;
   onRun: () => Promise<void>;
+  /** Set right after a Combine button replaced the PromQL query, to say so under the box. */
+  replacedQuery?: string | null;
+  /** The Combine buttons for a PromQL query that returned one series per pod. */
+  podCombine?: React.ReactNode;
 };
 
 /** Only needed when the backend sets OPS_SIGNALS_API_TOKEN. Saved in this browser on blur; requests
@@ -1263,6 +1324,7 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
                   placeholder={props.metricMode === 'metric' ? 'Metric name' : 'PromQL expression'}
                   onChange={(event) => props.setTarget((current) => ({ ...current, metric: event.target.value }))}
                 />
+                {props.replacedQuery ? <div style={{ fontSize: 11.5, color: '#6ccf8e', marginTop: 4 }}>Query replaced. Check it, then Run Analysis.</div> : null}
               </Field>
               <div role="group" aria-label="Metric or PromQL" style={formStyles.segment}>
                 {([['metric', 'Metric'], ['promql', 'PromQL']] as const).map(([mode, label]) => (
@@ -1361,6 +1423,7 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
           ) : !props.isRunning && missing.length ? <span style={{ fontSize: 12, color: '#ffb357' }}>{missing}</span> : null}
         </div>
       </div>
+      {props.podCombine}
       {showBackend && !isGrafanaProxyUrl(props.backendUrl) ? (
         <div style={formStyles.backendPanel}>
           <Field label="Ops Signals backend">

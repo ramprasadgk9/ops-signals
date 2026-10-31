@@ -266,7 +266,11 @@ machines). The analysis reads one line, so New Analysis combines them the way
 scheduled runs do, with the same per-metric choice from
 `config/prometheus_metric_knowledge.yaml`: latency and memory are averaged,
 request and error counts are added up, health checks such as `up` take the
-lowest pod.
+lowest pod. A metric no rule knows is averaged, unless its name says it counts
+something (`_per_second`, `_rps`, `_qps`, `_total`, `_count`): then the pods are
+added up, so `http_requests_per_second` reads as the service's traffic. That
+only picks how New Analysis combines pods; scheduled runs still skip metrics
+no rule knows.
 
 - **Simple mode, Run Analysis** combines the pods without asking. The result
   says how ("Analyzed as one line: the average of 4 pods") and shows the query
@@ -283,6 +287,13 @@ lowest pod.
   pod, the error stays, and the Pods box offers **Combine** buttons that put a
   wrapped query (`avg by (…) (your query)`) in the box for you to check and
   run. A one-pod button is offered only for a plain selector.
+
+More pods than `OPS_SIGNALS_PROMETHEUS_MAX_SERIES` (20 by default) are still
+combined when Run Analysis combines them: the backend reads only the series'
+labels (about 50 points each, up to 2,000 series), checks that they differ only
+by pod, and then reads the combined line alone. Preview still stops at the
+limit, there is no odd pod named, and findings don't say which pod the change
+came from, because that breakdown would need every pod's line.
 
 Series are combined only when the pod (or instance) label has one value per
 series. If they also differ by something else, such as a status code, or by
@@ -314,7 +325,9 @@ are handled the same way. They differ only in what each form lets you set.
 | **One metric: connection and cluster** | Validate Data → Prometheus | Interactive Analysis → **Query through: Ops Signals connection** |
 | Cluster asked for when the series is in several; run waits for it | ✅ | ✅ |
 | HA replica copies dropped, with a warning | ✅ | ✅ |
-| Series per pod combined into one line, with the odd pod named | ✅ with a Pods box after Preview | ✅ in Metric mode, noted on the result |
+| Series per pod combined into one line, with the odd pod named | ✅ with a Pods box after Preview | ✅ in Metric mode with either source, noted on the result |
+| More than 20 pods combined (no odd pod, no per-pod breakdown) | ✅ on Run Analysis | ✅ in Metric mode with either source |
+| PromQL with one series per pod: **Combine** buttons that put the combined query in the box | ✅ Advanced mode | ✅ PromQL mode, either source |
 | "This query matched N series… add `pod="…"`" when the series differ by more than the pod | ✅ | ✅ |
 | Findings labelled with cluster (and connection, when there are several) | Findings page, finding drawer | Symptom rows, finding panel, case drawer |
 | Filter by cluster | Findings page | Autonomous overview chips |

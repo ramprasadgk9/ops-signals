@@ -37,9 +37,22 @@ test('a per-pod metric is analyzed as one line and the result says how', async (
   await expect(page.getByTestId('analyzed-as')).toContainText(/Analyzed as one line: the average of \d+ pods\./, { timeout: 120_000 });
 });
 
-test('a PromQL query that returns one series per pod stops with a plain message', async ({ page }) => {
+test('a PromQL query that returns one series per pod offers Combine buttons that fill the query', async ({ page }) => {
   await fillForm(page, `${METRIC}{service="${SERVICE}"}`);
 
-  await expect(page.getByText(/which differ by pod/)).toBeVisible({ timeout: 60_000 });
+  const box = page.getByTestId('pod-combine-box');
+  await expect(box).toContainText(/This query returns \d+ lines, one per pod\. Analysis needs one line\./, { timeout: 60_000 });
   await expect(page.getByText(/Request failed: 400/)).toHaveCount(0);
+  await expect(box.getByRole('button', { name: /^Analyze only / })).toBeVisible();
+
+  await box.getByRole('button', { name: 'Combine: average pod' }).click();
+  // Keeps every label the pods share (service, and job or env when there are any).
+  await expect(page.getByPlaceholder('PromQL expression')).toHaveValue(/^avg by \([a-z_, ]*\bservice\b[a-z_, ]*\) \(request_latency_p95\{service="search-svc"\}\)$/);
+  await expect(page.getByText('Query replaced. Check it, then Run Analysis.')).toBeVisible();
+  await expect(box).toHaveCount(0);
+
+  // Nothing ran yet; Run Analysis runs the combined query as written, so there's no combine note.
+  await page.getByRole('button', { name: 'Run Analysis' }).click();
+  await expect(page.getByText('Run details').first()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByTestId('analyzed-as')).toHaveCount(0);
 });

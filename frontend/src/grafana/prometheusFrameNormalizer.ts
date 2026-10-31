@@ -53,6 +53,20 @@ function seriesId(labels: Record<string, string>, fallback: string) {
   return labelEntries.length ? labelEntries.map(([key, value]) => `${key}=${value}`).join(',') : fallback;
 }
 
+/** Each series' labels, without its samples: one entry per numeric field, as normalizing counts them. */
+export function frameSeriesLabels(frames: Array<{ fields?: any[] }>): Record<string, string>[] {
+  return frames.flatMap((frame) => {
+    const fields = frame.fields ?? [];
+    const hasTime = fields.some((field) => field.type === FieldType.time || String(field.name).toLowerCase() === 'time');
+    if (!hasTime) return [];
+    return fields
+      .filter((field) => field.type === FieldType.number)
+      .map((field) => Object.fromEntries(
+        Object.entries(field.labels ?? {}).filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string'),
+      ));
+  });
+}
+
 export function normalizePrometheusFrames(frames: Array<{ fields?: any[]; name?: string }>, options: NormalizationOptions): NormalizedPrometheusSamples {
   const warnings: string[] = [];
   const samples: MetricSample[] = [];
