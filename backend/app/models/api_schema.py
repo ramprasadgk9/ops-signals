@@ -6,6 +6,8 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
 
+from backend.app.models.prometheus import CombinedSeriesOut
+
 
 class SignalOut(BaseModel):
     id: str
@@ -103,6 +105,9 @@ class PrometheusAnalysisRequest(BaseModel):
     max_series: int | None = None
     max_samples_per_series: int | None = None
     warnings: list[str] = Field(default_factory=list)
+    # When the samples are one series per pod: combine them ("auto" = the metric's usual way, as
+    # scheduled runs do). None refuses per-pod series instead of mixing them into one line.
+    combine: Literal["auto", "max", "sum", "avg", "min"] | None = None
 
 
 class PrometheusRunOut(BaseModel):
@@ -127,6 +132,7 @@ class PrometheusRunOut(BaseModel):
     analyzer_routing: list[dict] = Field(default_factory=list)
     executed_analyzers: list[str] = Field(default_factory=list)
     analyzer_executions: list[dict] = Field(default_factory=list)
+    combined: CombinedSeriesOut | None = None
 
 
 class ValidationFindingOut(BaseModel):

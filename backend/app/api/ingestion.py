@@ -12,17 +12,22 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from backend.app.autonomous.drilldown import drill_down_findings
+from backend.app.config import DrillDownConfig, get_drilldown_config
 from backend.app.models.api_schema import (
     CsvRunOut,
     CsvValidationOut,
     PrometheusAnalysisRequest,
+    PrometheusMetricSample,
     PrometheusRunOut,
     ValidationFindingOut,
     ValidationSignalOut,
 )
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
+from backend.app.models.prometheus import CombinedSeriesOut, PrometheusSeriesOut
 from backend.app.services.finding_plain import plain_for_result
+from backend.app.services.pod_split import SeriesAlreadyRead, combine_series, common_labels, find_pod_split, series_from_samples
 from backend.app.services.timeseries_routing_service import build_csv_routing_config, repo_root
 from backend.app.api.errors import internal_error
 from intelligence.normalize.normalizer import AUTO_INTERVAL, RESOLVED_INTERVALS_ATTR, VALIDATION_WARNINGS_ATTR
@@ -145,8 +150,30 @@ def run_prometheus_analysis(
     if payload.sample_count > payload.series_count * max_samples_per_series:
         raise HTTPException(status_code=400, detail=f"sample_count {payload.sample_count} exceeds configured limit")
 
+    promql = payload.promql
+    samples = payload.samples
+    combined: CombinedSeriesOut | None = None
+    pod_series: list[PrometheusSeriesOut] = []
+    series = series_from_samples(payload.samples) if payload.series_count > 1 else []
+    pods = find_pod_split(promql, series, metric=payload.metric_name, split_labels=get_drilldown_config().labels, cluster_label=None) if len(series) > 1 else None
+    if pods is not None:
+        # One series per pod. The analyzers read one line per metric and service, so sent as they
+        # are the pods would be interleaved into one jagged line. Combine them as the web UI does.
+        if not payload.combine:
+            raise HTTPException(status_code=400, detail=_per_pod_detail(pods.label, pods.values, pods.queries[pods.suggested_combine]))
+        how = pods.suggested_combine if payload.combine == "auto" else payload.combine
+        combined = CombinedSeriesOut(label=pods.label, count=len(pods.values), how=how, original_query=payload.promql, odd=pods.odd)
+        promql = pods.queries[how]
+        pod_series = series
+        labels = common_labels(series)
+        first = payload.samples[0]
+        samples = [
+            PrometheusMetricSample(timestamp=point.timestamp, value=point.value, metric_name=first.metric_name, service=first.service, labels=labels, series_id="combined")
+            for point in combine_series(series, how)
+        ]
+
     records: list[dict[str, object]] = []
-    for sample in payload.samples:
+    for sample in samples:
         labels = sample.labels or {}
         records.append(
             {
@@ -183,7 +210,8 @@ def run_prometheus_analysis(
                 run_metadata={
                     "datasource_uid": payload.datasource_uid,
                     "datasource_name": payload.datasource_name,
-                    "promql": payload.promql,
+                    "promql": promql,
+                    **({"combined": combined.model_dump()} if combined else {}),
                     "from": payload.from_time.isoformat(),
                     "to": payload.to_time.isoformat(),
                     "step_seconds": payload.step_seconds,
@@ -195,6 +223,20 @@ def run_prometheus_analysis(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
         raise internal_error("Analysis failed", exc) from exc
+
+    if combined is not None:
+        # Which pod the change came from, from the per-pod samples already sent. Never fails the run.
+        try:
+            drill_down_findings(
+                db=db,
+                prometheus=SeriesAlreadyRead(pod_series),
+                promql=promql,
+                step=f"{payload.step_seconds}s",
+                result=result,
+                config=DrillDownConfig(labels=[combined.label], max_findings_per_job=get_drilldown_config().max_findings_per_job, enabled=True),
+            )
+        except Exception:  # noqa: BLE001
+            db.rollback()
 
     findings_count = db.execute(
         select(func.count(FindingEntity.id)).where(FindingEntity.analysis_run_id == result.analysis_run_id)
@@ -215,7 +257,7 @@ def run_prometheus_analysis(
         datasource_name=payload.datasource_name,
         service=stored_service,
         metric_name=stored_metric,
-        promql=payload.promql,
+        promql=promql,
         from_time=payload.from_time,
         to_time=payload.to_time,
         step_seconds=payload.step_seconds,
@@ -229,6 +271,15 @@ def run_prometheus_analysis(
         analyzer_routing=result.analyzer_routing,
         executed_analyzers=result.executed_analyzers,
         analyzer_executions=result.analyzer_executions,
+        combined=combined,
+    )
+
+
+def _per_pod_detail(label: str, values: list[str], combined_query: str) -> str:
+    listed = f"{', '.join(values[:5])}{', ...' if len(values) > 5 else ''}"
+    return (
+        f"This query matched {len(values)} series, which differ by {label} ({listed}). "
+        f'Add {label}="{values[0]}" to pick one, or combine them: {combined_query}'
     )
 
 
