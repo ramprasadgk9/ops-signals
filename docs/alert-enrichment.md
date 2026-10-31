@@ -11,6 +11,23 @@ Ops Signals can post to Slack in two ways:
 
 They're independent: use either one, or both.
 
+## Grafana alerting and Alertmanager
+
+How Ops Signals differs from Grafana alerting and Alertmanager: they decide when to page and who
+gets paged, and Ops Signals explains what is behind the page. Keep your alert rules; Ops Signals adds
+what an alert alone doesn't say:
+
+- **When an alert fires**, it explains the metric behind it: what the metric did, what changed
+  (deploys, new pods) and whether the same problem was fixed before
+  ([alert enrichment](#2-alert-enrichment-alertmanager--analyzers--slack)). Alertmanager sends it
+  the alert through a webhook receiver; Grafana-managed alerts get the change and history parts only.
+- **Without an alert**, its own analysis finds unusual changes that no rule covers
+  ([finding notifications](#1-finding-notifications)), and [Metric Usage](metric-usage.md) lists
+  metrics with problems that are on no dashboard and in no alert.
+- **Alerting on findings:** its findings are also Prometheus metrics
+  ([`ops_signals_active_findings`](data-sources.md#findings-as-prometheus-metrics)), so an ordinary
+  alert rule can page on them.
+
 ---
 
 ## 1. Finding notifications

@@ -1,5 +1,11 @@
 # Metric Usage
 
+To find metrics nobody uses, open the **Metric Usage** page: its **Not watched** group lists the
+metrics that are on no dashboard and in no alert, biggest first, and
+[Acting on unused metrics](#acting-on-unused-metrics) shows how to add one to Grafana or drop it.
+
+## What the page shows
+
 With thousands of metrics, most are on no dashboard and in no alert. Metric Usage (the **Metric
 Usage** page, `/metric-usage`) shows which ones are, and which ones had problems that nobody would
 have seen. Every 6 hours it reads Grafana dashboards and alert rules plus Prometheus alerting and

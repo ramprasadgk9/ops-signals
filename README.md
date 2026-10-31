@@ -207,8 +207,6 @@ See [`docs/vision.md`](docs/vision.md) for the longer narrative behind this.
   ([citations](docs/analyzer-methodology.md)), benchmarked against known-answer data.
 - **It's open and self-hosted.** MIT licensed; your data stays on your network.
 
-How it compares with other tools, including where they're ahead: [`docs/comparison.md`](docs/comparison.md).
-
 ## How It Works
 
 ```mermaid
@@ -377,4 +375,5 @@ Ops Signals was created, designed and implemented by Ramprasad Goturkarnam ([@ra
 
 ## License
 
-See [LICENSE](LICENSE).
+Ops Signals is open source under the MIT license: free to use, change and share, including at
+work and in commercial products. See [LICENSE](LICENSE).

@@ -72,7 +72,9 @@ to the deploy behind it, and remembers how past incidents were fixed. Main parts
   building.
 - **Prove a feature with tests.** Add or update unit tests and, for UI flows, a Playwright spec.
 - **Benchmarks only when asked**, and a small sample first; full suites take a long time.
-- Update docs (`README.md`, `docs/ui-tour.md`, the feature's doc) when behaviour changes.
+- Update docs (`README.md`, `docs/ui-tour.md`, the feature's doc) when behaviour changes. The
+  assistant answers from them: open each section with its answer in the words people would ask it
+  ([guide](docs/ask-ops-signals-assistant.md#writing-docs-the-assistant-can-answer-from)).
 - Raising the assistant golden floors is fine; lowering one needs a reason in the commit message.
 
 ## Code Review Rules

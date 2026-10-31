@@ -9,8 +9,12 @@ events from your CI. Which features each source turns on is in
 Connect Ops Signals to an existing Prometheus datasource for direct or autonomous analysis. See
 [`standalone-prometheus-analysis.md`](standalone-prometheus-analysis.md).
 
-One Prometheus is set with `OPS_SIGNALS_PROMETHEUS_URL`. For Grafana Mimir with several tenants (or
-several Prometheus servers), list them as named connections in a file set by
+One Prometheus is set with `OPS_SIGNALS_PROMETHEUS_URL`.
+
+### Mimir, Thanos and several clusters
+
+Yes, Ops Signals works with Grafana Mimir, Thanos and other Prometheus-compatible backends, with
+several tenants and several clusters. For several tenants (or several Prometheus servers), list them as named connections in a file set by
 `OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE` - start from
 [`examples/prometheus-connections.yaml`](../examples/prometheus-connections.yaml). The Configure panel and
 Validate Data then get a connection picker, each autonomous policy keeps its connection, and alerts

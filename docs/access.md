@@ -1,7 +1,8 @@
 # Who Can Use Ops Signals
 
-Out of the box, anyone who can reach Ops Signals can see and change everything. Three steps fix
-that: lock the API, give people roles, check it.
+To let your team sign in and give each person access as a Viewer, Editor or Admin, do the three
+steps below: lock the API, give people roles, check it. Out of the box, anyone who can reach Ops
+Signals can see and change everything.
 
 The same three steps are on **Setup check → Login**, which shows the step you're on and the next
 thing to do. You can follow the app or this page; the easiest route is to open Setup check, do what
@@ -133,6 +134,9 @@ Top right of the web UI, a chip shows who you are: `Not signed in · everyone ca
 (click it for the next step), or a name and role such as `priya · Editor`.
 
 ## What each role can do
+
+There are three roles: a **Viewer** looks and asks, an **Editor** also runs analyses and works
+cases, an **Admin** also changes settings.
 
 The backend checks this on every request, from the plugin and the web UI alike
 (`backend/app/roles.py`). A refused request gets a 403 with the reason, and the UI shows the same
