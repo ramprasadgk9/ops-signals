@@ -104,11 +104,10 @@ New here? [`docs/README.md`](docs/README.md) is a guided path through every doc 
 
 ## Contents
 
-- [The Problem](#the-problem) · [What Ops Signals Does](#what-ops-signals-does) · [What Makes It Different](#what-makes-it-different) · [How It Works](#how-it-works)
-- [See It](#see-it) (screenshots) · [Features](#features): what each does and where it is in the app
-- [Quick Start](#quick-start): [choose how to run it](#choose-how-to-run-it), [laptop install](#try-it-on-your-laptop)
-- [Set Up and Run](#set-up-and-run)
-- [Current Limitations](#current-limitations) · [Contributing](#contributing) · [License](#license)
+- **Why:** [The Problem](#the-problem) · [What Ops Signals Does](#what-ops-signals-does) · [What Makes It Different](#what-makes-it-different) · [How It Works](#how-it-works)
+- **Look around:** [See It](#see-it) · [Features](#features)
+- **Get started:** [Quick Start](#quick-start) · [Set Up and Run](#set-up-and-run)
+- **Project:** [Current Limitations](#current-limitations) · [Contributing](#contributing) · [License](#license)
 
 ## The Problem
 
