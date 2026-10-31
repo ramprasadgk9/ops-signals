@@ -51,7 +51,7 @@ import type {
   AmbiguousResolutionPayload,
 } from './contracts';
 import type { MetricSample } from './prometheusFrameNormalizer';
-import type { FindingAIWording } from '../types';
+import type { CombineChoice, FindingAIWording, PodSplit } from '../types';
 
 export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
 
@@ -607,6 +607,30 @@ export async function runConnectionAnalysis(baseUrl: string, target: {
   return { ...analysis, analyzedAs: analyzedAsText(run.combined) };
 }
 
+/** Most series the plugin sends as samples; more pods than this are combined by Grafana first. */
+export const MAX_SENT_SERIES = 20;
+
+/** A line Grafana already combined (too many pods to send), said in the result like a combined run. */
+export type PreCombined = { label: string; count: number; how: CombineChoice; original_query: string };
+
+/** How the backend would combine series that differ only by pod - from their samples (which also
+ * name an odd pod) or their labels alone; null when they differ by more. */
+export async function podSplit(baseUrl: string, target: { query: string; metric: string; labels?: Record<string, string>[]; samples?: MetricSample[] }): Promise<PodSplit | null> {
+  return postJson<PodSplit | null>(baseUrl, '/api/ingestion/pod-split', target);
+}
+
+/** The same, for a query on a backend connection: from its preview, which reads every pod. */
+export async function connectionPodSplit(baseUrl: string, target: { connectionId: string; query: string; from: string; to: string; stepSeconds: number }): Promise<PodSplit | null> {
+  const preview = await postJson<{ pods?: PodSplit | null }>(baseUrl, '/api/prometheus/preview', {
+    connection_id: target.connectionId,
+    query: target.query,
+    start: target.from,
+    end: target.to,
+    step: `${Math.max(target.stepSeconds, 1)}s`,
+  });
+  return preview.pods ?? null;
+}
+
 export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
   datasourceUid: string;
   datasourceName?: string;
@@ -623,6 +647,7 @@ export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
   durationMs: number;
   /** 'auto' for a query built from a metric name: per-pod series are combined, as in the web UI. */
   combine?: 'auto' | null;
+  combined?: PreCombined | null;
 }): Promise<BackendPluginAnalysis> {
   const run = await postJson<RunSummary & { promql?: string }>(baseUrl, '/api/ingestion/prometheus-run', {
     provider: 'prometheus',
@@ -641,6 +666,7 @@ export async function runPrometheusSampleAnalysis(baseUrl: string, target: {
     max_samples_per_series: 10000,
     warnings: target.warnings,
     ...(target.combine ? { combine: target.combine } : {}),
+    ...(target.combined ? { combined: target.combined } : {}),
   });
 
   const analysis = await collectRunResult(baseUrl, run, {

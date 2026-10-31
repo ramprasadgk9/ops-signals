@@ -17,6 +17,7 @@ from backend.app.config import DrillDownConfig, get_drilldown_config
 from backend.app.models.api_schema import (
     CsvRunOut,
     CsvValidationOut,
+    PodSplitRequest,
     PrometheusAnalysisRequest,
     PrometheusMetricSample,
     PrometheusRunOut,
@@ -25,9 +26,10 @@ from backend.app.models.api_schema import (
 )
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
-from backend.app.models.prometheus import CombinedSeriesOut, PrometheusSeriesOut
+from backend.app.models.prometheus import CombinedSeriesOut, PodSplitOut, PrometheusSeriesOut
 from backend.app.services.finding_plain import plain_for_result
 from backend.app.services.pod_split import SeriesAlreadyRead, combine_series, common_labels, find_pod_split, series_from_samples
+from backend.app.services.prometheus_service import _observed_interval
 from backend.app.services.timeseries_routing_service import build_csv_routing_config, repo_root
 from backend.app.api.errors import internal_error
 from intelligence.normalize.normalizer import AUTO_INTERVAL, RESOLVED_INTERVALS_ATTR, VALIDATION_WARNINGS_ATTR
@@ -126,6 +128,15 @@ def _repo_root() -> Path:
     return repo_root()
 
 
+@router.post("/pod-split", response_model=PodSplitOut | None)
+def pod_split(payload: PodSplitRequest) -> PodSplitOut | None:
+    """How to read a query's series as one line when they differ only by pod. From their samples
+    (the odd pod named too), or their labels alone for more pods than the plugin sends as samples.
+    None when they differ by more."""
+    series = series_from_samples(payload.samples) if payload.samples else [PrometheusSeriesOut(labels=labels, samples=[]) for labels in payload.labels]
+    return find_pod_split(payload.query, series, metric=payload.metric, split_labels=get_drilldown_config().labels, cluster_label=None)
+
+
 # Plain def, so FastAPI runs it in its threadpool: the analysis (pandas, analyzers, database, and
 # the Slack post via the findings hook) blocks. As `async def` it ran on the event loop and froze
 # every other request, /api/health included, until it finished.
@@ -152,7 +163,7 @@ def run_prometheus_analysis(
 
     promql = payload.promql
     samples = payload.samples
-    combined: CombinedSeriesOut | None = None
+    combined: CombinedSeriesOut | None = payload.combined if payload.series_count == 1 else None
     pod_series: list[PrometheusSeriesOut] = []
     series = series_from_samples(payload.samples) if payload.series_count > 1 else []
     pods = find_pod_split(promql, series, metric=payload.metric_name, split_labels=get_drilldown_config().labels, cluster_label=None) if len(series) > 1 else None
@@ -196,7 +207,9 @@ def run_prometheus_analysis(
             provider="prometheus",
             service=payload.service,
             metric_name=payload.metric_name,
-            interval=f"{max(int(payload.step_seconds / 60), 1)}m",
+            # The step the samples really have, as New Analysis does: rounding a 15 s step up to
+            # 1 m averaged 4 points into 1 and flattened short spikes.
+            interval=_observed_interval(samples, payload.step_seconds),
             analyzer_id="all",
             preview=False,
         )
@@ -224,7 +237,7 @@ def run_prometheus_analysis(
     except Exception as exc:  # pragma: no cover
         raise internal_error("Analysis failed", exc) from exc
 
-    if combined is not None:
+    if pod_series:
         # Which pod the change came from, from the per-pod samples already sent. Never fails the run.
         try:
             drill_down_findings(

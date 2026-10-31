@@ -108,6 +108,18 @@ class PrometheusAnalysisRequest(BaseModel):
     # When the samples are one series per pod: combine them ("auto" = the metric's usual way, as
     # scheduled runs do). None refuses per-pod series instead of mixing them into one line.
     combine: Literal["auto", "max", "sum", "avg", "min"] | None = None
+    # Set when the samples are already one combined line (too many pods to send, so Grafana ran the
+    # combined query from /api/ingestion/pod-split): said in the result as for `combine`.
+    combined: CombinedSeriesOut | None = None
+
+
+class PodSplitRequest(BaseModel):
+    """The series a query returned: their labels, or their samples (which also name an odd pod)."""
+
+    query: str = Field(min_length=1)
+    metric: str | None = None
+    labels: list[dict[str, str]] = Field(default_factory=list, max_length=5000)
+    samples: list[PrometheusMetricSample] = Field(default_factory=list, max_length=200_000)
 
 
 class PrometheusRunOut(BaseModel):

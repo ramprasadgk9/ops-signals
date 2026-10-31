@@ -1,18 +1,11 @@
 import { Box, Button, MenuItem, Select, Stack, Typography } from '@mui/material';
 import type { CombineChoice, PodSplit } from '../types';
+import { COMBINE_ORDER, combineName } from '../utils/podCombine';
 
 /** A pod choice: one of the ways to combine them, or `pod:<name>` for one pod alone. */
 export type PodChoice = CombineChoice | `pod:${string}`;
 
-const COMBINE_ORDER: CombineChoice[] = ['max', 'sum', 'avg', 'min'];
-
-export function combineName(how: CombineChoice, label: string): string {
-  const plural = `${label}s`;
-  if (how === 'sum') return `All ${plural} added up`;
-  if (how === 'avg') return `Average ${label}`;
-  if (how === 'max') return `Highest ${label}`;
-  return `Lowest ${label}`;
-}
+export { combinedPhrase, combineName } from '../utils/podCombine';
 
 function combineHelp(how: CombineChoice, label: string): string {
   if (how === 'sum') return 'The service total. For requests, bytes and connections.';
@@ -21,11 +14,6 @@ function combineHelp(how: CombineChoice, label: string): string {
   return `The lowest ${label} at each moment. For health checks: one ${label} that is down shows.`;
 }
 
-/** "the average of 4 pods", for saying what a run analyzed. */
-export function combinedPhrase(how: CombineChoice, label: string, count: number): string {
-  if (how === 'sum') return `all ${count} ${label}s added up`;
-  return `the ${{ max: 'highest', avg: 'average', min: 'lowest' }[how]} of ${count} ${label}s`;
-}
 
 /** The query a choice analyzes. */
 export function podChoiceQuery(pods: PodSplit, choice: PodChoice): string {

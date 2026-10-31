@@ -183,3 +183,67 @@ def test_combine_series_combines_per_timestamp() -> None:
 
     assert len(summed) == 60
     assert summed[0].value == 2 * 90.0
+
+
+def test_the_samples_keep_their_own_step() -> None:
+    # 15 s samples used to be averaged into 1 m buckets, flattening short spikes.
+    intervals = []
+    real = ingestion.build_csv_routing_config
+
+    def spy(**kwargs):
+        intervals.append(kwargs["interval"])
+        return real(**kwargs)
+
+    payload = _payload(pods=PODS[:1])
+    for index, sample in enumerate(payload["samples"]):
+        sample["timestamp"] = (BEGIN + timedelta(seconds=15 * index)).isoformat()
+    payload["step_seconds"] = 15
+    with patch.object(ingestion, "build_csv_routing_config", spy):
+        res = _post(payload)
+
+    assert res.status_code == 200, res.text
+    assert intervals == ["15s"]
+
+
+def test_pod_split_reads_labels_only() -> None:
+    labels = [{"service": "search-svc", "pod": f"search-svc-{i}"} for i in range(30)]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        res = client.post("/api/ingestion/pod-split", json={"query": QUERY, "metric": "http_requests_per_second", "labels": labels})
+        mixed = client.post("/api/ingestion/pod-split", json={"query": QUERY, "labels": [{**item, "code": code} for item in labels[:2] for code in ("200", "500")]})
+
+    assert res.status_code == 200, res.text
+    assert res.json()["label"] == "pod"
+    assert len(res.json()["values"]) == 30
+    assert res.json()["suggested_combine"] == "sum"
+    assert res.json()["queries"]["sum"] == f"sum by (service) ({QUERY})"
+    assert mixed.json() is None
+
+
+def test_a_line_grafana_already_combined_is_said_so_in_the_result() -> None:
+    combined = {"label": "pod", "count": 30, "how": "avg", "original_query": QUERY}
+    payload = _payload(pods=PODS[:1], combined=combined)
+    payload["promql"] = f"avg by (service) ({QUERY})"
+    for sample in payload["samples"]:
+        sample["labels"] = {"service": "search-svc"}
+
+    calls = []
+    with patch.object(ingestion, "drill_down_findings", lambda **kwargs: calls.append(kwargs)):
+        res = _post(payload)
+
+    assert res.status_code == 200, res.text
+    assert res.json()["combined"] == {**combined, "odd": None}
+    assert res.json()["promql"] == f"avg by (service) ({QUERY})"
+    # No per-pod samples were sent, so there is nothing to split by pod.
+    assert calls == []
+
+
+def test_pod_split_from_samples_names_the_odd_pod() -> None:
+    samples = _payload()["samples"]
+    app = create_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        res = client.post("/api/ingestion/pod-split", json={"query": QUERY, "metric": "request_latency_p95", "samples": samples})
+
+    assert res.status_code == 200, res.text
+    assert res.json()["odd"]["value"] == "search-svc-2"
+    assert res.json()["one_queries"]["search-svc-2"] == 'request_latency_p95{service="search-svc",pod="search-svc-2"}'

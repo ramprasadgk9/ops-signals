@@ -137,3 +137,25 @@ def test_combine_choice_matches_what_scheduled_runs_use() -> None:
     assert suggested_combine("kafka_consumergroup_lag") == "max"
     assert suggested_combine("something_unknown") == "avg"
     assert suggested_combine(None) == "avg"
+
+
+def test_unknown_metrics_that_count_things_add_their_pods_up() -> None:
+    # No rule knows them (scheduled runs don't watch them); the name says each pod counts its share.
+    assert suggested_combine("http_requests_per_second") == "sum"
+    assert suggested_combine("jobs_processed_count") == "sum"
+    assert suggested_combine("orders_rps") == "sum"
+    # A known rule still wins: error_rate is a ratio, averaged.
+    assert suggested_combine("error_rate") == "avg"
+    assert suggested_combine("queue_depth") == "avg"
+
+
+def test_pods_are_told_apart_from_labels_alone() -> None:
+    # More pods than are read as samples: only their labels are known.
+    series = [PrometheusSeriesOut(labels={"service": "search-svc", "pod": f"search-svc-{i}"}, samples=[]) for i in range(30)]
+
+    split = find_pod_split('request_latency_p95{service="search-svc"}', series, metric="request_latency_p95", split_labels=DEFAULT_SPLIT_LABELS, cluster_label=None)
+
+    assert split is not None
+    assert len(split.values) == 30
+    assert split.odd is None
+    assert split.queries["avg"] == 'avg by (service) (request_latency_p95{service="search-svc"})'

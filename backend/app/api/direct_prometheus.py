@@ -136,6 +136,25 @@ def _pod_split(query: str, preview: PrometheusPreviewOut, metric: str | None, co
     return find_pod_split(query, preview.series, metric=metric, split_labels=get_drilldown_config().labels, cluster_label=config.cluster_label)
 
 
+# How many series the label check may read when a query has more pods than max_series. Only the
+# labels are kept, from about 50 points per series.
+POD_LABELS_MAX_SERIES = 2000
+
+
+def _too_many_series(exc: HTTPException) -> bool:
+    return isinstance(exc.detail, str) and "exceeds max_series" in exc.detail
+
+
+def _pod_split_from_labels(service: PrometheusQueryService, payload: DirectPrometheusAnalysisRequest, config: PrometheusConnectionConfig):
+    span = max(int((payload.end - payload.start).total_seconds()), 1)
+    try:
+        rows = service.query_result(payload.query, start=payload.start, end=payload.end, step_seconds=max(span // 50, 1), max_series=POD_LABELS_MAX_SERIES)
+    except HTTPException:
+        return None
+    series = [PrometheusSeriesOut(labels=row.get("metric") or {}, samples=[]) for row in rows]
+    return find_pod_split(payload.query, series, metric=payload.metric, split_labels=get_drilldown_config().labels, cluster_label=config.cluster_label)
+
+
 @analysis_router.post("/prometheus", response_model=DirectPrometheusAnalysisOut)
 def run_direct_prometheus_analysis(
     payload: DirectPrometheusAnalysisRequest,
@@ -144,16 +163,27 @@ def run_direct_prometheus_analysis(
     config: PrometheusConnectionConfig = Depends(get_prometheus_connection),
 ) -> DirectPrometheusAnalysisOut:
     query = payload.query
-    preview = service.preview(query, payload.start, payload.end, payload.step)
-    if preview.sample_count == 0:
-        raise HTTPException(status_code=400, detail="The query succeeded, but Prometheus returned no samples for the selected time range.")
     combined: CombinedSeriesOut | None = None
-    pods = _pod_split(query, preview, payload.metric, config) if preview.series_count > 1 and payload.combine else None
+    try:
+        preview = service.preview(query, payload.start, payload.end, payload.step)
+    except HTTPException as exc:
+        # More pods than max_series: tell them apart from their labels alone, then read only the
+        # combined line. Too many to draw or to name the odd one, but one line is enough to analyze.
+        pods = _pod_split_from_labels(service, payload, config) if payload.combine and _too_many_series(exc) else None
+        if pods is None:
+            raise
+        preview = None
+    else:
+        if preview.sample_count == 0:
+            raise HTTPException(status_code=400, detail="The query succeeded, but Prometheus returned no samples for the selected time range.")
+        pods = _pod_split(query, preview, payload.metric, config) if preview.series_count > 1 and payload.combine else None
     if pods is not None:
         how = pods.suggested_combine if payload.combine == "auto" else payload.combine
         combined = CombinedSeriesOut(label=pods.label, count=len(pods.values), how=how, original_query=payload.query, odd=pods.odd)
         query = pods.queries[how]
         preview = service.preview(query, payload.start, payload.end, payload.step)
+        if preview.sample_count == 0:
+            raise HTTPException(status_code=400, detail="The query succeeded, but Prometheus returned no samples for the selected time range.")
     if preview.series_count != 1:
         raise HTTPException(status_code=400, detail=_multi_series_detail(query, preview.series, config.cluster_label))
 

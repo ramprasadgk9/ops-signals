@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { normalizePrometheusFrames } from '../../../grafana/prometheusFrameNormalizer';
+import { frameSeriesLabels, normalizePrometheusFrames } from '../../../grafana/prometheusFrameNormalizer';
 
 vi.mock('@grafana/data', () => ({
   FieldType: {
@@ -88,5 +88,21 @@ describe('Prometheus frame normalization scenarios', () => {
 
     expect(result.sampleCount).toBe(1);
     expect(result.samples).toHaveLength(1);
+  });
+
+  it('given more series than are sent, lists each one\'s labels without reading samples', () => {
+    const frames = Array.from({ length: 30 }, (_, index) => ({
+      name: `pod-${index}`,
+      fields: [
+        { name: 'Time', type: FieldType.time, values: [1_700_000_000_000] },
+        { name: 'Value', type: FieldType.number, values: [1], labels: { service: 'search-svc', pod: `search-svc-${index}` } },
+      ],
+    }));
+
+    const labels = frameSeriesLabels([...frames, { name: 'no-time', fields: [{ name: 'Value', type: FieldType.number, values: [1] }] }]);
+
+    expect(labels).toHaveLength(30);
+    expect(labels[29]).toEqual({ service: 'search-svc', pod: 'search-svc-29' });
+    expect(() => normalizePrometheusFrames(frames, options)).toThrow('more than 5 series');
   });
 });

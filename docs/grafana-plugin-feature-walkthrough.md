@@ -82,9 +82,16 @@ With either source, a metric with one series per pod (`pod`, `pod_name`,
 `kubernetes_pod_name`, `instance` or `host`) is combined into one line the way
 scheduled runs read it (for example the average of the pods for latency). The
 result says so above Run details and names a pod that behaves differently from
-the rest; findings show which pod the change came from. A `PromQL` query is run
-exactly as written: if it returns one series per pod, the run stops and says
-which label to add or how to combine them.
+the rest; findings show which pod the change came from. With more than 20
+pods, only the combined line is read (Grafana or the connection runs the
+combined query); the result still says how the pods were combined, without the
+odd pod or the per-pod breakdown. A `PromQL` query is run
+exactly as written: if it returns one series per pod, nothing is analyzed and a
+box offers **Combine: highest / all added up / average / lowest pod** (the usual
+one for the metric highlighted) and, when one pod stands out, **Analyze only** that
+pod. A button puts that query in the PromQL box; check it, then Run
+Analysis. If the series differ by more than the pod, the run stops with the
+message saying which label to add.
 
 ### Prometheus connection and Cluster
 

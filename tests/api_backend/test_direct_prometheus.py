@@ -344,3 +344,54 @@ def test_run_with_a_chosen_combine_uses_it() -> None:
     assert res.status_code == 200, res.text
     assert res.json()["combined"]["how"] == "max"
     assert res.json()["query"].startswith("max by (service) (")
+
+
+class ManyPodsPrometheusService(PerPodPrometheusService):
+    """30 pods: more than max_series, so the plain query is refused and only labels can be read."""
+
+    PODS = [f"search-svc-{i}" for i in range(30)]
+
+    def __init__(self):
+        super().__init__()
+        self.label_reads: list[str] = []
+
+    def preview(self, query: str, start: datetime, end: datetime, step: str):
+        self.queries.append(query)
+        if not query.startswith(("avg by (", "sum by (", "max by (", "min by (")):
+            raise HTTPException(status_code=400, detail="query returned 30 series, which exceeds max_series 20")
+        begin = datetime(2026, 7, 26, 10, tzinfo=timezone.utc)
+        series = [PrometheusSeriesOut(labels={"service": "search-svc"}, samples=[
+            PrometheusSeriesSample(timestamp=begin + timedelta(minutes=i), value=90.0 + i % 3) for i in range(60)
+        ])]
+        return PrometheusPreviewOut(query=query, start=begin, end=begin + timedelta(hours=1), step="1m", step_seconds=60,
+                                    series_count=1, sample_count=60, series=series, warnings=[])
+
+    def query_result(self, query: str, **kwargs):
+        self.label_reads.append(query)
+        return [{"metric": {"__name__": "request_latency_p95", "service": "search-svc", "pod": pod}, "values": []} for pod in self.PODS]
+
+
+def test_more_pods_than_max_series_are_combined_from_their_labels() -> None:
+    from unittest.mock import patch
+
+    from backend.app.api.ingestion import PreviewPipelineStore
+    from intelligence.pipeline import SignalPipeline
+
+    service = ManyPodsPrometheusService()
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: service
+
+    with patch("backend.app.api.direct_prometheus.SignalPipeline", lambda config: SignalPipeline(config, store=PreviewPipelineStore())):
+        with TestClient(app) as client:
+            res = client.post("/api/analysis/prometheus", json={**_PER_POD_RUN, "combine": "auto"})
+            refused = client.post("/api/analysis/prometheus", json=_PER_POD_RUN)
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["query"] == 'avg by (service) (request_latency_p95{service="search-svc"})'
+    assert body["combined"]["count"] == 30
+    assert body["combined"]["odd"] is None
+    assert service.label_reads == [_PER_POD_RUN["query"]]
+    # Without combine the query is kept as written, and too many series is still an error.
+    assert refused.status_code == 400
+    assert "exceeds max_series" in refused.json()["detail"]
