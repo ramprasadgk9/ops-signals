@@ -27,8 +27,6 @@ What the project is, and how to get it running.
   only.
 - [`metric-usage.md`](metric-usage.md) - blind spots, missing and unwatched metrics, and the Add to
   Grafana and Drop actions.
-- [`comparison.md`](comparison.md) - how Ops Signals relates to Robusta/HolmesGPT, Keep and
-  Grafana Sift, including where those tools are ahead.
 - [`access.md`](access.md) - **start here before others use it.** Who can use Ops Signals in three
   steps: lock the API, give people roles (Grafana plugin, company login or a sign-in proxy), check
   it on Setup check. One table of what each role can do.

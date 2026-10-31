@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -140,6 +140,24 @@ describe('Ask Ops Signals reindex', () => {
 
     expect(await screen.findByText(/you added or edited a doc and want answers to include it/)).toBeInTheDocument();
     expect(screen.getByText(/findings, cases and metrics are never touched/)).toBeInTheDocument();
+  });
+
+  it('helps people write docs the assistant can answer from', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /what does reindex docs do/i }));
+    expect(await screen.findByText('Writing a doc?')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /check new docs/i })).toHaveAttribute('href', '/assistant/docs-check');
+
+    fireEvent.click(screen.getByRole('button', { name: /6 tips for docs it can answer from/i }));
+    const dialog = await screen.findByRole('dialog', { name: /writing docs the assistant can answer from/i });
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(dialog).getByText(/Don't leave a section that only links elsewhere/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: /read the full guide/i })).toHaveAttribute('href', expect.stringContaining('docs/ask-ops-signals-assistant.md#writing-docs-the-assistant-can-answer-from'));
+    expect(within(dialog).getByRole('link', { name: /check new docs/i })).toHaveAttribute('href', '/assistant/docs-check');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /close/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /writing docs/i })).not.toBeInTheDocument());
   });
 });
 

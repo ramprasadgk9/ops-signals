@@ -134,8 +134,10 @@ like the web UI (see [In the web UI and the Grafana plugin](#in-the-web-ui-and-t
 
 ## Mimir, Thanos and Other Multi-Source Backends
 
-Ops Signals reads from Prometheus-compatible backends such as Grafana Mimir,
-Thanos and VictoriaMetrics. For a single Mimir tenant, pass the tenant header:
+Yes, Ops Signals works with Grafana Mimir, Thanos, VictoriaMetrics and other
+Prometheus-compatible backends, including several tenants and several clusters
+behind one endpoint: each cluster is analysed on its own and HA replica copies
+count once. For a single Mimir tenant, pass the tenant header:
 
 ```bash
 OPS_SIGNALS_PROMETHEUS_HEADERS=X-Scope-OrgID:my-tenant

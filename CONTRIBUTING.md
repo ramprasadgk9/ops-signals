@@ -15,7 +15,9 @@ Thanks for helping improve Ops Signals.
 1. Create a branch for your work.
 2. Make the change with minimal scope.
 3. Run the relevant tests.
-4. Update documentation when behavior changes.
+4. Update documentation when behavior changes. Ask Ops Signals answers from every doc, so open each
+   section with its answer in the words people would ask it
+   ([Writing docs the assistant can answer from](docs/ask-ops-signals-assistant.md#writing-docs-the-assistant-can-answer-from)).
 5. Open a pull request with a clear summary.
 
 ## Code Quality

@@ -395,8 +395,17 @@ questions:
     expect:
       - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
 
-  # The product name in the question pulls documentation search toward overview docs (README intro,
-  # comparison) even though routing strips it.
+  # Cited correctly in a clean checkout since docs/comparison.md was removed; promote it to `docs`
+  # once it holds up.
+  - id: deploy-match-metrics-product
+    category: known_gap
+    question: How does Ops Signals match deploy events with metrics?
+    contains: ["service, environment, cluster and time"]
+    expect:
+      - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
+
+  # The product name in the question pulls documentation search toward overview docs (the README
+  # intro) even though routing strips it.
   - id: deploy-data-into-product
     category: known_gap
     question: How does deploy data get into Ops Signals?
@@ -404,12 +413,59 @@ questions:
     expect:
       - {source: docs/finding-drilldown.md, section: "How is deploy data received from CI"}
 
-  - id: deploy-match-metrics-product
-    category: known_gap
-    question: How does Ops Signals match deploy events with metrics?
-    contains: ["service, environment, cluster and time"]
+  # --- Everyday questions the README split and docs/access.md left unanswered ------------------
+  - id: license-free
+    category: docs
+    question: What license is Ops Signals under, and is it free?
+    contains: ["MIT"]
     expect:
-      - {source: docs/finding-drilldown.md, section: "How are deploy events joined to metrics and findings?"}
+      - {source: README.md, section: "License"}
+
+  - id: team-sign-in
+    category: docs
+    question: How do I let my team sign in to the web UI?
+    contains: ["three steps"]
+    expect:
+      - {source: docs/access.md}
+      - {source: docs/web-ui-sign-in.md}
+
+  - id: shift-handoff-how
+    category: docs
+    question: How do I hand off my on-call shift?
+    contains: ["Shift handoff"]
+    expect:
+      - {source: docs/ui-tour.md, section: "Hand off your shift"}
+
+  - id: unused-metrics
+    category: docs
+    question: How do I find metrics nobody uses?
+    contains: ["Not watched"]
+    expect:
+      - {source: docs/metric-usage.md}
+
+  - id: alerting-differs
+    category: docs
+    question: How is Ops Signals different from Grafana alerting?
+    contains: ["decide when to page"]
+    expect:
+      - {source: docs/alert-enrichment.md, section: "Grafana alerting and Alertmanager"}
+
+  - id: write-docs-for-assistant
+    category: docs
+    question: How do I write a doc the assistant can answer from?
+    contains: ["open every section with one sentence"]
+    expect:
+      - {source: docs/ask-ops-signals-assistant.md, section: "Writing Docs the Assistant Can Answer From"}
+
+  # The local testing guide's title ("Testing Multi-Cluster Mimir Locally") wins every slot over the
+  # product answer in standalone-prometheus-analysis.md and data-sources.md.
+  - id: mimir-clusters
+    category: known_gap
+    question: Does it work with Mimir and several clusters?
+    contains: ["several clusters"]
+    expect:
+      - {source: docs/standalone-prometheus-analysis.md, section: "Mimir, Thanos and Other Multi-Source Backends"}
+      - {source: docs/data-sources.md, section: "Mimir, Thanos and several clusters"}
 
   # --- Not answerable from the corpus -----------------------------------------------------------
   - id: oos-kafka

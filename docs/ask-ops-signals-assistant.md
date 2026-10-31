@@ -141,6 +141,41 @@ Commit the updated golden file with your doc.
 API: `GET /api/assistant/docs-check/coverage`, `POST .../draft`, `POST .../evaluate`, and
 `POST .../tests` (`dry_run: true` returns the YAML without writing and needs no file writes).
 
+## Writing Docs the Assistant Can Answer From
+
+To write a doc the assistant can answer from, open every section with one sentence that answers its
+question in the words people would ask it, and put the details after. The assistant finds the
+sections closest to the question, then quotes the lines in them that best match it; a direct first
+sentence is usually those lines. The same tips are in the web UI under the **?** next to **Reindex
+docs**.
+
+1. **Open each section with the answer.** One sentence first that answers the question the section
+   is for.
+   Before: "Out of the box, anyone who can reach Ops Signals can see and change everything."
+   After: "To let your team sign in and give each person access as a Viewer, Editor or Admin, do the
+   three steps below."
+2. **Don't leave a section that only links elsewhere.** Only a section's own text can be quoted.
+   Before: "See [LICENSE](LICENSE)."
+   After: "Ops Signals is open source under the MIT license: free to use, change and share. See
+   [LICENSE](LICENSE)."
+3. **One question per section.** Each `##` or `###` heading starts a new section. A long section is
+   split into pieces of about 900 characters that each keep the heading, and a piece that mixes
+   several topics matches none of them well. Split it with headings instead.
+4. **Use the words people type,** not only feature names: "sign in" and "give my team access" as
+   well as "roles" and "API token". Matching is by meaning, but shared words decide close calls, and
+   an exact setting name such as `OPS_SIGNALS_API_TOKEN` counts most.
+5. **Put how-tos where people look.** If the only text about a task is in an API or test doc, that
+   is what gets quoted. Add a short user-facing section, then link to the reference.
+   Example: "To hand off your on-call shift, open **Overview** and click **Shift handoff**", in
+   [`ui-tour.md`](ui-tour.md#hand-off-your-shift), rather than only the handoff API.
+6. **Summarize a list in one line before it.** Otherwise a broad question quotes one row of the
+   list. Example: "There are three roles: a **Viewer** looks and asks, an **Editor** also runs
+   analyses and works cases, an **Admin** also changes settings", above the role table.
+
+**Check it:** **Reindex docs**, then open [Docs check](#docs-check), ask the question your section is
+for, and confirm the section you meant is cited. Save it as a test, so a later edit can't quietly
+break the answer. `tests/test_docs_sections.py` fails on a section that holds nothing but a link.
+
 ## Answer Feedback
 
 Every answer asks "Did this answer your question?". A thumbs-down asks why (wrong section, missing a

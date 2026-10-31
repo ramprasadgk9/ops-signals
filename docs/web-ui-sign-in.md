@@ -1,11 +1,9 @@
 # Web UI: Sign-in and Roles
 
-How people sign in to the standalone web UI, how their company groups become Viewer, Editor or
-Admin, and how to try it before a team uses it. For the Grafana plugin, see
+To let your team sign in to the web UI, follow the three steps in [`access.md`](access.md): lock the
+API, pick how people sign in, check it. This page explains how sign-in works, how company groups
+become Viewer, Editor or Admin, every setting, and what people see. For the Grafana plugin, see
 [`grafana-plugin-access-and-roles.md`](grafana-plugin-access-and-roles.md).
-
-Setting it up for the first time? Start at [`access.md`](access.md): lock the API, pick how people
-sign in, check it. This page has every setting and what people see.
 
 ## In short
 
@@ -30,7 +28,9 @@ sign in, check it. This page has every setting and what people see.
 
 ## Who can do what
 
-The same roles as in the Grafana plugin, in one table: [`access.md`](access.md#what-each-role-can-do).
+There are three roles: a **Viewer** looks and asks, an **Editor** also runs analyses and works
+cases, an **Admin** also changes settings. They are the same roles as in the Grafana plugin, in one
+table: [`access.md`](access.md#what-each-role-can-do).
 
 What people see:
 

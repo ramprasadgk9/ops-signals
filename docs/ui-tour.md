@@ -20,7 +20,7 @@ automatically exist in the other.
 | **Cases** | `/cases` | Every Case (an investigation promoted from a Finding or Behavior Finding). Tabs split them into Open, In progress, On hold and Resolved; the side panel shows the selected case's root cause and timeline. (`/investigations` redirects to the In progress tab.) With AI on, a case's Root Cause and Resolution tabs have **Draft from case**. Publish Knowledge shows the case timeline and a write-up saved with the case. See [`docs/operational-cases.md`](operational-cases.md). |
 | **Behavior Intelligence** | `/behavior-intelligence` | Problems that only show up when several metrics are considered together. **Detected** lists the matches, each with the metrics it combined and why it matched (also shown on Findings as combined patterns). **Patterns** lists the rules every run checks and the pairs mined from your data; admins open the builder there (New pattern, Edit copy, Use this pattern, Turn into pattern) to write a rule with conditions in plain words (is rising, is falling, has an unusual spike), see how it would have done on a service's recent runs and open any run for the details, and save it to a pack. `/behavior-intelligence/lab` opens the builder. See [`docs/behavior-intelligence.md`](behavior-intelligence.md). |
 | **Recurring problems** | `/recurring-problems` | Past cases grouped into problems that keep coming back, with the causes found and what to do next; whether monitoring caught imported past incidents; and, folded away, the indexing details and the alert-context preview an external alert manager would see. Cases that belong to a recurring problem show a "Seen before" line linking here. A finding or case back within 30 days of a fix on the same service says **Fix didn't hold** instead, naming the old fix; see [When a fix didn't stick](operational-memory.md#when-a-fix-didnt-stick). (`/operational-memory` redirects.) See [`docs/operational-memory.md`](operational-memory.md). |
-| **Ask Ops Signals** *(Beta)* | `/assistant` | Grounded conversational Q&A over cases, findings, and behaviors. See [`docs/ask-ops-signals-assistant.md`](ask-ops-signals-assistant.md). |
+| **Ask Ops Signals** *(Beta)* | `/assistant` | Grounded conversational Q&A over cases, findings, behaviors and the docs. **Reindex docs** picks up docs you added; the **?** next to it explains it and, under **Writing a doc?**, gives 6 tips for docs the assistant can answer from and a link to **Check new docs**. See [`docs/ask-ops-signals-assistant.md`](ask-ops-signals-assistant.md). |
 | **New Analysis** | `/validate-data` | Upload a CSV or point at a Prometheus datasource to run a one-off analysis outside the autonomous scheduler. For a CSV, **Validate Data** previews without saving and **Analyze and Save** stores the findings so they can become cases. A metric with one series per pod is combined into one line the way scheduled runs read it; after **Preview Data**, a **Pods** box picks another way or one pod, and names a pod that behaves differently. See [`docs/standalone-prometheus-analysis.md`](standalone-prometheus-analysis.md). |
 
 ### Analyzer Workbench
@@ -44,6 +44,14 @@ enriched alert's analysis still produces an ordinary finding, so it appears unde
 "What changed" as the message, and marks deploys on its timeline; all change events are available at
 `GET /api/events`. See
 [`docs/alert-enrichment.md`](alert-enrichment.md), or run [`docs/demo.md`](demo.md) to see one.
+
+### Hand off your shift
+
+To hand off your on-call shift, open **Overview** and click **Shift handoff**. Pick the last 8, 12
+or 24 hours: it shows what to watch first, with a button to open it, and what else is worth a look.
+**Copy for Slack** copies the note and the list for your team channel; with AI on, **Write with AI**
+turns it into a short written note first. In the Grafana plugin the same button is on the Autonomous
+Analysis Overview. What it counts: [Shift handoff](standalone-overview-api.md#shift-handoff).
 
 ### Setup check and Settings
 

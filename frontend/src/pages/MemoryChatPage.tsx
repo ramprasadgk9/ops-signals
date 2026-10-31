@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Alert, AlertTitle, Badge, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, IconButton, Popover, Stack, TextField, Typography } from '@mui/material';
+import { Alert, AlertTitle, Badge, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, Popover, Stack, TextField, Typography } from '@mui/material';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
@@ -377,6 +378,7 @@ function ReindexResultBanner({ result, authoring, onClose }: { result: Knowledge
 
 function ReindexHelp() {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [tipsOpen, setTipsOpen] = useState(false);
   return (
     <>
       <IconButton aria-label="What does Reindex docs do?" aria-expanded={Boolean(anchor)} onClick={(event) => setAnchor(event.currentTarget)} sx={{ border: `1px solid ${ui.border}` }}>
@@ -399,8 +401,66 @@ function ReindexHelp() {
           <Typography sx={{ fontSize: 14 }}><b>Not needed</b> right after a restart, or when no docs changed. A number on the button shows when some did.</Typography>
           <Typography sx={{ fontSize: 14 }}><b>Safe to click anytime.</b> Only changed docs are re-read, it takes a second or two, and findings, cases and metrics are never touched.</Typography>
         </Stack>
+        <Box sx={{ mt: 1.5, p: 1.5, borderRadius: '8px', border: '1px dashed var(--os-tint-blue-border)', bgcolor: 'var(--os-tint-blue)' }}>
+          <Typography sx={{ fontWeight: 850, fontSize: 14, mb: 0.5 }}>Writing a doc?</Typography>
+          <Typography sx={{ fontSize: 14, mb: 1 }}>
+            The assistant quotes the lines of a section that best match the question. Open each section with the answer, in the words people would ask it.
+          </Typography>
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Button size="small" onClick={() => { setAnchor(null); setTipsOpen(true); }} sx={{ p: 0, minWidth: 0, textTransform: 'none', fontWeight: 750 }}>
+              6 tips for docs it can answer from
+            </Button>
+            <Button size="small" component={RouterLink} to={DOCS_CHECK_PATH} sx={{ p: 0, minWidth: 0, textTransform: 'none', fontWeight: 750 }}>
+              Check new docs →
+            </Button>
+          </Stack>
+        </Box>
       </Popover>
+      <WritingTipsDialog open={tipsOpen} onClose={() => setTipsOpen(false)} />
     </>
+  );
+}
+
+export const WRITING_GUIDE_URL = 'https://github.com/ramprasadgk9/ops-signals/blob/main/docs/ask-ops-signals-assistant.md#writing-docs-the-assistant-can-answer-from';
+
+// The same six tips as docs/ask-ops-signals-assistant.md, "Writing Docs the Assistant Can Answer From".
+const WRITING_TIPS: { tip: string; detail?: string; why: string }[] = [
+  { tip: 'Open each section with the answer.', detail: 'One sentence first that answers the question the section is for.', why: 'The assistant quotes the lines that best match the question; a direct first sentence is usually those lines.' },
+  { tip: "Don't leave a section that only links elsewhere.", detail: '"See LICENSE" gives it nothing to say; write "MIT: free to use, change and share", then link.', why: "Only a section's own text can be quoted." },
+  { tip: 'One question per section.', detail: 'Split a long section that covers several topics with ## headings.', why: 'A long section is searched in pieces of about 900 characters; a piece that mixes topics matches none of them well.' },
+  { tip: 'Use the words people type.', detail: '"sign in" and "give my team access" as well as "roles" and "API token".', why: 'Matching is by meaning, but shared words decide close calls, and exact setting names count most.' },
+  { tip: 'Put how-tos where people look.', detail: 'If the only text about a task is in an API or test doc, that is what gets quoted.', why: 'It answers from the closest text it has, even when that page is the wrong kind.' },
+  { tip: 'Summarize a list in one line before it.', why: 'Otherwise a broad question quotes one row of the list.' },
+];
+
+function WritingTipsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth aria-labelledby="writing-tips-title">
+      <DialogTitle id="writing-tips-title" sx={{ fontWeight: 850, pr: 6 }}>
+        Writing docs the assistant can answer from
+        <IconButton aria-label="Close" onClick={onClose} sx={{ position: 'absolute', right: 12, top: 12 }}>
+          <CloseRoundedIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack component="ol" spacing={1.4} sx={{ m: 0, pl: 2.5 }}>
+          {WRITING_TIPS.map((item) => (
+            <Box component="li" key={item.tip} sx={{ fontSize: 14 }}>
+              <Typography component="span" sx={{ fontSize: 14, fontWeight: 800 }}>{item.tip}</Typography>
+              {item.detail ? <Typography component="span" sx={{ fontSize: 14 }}> {item.detail}</Typography> : null}
+              <Typography sx={{ fontSize: 13, color: ui.muted }}>{item.why}</Typography>
+            </Box>
+          ))}
+        </Stack>
+        <Typography sx={{ fontSize: 13, color: ui.muted, mt: 2 }}>Then: Reindex docs, ask the question your section is for, and save it as a test in Check new docs.</Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 1.5, justifyContent: 'flex-start', gap: 1 }}>
+        <Button variant="contained" component={RouterLink} to={DOCS_CHECK_PATH} onClick={onClose} sx={{ textTransform: 'none', fontWeight: 800 }}>Check new docs →</Button>
+        <Button component="a" href={WRITING_GUIDE_URL} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNewRoundedIcon fontSize="small" />} sx={{ textTransform: 'none', fontWeight: 750 }}>
+          Read the full guide
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
