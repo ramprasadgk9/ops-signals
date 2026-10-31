@@ -109,6 +109,35 @@ def test_a_session_opens_the_api_and_signing_out_closes_it(provider, client: Tes
     assert client.get("/api/findings").status_code == 401
 
 
+def test_signing_out_hands_the_provider_the_id_token_so_it_does_not_ask(provider, client: TestClient) -> None:
+    sign_in(client, provider, "priya@example.com")
+    hint = client.cookies.get(oidc.SIGN_OUT_HINT_COOKIE)
+    assert hint and hint.count(".") == 2
+    # Sent only to the sign-out endpoint, never readable by the page.
+    cookie = next(c for c in client.cookies.jar if c.name == oidc.SIGN_OUT_HINT_COOKIE)
+    assert cookie.path == oidc.LOGOUT_PATH and cookie.has_nonstandard_attr("HttpOnly")
+
+    out = client.post("/api/auth/logout", headers={"Origin": "http://testserver"})
+    query = parse_qs(urlsplit(out.json()["redirect"]).query)
+    assert query["id_token_hint"] == [hint]
+    assert oidc.SIGN_OUT_HINT_COOKIE not in client.cookies
+
+
+def test_without_the_hint_sign_out_still_works(provider, client: TestClient) -> None:
+    sign_in(client, provider, "priya@example.com")
+    client.cookies.delete(oidc.SIGN_OUT_HINT_COOKIE, path=oidc.LOGOUT_PATH)
+    out = client.post("/api/auth/logout", headers={"Origin": "http://testserver"})
+    assert "id_token_hint" not in out.json()["redirect"]
+    assert out.json()["redirect"].startswith(f"{ISSUER}/logout?")
+
+
+def test_an_id_token_too_big_for_a_cookie_is_left_out(provider, monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setattr(oidc, "MAX_SIGN_OUT_HINT", 10)
+    sign_in(client, provider, "priya@example.com")
+    assert oidc.SIGN_OUT_HINT_COOKIE not in client.cookies
+    assert client.get("/api/findings").status_code == 200
+
+
 def test_a_viewer_can_sign_out(provider, client: TestClient) -> None:
     sign_in(client, provider, "sam@example.com")
     assert client.post("/api/auth/logout", headers={"Origin": "http://testserver"}).status_code == 200

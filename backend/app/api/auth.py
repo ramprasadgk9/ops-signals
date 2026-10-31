@@ -93,6 +93,11 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     response.delete_cookie(oidc.FLOW_COOKIE, path="/")
     response.set_cookie(oidc.SESSION_COOKIE, cookie, max_age=seconds, path="/", httponly=True,
                         secure=_secure(request, auth), samesite="lax")
+    if len(signed_in.id_token) <= oidc.MAX_SIGN_OUT_HINT:
+        response.set_cookie(oidc.SIGN_OUT_HINT_COOKIE, signed_in.id_token, max_age=seconds, path=oidc.LOGOUT_PATH,
+                            httponly=True, secure=_secure(request, auth), samesite="strict")
+    else:
+        response.delete_cookie(oidc.SIGN_OUT_HINT_COOKIE, path=oidc.LOGOUT_PATH)
     return response
 
 
@@ -105,9 +110,11 @@ class SignOutOut(BaseModel):
 def logout(request: Request) -> JSONResponse:
     auth = get_auth_config()
     signed_out = f"{site_url(request, auth)}/signed-out"
-    target = (oidc.sign_out_url(auth, signed_out) if auth.mode == "oidc" and auth.oidc_issuer_url else None) or "/signed-out"
+    hint = request.cookies.get(oidc.SIGN_OUT_HINT_COOKIE)
+    target = (oidc.sign_out_url(auth, signed_out, hint) if auth.mode == "oidc" and auth.oidc_issuer_url else None) or "/signed-out"
     response = JSONResponse(SignOutOut(redirect=target).model_dump())
     response.delete_cookie(oidc.SESSION_COOKIE, path="/")
+    response.delete_cookie(oidc.SIGN_OUT_HINT_COOKIE, path=oidc.LOGOUT_PATH)
     return response
 
 

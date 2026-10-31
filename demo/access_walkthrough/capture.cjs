@@ -242,13 +242,11 @@ async function main() {
     await clickOn(page, john);
     // Let the menu finish opening, or the pointer aims at where the button is still moving to.
     await hold(1000);
-    await clickOn(page, page.getByRole('button', { name: 'Sign out' }));
-    // Keycloak asks before it ends its own session.
-    const confirm = page.locator('#kc-logout');
-    await confirm.waitFor({ timeout: 20_000 });
     await caption(page, 'Sign out, and sign in as someone else.');
     await hold(1200);
-    await clickOn(page, confirm);
+    // Signing out ends the company login's session too, without a second question.
+    await clickOn(page, page.getByRole('button', { name: 'Sign out' }));
+    await page.waitForURL('**/signed-out', { timeout: 20_000 });
     const again = page.getByRole('link', { name: /Sign in/ }).first();
     await again.waitFor({ timeout: 30_000 });
     await clickOn(page, again);
