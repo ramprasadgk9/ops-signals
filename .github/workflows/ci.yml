@@ -1,11 +1,10 @@
 name: CI
 
+# Runs only when started by hand: Actions -> CI -> Run workflow (or `gh workflow run ci.yml`).
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
-# A newer push to the same branch or PR cancels the run it supersedes.
+# A newer run on the same branch cancels the run it supersedes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
