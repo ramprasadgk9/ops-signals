@@ -61,3 +61,18 @@ def test_default_row_limit_is_generous_enough_for_typical_metric_history() -> No
     # under the default without anyone needing to touch OPS_SIGNALS_MAX_CSV_ROWS.
     one_year_of_five_minute_samples = 365 * 24 * 12
     assert one_year_of_five_minute_samples < csv_adapter_module.MAX_CSV_ROWS
+
+
+def test_load_translates_parser_error_to_readable_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pandas as pd
+
+    csv_path = tmp_path / "corrupt.csv"
+    csv_path.write_text("a,b\n1,2,3\n")
+    adapter = CSVAdapter(_config("corrupt.csv"), base_path=tmp_path)
+
+    def _raise(*args, **kwargs):
+        raise pd.errors.ParserError("Error tokenizing data. C error: Expected 1 fields in line 3, saw 2")
+
+    monkeypatch.setattr(csv_adapter_module.pd, "read_csv", _raise)
+    with pytest.raises(ValueError, match="The file isn't a readable CSV: it should be plain UTF-8 text."):
+        adapter.load()
