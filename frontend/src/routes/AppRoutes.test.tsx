@@ -40,3 +40,17 @@ describe('removed Experiments page', () => {
     expect(screen.queryByText('Experiments', { exact: true })).not.toBeInTheDocument();
   });
 });
+
+describe('Analyzer Workbench', () => {
+  it('lists Settings in use first, and says what each item is for', async () => {
+    renderRoute('/analyzer-settings');
+
+    const settings = await screen.findByRole('link', { name: /Settings in use/ });
+    expect(settings).toHaveAttribute('href', '/analyzer-settings');
+    expect(settings).toHaveTextContent('What runs, with which values, from which file');
+    expect(screen.getByRole('button', { name: /Labs/ })).toHaveTextContent('Try an analyzer on sample data (sandbox)');
+    expect(screen.getByRole('link', { name: /Recommendations/ })).toHaveTextContent('Which analyzers suit one metric');
+    const items = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+    expect(items.indexOf('/analyzer-settings')).toBeLessThan(items.indexOf('/analyzer-recommendation'));
+  });
+});

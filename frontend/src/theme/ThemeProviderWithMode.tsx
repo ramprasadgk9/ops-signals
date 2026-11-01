@@ -43,6 +43,7 @@ const TOKENS: Record<Mode, Record<string, string>> = {
     'ink-orange': '#9a3412',
     'ink-green': '#166534',
     'ink-red': '#b91c1c',
+    'ink-blue': '#1d4ed8',
     'ink-brand': '#0f766e',
   },
   dark: {
@@ -74,6 +75,7 @@ const TOKENS: Record<Mode, Record<string, string>> = {
     'ink-orange': '#fdba74',
     'ink-green': '#86efac',
     'ink-red': '#fca5a5',
+    'ink-blue': '#93c5fd',
     'ink-brand': '#5eead4',
   },
 };

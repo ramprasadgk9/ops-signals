@@ -22,7 +22,9 @@ import { PageHeader, WorkspacePanel } from '../../standalone/components';
 import { ui } from '../../standalone/theme';
 import type { CsvAnalyzerRoutingDecision, CsvValidationResult, ValidationSignal } from '../../types';
 import { AnalyzerLabConfigPanel } from './AnalyzerLabConfigPanel';
-import { analyzerConfigYaml, passFailFromFinding } from './labConfig';
+import { passFailFromFinding } from './labConfig';
+import { LabSandboxBanner, RunsUse, useAnalyzerInUse, useInUseComparison } from './labSettings';
+import { labChanges } from '../../utils/analyzerSettings';
 
 type Pattern = 'baseline_shift_up' | 'baseline_shift_down' | 'small_shift' | 'noisy_shift' | 'no_shift';
 
@@ -164,6 +166,8 @@ export function RupturesChangePointLabPage() {
   const [jump, setJump] = useState(BASELINE_CONFIG.ruptures.jump);
   const [result, setResult] = useState<CsvValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { analyzer: inUse } = useAnalyzerInUse('baseline_shift');
+  const { comparison, compare } = useInUseComparison();
 
   const boundedChangePoint = Math.max(10, Math.min(samples - 10, changePoint));
   const points = useMemo(
@@ -192,11 +196,8 @@ export function RupturesChangePointLabPage() {
   };
   const shouldFind = Math.abs(summary.percentChange) >= thresholdPercent;
   const passFailStatus = result ? passFailFromFinding(shouldFind, result.findings.length > 0) : 'unknown';
-  const yamlText = analyzerConfigYaml('baseline_shift', {
-    enabled: true,
-    ruptures: implementation,
-    finding_rules: findingRules,
-  });
+  const values = { ruptures: implementation, finding_rules: findingRules };
+  const hasChanges = labChanges(inUse, values).length > 0;
 
   const runMutation = useMutation({
     mutationFn: async () => {
@@ -222,7 +223,9 @@ export function RupturesChangePointLabPage() {
           },
         },
       }));
-      return api.runCsvValidation(form);
+      const nextResult = await api.runCsvValidation(form);
+      if (hasChanges) compare(form);
+      return nextResult;
     },
     onSuccess: (nextResult) => {
       setError(null);
@@ -237,6 +240,7 @@ export function RupturesChangePointLabPage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="Ruptures Change Point Lab" subtitle="Generate baseline shifts, inspect the change point, run the ruptures-backed analyzer, and compare expected vs detected behavior." />
+      <LabSandboxBanner analyzerId="baseline_shift" paths={['finding_rules.min_change_percent', 'finding_rules.min_effect_size', 'ruptures.min_size', 'ruptures.jump']} />
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 1 }}>What This Lab Shows</Typography>
@@ -323,10 +327,10 @@ export function RupturesChangePointLabPage() {
           </Button>
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 1.5, mt: 2 }}>
-          <TextField size="small" label="Min change %" type="number" value={thresholdPercent} onChange={(event) => setThresholdPercent(Math.max(0, Number(event.target.value)))} />
-          <TextField size="small" label="Effect threshold" type="number" value={changeThreshold} onChange={(event) => setChangeThreshold(Math.max(0.1, Number(event.target.value)))} />
-          <TextField size="small" label="Min segment size" type="number" value={minSegmentSize} onChange={(event) => setMinSegmentSize(Math.max(2, Number(event.target.value)))} />
-          <TextField size="small" label="Jump" type="number" value={jump} onChange={(event) => setJump(Math.max(1, Number(event.target.value)))} />
+          <TextField size="small" label="Min change %" type="number" value={thresholdPercent} onChange={(event) => setThresholdPercent(Math.max(0, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="finding_rules.min_change_percent" value={thresholdPercent} onReset={(value) => setThresholdPercent(Number(value))} />} />
+          <TextField size="small" label="Effect threshold" type="number" value={changeThreshold} onChange={(event) => setChangeThreshold(Math.max(0.1, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="finding_rules.min_effect_size" value={changeThreshold} onReset={(value) => setChangeThreshold(Number(value))} />} />
+          <TextField size="small" label="Min segment size" type="number" value={minSegmentSize} onChange={(event) => setMinSegmentSize(Math.max(2, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="ruptures.min_size" value={minSegmentSize} onReset={(value) => setMinSegmentSize(Number(value))} />} />
+          <TextField size="small" label="Jump" type="number" value={jump} onChange={(event) => setJump(Math.max(1, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="ruptures.jump" value={jump} onReset={(value) => setJump(Number(value))} />} />
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
           <Chip label={`library ruptures`} />
@@ -378,13 +382,12 @@ export function RupturesChangePointLabPage() {
       <AnalyzerLabConfigPanel
         analyzerId="baseline_shift"
         labName="Ruptures Change Point Lab"
-        yamlText={yamlText}
-        implementation={implementation}
-        findingRules={findingRules}
+        values={values}
+        yourFound={result ? result.findings.length > 0 : null}
+        comparison={comparison}
         passFailStatus={passFailStatus}
         passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} because generated change is ${summary.percentChange.toFixed(1)}% and min change is ${thresholdPercent}%. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
         productionNote="you care about sustained baseline changes, deployments, configuration changes, traffic shifts, or regime changes rather than isolated single-point spikes."
-        benchmarkSummary={result ? { expected_index: boundedChangePoint, detected_index: detectedIndex, index_error: indexError, within_tolerance: withinTolerance, generated_change_percent: summary.percentChange } : {}}
       />
 
       <Button startIcon={<RefreshRoundedIcon />} onClick={() => { setSeed(seed + 1); setResult(null); }} sx={{ alignSelf: 'flex-start', textTransform: 'none', fontWeight: 850 }}>

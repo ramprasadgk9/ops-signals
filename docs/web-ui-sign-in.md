@@ -58,7 +58,7 @@ A hand-made request is refused too: the backend answers 403 with the same reason
 | --- | :-: | :-: | :-: |
 | Overview, Alerts, Findings, Cases, Metric Usage, Behavior Intelligence, Recurring problems, Ask Ops Signals | ✓ | ✓ | ✓ |
 | Autonomous Analysis | read-only | ✓ | ✓ |
-| New Analysis, Recommendations | – | ✓ | ✓ |
+| New Analysis, Recommendations, Settings in use | – | ✓ | ✓ |
 | Integrations, Settings, Setup check, analyzer labs, Add Analyzer | – | – | ✓ |
 
 The list lives in `backend/app/roles.py` (`PAGES`); the web UI gets it from `GET /api/me`. A page

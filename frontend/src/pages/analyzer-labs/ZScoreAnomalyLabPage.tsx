@@ -22,7 +22,9 @@ import { PageHeader, WorkspacePanel } from '../../standalone/components';
 import { ui } from '../../standalone/theme';
 import type { CsvAnalyzerRoutingDecision, CsvValidationResult, ValidationSignal } from '../../types';
 import { AnalyzerLabConfigPanel } from './AnalyzerLabConfigPanel';
-import { analyzerConfigYaml, passFailFromFinding } from './labConfig';
+import { passFailFromFinding } from './labConfig';
+import { LabSandboxBanner, RunsUse, useAnalyzerInUse, useInUseComparison } from './labSettings';
+import { labChanges } from '../../utils/analyzerSettings';
 
 type Pattern = 'clean' | 'spikes' | 'drops' | 'spikes_and_drops' | 'too_small';
 
@@ -166,6 +168,8 @@ export function ZScoreAnomalyLabPage() {
   const [minPoints, setMinPoints] = useState(ZSCORE_CONFIG.finding_rules.min_points);
   const [result, setResult] = useState<CsvValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { analyzer: inUse } = useAnalyzerInUse('anomaly_zscore');
+  const { comparison, compare } = useInUseComparison();
 
   const points = useMemo(
     () => generateSeries({ pattern, samples, interval, seed, mean, noise, anomalyCount, anomalyMagnitude }),
@@ -191,11 +195,8 @@ export function ZScoreAnomalyLabPage() {
   };
   const shouldFind = generated.anomalies >= minPoints && pattern !== 'clean' && pattern !== 'too_small';
   const passFailStatus = result ? passFailFromFinding(shouldFind, result.findings.length > 0) : 'unknown';
-  const yamlText = analyzerConfigYaml('anomaly_zscore', {
-    enabled: true,
-    implementation,
-    finding_rules: findingRules,
-  });
+  const values = { implementation, finding_rules: findingRules };
+  const hasChanges = labChanges(inUse, values).length > 0;
 
   const runMutation = useMutation({
     mutationFn: async () => {
@@ -219,7 +220,9 @@ export function ZScoreAnomalyLabPage() {
           },
         },
       }));
-      return api.runCsvValidation(form);
+      const nextResult = await api.runCsvValidation(form);
+      if (hasChanges) compare(form);
+      return nextResult;
     },
     onSuccess: (nextResult) => {
       setError(null);
@@ -234,6 +237,7 @@ export function ZScoreAnomalyLabPage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="Z-Score Anomaly Lab" subtitle="Generate unusual points, run anomaly_zscore, and decide when z-score groups become findings." />
+      <LabSandboxBanner analyzerId="anomaly_zscore" paths={['implementation.zscore_threshold', 'implementation.grouping_gap', 'finding_rules.min_abs_zscore', 'finding_rules.min_points']} />
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 1 }}>What This Lab Shows</Typography>
@@ -321,10 +325,10 @@ export function ZScoreAnomalyLabPage() {
           </Button>
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 1.5, mt: 2 }}>
-          <TextField size="small" label="Z-score threshold" type="number" value={zscoreThreshold} onChange={(event) => setZscoreThreshold(Math.max(0.1, Number(event.target.value)))} />
-          <TextField size="small" label="Grouping gap" value={groupingGap} onChange={(event) => setGroupingGap(event.target.value)} />
-          <TextField size="small" label="Min abs z-score" type="number" value={minAbsZscore} onChange={(event) => setMinAbsZscore(Math.max(0, Number(event.target.value)))} />
-          <TextField size="small" label="Min points" type="number" value={minPoints} onChange={(event) => setMinPoints(Math.max(1, Number(event.target.value)))} />
+          <TextField size="small" label="Z-score threshold" type="number" value={zscoreThreshold} onChange={(event) => setZscoreThreshold(Math.max(0.1, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.zscore_threshold" value={zscoreThreshold} onReset={(value) => setZscoreThreshold(Number(value))} />} />
+          <TextField size="small" label="Grouping gap" value={groupingGap} onChange={(event) => setGroupingGap(event.target.value)} helperText={<RunsUse analyzer={inUse} path="implementation.grouping_gap" value={groupingGap} onReset={(value) => setGroupingGap(String(value))} />} />
+          <TextField size="small" label="Min abs z-score" type="number" value={minAbsZscore} onChange={(event) => setMinAbsZscore(Math.max(0, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="finding_rules.min_abs_zscore" value={minAbsZscore} onReset={(value) => setMinAbsZscore(Number(value))} />} />
+          <TextField size="small" label="Min points" type="number" value={minPoints} onChange={(event) => setMinPoints(Math.max(1, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="finding_rules.min_points" value={minPoints} onReset={(value) => setMinPoints(Number(value))} />} />
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
           <Chip label={`library ${ZSCORE_CONFIG.implementation.library}`} />
@@ -376,13 +380,12 @@ export function ZScoreAnomalyLabPage() {
       <AnalyzerLabConfigPanel
         analyzerId="anomaly_zscore"
         labName="Z-Score Anomaly Lab"
-        yamlText={yamlText}
-        implementation={implementation}
-        findingRules={findingRules}
+        values={values}
+        yourFound={result ? result.findings.length > 0 : null}
+        comparison={comparison}
         passFailStatus={passFailStatus}
         passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} based on ${generated.anomalies} generated anomalies and ${minPoints} min point rule. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
         productionNote="the metric has a stable statistical baseline and you want simple, explainable detection for points far away from the normal range."
-        benchmarkSummary={result ? { generated_anomalies: generated.anomalies, detected_points: pointCount, max_abs_zscore: maxAbsZscore, confidence, rule_matched: ruleMatched } : {}}
       />
 
       <Button startIcon={<RefreshRoundedIcon />} onClick={() => { setSeed(seed + 1); setResult(null); }} sx={{ alignSelf: 'flex-start', textTransform: 'none', fontWeight: 850 }}>

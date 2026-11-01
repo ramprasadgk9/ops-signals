@@ -22,7 +22,9 @@ import { PageHeader, WorkspacePanel } from '../../standalone/components';
 import { ui } from '../../standalone/theme';
 import type { CsvAnalyzerRoutingDecision, CsvValidationResult, ValidationSignal } from '../../types';
 import { AnalyzerLabConfigPanel } from './AnalyzerLabConfigPanel';
-import { analyzerConfigYaml, passFailFromFinding } from './labConfig';
+import { passFailFromFinding } from './labConfig';
+import { LabSandboxBanner, RunsUse, useAnalyzerInUse, useInUseComparison } from './labSettings';
+import { labChanges } from '../../utils/analyzerSettings';
 
 type Pattern = 'forecast_breakout' | 'forecast_drop' | 'seasonal_normal' | 'noisy_forecast';
 
@@ -144,6 +146,8 @@ export function ProphetForecastLabPage() {
   const [minRelativeError, setMinRelativeError] = useState(PROPHET_CONFIG.finding_rules.min_relative_error);
   const [result, setResult] = useState<CsvValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { analyzer: inUse } = useAnalyzerInUse('prophet');
+  const { comparison, compare } = useInUseComparison();
 
   const points = useMemo(
     () => generateSeries({ pattern, samples, interval, seed, baseline, amplitude, trend, noise, deviationPercent }),
@@ -168,11 +172,8 @@ export function ProphetForecastLabPage() {
   const findingRules = { min_relative_error: minRelativeError };
   const shouldFind = (relativeError ?? 0) >= minRelativeError;
   const passFailStatus = result ? passFailFromFinding(shouldFind, result.findings.length > 0) : 'unknown';
-  const yamlText = analyzerConfigYaml('prophet', {
-    enabled: true,
-    implementation,
-    finding_rules: findingRules,
-  });
+  const values = { implementation, finding_rules: findingRules };
+  const hasChanges = labChanges(inUse, values).length > 0;
 
   const runMutation = useMutation({
     mutationFn: async () => {
@@ -196,7 +197,9 @@ export function ProphetForecastLabPage() {
           },
         },
       }));
-      return api.runCsvValidation(form);
+      const nextResult = await api.runCsvValidation(form);
+      if (hasChanges) compare(form);
+      return nextResult;
     },
     onSuccess: (nextResult) => {
       setError(null);
@@ -211,6 +214,7 @@ export function ProphetForecastLabPage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="Prophet Forecast Lab" subtitle="Generate predictable series, inject forecast deviations, run Prophet, and decide when forecast misses become findings." />
+      <LabSandboxBanner analyzerId="prophet" paths={['implementation.horizon_points', 'implementation.changepoint_prior_scale', 'implementation.uncertainty_threshold', 'finding_rules.min_relative_error']} />
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 1 }}>What This Lab Shows</Typography>
@@ -296,10 +300,10 @@ export function ProphetForecastLabPage() {
           </Button>
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 1.5, mt: 2 }}>
-          <TextField size="small" label="Horizon points" type="number" value={horizonPoints} onChange={(event) => setHorizonPoints(Math.max(3, Number(event.target.value)))} />
-          <TextField size="small" label="Changepoint prior" type="number" value={changepointPriorScale} onChange={(event) => setChangepointPriorScale(Math.max(0.001, Number(event.target.value)))} />
-          <TextField size="small" label="Uncertainty threshold" type="number" value={uncertaintyThreshold} onChange={(event) => setUncertaintyThreshold(Math.max(0.01, Number(event.target.value)))} />
-          <TextField size="small" label="Min relative error" type="number" value={minRelativeError} onChange={(event) => setMinRelativeError(Math.max(0, Number(event.target.value)))} />
+          <TextField size="small" label="Horizon points" type="number" value={horizonPoints} onChange={(event) => setHorizonPoints(Math.max(3, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.horizon_points" value={horizonPoints} onReset={(value) => setHorizonPoints(Number(value))} />} />
+          <TextField size="small" label="Changepoint prior" type="number" value={changepointPriorScale} onChange={(event) => setChangepointPriorScale(Math.max(0.001, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.changepoint_prior_scale" value={changepointPriorScale} onReset={(value) => setChangepointPriorScale(Number(value))} />} />
+          <TextField size="small" label="Uncertainty threshold" type="number" value={uncertaintyThreshold} onChange={(event) => setUncertaintyThreshold(Math.max(0.01, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.uncertainty_threshold" value={uncertaintyThreshold} onReset={(value) => setUncertaintyThreshold(Number(value))} />} />
+          <TextField size="small" label="Min relative error" type="number" value={minRelativeError} onChange={(event) => setMinRelativeError(Math.max(0, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="finding_rules.min_relative_error" value={minRelativeError} onReset={(value) => setMinRelativeError(Number(value))} />} />
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
           <Chip label="library prophet" />
@@ -350,13 +354,12 @@ export function ProphetForecastLabPage() {
       <AnalyzerLabConfigPanel
         analyzerId="prophet"
         labName="Prophet Forecast Lab"
-        yamlText={yamlText}
-        implementation={implementation}
-        findingRules={findingRules}
+        values={values}
+        yourFound={result ? result.findings.length > 0 : null}
+        comparison={comparison}
         passFailStatus={passFailStatus}
         passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} because relative error is ${relativeError === null ? 'n/a' : `${(relativeError * 100).toFixed(1)}%`} and min relative error is ${(minRelativeError * 100).toFixed(1)}%. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
         productionNote="the metric has recurring or forecastable behavior and you want findings when recent actual values drift meaningfully away from the expected path."
-        benchmarkSummary={result ? { forecast_value: forecastValue, actual_value: actualValue, relative_error: relativeError, rule_matched: ruleMatched } : {}}
       />
 
       <Button startIcon={<RefreshRoundedIcon />} onClick={() => { setSeed(seed + 1); setResult(null); }} sx={{ alignSelf: 'flex-start', textTransform: 'none', fontWeight: 850 }}>

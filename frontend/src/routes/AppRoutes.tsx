@@ -9,6 +9,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { SignalDetailPage } from '../pages/SignalDetailPage';
 import { BehaviorIntelligencePage } from '../pages/BehaviorIntelligencePage';
 import { AnalyzerRecommendationPage } from '../pages/AnalyzerRecommendationPage';
+import { AnalyzerSettingsPage } from '../pages/AnalyzerSettingsPage';
 import { MemoryChatPage } from '../pages/MemoryChatPage';
 import { DOCS_CHECK_PATH, DocsCheckPage } from '../pages/DocsCheckPage';
 import { RecurringProblemsPage } from '../pages/RecurringProblemsPage';
@@ -42,6 +43,7 @@ export function AppRoutes() {
       {/* The Lab is now the builder panel on Behavior Intelligence; old links and bookmarks land there. */}
       <Route path="/behavior-intelligence/lab" element={<Navigate to="/behavior-intelligence?tab=patterns&builder=new" replace />} />
       <Route path="/analyzer-recommendation" element={<RoleArea name="Recommendations"><AnalyzerRecommendationPage /></RoleArea>} />
+      <Route path="/analyzer-settings" element={<RoleArea name="Settings in use"><AnalyzerSettingsPage /></RoleArea>} />
       <Route path="/validate-data" element={<RoleArea name="New Analysis"><ValidateDataPage /></RoleArea>} />
       {/* The experiment results page was removed; old links land on the closest replacement. */}
       <Route path="/experiments" element={<Navigate to="/experiments/ruptures-change-point-lab" replace />} />

@@ -12,6 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import InputRoundedIcon from '@mui/icons-material/InputRounded';
 import AutoModeRoundedIcon from '@mui/icons-material/AutoModeRounded';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
@@ -85,9 +86,14 @@ const analyzerLabItems: NavItem[] = [
   { label: 'Trend Lab', to: '/experiments/trend-lab', icon: <TimelineRoundedIcon /> },
 ];
 
+// First in Analyzer Workbench: the question asked most is what runs right now. Each item says what
+// it's for, so the Labs read as a sandbox and Recommendations as a one-metric preview.
+const analyzerSettingsItem: NavItem = { label: 'Settings in use', to: '/analyzer-settings', icon: <TuneRoundedIcon />, hint: 'What runs, with which values, from which file' };
+const LABS_HINT = 'Try an analyzer on sample data (sandbox)';
+
 const analyzerWorkbenchItems: NavItem[] = [
-  { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon /> },
-  { label: 'Recommendations', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon /> },
+  { label: 'Recommendations', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon />, hint: 'Which analyzers suit one metric' },
+  { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon />, hint: 'Plug in your own code or HTTP service' },
 ];
 
 const systemItems: NavItem[] = [
@@ -135,6 +141,7 @@ function NavButton({ item, nested = false, needsSource = false }: { item: NavIte
 
 function WorkbenchButton({
   label,
+  hint,
   icon,
   active,
   onClick,
@@ -145,6 +152,8 @@ function WorkbenchButton({
   inactiveColor = 'var(--os-ink-brand)',
 }: {
   label: string;
+  /** A second line saying what the item is for. */
+  hint?: string;
   icon: ReactNode;
   active: boolean;
   onClick?: () => void;
@@ -171,8 +180,9 @@ function WorkbenchButton({
       <Box sx={{ width: 24, minWidth: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', mr: 1.1, color: active ? activeColor : inactiveColor, '& svg': { fontSize: 20 } }}>
         {icon}
       </Box>
-      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>
-        {label}
+      <Box component="span" sx={{ overflow: 'hidden', flex: 1, textAlign: 'left', minWidth: 0 }}>
+        <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</Box>
+        {hint ? <Box component="span" sx={{ display: 'block', fontSize: 11.5, fontWeight: 500, lineHeight: 1.3, color: 'var(--os-muted)', whiteSpace: 'normal' }}>{hint}</Box> : null}
       </Box>
       {expanded !== undefined ? <KeyboardArrowDownRoundedIcon sx={{ color: active ? activeColor : inactiveColor, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} /> : null}
     </>
@@ -276,7 +286,8 @@ export function AppShell({ children }: PropsWithChildren) {
   const isAnalysisPage = location.pathname === '/validate-data';
   const isAnalyzerWorkbenchPage =
     analyzerLabItems.some((item) => location.pathname === item.to) ||
-    analyzerWorkbenchItems.some((item) => location.pathname === item.to);
+    analyzerWorkbenchItems.some((item) => location.pathname === item.to) ||
+    location.pathname === analyzerSettingsItem.to;
   const [analyzerWorkbenchOpen, setAnalyzerWorkbenchOpen] = useState(isAnalyzerWorkbenchPage);
   const [labsOpen, setLabsOpen] = useState(isAnalyzerWorkbenchPage);
   const { isOff } = useFeatureAvailability();
@@ -290,6 +301,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const shownNavItems = openable(navItems);
   const labItems = openable(analyzerLabItems);
   const workbenchItems = openable(analyzerWorkbenchItems);
+  const [settingsItem] = openable([analyzerSettingsItem]);
   const shownSystemItems = openable(systemItems);
   const needsSourceItems = shownNavItems.filter((item) => item.feature && isOff(item.feature));
   const mainItems = shownNavItems.filter((item) => !needsSourceItems.includes(item));
@@ -349,7 +361,7 @@ export function AppShell({ children }: PropsWithChildren) {
           <Stack spacing={0.8} sx={{ px: 1.5 }}>
             {mainItems.map((item) => <NavButton key={item.label} item={item} />)}
             <NeedsSourceGroup items={needsSourceItems} />
-            {labItems.length || workbenchItems.length ? (
+            {labItems.length || workbenchItems.length || settingsItem ? (
               <Button
                 onClick={() => setAnalyzerWorkbenchOpen((open) => !open)}
                 endIcon={<KeyboardArrowDownRoundedIcon sx={{ transform: analyzerWorkbenchOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}
@@ -373,9 +385,19 @@ export function AppShell({ children }: PropsWithChildren) {
             ) : null}
             {analyzerWorkbenchOpen ? (
               <>
+                {settingsItem ? (
+                  <WorkbenchButton
+                    label={settingsItem.label}
+                    hint={settingsItem.hint}
+                    icon={settingsItem.icon}
+                    to={settingsItem.to}
+                    active={location.pathname === settingsItem.to}
+                  />
+                ) : null}
                 {labItems.length ? (
                   <WorkbenchButton
                     label="Labs"
+                    hint={LABS_HINT}
                     icon={<ScienceRoundedIcon />}
                     active={labItems.some((item) => location.pathname === item.to)}
                     onClick={() => setLabsOpen((open) => !open)}
@@ -387,6 +409,7 @@ export function AppShell({ children }: PropsWithChildren) {
                   <WorkbenchButton
                     key={item.label}
                     label={item.label}
+                    hint={item.hint}
                     icon={item.icon}
                     to={item.to}
                     active={item.match ? item.match(location.pathname) : location.pathname === item.to}

@@ -1,6 +1,7 @@
 import { markDemoStep } from '../demo/events';
 import { deleteJson, getHealth, getJson, postForm, postJson, patchJson } from './client';
 import type { SetupCheckResult } from '../utils/setupCheck';
+import type { AnalyzerSettingsResponse } from '../utils/analyzerSettings';
 import type { Me } from '../hooks/useWebPermissions';
 
 /** Setup check's Test sign-in (GET /api/auth/test). */
@@ -429,6 +430,10 @@ export const api = {
   memoryChat: (payload: MemoryChatRequest) =>
     postJson<MemoryChatRequest, MemoryChatResponse>('/api/memory/chat', payload),
   analyzerRouterRoute: (payload: FormData) => postForm<RouterResponse>('/api/experiment-analyzer-router/route', payload),
+  analyzerSettings: (params: { provider?: string; service?: string; metric?: string } = {}) => {
+    const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value) as Array<[string, string]>).toString();
+    return getJson<AnalyzerSettingsResponse>(`/api/analyzer-settings${query ? `?${query}` : ''}`);
+  },
   analyzerLabConfigSuggestions: (analyzerId?: string) =>
     getJson<AnalyzerConfigSuggestion[]>(
       `/api/analyzer-labs/config-suggestions${analyzerId ? `?analyzer_id=${encodeURIComponent(analyzerId)}` : ''}`

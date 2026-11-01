@@ -22,7 +22,9 @@ import { PageHeader, WorkspacePanel } from '../../standalone/components';
 import { ui } from '../../standalone/theme';
 import type { CsvAnalyzerRoutingDecision, CsvValidationResult, ValidationSignal } from '../../types';
 import { AnalyzerLabConfigPanel } from './AnalyzerLabConfigPanel';
-import { analyzerConfigYaml, passFailFromFinding } from './labConfig';
+import { passFailFromFinding } from './labConfig';
+import { LabSandboxBanner, RunsUse, useAnalyzerInUse, useInUseComparison } from './labSettings';
+import { labChanges } from '../../utils/analyzerSettings';
 
 type Pattern = 'repeated_motif' | 'noisy_motif' | 'single_event' | 'no_pattern';
 
@@ -172,6 +174,8 @@ export function StumpyMotifLabPage() {
   const [profileThreshold, setProfileThreshold] = useState(STUMPY_CONFIG.implementation.profile_threshold);
   const [result, setResult] = useState<CsvValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { analyzer: inUse } = useAnalyzerInUse('stumpy');
+  const { comparison, compare } = useInUseComparison();
 
   const generated = useMemo(
     () => generateSeries({ pattern, samples, interval, seed, baseline, noise, amplitude, windowSize, repeatCount }),
@@ -194,11 +198,8 @@ export function StumpyMotifLabPage() {
   const findingRules = STUMPY_CONFIG.finding_rules;
   const shouldFind = generated.starts.length > 1 && (motifDistance === null || motifDistance <= findingRules.max_motif_distance);
   const passFailStatus = result ? passFailFromFinding(shouldFind, result.findings.length > 0) : 'unknown';
-  const yamlText = analyzerConfigYaml('stumpy', {
-    enabled: true,
-    implementation,
-    finding_rules: findingRules,
-  });
+  const values = { implementation, finding_rules: findingRules };
+  const hasChanges = labChanges(inUse, values).length > 0;
 
   const runMutation = useMutation({
     mutationFn: async () => {
@@ -220,7 +221,9 @@ export function StumpyMotifLabPage() {
           finding_rules: STUMPY_CONFIG.finding_rules,
         },
       }));
-      return api.runCsvValidation(form);
+      const nextResult = await api.runCsvValidation(form);
+      if (hasChanges) compare(form);
+      return nextResult;
     },
     onSuccess: (nextResult) => {
       setError(null);
@@ -235,6 +238,7 @@ export function StumpyMotifLabPage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="STUMPY Motif Lab" subtitle="Generate repeated subsequences, inspect motif windows, run STUMPY, and compare expected vs detected pattern behavior." />
+      <LabSandboxBanner analyzerId="stumpy" paths={['implementation.window_size', 'implementation.motif_count', 'implementation.profile_threshold']} />
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 1 }}>What This Lab Shows</Typography>
@@ -325,9 +329,9 @@ export function StumpyMotifLabPage() {
           </Button>
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 1.5, mt: 2 }}>
-          <TextField size="small" label="Window size" type="number" value={windowSize} onChange={(event) => setWindowSize(Math.max(4, Number(event.target.value)))} />
-          <TextField size="small" label="Motif count" type="number" value={motifCount} onChange={(event) => setMotifCount(Math.max(1, Number(event.target.value)))} />
-          <TextField size="small" label="Profile threshold" type="number" value={profileThreshold} onChange={(event) => setProfileThreshold(Math.max(0.1, Number(event.target.value)))} />
+          <TextField size="small" label="Window size" type="number" value={windowSize} onChange={(event) => setWindowSize(Math.max(4, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.window_size" value={windowSize} onReset={(value) => setWindowSize(Number(value))} />} />
+          <TextField size="small" label="Motif count" type="number" value={motifCount} onChange={(event) => setMotifCount(Math.max(1, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.motif_count" value={motifCount} onReset={(value) => setMotifCount(Number(value))} />} />
+          <TextField size="small" label="Profile threshold" type="number" value={profileThreshold} onChange={(event) => setProfileThreshold(Math.max(0.1, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.profile_threshold" value={profileThreshold} onReset={(value) => setProfileThreshold(Number(value))} />} />
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
           <Chip label="library stumpy" />
@@ -381,13 +385,12 @@ export function StumpyMotifLabPage() {
       <AnalyzerLabConfigPanel
         analyzerId="stumpy"
         labName="STUMPY Motif Lab"
-        yamlText={yamlText}
-        implementation={implementation}
-        findingRules={findingRules}
+        values={values}
+        yourFound={result ? result.findings.length > 0 : null}
+        comparison={comparison}
         passFailStatus={passFailStatus}
         passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} based on ${generated.starts.length} generated motif starts and max motif distance ${findingRules.max_motif_distance}. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
         productionNote="you care about repeated shapes, recurring bursts, batch-job patterns, or latency waves instead of single isolated points."
-        benchmarkSummary={result ? { expected_starts: generated.starts, detected_index: detectedIndex, nearest_error: indexError, motif_distance: motifDistance, within_tolerance: withinTolerance } : {}}
       />
 
       <Button startIcon={<RefreshRoundedIcon />} onClick={() => { setSeed(seed + 1); setResult(null); }} sx={{ alignSelf: 'flex-start', textTransform: 'none', fontWeight: 850 }}>

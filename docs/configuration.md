@@ -33,6 +33,53 @@ Base config
 The router's suitability weights aren't a threshold you tune; they're heuristic and documented in
 [`analyzer-recommendation.md`](analyzer-recommendation.md).
 
+## See which analyzer settings are in use
+
+To see the settings analysis runs use right now, open **Analyzer Workbench → Settings in use**
+(`/analyzer-settings`, Editors and Admins). It lists every analyzer, whether a run uses it, and each
+setting's value with the file it comes from. It only reads the files; to change a setting, edit the
+file it names. **At a glance** at the top says in two sentences what's changed from the built-in
+defaults and which analyzers run, names any key in your files that no analyzer reads, and reminds
+you that Labs are a sandbox.
+
+A setting can come from four places. Each one changes only the keys it sets, over the one before:
+
+1. **Built-in defaults**: `config/analyzer_registry.d/*.yml`. Don't edit these.
+2. **Your site**: `config/analyzers.yaml`, for every service.
+3. **Data source**: `config/providers/prometheus.yaml` for Prometheus runs, `config/providers/otel.yaml`
+   for OTLP runs. Pick the data source on the page.
+4. **A team's services**: `config/analyzer_overrides.d/*.yml`, for the services and metrics each
+   override names. Pick a service (and a metric) to see what its runs use and which override won.
+
+"Changed from default" means the value differs from the built-in default: `analyzers.yaml` repeats
+many defaults word for word, and those count as unchanged. **Does it run?** says whether a run uses
+the analyzer at all: on every metric, when the router finds it suits the metric, only if you choose
+it (`selection_mode: all`, or `selected_analyzers` with `manual_override`), turned off, or can't run
+(its library isn't installed). The table groups analyzers by these. A setting only matters for an
+analyzer that runs.
+
+Open an analyzer to see what each setting means. Not every key changes what the analyzer does:
+
+- **Label only**: written into a finding's details, nothing more. For example PyOD's `detector`
+  (`detector_type` picks the detector), Trend's `model` (the fit is always a straight line) and each
+  analyzer's `library`.
+- **Not used**: read in another mode only. STUMPY runs with `mode: discord`, so its motif settings
+  (`motif_count`, `profile_threshold`, `max_motif_distance`, `min_confidence`) change nothing.
+- **Not read: check spelling**: a key the analyzer doesn't have, such as `finding_rule` written for
+  `finding_rules`. The analyzer ignores it.
+
+These fold under **Show N settings the analyzer doesn't use**. Ruptures and Baseline Shift both have
+`ruptures.min_size` and `finding_rules.min_effect_size`, but they are separate settings: changing
+Baseline Shift's doesn't change the Ruptures analyzer's.
+
+**Analyzer Labs are a sandbox.** A Lab's values only reach that one Lab run; nothing is saved and
+analysis runs never read them. Each Lab shows the value runs use under every field, and **Use these
+values for real** at the bottom turns the values you changed into a snippet: for one team's services
+(a file for `config/analyzer_overrides.d/`, recommended) or for every service (a block for
+`config/analyzers.yaml`, nested under `analysis` → `analyzers`). It lists only the keys you changed,
+and warns when the analyzer wouldn't run anyway. A team's file only takes settings the analyzer lists
+as `tunable`; anything else can only go in `analyzers.yaml`.
+
 ## Analyzer Settings
 
 Each analyzer's defaults live in `config/analyzer_registry.d/builtin.yml` (`runtime_params`). A

@@ -24,7 +24,9 @@ import { PageHeader, WorkspacePanel } from '../../standalone/components';
 import { ui } from '../../standalone/theme';
 import type { CsvAnalyzerRoutingDecision, CsvValidationResult } from '../../types';
 import { AnalyzerLabConfigPanel } from './AnalyzerLabConfigPanel';
-import { analyzerConfigYaml, passFailFromFinding } from './labConfig';
+import { passFailFromFinding } from './labConfig';
+import { LabSandboxBanner, RunsUse, useAnalyzerInUse, useInUseComparison } from './labSettings';
+import { labChanges } from '../../utils/analyzerSettings';
 
 type Pattern = 'gaussian_clean' | 'gaussian_spikes' | 'gaussian_drops' | 'gaussian_spikes_and_drops';
 
@@ -254,6 +256,8 @@ export function PyodOutlierLabPage() {
   const [pyodGroupingGap, setPyodGroupingGap] = useState(PYOD_CONFIG.implementation.grouping_gap);
   const [result, setResult] = useState<CsvValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { analyzer: inUse } = useAnalyzerInUse('pyod_outlier');
+  const { comparison, compare } = useInUseComparison();
 
   const points = useMemo(() => generateSeries({ pattern, samples, interval, mean, noise, outlierCount, outlierMagnitude, seed }), [interval, mean, noise, outlierCount, outlierMagnitude, pattern, samples, seed]);
   const chartData = points.map((point) => ({ ...point, time: new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
@@ -275,11 +279,8 @@ export function PyodOutlierLabPage() {
   const clearOutliers = clearOutlierCount(points, findingRules.min_range_excess);
   const shouldFind = clearOutliers >= 1;
   const passFailStatus = result ? passFailFromFinding(shouldFind, result.findings.length > 0) : 'unknown';
-  const yamlText = analyzerConfigYaml('pyod_outlier', {
-    enabled: true,
-    implementation,
-    finding_rules: findingRules,
-  });
+  const values = { implementation, finding_rule: findingRules };
+  const hasChanges = labChanges(inUse, values).length > 0;
 
   const runMutation = useMutation({
     mutationFn: async () => {
@@ -302,7 +303,9 @@ export function PyodOutlierLabPage() {
           finding_rules: PYOD_CONFIG.finding_rules,
         },
       }));
-      return api.runCsvValidation(form);
+      const nextResult = await api.runCsvValidation(form);
+      if (hasChanges) compare(form);
+      return nextResult;
     },
     onSuccess: (nextResult) => {
       setError(null);
@@ -317,6 +320,7 @@ export function PyodOutlierLabPage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="PyOD Outlier Lab" subtitle="Generate controlled point-outlier data, inspect the shape, run pyod_outlier, and compare expected vs actual behavior." />
+      <LabSandboxBanner analyzerId="pyod_outlier" paths={['implementation.contamination', 'implementation.min_samples', 'implementation.grouping_gap', 'finding_rule.min_range_excess']} />
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 1 }}>What This Lab Shows</Typography>
@@ -444,9 +448,10 @@ export function PyodOutlierLabPage() {
             disabled={autoAlignContamination}
             inputProps={{ step: 0.001, min: 0.001, max: 0.5 }}
             onChange={(event) => setPyodContamination(clampContamination(Number(event.target.value)))}
+            helperText={<RunsUse analyzer={inUse} path="implementation.contamination" value={effectivePyodContamination} onReset={(value) => { setAutoAlignContamination(false); setPyodContamination(Number(value)); }} />}
           />
-          <TextField size="small" label="Min samples" type="number" value={pyodMinSamples} onChange={(event) => setPyodMinSamples(Math.max(3, Number(event.target.value)))} />
-          <TextField size="small" label="Grouping gap" value={pyodGroupingGap} onChange={(event) => setPyodGroupingGap(event.target.value)} />
+          <TextField size="small" label="Min samples" type="number" value={pyodMinSamples} onChange={(event) => setPyodMinSamples(Math.max(3, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="implementation.min_samples" value={pyodMinSamples} onReset={(value) => setPyodMinSamples(Number(value))} />} />
+          <TextField size="small" label="Grouping gap" value={pyodGroupingGap} onChange={(event) => setPyodGroupingGap(event.target.value)} helperText={<RunsUse analyzer={inUse} path="implementation.grouping_gap" value={pyodGroupingGap} onReset={(value) => setPyodGroupingGap(String(value))} />} />
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
           <Chip label={`enabled ${PYOD_CONFIG.enabled}`} />
@@ -514,13 +519,12 @@ export function PyodOutlierLabPage() {
       <AnalyzerLabConfigPanel
         analyzerId="pyod_outlier"
         labName="PyOD Outlier Lab"
-        yamlText={yamlText}
-        implementation={implementation}
-        findingRules={findingRules}
+        values={values}
+        yourFound={result ? result.findings.length > 0 : null}
+        comparison={comparison}
         passFailStatus={passFailStatus}
         passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} based on ${clearOutliers} of ${summary.anomalies} generated outliers lying at least ${findingRules.min_range_excess}x the normal range beyond it. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
         productionNote="the metric usually stays near a normal baseline and you only want findings after repeated high-confidence isolated spikes or drops in a short window."
-        benchmarkSummary={result ? { expected_outliers: score.expected, detected_outliers: score.detected, true_positive: score.truePositive, false_positive: score.falsePositive, false_negative: score.falseNegative, f1: score.f1 } : {}}
       />
 
       <Button startIcon={<RefreshRoundedIcon />} onClick={() => { setSeed(seed + 1); setResult(null); }} sx={{ alignSelf: 'flex-start', textTransform: 'none', fontWeight: 850 }}>
