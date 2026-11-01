@@ -17,10 +17,19 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: backend
     spec:
+      serviceAccountName: {{ include "ops-signals.serviceAccountName" . }}
+      {{- with .Values.backend.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backend
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          {{- with .Values.backend.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - containerPort: 8000
           env:
@@ -95,14 +104,203 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- if .Values.qdrant.apiKeySecret.name }}
+            - name: OPS_SIGNALS_QDRANT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.qdrant.apiKeySecret.name }}
+                  key: {{ .Values.qdrant.apiKeySecret.key }}
+            {{- end }}
+            {{- if .Values.ticketing.enabled }}
+            - name: OPS_SIGNALS_TICKETING_ENABLED
+              value: "true"
+            - name: OPS_SIGNALS_TICKETING_ACTIVE_PROVIDER
+              value: {{ .Values.ticketing.activeProvider | default "jira" | quote }}
+            - name: OPS_SIGNALS_TICKETING_WORKER_ENABLED
+              value: {{ ternary "true" "false" (ne .Values.ticketing.worker.enabled false) | quote }}
+            - name: OPS_SIGNALS_TICKETING_WORKER_POLL_INTERVAL_SECONDS
+              value: {{ .Values.ticketing.worker.pollIntervalSeconds | default 5 | quote }}
+            - name: OPS_SIGNALS_TICKETING_AUTOMATIC_ON_CASE_CREATION
+              value: {{ .Values.ticketing.automaticOnCaseCreation | default false | quote }}
+            {{- with .Values.ticketing.jira }}
+            {{- with .baseUrl }}
+            - name: OPS_SIGNALS_JIRA_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .email }}
+            - name: OPS_SIGNALS_JIRA_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .projectKey }}
+            - name: OPS_SIGNALS_JIRA_PROJECT_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .issueType }}
+            - name: OPS_SIGNALS_JIRA_ISSUE_TYPE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .timeoutSeconds }}
+            - name: OPS_SIGNALS_JIRA_TIMEOUT_SECONDS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .secret.name }}
+            {{- if .secret.apiTokenKey }}
+            - name: OPS_SIGNALS_JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secret.name }}
+                  key: {{ .secret.apiTokenKey }}
+            {{- end }}
+            {{- if .secret.webhookSecretKey }}
+            - name: OPS_SIGNALS_JIRA_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secret.name }}
+                  key: {{ .secret.webhookSecretKey }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.slack.enabled }}
+            - name: OPS_SIGNALS_SLACK_ENABLED
+              value: "true"
+            - name: OPS_SIGNALS_SLACK_MIN_IMPORTANCE
+              value: {{ .Values.slack.minImportance | default 0.7 | quote }}
+            - name: OPS_SIGNALS_SLACK_TIMEOUT_SECONDS
+              value: {{ .Values.slack.timeoutSeconds | default 10 | quote }}
+            {{- if .Values.slack.secret.name }}
+            - name: OPS_SIGNALS_SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slack.secret.name }}
+                  key: {{ .Values.slack.secret.key | default "webhook-url" }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.alertEnrichment.enabled }}
+            - name: OPS_SIGNALS_ALERT_ENRICHMENT_ENABLED
+              value: "true"
+            - name: OPS_SIGNALS_ALERT_NOTIFY
+              value: {{ .Values.alertEnrichment.notify | default "slack" | quote }}
+            - name: OPS_SIGNALS_ALERT_NOTIFY_ON_RESOLVE
+              value: {{ ternary "true" "false" (ne .Values.alertEnrichment.notifyOnResolve false) | quote }}
+            {{- with .Values.alertEnrichment.notifySeverities }}
+            - name: OPS_SIGNALS_ALERT_NOTIFY_SEVERITIES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.alertEnrichment.serviceLabels }}
+            - name: OPS_SIGNALS_ALERT_SERVICE_LABELS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.alertEnrichment.lookback }}
+            - name: OPS_SIGNALS_ALERT_LOOKBACK
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.alertEnrichment.scrapeInterval }}
+            - name: OPS_SIGNALS_ALERT_SCRAPE_INTERVAL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.alertEnrichment.minStep }}
+            - name: OPS_SIGNALS_ALERT_MIN_STEP
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.alertEnrichment.secret.name }}
+            {{- if .Values.alertEnrichment.secret.receiverTokenKey }}
+            - name: OPS_SIGNALS_ALERT_RECEIVER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.alertEnrichment.secret.name }}
+                  key: {{ .Values.alertEnrichment.secret.receiverTokenKey }}
+            {{- end }}
+            {{- if .Values.alertEnrichment.secret.slackWebhookUrlKey }}
+            - name: OPS_SIGNALS_ALERT_SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.alertEnrichment.secret.name }}
+                  key: {{ .Values.alertEnrichment.secret.slackWebhookUrlKey }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.ai.enabled }}
+            - name: OPS_SIGNALS_AI_ENABLED
+              value: "true"
+            - name: OPS_SIGNALS_AI_PROVIDER
+              value: {{ .Values.ai.provider | default "ollama" | quote }}
+            {{- if eq .Values.ai.provider "ollama" }}
+            {{- with .Values.ai.ollama.url }}
+            - name: OPS_SIGNALS_OLLAMA_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.ai.ollama.model }}
+            - name: OPS_SIGNALS_OLLAMA_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- else if eq .Values.ai.provider "openai_compatible" }}
+            {{- with .Values.ai.openaiCompatible.baseUrl }}
+            - name: OPS_SIGNALS_OPENAI_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.ai.openaiCompatible.model }}
+            - name: OPS_SIGNALS_OPENAI_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.ai.openaiCompatible.secret.name }}
+            - name: OPS_SIGNALS_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ai.openaiCompatible.secret.name }}
+                  key: {{ .Values.ai.openaiCompatible.secret.key | default "api-key" }}
+            {{- end }}
+            {{- else if eq .Values.ai.provider "anthropic" }}
+            {{- with .Values.ai.anthropic.model }}
+            - name: OPS_SIGNALS_ANTHROPIC_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.ai.anthropic.secret.name }}
+            - name: OPS_SIGNALS_ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ai.anthropic.secret.name }}
+                  key: {{ .Values.ai.anthropic.secret.key | default "api-key" }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.events.secret.name }}
+            - name: OPS_SIGNALS_EVENTS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.events.secret.name }}
+                  key: {{ .Values.events.secret.key | default "events-token" }}
+            {{- end }}
+            {{- with .Values.events.serviceAliases }}
+            - name: OPS_SIGNALS_SERVICE_ALIASES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if and .Values.ingress.enabled (not (hasKey .Values.backend.env "OPS_SIGNALS_UI_BASE_URL")) }}
+            {{- $host := .Values.ingress.host -}}
+            {{- if and (not $host) .Values.ingress.hosts -}}
+            {{- $host = first .Values.ingress.hosts -}}
+            {{- end -}}
+            {{- if $host }}
+            - name: OPS_SIGNALS_UI_BASE_URL
+              value: {{ printf "http%s://%s" (ternary "s" "" (not (empty .Values.ingress.tls))) $host | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.prometheusConnections.config }}
             - name: OPS_SIGNALS_PROMETHEUS_CONNECTIONS_FILE
               value: /etc/ops-signals/prometheus/connections.yaml
             {{- end }}
-          {{- with .Values.prometheusConnections.secretName }}
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.prometheusConnections.secretName .Values.backend.extraEnvFrom }}
           envFrom:
+            {{- with .Values.prometheusConnections.secretName }}
             - secretRef:
                 name: {{ . }}
+            {{- end }}
+            {{- with .Values.backend.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           {{- if .Values.prometheusConnections.config }}
           volumeMounts:
@@ -110,17 +308,49 @@ spec:
               mountPath: /etc/ops-signals/prometheus
               readOnly: true
           {{- end }}
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /api/health
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.backend.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       {{- if .Values.prometheusConnections.config }}
       volumes:
         - name: prometheus-connections
           configMap:
             name: {{ include "ops-signals.fullname" . }}-prometheus-connections
+      {{- end }}
+      {{- with .Values.backend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
 ---
 apiVersion: v1
@@ -130,6 +360,10 @@ metadata:
   labels:
     {{- include "ops-signals.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
+  {{- with .Values.backend.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.backend.service.type }}
   selector:

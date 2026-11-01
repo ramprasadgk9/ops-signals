@@ -37,6 +37,8 @@ jobs:
             dockerfile: docker/backend.Dockerfile
           - image: ops-signals-web
             dockerfile: docker/web.Dockerfile
+          - image: ops-signals-mcp
+            dockerfile: docker/mcp.Dockerfile
     steps:
       - uses: actions/checkout@v4
 

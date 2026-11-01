@@ -65,7 +65,7 @@ helm upgrade --install ops-signals ./helm/ops-signals \
 **Several Mimir tenants:** put the connections file under `prometheusConnections.config` in your
 values and the tokens in a Secret named by `prometheusConnections.secretName`.
 
-Both paths, with every value to set, are in [`release-packaging.md`](release-packaging.md). Running
+Both paths, with every integration (Jira ticketing, Slack, Alertmanager, AI assistance) and value to set, are in [`release-packaging.md`](release-packaging.md). Running
 more than one backend on the same database is in
 [`running-multiple-backends.md`](running-multiple-backends.md).
 

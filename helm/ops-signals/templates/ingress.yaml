@@ -16,16 +16,30 @@ spec:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host }}
+    {{- if .Values.ingress.hosts }}
+    {{- range .Values.ingress.hosts }}
+    - host: {{ . }}
       http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ops-signals.fullname" $ }}-backend
+                port:
+                  number: {{ $.Values.backend.service.port }}
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ include "ops-signals.fullname" . }}-web
+                name: {{ include "ops-signals.fullname" $ }}-web
                 port:
-                  number: {{ .Values.web.service.port }}
+                  number: {{ $.Values.web.service.port }}
+    {{- end }}
+    {{- else }}
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
           - path: /api
             pathType: Prefix
             backend:
@@ -33,4 +47,12 @@ spec:
                 name: {{ include "ops-signals.fullname" . }}-backend
                 port:
                   number: {{ .Values.backend.service.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ops-signals.fullname" . }}-web
+                port:
+                  number: {{ .Values.web.service.port }}
+    {{- end }}
 {{- end }}

@@ -1,3 +1,4 @@
+{{- if .Values.mcp.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,6 +18,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: mcp
     spec:
+      serviceAccountName: {{ include "ops-signals.serviceAccountName" . }}
       containers:
         - name: mcp
           image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag | default .Chart.AppVersion }}"
@@ -29,3 +31,11 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- with .Values.mcp.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.mcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
