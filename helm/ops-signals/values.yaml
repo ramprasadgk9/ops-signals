@@ -1,6 +1,12 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# ServiceAccount settings for pods
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+
 # See docs/security-model.md. The API has no auth unless a token is set, so either set one or keep the
 # backend on a trusted network.
 security:
@@ -50,12 +56,21 @@ database:
     name: ""
     key: database-url
 
+# Qdrant operational memory connection.
+qdrant:
+  # An existing Secret holding the Qdrant API key (OPS_SIGNALS_QDRANT_API_KEY).
+  apiKeySecret:
+    name: ""
+    key: api-key
+
 backend:
   image:
     repository: ghcr.io/ramprasadgk9/ops-signals-backend
     # Empty = the chart's appVersion.
     tag: ""
     pullPolicy: IfNotPresent
+  # Note: The autonomous scheduler loop in backend runs in-process. If scaling beyond 1 replica,
+  # ensure OPS_SIGNALS_AUTONOMOUS_SCHEDULER_ENABLED is set to "false" on secondary replicas.
   replicas: 1
   service:
     type: ClusterIP
@@ -63,6 +78,29 @@ backend:
   env:
     OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
     OPS_SIGNALS_PROMETHEUS_URL: http://prometheus-server:9090
+  # Additional environment variables for the backend container (supports valueFrom secretKeyRef)
+  extraEnv: []
+  #   - name: CUSTOM_VAR
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: custom-secret
+  #         key: custom-key
+  # Additional environment sources (Secret or ConfigMap references)
+  extraEnvFrom: []
+  # Production resource sizing recommendations:
+  # resources:
+  #   requests:
+  #     cpu: 250m
+  #     memory: 512Mi
+  #   limits:
+  #     cpu: 2000m
+  #     memory: 2Gi
+  resources: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
 # Several Prometheus connections - typically one per Mimir tenant. Empty = the single connection
 # OPS_SIGNALS_PROMETHEUS_URL above describes. See docs/standalone-prometheus-analysis.md
@@ -85,6 +123,78 @@ prometheusConnections:
   # MIMIR_TEAM_A_TOKEN for the ${MIMIR_TEAM_A_TOKEN} reference above. Empty = none.
   secretName: ""
 
+# Pluggable case ticketing integration (Jira Cloud reference provider). See docs/configuration.md.
+ticketing:
+  enabled: false
+  activeProvider: jira
+  worker:
+    enabled: true
+    pollIntervalSeconds: 5
+  automaticOnCaseCreation: false
+  jira:
+    baseUrl: ""
+    email: ""
+    projectKey: ""
+    issueType: Task
+    timeoutSeconds: 10.0
+    # Existing Secret holding Jira credentials
+    secret:
+      name: ""
+      apiTokenKey: api-token
+      webhookSecretKey: webhook-secret
+
+# Slack notifications for high-importance findings.
+slack:
+  enabled: false
+  # An existing Secret holding the Slack webhook URL.
+  secret:
+    name: ""
+    key: webhook-url
+  minImportance: 0.7
+  timeoutSeconds: 10
+
+# Alert enrichment (Alertmanager to Slack). See docs/alert-enrichment.md.
+alertEnrichment:
+  enabled: false
+  notify: slack
+  # Existing Secret holding Alertmanager receiver token and Slack webhook URL
+  secret:
+    name: ""
+    receiverTokenKey: receiver-token
+    slackWebhookUrlKey: webhook-url
+  notifySeverities: ""
+  notifyOnResolve: true
+  serviceLabels: ""
+  lookback: ""
+  scrapeInterval: ""
+  minStep: ""
+
+# Optional AI assistance (Ollama, OpenAI-compatible, or Anthropic).
+ai:
+  enabled: false
+  provider: ollama # ollama, openai_compatible, or anthropic
+  ollama:
+    url: http://ollama:11434
+    model: llama3.2:latest
+  openaiCompatible:
+    baseUrl: ""
+    model: ""
+    secret:
+      name: ""
+      key: api-key
+  anthropic:
+    model: ""
+    secret:
+      name: ""
+      key: api-key
+
+# Inbound deploy and change events (POST /api/events).
+events:
+  secret:
+    name: ""
+    key: events-token
+  serviceAliases: ""
+
 web:
   image:
     repository: ghcr.io/ramprasadgk9/ops-signals-web
@@ -95,8 +205,25 @@ web:
   service:
     type: ClusterIP
     port: 8080
+  extraEnv: []
+  extraEnvFrom: []
+  # resources:
+  #   requests:
+  #     cpu: 50m
+  #     memory: 64Mi
+  #   limits:
+  #     cpu: 200m
+  #     memory: 256Mi
+  resources: {}
+  podSecurityContext: {}
+  securityContext: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
+# Stdio MCP server for IDEs / external agents. Off by default in Kubernetes as MCP runs over stdio.
 mcp:
+  enabled: false
   image:
     repository: ghcr.io/ramprasadgk9/ops-signals-mcp
     # Empty = the chart's appVersion.
@@ -105,6 +232,8 @@ mcp:
   replicas: 1
   env:
     OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
+  extraEnv: []
+  resources: {}
 
 ingress:
   enabled: false

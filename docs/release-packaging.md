@@ -137,12 +137,63 @@ database:
 
 backend:
   env:
-    OPS_SIGNALS_QDRANT_URL: http://...
-    OPS_SIGNALS_PROMETHEUS_URL: http://...
+    OPS_SIGNALS_QDRANT_URL: http://ops-signals-qdrant:6333
+    OPS_SIGNALS_PROMETHEUS_URL: http://prometheus-server.monitoring:9090
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
 
-mcp:
-  env:
-    OPS_SIGNALS_QDRANT_URL: http://...
+web:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+```
+
+### Integrations with Helm (Ticketing, Slack, AI)
+
+Credentials are configured using existing Kubernetes Secrets:
+
+```yaml
+# Jira Cloud ticketing
+ticketing:
+  enabled: true
+  jira:
+    baseUrl: https://your-domain.atlassian.net
+    email: your-service-account@example.com
+    projectKey: OPS
+    secret:
+      name: jira-credentials
+      apiTokenKey: api-token
+      webhookSecretKey: webhook-secret
+
+# Slack notifications
+slack:
+  enabled: true
+  secret:
+    name: slack-credentials
+    key: webhook-url
+
+# Optional AI assistance (Ollama, OpenAI-compatible, or Anthropic)
+ai:
+  enabled: true
+  provider: ollama
+  ollama:
+    url: http://ollama.ai:11434
+    model: llama3.2:latest
+
+# Ingress
+ingress:
+  enabled: true
+  className: nginx
+  host: ops-signals.example.com
 ```
 
 ### Several Mimir tenants with Helm

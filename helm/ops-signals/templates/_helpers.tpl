@@ -45,3 +45,12 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
       key: {{ $.Values.security.apiTokenSecret.key }}
 {{- end }}
 {{- end }}
+
+{{/* Service account name to use */}}
+{{- define "ops-signals.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+    {{ default (include "ops-signals.fullname" .) .Values.serviceAccount.name }}
+{{- else -}}
+    {{ default "default" .Values.serviceAccount.name }}
+{{- end -}}
+{{- end }}
