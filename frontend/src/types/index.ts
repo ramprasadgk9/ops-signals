@@ -1078,6 +1078,13 @@ export type AnalyzerRecommendation = {
   requirements: string[];
   warnings: string[];
   parameters_tested: Record<string, unknown>;
+  /** What the analyzer looks for, in plain words; null when it isn't registered. */
+  description?: string | null;
+  /** False for router candidates that aren't built into Ops Signals and can't run. */
+  available?: boolean;
+  /** What happened to it in the sample's own analysis run; null when that run didn't record it. */
+  last_run?: 'ran' | 'skipped' | 'failed' | null;
+  last_run_reason?: string | null;
 };
 
 export type AIAnalyzerPick = {
@@ -1107,57 +1114,8 @@ export type MetricAnalyzerRecommendation = {
   sample: MetricSample;
   profile: MetricProfile;
   recommendations: AnalyzerRecommendation[];
-  ai_opinion: AIAnalyzerOpinion;
-};
-
-export type TimeValuePoint = {
-  timestamp: string;
-  value: number;
-};
-
-export type MetricContext = {
-  metric_id?: string | null;
-  sample_id?: number | null;
-  metric_name: string;
-  metric_description: string;
-  metric_type?: string | null;
-  provider?: string | null;
-  unit?: string | null;
-  operational_purpose: string;
-  use_cases: string[];
-  operational_questions: string[];
-  example_values: TimeValuePoint[];
-  additional_notes?: string | null;
-};
-
-export type AnalyzerRecommendationChatRequest = {
-  conversation_id?: string | null;
-  message: string;
-  metric_context: MetricContext;
-  options: {
-    include_vector_discovery: boolean;
-    run_sample_evaluation: boolean;
-    requested_analyzers?: string[] | null;
-  };
-};
-
-export type AnalyzerRecommendationChatResponse = {
-  conversation_id: string;
-  evaluation_id?: number | null;
-  response_type: string;
-  recommendation_mode: 'preliminary' | 'evaluated';
-  assistant_message: {
-    headline: string;
-    summary: string;
-    context_used: string[];
-    next_action: string;
-  };
-  recommendations: AnalyzerRecommendation[];
-  suggested_questions: string[];
-  context_hash: string;
-  context_version: number;
-  normalized_goals: Array<{ goal_id: string; display_name: string; source_text: string }>;
-  stale: boolean;
+  /** Registered analyzers the router never scores; they run only when analysis runs every analyzer. */
+  not_scored?: { analyzer_id: string; display_name: string; description?: string | null }[];
   ai_opinion: AIAnalyzerOpinion;
 };
 

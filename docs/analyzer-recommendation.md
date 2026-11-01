@@ -9,6 +9,41 @@ first and routes to the analyzers whose declared strengths match what the profil
 This is the single reference for how that works. It replaces five previously-scattered docs (see
 [Document History](#document-history) at the bottom).
 
+## Which analyzer fits my metric?
+
+To see which analyzers suit one metric, open **Analyzer Workbench → Which analyzer fits?**, pick the
+metric, and click **Find the right analyzer**. Ops Signals scores every analyzer against the
+metric's stored data from its latest analysis, with the same router and profile a real run uses,
+and shows three columns:
+
+- **Good fit** - the router recommends it for this data.
+- **Can help** - optional: it may add something, but it isn't the best match.
+- **Not a fit** - not recommended or ruled out for this data.
+
+Each analyzer shows what it looks for in plain words and whether it **ran last time** on this
+metric (from that run's record of what ran). **How sure?** shows the score, **Why?** the router's
+reasons, **Try in Labs** opens its sandbox Lab, and **Its settings** opens
+[Settings in use](configuration.md#see-which-analyzer-settings-are-in-use) for this metric. Tools the router knows about but
+that aren't built into Ops Signals are listed under the columns; they can't run here.
+
+A new analyzer shows up on the next check, with no restart, when its registration in
+`config/analyzer_registry.d/` has a `router` block with `supported_profiles` or `scoring_rules`
+(the Add Analyzer wizard writes one). Registered analyzers without one are never scored, so they
+aren't in the columns: the page names them under **Not scored by the router**. They run only when
+analysis is set to run every analyzer ([Selection modes](#selection-modes)). Today that's Baseline
+Shift, Z-Score Anomaly and Seasonal Anomaly.
+
+The page changes nothing. If an analyzer ran on the metric but is **Not a fit**, the page offers a
+per-service setting (`selection.disabled`) to save in `config/analyzer_overrides.d/` that turns it
+off for this metric only. Settings can turn analyzers off or tune them, never turn one on: the
+router still decides what runs.
+
+A metric that isn't listed has no stored data yet. Analyze it first from **New Analysis** (a data
+source or a CSV file), then pick it here. A link such as
+`/analyzer-recommendation?service=checkout&metric=http_latency_ms` opens the page with that metric
+picked. With AI set up, a separate **Second opinion** box shows the AI model's own pick; it never
+changes the columns ([Optional AI second opinion](#optional-ai-second-opinion)).
+
 ## Definitions
 
 The routing terms used on this page. The [glossary](glossary.md) has every other Ops Signals term.

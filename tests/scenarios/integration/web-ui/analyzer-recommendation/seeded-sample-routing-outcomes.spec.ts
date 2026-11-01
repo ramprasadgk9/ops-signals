@@ -4,34 +4,35 @@ import { loadFixtureAsSeedPoints } from '../../shared/fixtures';
 import { makeRunId, seedNormalizedPoints, cleanupRun } from '../../shared/db';
 
 /**
- * Data source = a pre-existing sample selected via AnalyzerRecommendationPage's
- * "Select Existing Sample" dropdown, which lists recent analysis runs (one row per run, from the
- * analysis_runs table). We seed a run and its ops_normalized_timeseries_points directly with the same fixture
- * shapes used by the CSV-upload spec, rather than waiting on real Prometheus scrape history —
- * see the suite discussion on why live-Prometheus outcome assertions are DB-seeded, not scrape-timed.
+ * Data source = an analyzed metric picked on "Which analyzer fits my metric?"
+ * (AnalyzerRecommendationPage). The metric list reads recent analysis runs (one row per run, from
+ * the analysis_runs table). We seed a run and its ops_normalized_timeseries_points directly with
+ * the same fixture shapes used by the CSV-upload spec, rather than waiting on real Prometheus
+ * scrape history.
  *
- * This flow is a router-scoring preview (POST /api/metric-analyzer-recommendations/chat), not a
- * pipeline execution, so it only ever buckets into recommended / conditional / not_recommended —
- * there is no "unavailable" state here (that's execution-time only; see csv-upload-routing-outcomes.spec.ts).
- *
- * Formerly test.fixme() for the app bug tracked as issue #15: the "Select Existing Sample"
- * onChange handler set `sample_id: undefined` and left `provider` at its default 'prometheus'
- * (AnalyzerRecommendationPage.tsx ~420-436), so the backend's service-name match against the
- * selected sample always failed and every evaluation silently fell back to `preliminary` mode
- * regardless of which sample was picked. Fixed by setting `sample_id` and unconditionally
- * overwriting `provider` with the selected sample's own service on selection.
+ * This is a router-scoring preview (POST /api/metric-analyzer-recommendations/evaluate), not a
+ * pipeline execution. The page groups the router's ratings into three columns: recommended ->
+ * Good fit, optional/conditional -> Can help, anything else (not_recommended, rejected) -> Not a
+ * fit. Router candidates that aren't built into Ops Signals are listed apart, under the columns.
  */
 
 // The router's scoring id and the runtime/pipeline analyzer id it executes as aren't always the
 // same string (see docs/analyzer-recommendation.md and benchmark/router_benchmark.py's
-// ROUTER_TO_PIPELINE_ANALYZER_ID) - "Copy snippet for X" on this page renders the pipeline id via
-// service.py's _public_analyzer_id(), while expectedOutcomes below is keyed by router id.
+// ROUTER_TO_PIPELINE_ANALYZER_ID) - the page uses the pipeline id via service.py's
+// _public_analyzer_id(), while expectedOutcomes below is keyed by router id.
 const ROUTER_TO_PIPELINE_ANALYZER_ID: Record<string, string> = { trend_regression: 'trend' };
+
+const COLUMN: Record<string, string> = { recommended: 'Good fit', optional: 'Can help', conditional: 'Can help' };
+const columnFor = (outcome: string) => COLUMN[outcome] ?? 'Not a fit';
+const FIT: Record<string, string> = { 'Good fit': 'good', 'Can help': 'can_help', 'Not a fit': 'not_a_fit' };
+
+// Router candidates with no pipeline analyzer behind them (run_reason "not_built_in").
+const NOT_BUILT_IN = new Set(['river', 'kats', 'darts', 'alibi_detect', 'adtk', 'pyod']);
 
 for (const key of ['ruptures', 'trend', 'stumpy', 'pyodOutlier', 'mixed'] as const) {
   const fixture = analyzerFixtures[key];
 
-  test(`seeded sample for ${fixture.file} evaluates to the documented router outcomes`, async ({ page }) => {
+  test(`seeded sample for ${fixture.file} lands in the documented columns`, async ({ page }) => {
     const runId = makeRunId(`seeded-${key}`);
     await seedNormalizedPoints({
       runId,
@@ -42,39 +43,42 @@ for (const key of ['ruptures', 'trend', 'stumpy', 'pyodOutlier', 'mixed'] as con
 
     try {
       await page.goto('/analyzer-recommendation');
-      // Templates only fill operational_purpose/use_cases/operational_questions, not Metric
-      // Name/Description (confirmed against a live run) — fill those directly. Selecting the
-      // sample below overwrites Metric Name to match the sample's metric_name anyway.
-      await page.getByLabel('Metric Name').fill(fixture.metricName);
-      await page.getByLabel('Metric Description').fill('Integration suite seeded sample for router evaluation.');
-      await page.getByRole('button', { name: 'CPU Template' }).click();
+      // Every fixture's metric is cpu_usage; the option also names its service.
+      await page.getByLabel('Metric').fill(fixture.service);
+      await page.getByRole('option', { name: new RegExp(`cpu_usage.*${fixture.service}`) }).click();
+      await page.getByRole('button', { name: 'Find the right analyzer' }).click();
+      await expect(page.getByRole('region', { name: 'Good fit' })).toBeVisible({ timeout: 30_000 });
 
-      // The MUI Select's `label` prop doesn't wire up aria-labelledby here, so the combobox has
-      // no accessible name at all (confirmed against a live run) — anchor off the InputLabel's
-      // visible text and step to its sibling instead of getByLabel.
-      const sampleSelect = page
-        .getByText('Select Existing Sample', { exact: true })
-        .locator('xpath=following-sibling::*[1]')
-        .getByRole('combobox');
-      await sampleSelect.click();
-      await page.getByRole('option', { name: new RegExp(`${fixture.service} / ${fixture.metricName} \\(${runId}\\)`) }).click();
-
-      await page.getByRole('button', { name: 'Evaluate with Sample' }).click();
-      await expect(page.getByText('Recommendation Results')).toBeVisible({ timeout: 30_000 });
-
-      // Each analyzer's result card holds its snippet button and a chip with its recommendation.
-      // Checking the chip inside that one card, not text anywhere on the page: bucket headings
-      // ("recommended", "not recommended") used to satisfy page-wide checks for any analyzer.
       for (const [analyzerId, outcome] of Object.entries(fixture.expectedOutcomes)) {
         const pipelineAnalyzerId = ROUTER_TO_PIPELINE_ANALYZER_ID[analyzerId] ?? analyzerId;
-        const snippetButton = page.getByRole('button', { name: `Copy snippet for ${pipelineAnalyzerId}` });
-        await expect(snippetButton).toBeVisible();
-        // Innermost element containing the button (ancestors come first in document order).
-        const card = page.locator('div').filter({ has: snippetButton }).last();
-        await expect(card.getByText(outcome, { exact: true })).toBeVisible();
+        if (NOT_BUILT_IN.has(pipelineAnalyzerId)) {
+          await expect(page.getByTestId(`not-built-in-${pipelineAnalyzerId}`)).toHaveAttribute('data-fit', FIT[columnFor(outcome)]);
+          continue;
+        }
+        await expect(page.getByRole('region', { name: columnFor(outcome) }).getByTestId(`fit-${pipelineAnalyzerId}`)).toBeVisible();
       }
     } finally {
       await cleanupRun({ runId });
     }
   });
 }
+
+test('a link with service and metric opens that metric ready to check', async ({ page }) => {
+  const fixture = analyzerFixtures.trend;
+  const runId = makeRunId('seeded-link');
+  await seedNormalizedPoints({ runId, service: fixture.service, metricName: fixture.metricName, points: loadFixtureAsSeedPoints(fixture) });
+
+  try {
+    await page.goto(`/analyzer-recommendation?service=${fixture.service}&metric=${fixture.metricName}`);
+    await expect(page.getByText(new RegExp(`Uses the latest analysis of ${fixture.metricName} on ${fixture.service}`))).toBeVisible();
+    await page.getByRole('button', { name: 'Find the right analyzer' }).click();
+    const trend = page.getByRole('region', { name: 'Good fit' }).getByTestId('fit-trend');
+    await expect(trend).toBeVisible({ timeout: 30_000 });
+    await expect(trend.getByRole('link', { name: 'Try in Labs' })).toHaveAttribute('href', '/experiments/trend-lab');
+    await expect(page.getByRole('link', { name: `See what runs on ${fixture.service}` })).toBeVisible();
+    // Registered analyzers the router never scores are named under the columns.
+    await expect(page.getByTestId('not-scored').getByRole('link', { name: 'Seasonal Anomaly' })).toBeVisible();
+  } finally {
+    await cleanupRun({ runId });
+  }
+});

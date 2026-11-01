@@ -114,3 +114,55 @@ def test_evaluate_without_a_run_id_uses_the_latest_run() -> None:
         ).json()['profile']['sample_count'] == 60
         missing = client.post('/api/metric-analyzer-recommendations/evaluate', json={'service': 'checkout-service', 'metric_name': 'nope'})
         assert missing.status_code == 404
+
+
+def test_evaluate_says_what_each_analyzer_looks_for_and_whether_it_ran_on_this_metric() -> None:
+    # The "Which analyzer fits my metric?" page shows a plain description per pick, marks router
+    # candidates Ops Signals can't run, and says whether each pick ran in the sample's own run.
+    app = create_app('sqlite+pysqlite:///:memory:')
+    with TestClient(app) as client:
+        session_local = get_session_local()
+        with session_local() as db:
+            start = datetime.utcnow() - timedelta(hours=2)
+            db.add(
+                AnalysisRunEntity(
+                    id='run-annotated', source_type='prometheus', service='checkout-service', metric_name='memory_usage',
+                    start_time=start, end_time=start + timedelta(hours=2), sample_count=60, status='completed',
+                    executed_analyzers_json=[
+                        {'router_analyzer_id': 'trend_regression', 'execution_status': 'completed', 'execution_reason': 'Picked by the router for this series.'},
+                        {'router_analyzer_id': 'stumpy', 'execution_status': 'skipped', 'execution_reason': 'Not chosen for this run.'},
+                    ],
+                )
+            )
+            for index in range(60):
+                db.add(
+                    NormalizedPoint(
+                        metric_name='memory_usage', timestamp=start + timedelta(minutes=index * 2),
+                        value=100 + index * 0.5, service='checkout-service', analysis_run_id='run-annotated',
+                    )
+                )
+            db.commit()
+
+        response = client.post(
+            '/api/metric-analyzer-recommendations/evaluate',
+            json={'service': 'checkout-service', 'metric_name': 'memory_usage', 'analysis_run_id': 'run-annotated'},
+        )
+
+        assert response.status_code == 200
+        picks = {item['analyzer_id']: item for item in response.json()['recommendations']}
+        assert picks['trend']['last_run'] == 'ran'
+        assert picks['trend']['last_run_reason'] == 'Picked by the router for this series.'
+        assert picks['trend']['description'].startswith('Spots slow, steady climbs')
+        assert picks['trend']['available'] is True
+        assert picks['stumpy']['last_run'] == 'skipped'
+        # Not recorded in this run: unknown, not "didn't run".
+        assert all(item['last_run'] is None for key, item in picks.items() if key not in {'trend', 'stumpy'})
+        # Router candidates that aren't built in can't run here.
+        not_built_in = [item for item in picks.values() if not item['available']]
+        assert not_built_in and all(item['description'] is None for item in not_built_in)
+        # Registered analyzers the router never scores are listed apart, so the page can say why
+        # they aren't in the columns: they run only when analysis runs every analyzer.
+        not_scored = {item['analyzer_id']: item for item in response.json()['not_scored']}
+        assert {'seasonal_anomaly', 'anomaly_zscore', 'baseline_shift'} <= set(not_scored)
+        assert not set(not_scored) & set(picks)
+        assert not_scored['seasonal_anomaly']['description']

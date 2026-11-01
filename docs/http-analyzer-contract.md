@@ -171,7 +171,7 @@ for a series. This is the same mechanism as for every other analyzer; see
 [`analyzer-recommendation.md`](analyzer-recommendation.md). Two things to know:
 
 - Adding an analyzer can change which analyzers run. A high-scoring HTTP analyzer may take a slot
-  that a built-in analyzer used to get. Use the **Recommendations** view to check this on your own
+  that a built-in analyzer used to get. Use **Which analyzer fits?** to check this on your own
   metrics before relying on it.
 - To run it on every analysis regardless of score, set `always_run: true`. Do this only for a
   fast, cheap service.

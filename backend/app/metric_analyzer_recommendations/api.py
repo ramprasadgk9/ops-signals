@@ -24,11 +24,13 @@ from backend.app.metric_analyzer_recommendations.schemas import (
     MetricContextIn,
     MetricProfileOut,
     MetricSampleOut,
+    NotScoredAnalyzerOut,
     RecommendationResponseOut,
 )
 from backend.app.metric_analyzer_recommendations.service import MetricAnalyzerRecommendationService
 from backend.app.models.db import get_db
-from backend.app.models.entities import AnalyzerDivergenceEntity
+from backend.app.models.entities import AnalysisRunEntity, AnalyzerDivergenceEntity
+from intelligence.analyzer_registry import load_registrations
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,42 @@ _conversation_counter = count(1)
 _evaluation_counter = count(1)
 _conversation_store: dict[str, dict[str, Any]] = {}
 _latest_evaluation_by_conversation: dict[str, dict[str, Any]] = {}
+
+
+_REGISTRY_DIR = Path(__file__).resolve().parents[3] / "config" / "analyzer_registry.d"
+_RUN_STATUS = {"completed": "ran", "skipped": "skipped", "failed": "failed"}
+
+
+def _annotate_recommendations(db: Session, recommendations: list[AnalyzerRecommendationOut], analysis_run_id: str | None) -> list[NotScoredAnalyzerOut]:
+    """Adds what the page shows next to each pick: the analyzer's plain description, whether
+    Ops Signals can run it, and what happened to it in the sample's own analysis run (from the
+    run's executed_analyzers_json, the same record Settings in use and Router Decisions read).
+    Returns the enabled analyzers the router didn't score, so the page can say why they're
+    missing from the columns. Best effort: a broken registry or a missing run leaves those empty."""
+    try:
+        registrations = {item.analyzer_id: item for item in load_registrations(_REGISTRY_DIR)}
+    except Exception as exc:
+        logger.warning(f"Could not read the analyzer registry for recommendation descriptions: {exc}")
+        registrations = {}
+    executions: dict[str, dict[str, Any]] = {}
+    run = db.get(AnalysisRunEntity, analysis_run_id) if analysis_run_id else None
+    for item in (run.executed_analyzers_json or []) if run else []:
+        if isinstance(item, dict) and item.get("router_analyzer_id"):
+            executions[MetricAnalyzerRecommendationService._public_analyzer_id(str(item["router_analyzer_id"]))] = item
+    for recommendation in recommendations:
+        registration = registrations.get(recommendation.analyzer_id)
+        recommendation.description = registration.description if registration else None
+        recommendation.available = registration is not None if registrations else True
+        execution = executions.get(recommendation.analyzer_id)
+        if execution:
+            recommendation.last_run = _RUN_STATUS.get(str(execution.get("execution_status")))  # type: ignore[assignment]
+            recommendation.last_run_reason = execution.get("execution_reason")
+    scored = {recommendation.analyzer_id for recommendation in recommendations}
+    return [
+        NotScoredAnalyzerOut(analyzer_id=item.analyzer_id, display_name=item.display_name, description=item.description)
+        for item in registrations.values()
+        if item.enabled and item.analyzer_id not in scored
+    ]
 
 
 @router.get("/metrics")
@@ -156,6 +194,7 @@ def evaluate_metric_sample(
     selection_mode = str(analysis_config.get("recommendation_selection_mode", "all"))
     selected_analyzers = list(analysis_config.get("selected_analyzers", []) or [])
     recommendations = [AnalyzerRecommendationOut(**item) for item in service.recommend(profile, selection_mode, selected_analyzers, timeseries)]
+    not_scored = _annotate_recommendations(db, recommendations, analysis_run_id)
     ai_services = assistant.services.ai_services if assistant else None
     ai_opinion = AIAnalyzerOpinionOut(
         **service.recommend_ai_opinion(profile, timeseries, ai_services, metric_context={"service": service_name, "metric_name": metric_name})
@@ -172,6 +211,7 @@ def evaluate_metric_sample(
         sample=MetricSampleOut(**selected),
         profile=MetricProfileOut(**asdict(profile)),
         recommendations=recommendations,
+        not_scored=not_scored,
         ai_opinion=ai_opinion,
     )
 

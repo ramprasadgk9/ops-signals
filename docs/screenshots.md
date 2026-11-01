@@ -85,9 +85,9 @@ The assistant answers grounded questions using findings, cases, behavior intelli
 
 ![Operational Assistant](screenshots/images/web/08-assistant.png)
 
-### Analyzer Recommendation
+### Which analyzer fits?
 
-Select a stored sample and Ops Signals profiles it the same way a real analysis run does, then shows which analyzers fit its behavior (here, an abrupt regime shift: ruptures and kats), which are optional, and which don't fit, with the evidence behind each.
+Pick an analyzed metric and Ops Signals profiles its stored data the same way a real analysis run does, then shows which analyzers are a good fit, which can help, and which aren't a fit, with what each looks for and whether it ran on that metric last time.
 
 ![Analyzer Recommendation](screenshots/images/web/09-analyzer-recommendation.png)
 
