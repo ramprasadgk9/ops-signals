@@ -1,0 +1,7 @@
+# Settings for the DCO GitHub App (https://github.com/apps/dco), which checks that every commit in
+# a pull request has a "Signed-off-by:" line. See "Sign Off Your Commits" in CONTRIBUTING.md.
+
+# Let a contributor fix a missing sign-off by adding one extra commit (the app's failure message
+# shows its text) instead of having to rewrite their branch.
+allowRemediationCommits:
+  individual: true

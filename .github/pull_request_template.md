@@ -11,6 +11,7 @@
 
 ## Checklist
 
+- [ ] Every commit is signed off (`git commit -s`, see "Sign Off Your Commits" in `CONTRIBUTING.md`)
 - [ ] Docs updated if behavior changed
 - [ ] `CHANGELOG.md` updated under the next release, if users will notice the change
 - [ ] Benchmark scenario added or updated, if routing or detection changed (see `benchmark/CONTRIBUTING.md`)
