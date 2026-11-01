@@ -11,7 +11,7 @@ export type RoutingOutcome = 'recommended' | 'optional' | 'conditional' | 'not_r
 
 /** Router rating labels in the Router Decisions panel's scoring table — see ratingLabel() in
  * frontend/src/utils/analyzerRuns.ts. Distinct vocabulary from the lowercase
- * recommended/conditional/not_recommended used by AnalyzerRecommendationPage's chat flow. */
+ * recommended/optional/not_recommended returned by /api/metric-analyzer-recommendations/evaluate. */
 export type CsvRouterBucket = 'Recommended' | 'Optional' | 'Ruled out' | 'Not recommended';
 
 export type AnalyzerFixture = {

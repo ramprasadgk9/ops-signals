@@ -8,8 +8,8 @@ import { makeRunId, seedFinding, seedAnalysisRun, createCaseFromFinding, getCase
  * success state, since none of these mutations show a visible confirmation (they just invalidate
  * the query cache and silently refetch; see CaseDetailsPage.tsx's onSuccess handlers).
  *
- * MUI Select's `label` prop doesn't wire up an accessible name here either (same issue as
- * AnalyzerRecommendationPage's "Select Existing Sample" — confirmed live), so these use
+ * MUI Select's `label` prop doesn't wire up an accessible name here (the same issue the old
+ * AnalyzerRecommendationPage's "Select Existing Sample" had — confirmed live), so these use
  * getByRole('combobox') scoped to one tab panel at a time, where exactly one combobox is visible.
  * The scoping matters: the app header's global search is an Autocomplete, also a combobox, so an
  * unscoped page.getByRole('combobox') matches two elements. getByRole('tabpanel') skips the

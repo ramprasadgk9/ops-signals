@@ -83,6 +83,17 @@ export const RUN_STATUS: Record<RunStatus, { label: string; tone: 'green' | 'blu
   cant_run: { label: "Can't run", tone: 'red' },
 };
 
+// The Lab for each analyzer that has one (components/AppShell.tsx).
+export const LAB_FOR: Record<string, string> = {
+  anomaly_zscore: '/experiments/zscore-anomaly-lab',
+  pyod_outlier: '/experiments/pyod-outlier-lab',
+  prophet: '/experiments/prophet-forecast-lab',
+  baseline_shift: '/experiments/ruptures-change-point-lab',
+  ruptures: '/experiments/ruptures-change-point-lab',
+  stumpy: '/experiments/stumpy-motif-lab',
+  trend: '/experiments/trend-lab',
+};
+
 export const OVERRIDES_DOC_URL = 'https://github.com/ramprasadgk9/ops-signals/blob/main/docs/configuration.md#per-service-analyzer-settings';
 
 /** How a run picks analyzers, in one sentence. */

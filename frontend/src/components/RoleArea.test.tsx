@@ -66,7 +66,7 @@ describe('the menu by role', () => {
     expect(await screen.findByText('page content')).toBeInTheDocument();
     await screen.findByRole('link', { name: 'Findings' });
     expect(menu()).toEqual(expect.arrayContaining(['Overview', 'Findings', 'Cases', 'Metric Usage', 'Autonomous Analysis']));
-    for (const hidden of ['Integrations', 'New Analysis', 'Settings', 'Setup check', 'Add Analyzer', 'Recommendations', 'Autonomous Analysis Configure']) {
+    for (const hidden of ['Integrations', 'New Analysis', 'Settings', 'Setup check', 'Add Analyzer', 'Which analyzer fits?', 'Autonomous Analysis Configure']) {
       expect(menu()).not.toContain(hidden);
     }
     expect(screen.queryByText('Analyzer Workbench')).not.toBeInTheDocument();

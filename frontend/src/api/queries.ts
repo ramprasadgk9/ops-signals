@@ -10,8 +10,6 @@ import type {
   AnalyzerConfigSuggestion,
   AnalyzerConfigSuggestionInput,
   AnalyzerRecommendation,
-  AnalyzerRecommendationChatRequest,
-  AnalyzerRecommendationChatResponse,
   AnalysisRun,
   BehaviorDefinition,
   CatalogPattern,
@@ -407,8 +405,6 @@ export const api = {
       metric_name: metricName,
       analysis_run_id: analysisRunId ?? null,
     }),
-  metricAnalyzerChat: (payload: AnalyzerRecommendationChatRequest) =>
-    postJson<AnalyzerRecommendationChatRequest, AnalyzerRecommendationChatResponse>('/api/metric-analyzer-recommendations/chat', payload),
   assistantChat: (payload: AssistantChatRequest) => {
     markDemoStep('ask');
     return postJson<AssistantChatRequest, AssistantChatResponse>('/api/assistant/chat', payload);

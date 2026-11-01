@@ -69,7 +69,7 @@ The manual path is the same thing without the UI (for an HTTP analyzer, see
 
 A registered analyzer runs on CSV/interactive runs and on scheduled (autonomous) runs alike -
 both build analyzers from `config/analyzer_registry.d/` through the same shared code
-(`intelligence/analyzer_selection.py`) - and appears in the Recommendations view.
+(`intelligence/analyzer_selection.py`) - and appears on the Which analyzer fits? page.
 
 Give every analyzer a `description` (top level, next to `display_name`): one or two plain
 sentences on what it looks for, with an example. The web UI and the Grafana plugin show it as a
@@ -119,8 +119,9 @@ everything on this page in one place:
   does before deciding whether to route more traffic to it. A Lab is a sandbox: its values reach
   only the Lab run, and **Use these values for real** gives the snippet to put them in a config file.
 - **Add Analyzer** - the wizard described above under [Extensibility Model](#extensibility-model).
-- **Recommendations** - the Universal Router's live scoring preview for a given series; see
-  [`docs/analyzer-recommendation.md`](analyzer-recommendation.md).
+- **Which analyzer fits?** - pick an analyzed metric and see which analyzers suit its data and
+  whether they ran on it; see
+  [Which analyzer fits my metric?](analyzer-recommendation.md#which-analyzer-fits-my-metric).
 
 ## Current Limitations
 

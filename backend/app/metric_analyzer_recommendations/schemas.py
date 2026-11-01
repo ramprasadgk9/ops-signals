@@ -71,6 +71,15 @@ class AnalyzerRecommendationOut(BaseModel):
     requirements: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     parameters_tested: dict = Field(default_factory=dict)
+    # What the analyzer looks for, in plain words, from its registration (None when not registered).
+    description: str | None = None
+    # Registered in config/analyzer_registry.d/, so analysis can run it. The router also scores
+    # candidates that aren't built in; those can't run.
+    available: bool = True
+    # What happened to it in the sample's own analysis run: "ran", "skipped" or "failed". None when
+    # that run didn't record its analyzers (CSV runs saved before that, seeded samples).
+    last_run: Literal["ran", "skipped", "failed"] | None = None
+    last_run_reason: str | None = None
 
 
 class AIAnalyzerPickOut(BaseModel):
@@ -99,10 +108,20 @@ class AIAnalyzerOpinionOut(BaseModel):
     unavailable_reason: str | None = None
 
 
+class NotScoredAnalyzerOut(BaseModel):
+    """A registered, enabled analyzer the router never scores (its registration has no router
+    supported_profiles or scoring_rules). It runs only when analysis runs every analyzer."""
+
+    analyzer_id: str
+    display_name: str
+    description: str | None = None
+
+
 class RecommendationResponseOut(BaseModel):
     sample: MetricSampleOut
     profile: MetricProfileOut
     recommendations: list[AnalyzerRecommendationOut]
+    not_scored: list[NotScoredAnalyzerOut] = Field(default_factory=list)
     ai_opinion: AIAnalyzerOpinionOut = Field(default_factory=lambda: AIAnalyzerOpinionOut(available=False))
 
 

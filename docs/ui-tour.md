@@ -45,8 +45,11 @@ Its own group in the sidebar, below the main pages. Each item says what it's for
 - **Add Analyzer** — the guided flow for registering a new analyzer, either Python code or your own
   HTTP service. See [`docs/analyzer-plugin-framework.md`](analyzer-plugin-framework.md#extensibility-model)
   and [`docs/http-analyzer-contract.md`](http-analyzer-contract.md).
-- **Recommendations** — the Universal Router's live recommendation preview for a given series. See
-  [`docs/analyzer-recommendation.md`](analyzer-recommendation.md).
+- **Which analyzer fits?** — pick an analyzed metric and see which analyzers suit its data, in
+  three columns (Good fit, Can help, Not a fit), each with what it looks for and whether it ran on
+  that metric last time. Links go to the analyzer's Lab and to Settings in use for that metric; if
+  an analyzer ran but doesn't suit the metric, the page offers a per-service setting that turns it
+  off there. See [`docs/analyzer-recommendation.md`](analyzer-recommendation.md#which-analyzer-fits-my-metric).
 
 ### Not a page: alert enrichment and Slack
 

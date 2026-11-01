@@ -33,6 +33,7 @@ import { api } from '../api/queries';
 import { PageHeader, WorkspacePanel } from '../standalone/components';
 import { ui } from '../standalone/theme';
 import {
+  LAB_FOR,
   OVERRIDES_DOC_URL,
   RUN_ORDER,
   RUN_STATUS,
@@ -45,16 +46,6 @@ import {
   type RunStatus,
   type SettingsLayer,
 } from '../utils/analyzerSettings';
-
-// The Lab for each analyzer that has one (components/AppShell.tsx).
-const LAB_FOR: Record<string, string> = {
-  anomaly_zscore: '/experiments/zscore-anomaly-lab',
-  pyod_outlier: '/experiments/pyod-outlier-lab',
-  prophet: '/experiments/prophet-forecast-lab',
-  baseline_shift: '/experiments/ruptures-change-point-lab',
-  stumpy: '/experiments/stumpy-motif-lab',
-  trend: '/experiments/trend-lab',
-};
 
 // Tint backgrounds with ink text from the theme's tokens, so each chip stays readable in dark mode.
 const TONES = {

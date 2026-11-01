@@ -87,12 +87,12 @@ const analyzerLabItems: NavItem[] = [
 ];
 
 // First in Analyzer Workbench: the question asked most is what runs right now. Each item says what
-// it's for, so the Labs read as a sandbox and Recommendations as a one-metric preview.
+// it's for, so the Labs read as a sandbox and "Which analyzer fits?" as a one-metric check.
 const analyzerSettingsItem: NavItem = { label: 'Settings in use', to: '/analyzer-settings', icon: <TuneRoundedIcon />, hint: 'What runs, with which values, from which file' };
 const LABS_HINT = 'Try an analyzer on sample data (sandbox)';
 
 const analyzerWorkbenchItems: NavItem[] = [
-  { label: 'Recommendations', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon />, hint: 'Which analyzers suit one metric' },
+  { label: 'Which analyzer fits?', to: '/analyzer-recommendation', icon: <TimelineRoundedIcon />, hint: 'Pick a metric, see which analyzers suit it' },
   { label: 'Add Analyzer', to: '/experiments/add-analyzer', icon: <AddRoundedIcon />, hint: 'Plug in your own code or HTTP service' },
 ];
 

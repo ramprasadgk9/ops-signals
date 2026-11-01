@@ -18,7 +18,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 | [Ticket comment triage](#ticket-comment-triage) | Case → ticket card | Click, sync, webhook |
 | [Ask Ops Signals](#ask-ops-signals) | Web UI Assistant | Each question |
 | [Autonomous run questions](#autonomous-run-questions) | Plugin Ask Ops Signals panel | Each question |
-| [Analyzer recommendation](#analyzer-recommendation) | Analyzer Recommendation | Each recommendation |
+| [Analyzer recommendation](#analyzer-recommendation) | Which analyzer fits? | Each recommendation |
 | [Docs check questions](#docs-check-questions) | Assistant → Docs check (admins) | On click |
 | [Root cause and resolution drafts](#root-cause-and-resolution-drafts) | Case → Root Cause, Resolution | On click |
 | [Case write-up](#case-write-up) | Case → Publish Knowledge | On click |
