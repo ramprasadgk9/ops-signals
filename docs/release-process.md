@@ -13,8 +13,12 @@
 3. Update changelog. When the release changes the Grafana plugin, also bump `info.version` and
    `info.updated` in `frontend/plugin.json` and move the plugin's "Unreleased" notes in
    `frontend/CHANGELOG.md` under the new plugin version.
-4. Tag the release when ready.
-5. To publish the plugin zip, create a GitHub Release for the tag. The Grafana plugin workflow
+4. Thank contributors. End the release's changelog section with a line such as
+   "Thanks to @name and @name for their contributions", naming everyone besides the maintainers
+   whose pull request is in this release (`git log --format='%an' <previous-tag>..HEAD | sort -u`
+   lists the authors). Add first-time contributors to the **Contributors** list in `README.md`.
+5. Tag the release when ready.
+6. To publish the plugin zip, create a GitHub Release for the tag. The Grafana plugin workflow
    (`.github/workflows/plugin.yml`) runs on every `v*` tag and attaches the zip and its `.sha1` to
    the release when one exists; otherwise the zip is only a workflow artifact. If the release is
    created after the workflow ran, re-run the workflow for the tag.
