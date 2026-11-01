@@ -25,11 +25,23 @@ automatically exist in the other.
 
 ### Analyzer Workbench
 
-Its own group in the sidebar, below the main pages:
+Its own group in the sidebar, below the main pages. Each item says what it's for:
 
+- **Settings in use** (`/analyzer-settings`) — what every analysis run uses right now. **At a glance**
+  says what's changed from the defaults and what runs. The table groups analyzers by whether a run
+  uses them, and lists each setting's value, what it means and the file it comes from
+  (built-in default, `config/analyzers.yaml`, the data source's file, or a team's file in
+  `config/analyzer_overrides.d/`). Pick a service and metric to see their own settings and which
+  override won (the Metric box lists that service's metrics). Settings the analyzer only shows as a
+  label, or doesn't read in its mode, fold away; a key no analyzer reads is flagged as a likely typo.
+  **How settings work** answers which file to edit and why a Lab change didn't change
+  findings. Read-only. See [See which analyzer settings are in use](configuration.md#see-which-analyzer-settings-are-in-use).
 - **Labs** — one page per analyzer (Z-Score Anomaly, PyOD Outlier, Prophet Forecast, Ruptures Change
   Point, STUMPY Motif, Trend) for running that analyzer directly against sample data and inspecting
-  its raw output.
+  its raw output. Each Lab is a sandbox and says so at the top: it shows the value runs use under
+  every field, and after a run with changed values says what the values in use would have found. **Use these values for
+  real** turns the values you changed into a snippet for a team's file or for `config/analyzers.yaml`;
+  nothing is saved.
 - **Add Analyzer** — the guided flow for registering a new analyzer, either Python code or your own
   HTTP service. See [`docs/analyzer-plugin-framework.md`](analyzer-plugin-framework.md#extensibility-model)
   and [`docs/http-analyzer-contract.md`](http-analyzer-contract.md).

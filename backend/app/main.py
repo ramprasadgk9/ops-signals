@@ -19,6 +19,7 @@ from backend.app.api.alerts import router as alerts_router
 from backend.app.api.analysis_runs import router as analysis_runs_router
 from backend.app.api.admin_analyzers import router as admin_analyzers_router
 from backend.app.api.analyzer_labs import router as analyzer_labs_router
+from backend.app.api.analyzer_settings import router as analyzer_settings_router
 from backend.app.api.assistant import router as assistant_router
 from backend.app.api.analyzer_router import router as analyzer_router
 from backend.app.api.autonomous import router as autonomous_router
@@ -500,6 +501,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(metric_analyzer_recommendations_router)
     app.include_router(analyzer_router)
     app.include_router(analyzer_labs_router)
+    app.include_router(analyzer_settings_router)
     app.include_router(autonomous_router)
     app.include_router(ingestion_router)
     app.include_router(ingestion_status_router)

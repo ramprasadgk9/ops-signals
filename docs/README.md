@@ -136,8 +136,11 @@ What analyzers are, why a given one gets picked for a given metric, and how much
 ## 6. Analyzer Workbench
 
 - [`analyzer-plugin-framework.md#analyzer-workbench-ui`](analyzer-plugin-framework.md#analyzer-workbench-ui) -
-  the Labs (run any analyzer directly against sample data), Add Analyzer wizard, and Recommendations
-  preview, all grouped under Experiments in the web UI.
+  Settings in use (which settings runs use, and from which file), the Labs (run any analyzer
+  directly against sample data), Add Analyzer wizard, and Recommendations preview, all grouped under
+  Analyzer Workbench in the web UI.
+- [`configuration.md#see-which-analyzer-settings-are-in-use`](configuration.md#see-which-analyzer-settings-are-in-use) -
+  where an analyzer setting comes from, which file to edit, and why a Lab change doesn't change findings.
 
 ## 7. Design Documents
 

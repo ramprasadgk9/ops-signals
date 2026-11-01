@@ -105,6 +105,8 @@ analyzers:
         min_range_excess: 0.56
         min_sustained_points: 8
         window: 15m
+        # Quiet mode, off by default; see config/analyzers.yaml.
+        compare_daily_peaks: false
     tunable:
       finding_rule.min_range_excess:
         type: number

@@ -110,10 +110,14 @@ behavior is validated against a known-answer dataset instead of only checked by 
 "Analyzer Workbench" is the sidebar grouping in the web UI that holds
 everything on this page in one place:
 
+- **Settings in use** - each analyzer's settings as analysis runs use them, the file each value
+  comes from, and whether a run uses the analyzer; see
+  [See which analyzer settings are in use](configuration.md#see-which-analyzer-settings-are-in-use).
 - **Labs** - one page per built-in analyzer (Z-Score Anomaly, PyOD Outlier, Prophet Forecast,
   Ruptures Change Point, STUMPY Motif, Trend) for running that analyzer directly against sample
   data and inspecting its raw signal output - useful for understanding what an analyzer actually
-  does before deciding whether to route more traffic to it.
+  does before deciding whether to route more traffic to it. A Lab is a sandbox: its values reach
+  only the Lab run, and **Use these values for real** gives the snippet to put them in a config file.
 - **Add Analyzer** - the wizard described above under [Extensibility Model](#extensibility-model).
 - **Recommendations** - the Universal Router's live scoring preview for a given series; see
   [`docs/analyzer-recommendation.md`](analyzer-recommendation.md).

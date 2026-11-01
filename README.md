@@ -268,7 +268,7 @@ What you can do, and where to find it in the app. The docs go deeper.
 | **Recurring problems** | Search past cases and imported postmortems; see when a fix didn't hold | **Recurring problems** | [Operational memory](docs/operational-memory.md), [importing history](docs/importing-incident-history.md) |
 | **Enriched alerts** | One Slack message per alert: what happened, what changed, seen before | No page: the Slack message; received alerts on **Alerts** | [Alert enrichment](docs/alert-enrichment.md) |
 | **Ask Ops Signals** | Ask about cases, findings, analyzers and these docs, with sources shown. Works with no AI: no API key, no cloud calls | **Ask Ops Signals** | [Assistant](docs/ask-ops-signals-assistant.md) |
-| **Analyzers** | Try analyzers on sample data, see why the router picked one, add your own | **Analyzer Workbench** | [Analyzer framework](docs/analyzer-plugin-framework.md) |
+| **Analyzers** | See which settings runs use and where each comes from, try analyzers on sample data, see why the router picked one, add your own | **Analyzer Workbench** | [Analyzer framework](docs/analyzer-plugin-framework.md) |
 | **Setup check** | Every connection and setting, red or green, with **How to fix** for each | **Setup check** (bottom of the sidebar) | [Getting started](docs/getting-started.md) |
 | **AI clients** | Query findings and cases from an MCP client | No page: MCP server | [MCP server](docs/mcp-server.md) |
 

@@ -95,6 +95,7 @@ PAGES: dict[str, str] = {
     "/autonomous-monitoring": "Viewer",
     "/validate-data": "Editor",
     "/analyzer-recommendation": "Editor",
+    "/analyzer-settings": "Editor",
     "/integrations": "Admin",
     "/experiments": "Admin",
     "/analyzer-router": "Admin",

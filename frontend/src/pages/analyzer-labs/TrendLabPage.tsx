@@ -22,7 +22,9 @@ import { PageHeader, WorkspacePanel } from '../../standalone/components';
 import { ui } from '../../standalone/theme';
 import type { CsvAnalyzerRoutingDecision, CsvValidationResult, ValidationSignal } from '../../types';
 import { AnalyzerLabConfigPanel } from './AnalyzerLabConfigPanel';
-import { analyzerConfigYaml, passFailFromFinding } from './labConfig';
+import { passFailFromFinding } from './labConfig';
+import { LabSandboxBanner, RunsUse, useAnalyzerInUse, useInUseComparison } from './labSettings';
+import { labChanges } from '../../utils/analyzerSettings';
 
 type Pattern = 'steady_up' | 'steady_down' | 'weak_trend' | 'noisy_trend' | 'flat';
 
@@ -144,6 +146,8 @@ export function TrendLabPage() {
   const [minSlopePercent, setMinSlopePercent] = useState(TREND_CONFIG.finding_rules.min_slope_percent);
   const [result, setResult] = useState<CsvValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { analyzer: inUse } = useAnalyzerInUse('trend');
+  const { comparison, compare } = useInUseComparison();
 
   const points = useMemo(
     () => generateSeries({ pattern, samples, interval, seed, baseline, trendPercent, noise }),
@@ -163,11 +167,8 @@ export function TrendLabPage() {
   const findingRules = { min_slope_percent: minSlopePercent };
   const shouldFind = Math.abs(expectedSlope) >= minSlopePercent;
   const passFailStatus = result ? passFailFromFinding(shouldFind, result.findings.length > 0) : 'unknown';
-  const yamlText = analyzerConfigYaml('trend', {
-    enabled: true,
-    implementation,
-    finding_rules: findingRules,
-  });
+  const values = { implementation, finding_rules: findingRules };
+  const hasChanges = labChanges(inUse, values).length > 0;
 
   const runMutation = useMutation({
     mutationFn: async () => {
@@ -186,7 +187,9 @@ export function TrendLabPage() {
           },
         },
       }));
-      return api.runCsvValidation(form);
+      const nextResult = await api.runCsvValidation(form);
+      if (hasChanges) compare(form);
+      return nextResult;
     },
     onSuccess: (nextResult) => {
       setError(null);
@@ -201,6 +204,7 @@ export function TrendLabPage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="Trend Lab" subtitle="Generate directional time-series data, run Trend Regression, and decide when slope becomes a finding." />
+      <LabSandboxBanner analyzerId="trend" paths={['finding_rules.min_slope_percent']} />
 
       <WorkspacePanel sx={{ p: 2.5 }}>
         <Typography sx={{ fontWeight: 900, fontSize: 20, mb: 1 }}>What This Lab Shows</Typography>
@@ -284,7 +288,7 @@ export function TrendLabPage() {
           </Button>
         </Stack>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 1.5, mt: 2 }}>
-          <TextField size="small" label="Min slope %" type="number" value={minSlopePercent} onChange={(event) => setMinSlopePercent(Math.max(0, Number(event.target.value)))} />
+          <TextField size="small" label="Min slope %" type="number" value={minSlopePercent} onChange={(event) => setMinSlopePercent(Math.max(0, Number(event.target.value)))} helperText={<RunsUse analyzer={inUse} path="finding_rules.min_slope_percent" value={minSlopePercent} onReset={(value) => setMinSlopePercent(Number(value))} />} />
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mt: 2 }}>
           <Chip label={`library ${TREND_CONFIG.implementation.library}`} />
@@ -335,13 +339,12 @@ export function TrendLabPage() {
       <AnalyzerLabConfigPanel
         analyzerId="trend"
         labName="Trend Lab"
-        yamlText={yamlText}
-        implementation={implementation}
-        findingRules={findingRules}
+        values={values}
+        yourFound={result ? result.findings.length > 0 : null}
+        comparison={comparison}
         passFailStatus={passFailStatus}
         passFailReason={result ? `Expected finding: ${shouldFind ? 'yes' : 'no'} because generated slope is ${expectedSlope.toFixed(1)}% and min slope is ${minSlopePercent}%. Actual finding: ${result.findings.length > 0 ? 'yes' : 'no'}.` : 'Run the analyzer to mark this lab run pass or fail.'}
         productionNote="you care about sustained directional movement across the whole window, such as latency slowly rising or traffic steadily falling."
-        benchmarkSummary={result ? { expected_slope_percent: expectedSlope, detected_slope_percent: detectedSlope, r_squared: rSquared, p_value: pValue, rule_matched: ruleMatched } : {}}
       />
 
       <Button startIcon={<RefreshRoundedIcon />} onClick={() => { setSeed(seed + 1); setResult(null); }} sx={{ alignSelf: 'flex-start', textTransform: 'none', fontWeight: 850 }}>

@@ -25,6 +25,7 @@ ROUTES = Path(__file__).resolve().parents[2] / "frontend" / "src" / "routes" / "
         ("/autonomous-monitoring", "Viewer"),
         ("/validate-data", "Editor"),
         ("/analyzer-recommendation", "Editor"),
+        ("/analyzer-settings", "Editor"),
         ("/assistant/docs-check", "Admin"),
         ("/experiments/trend-lab", "Admin"),
         ("/integrations", "Admin"),
