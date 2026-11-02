@@ -1,7 +1,8 @@
 # Contributing
 
 Thanks for helping improve Ops Signals. This page covers how to find something to work on, set up
-your machine, and get a pull request merged.
+your machine, and get a pull request merged. Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Find Something to Work On
 
