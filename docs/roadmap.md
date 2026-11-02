@@ -1,11 +1,8 @@
 # Roadmap
 
-What's planned, nearest first. For where this is all heading and why, see [`vision.md`](vision.md).
-
 ## Near-Term
 
-- add and update analyzers from feedback: missed problems, false alarms and symptoms teams had to
-  spot by hand
+- broaden analyzer coverage
 - refine case lifecycle UX
 - improve retrieval filtering
 - expand documentation around evaluation and releases
@@ -31,8 +28,5 @@ What's planned, nearest first. For where this is all heading and why, see [`visi
 - deeper evaluation tooling
 - richer extensibility for analyzers and capabilities
 - better support for iterative operational learning
-- suggested playbooks built from the steps that fixed past cases, with a person approving each step
-- warn when a known problem starts to look like it's happening again, before anyone is paged
-- share what one team learned with other teams that hit the same problem
 - Kubernetes and cloud-provider ingestion; ITSM/automation and generic external-system consumers -
   see [Roadmap (Not Yet Implemented)](architecture.md#roadmap-not-yet-implemented)
