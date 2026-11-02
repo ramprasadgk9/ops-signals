@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use Ops Signals in your work, please cite it as below."
+title: "Ops Signals"
+type: software
+abstract: >-
+  Open-source, self-hosted operational intelligence for Prometheus and OpenTelemetry metrics:
+  explains each metric change in plain language, links it to the deploy behind it, and remembers
+  how past incidents were fixed.
+authors:
+  - given-names: Ramprasad
+    family-names: Goturkarnam
+    alias: ramprasadgk9
+repository-code: "https://github.com/ramprasadgk9/ops-signals"
+url: "https://github.com/ramprasadgk9/ops-signals"
+license: MIT
+version: 0.5.0
+date-released: "2026-10-18"
+keywords:
+  - observability
+  - anomaly-detection
+  - time-series
+  - prometheus
+  - opentelemetry
+  - incident-management

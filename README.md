@@ -366,7 +366,10 @@ If you're running Ops Signals somewhere - production, staging, or just evaluatin
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Need help? See [SUPPORT.md](SUPPORT.md). Everyone taking part
+follows the [Code of Conduct](CODE_OF_CONDUCT.md); how decisions are made is in
+[GOVERNANCE.md](GOVERNANCE.md), and who maintains the project is in [MAINTAINERS.md](MAINTAINERS.md).
+To cite Ops Signals, use **Cite this repository** on GitHub ([CITATION.cff](CITATION.cff)).
 
 Ops Signals was created, designed and implemented by Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), its lead maintainer and primary contributor.
 
