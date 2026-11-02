@@ -375,6 +375,11 @@ Ops Signals was created, designed and implemented by Ramprasad Goturkarnam ([@ra
 - Ramprasad Goturkarnam ([@ramprasadgk9](https://github.com/ramprasadgk9)), creator and lead maintainer
 - Pruthvi Davineni ([@pruthviraja](https://github.com/pruthviraja)), maintainer
 
+**Contributors:** everyone whose pull request is merged is listed here and thanked in the release
+notes.
+
+- [@hellohatim](https://github.com/hellohatim) - test coverage for cases, memory and ingestion
+
 ## License
 
 Ops Signals is open source under the MIT license: free to use, change and share, including at

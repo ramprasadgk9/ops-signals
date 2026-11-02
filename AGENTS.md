@@ -53,6 +53,7 @@ to the deploy behind it, and remembers how past incidents were fixed. Main parts
 - Merge with `git merge --no-ff <branch>` and the default message `Merge branch '<branch>' into main`.
 - Never rewrite published history: no force-push, rebase or `filter-repo` on `main`.
 - No AI co-author or "Generated with" lines in commits or PR descriptions.
+- Commits in a pull request need a DCO sign-off: commit with `git commit -s`.
 - Never commit: `tmp/`, `video/`, benchmark results, local QA reports, `.env`, secrets.
 
 ## Product rules

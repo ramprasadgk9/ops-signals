@@ -25,6 +25,11 @@ Includes Grafana plugin 1.0.35.
   same against a real, throwaway Keycloak in Docker, set up with the documented steps (users john,
   elena and vic as Admin, Editor and Viewer); `path-off` / `path-on` show the group-path trap.
 
+- **Fixed: case notes showed the wrong time** for anyone outside UTC. Notes were saved in UTC
+  without saying so, and browsers read them as local time, so in New York a note looked 4–5 hours
+  later than it was written. Notes are now saved with their zone, and notes saved earlier show the
+  right time too (the web UI, the Grafana plugin and MCP all read them through the API).
+
 - **The plugin's Autonomous Analysis is read-only for Grafana Viewers**, as in the web UI: the saved
   schedule and what runs found, without the Configure stage, Edit, Pause or "Enable category".
 

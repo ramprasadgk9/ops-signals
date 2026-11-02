@@ -1,0 +1,38 @@
+// A ready-to-code environment for GitHub Codespaces or VS Code Dev Containers: Python 3.12 and
+// Node 20 (the versions CI uses), plus Docker for PostgreSQL, Qdrant and Prometheus. Creating it runs
+// ./scripts/setup.sh; then start everything with ./scripts/run_all.sh. See "Set Up Your Machine" in
+// CONTRIBUTING.md.
+{
+  "name": "Ops Signals",
+  "build": { "dockerfile": "Dockerfile" },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  // setup.sh installs PyTorch (through sentence-transformers) and pulls the database images, so
+  // a small machine runs out of memory or disk.
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+  // The container keeps its own .venv and node_modules in volumes, so opening an existing checkout
+  // in a container doesn't replace the ones built for your own machine. The venv is created first
+  // because setup.sh rebuilds a .venv it can't run, and a volume's mount point can't be removed.
+  "mounts": [
+    "source=ops-signals-venv-${devcontainerId},target=${containerWorkspaceFolder}/.venv,type=volume",
+    "source=ops-signals-node-modules-${devcontainerId},target=${containerWorkspaceFolder}/frontend/node_modules,type=volume"
+  ],
+  "postCreateCommand": "sudo chown vscode .venv frontend/node_modules && (test -x .venv/bin/python || python3.12 -m venv .venv) && ./scripts/setup.sh",
+  "forwardPorts": [5174, 8001, 9090],
+  "portsAttributes": {
+    "5174": { "label": "Web UI", "onAutoForward": "openBrowser" },
+    "8001": { "label": "Backend API" },
+    "9090": { "label": "Prometheus" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "dbaeumer.vscode-eslint"]
+    }
+  }
+}
