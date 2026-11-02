@@ -1,360 +1,119 @@
 # Vision
 
-Ops Signals addresses a common operational problem: raw metric streams are too low-level for humans to use directly during incident review, and detector outputs alone usually stop at "something changed".
+**No team should debug the same incident twice.** We want a future where the person on call opens a
+problem and already knows what changed, whether it has happened before, what fixed it last time and
+what to try next, even at 3 a.m., even in their first week, even when everyone who fixed it before
+has moved on.
 
-## From Operational Metrics to Operational Intelligence
+This page is about where Ops Signals is going. For what it does today, see the
+[README](../README.md) and the [UI tour](ui-tour.md).
 
-Traditional observability platforms help engineers **see** what is happening through dashboards, alerts, and logs.
+## Why This Matters
 
-Ops Signals goes one step further—it helps teams **understand**, **learn**, and **improve** from operational behavior over time.
+Monitoring has become very good at telling teams **that** something changed. It is still poor at
+telling them **what it means** and **what to do about it**. That knowledge lives in people's heads,
+old Slack threads and closed tickets, and it leaves when people go off shift, change teams or leave.
 
-Instead of treating every incident as an isolated event, Ops Signals continuously builds operational intelligence from metrics, investigations, and historical experience.
+So teams pay for the same incident again and again: the same hours of digging, the same wrong
+guesses, the same fix found again by someone new. The cost isn't the outage alone. It's
+everything the team has already learned and then forgotten. Keeping that knowledge is how
+Ops Signals cuts the time to resolve an incident (MTTR): fewer pages for known noise, and a head
+start on the real ones.
 
-## The Operational Problem
+## Where We're Going
 
-- Raw data is high-volume and noisy
-- Detection tells you that a pattern exists, not what it means
-- Teams need context, comparisons, and history to decide what matters
+Each shift starts from something Ops Signals already does and says where we want to take it. The
+**Next** parts are direction, not features: none of them is built yet.
 
-## The Five Layers of Operational Intelligence
+### 1. From "what changed" to "what to do next"
 
-### 1. Understand Operational Behavior
+**Today:** a finding explains the change in plain words and points to the past case that fixed
+something similar.
 
-The first goal is to understand what is happening inside operational metrics.
+**Next:** the steps that worked before become a suggested playbook for the new problem: check this,
+then this, then try this fix. A person approves every step; Ops Signals never acts on its own.
 
-Ops Signals applies multiple analyzers to the same metric and combines their outputs into explainable operational findings.
+### 2. Analyzers that get better from feedback
 
-Example:
+**Today:** several analyzers look at each metric, picked by the shape of its data. Teams can tune
+them per service, and each finding can be marked right or wrong. The analyzers are tested against
+data where the right answer is known.
 
-```text
-Input Metric
-cpu_throttled_seconds
+**Next:** we keep adding and updating analyzers based on that feedback: the problems they missed,
+the false alarms they raised, and the symptoms teams had to spot by hand. The aim is findings that
+pick out the real symptom of a problem more often, with each release saying what got better.
 
-Analyzer Results
-Trend
-✓ Sustained increase
+### 3. From reacting to alerts to seeing problems coming
 
-Baseline Shift
-✓ New operating level detected
+**Today:** scheduled analysis checks your metrics and posts important findings to Slack, often
+before any alert fires. Ops Signals also groups problems that keep coming back and flags a problem
+that returns after its fix.
 
-Anomaly
-✓ Two unusual windows
+**Next:** it recognises the early shape of a known problem ("this looks like the start of last
+month's outage") and says so before anyone is paged.
 
-Operational Finding
-CPU throttling behavior changed significantly compared to the previous period.
-```
+### 4. Every incident leaves the team smarter
 
-Instead of showing individual detector outputs, Ops Signals explains the operational significance of the metric.
+**Today:** cases record the root cause and the fix, and new findings show when the same thing was
+seen before.
 
-### 2. Learn Operational Patterns
+**Next:** someone new to the team starts with the team's whole history of problems and fixes, and
+what one team learns can help another team that hits the same problem.
 
-Every analyzed metric teaches the platform something about system behavior.
+### 5. Trust that is earned, not assumed
 
-Unlike incident systems, this learning does **not** require an investigation or root cause analysis.
+**Today:** each finding shows how often findings for that metric turned out to be real, from your
+team's answers, and an alerting tool can ask whether an alert looks real or like known noise before
+it pages anyone.
 
-Ops Signals stores reusable operational patterns including:
+**Next:** Ops Signals learns which findings matter to each team, gets quieter about the ones that
+don't, and shows why it changed its mind.
 
-- Metric type
-- Analyzer combinations
-- Statistical characteristics
-- Behavior summary
-- Typical evolution
-- Services where the pattern occurred
+### 6. Memory that works where people already are
 
-Example:
+**Today:** Ops Signals runs as its own web UI and inside Grafana, sends to Slack, and answers AI
+tools through its MCP server.
 
-```text
-Pattern
+**Next:** chat tools, ticket systems and AI agents use Ops Signals memory as their source of facts
+about past incidents, so every answer they give is grounded in what really happened, with people
+still in control.
 
-Metric:
-memory_usage
+### 7. Open at any size
 
-Behavior:
-Gradual memory growth
+**Today:** self-hosted, MIT-licensed and vendor-neutral, running as a single instance.
 
-Analyzer Evidence:
-✓ Trend
-✓ Baseline Shift
+**Next:** several instances share the work for very large metric volumes, and the community adds
+analyzers and integrations as easily as the core team does.
 
-Summary:
-Memory usage increased steadily over six hours with a permanent baseline shift.
+## What Won't Change
 
-Observed In:
-checkout
-payments
-inventory
-```
+- **It works without AI.** Every core feature stays deterministic and explainable
+  ([ADR-007](adr/ADR-007-deterministic-answer-composition.md)). AI can help with drafts and
+  wording; it is never required.
+- **People decide.** Ops Signals suggests and explains. People approve, act and close cases.
+- **Your data is the record.** Decisions come from what is stored in PostgreSQL; search only helps
+  find similar past cases.
+- **Plain words first.** Say what happened in everyday words; keep the statistics in the details.
+- **Open and neutral.** Self-hosted, open source, works with any Prometheus-compatible backend or
+  OpenTelemetry, and favours no commercial vendor.
 
-When another service shows the same analyzer pattern, Ops Signals recognizes it immediately—even if nobody has investigated it before.
+## What We Won't Become
 
-This creates a continuously growing pattern memory for operational behavior.
-
-### 3. Build Operational Knowledge
-
-When engineers investigate important findings, they create structured operational knowledge.
-
-Unlike pattern memory, operational knowledge captures verified human expertise.
-
-Each completed investigation records:
-
-- Investigation notes
-- Root cause
-- Resolution
-- Verification
-- Outcome
-- Supporting evidence
-
-Example:
-
-```text
-Finding
-CPU throttling increased after deployment
-
-↓
-
-Investigation
-
-↓
-
-Root Cause
-CPU requests were too low
-
-↓
-
-Resolution
-Increase CPU requests to 1500m
-
-↓
-
-Verification
-CPU throttling returned to normal
-
-↓
-
-Outcome
-Resolved
-```
-
-Completed investigations become reusable knowledge for future engineers.
-
-### 4. Operational Decision Intelligence
-
-Pattern memory and operational knowledge work together to assist future investigations.
-
-When a new operational issue appears, Ops Signals compares current behavior against previously learned patterns and historical investigations.
-
-Example:
-
-```text
-Current Observation
-cpu_throttled_seconds
-✓ Trend
-✓ Baseline Shift
-✓ Anomaly
-
-Ops Signals responds
-Similar Pattern Found
-
-Seen In:
-payments
-checkout
-inventory
-
-Typical Investigation
-• Review CPU requests
-• Review deployment history
-
-Known Root Causes
-• CPU limits too low
-• Traffic increase
-
-Successful Resolutions
-• Increase CPU limits
-• Scale worker replicas
-```
-
-Instead of starting every investigation from scratch, engineers begin with historical operational experience.
-
-The goal is to reduce mean time to resolution.
-
-### 5. Autonomous Operational Intelligence
-
-As pattern memory and operational knowledge continue to grow, they become the foundation for autonomous operational workflows.
-
-Rather than relying on a single AI model, specialized agents can collaborate using historical operational intelligence.
-
-Future workflow:
-
-```text
-Alert
-
-↓
-
-Evidence Agent
-
-↓
-
-Pattern Matching Agent
-
-↓
-
-Historical RCA Agent
-
-↓
-
-Resolution Planning Agent
-
-↓
-
-Human Approval
-
-↓
-
-Automated Execution
-```
-
-This enables AI-assisted investigations while keeping humans in control.
-
-## Core Distinctions
-
-- Raw data: canonical time-series points
-- Signal: analyzer output about a pattern or change
-- Finding: aggregated operational interpretation of signals
-- Behavior finding: a higher-level condition derived from multiple signals and behavior rules
-- Case: a trackable investigation object with lifecycle fields
-- Memory: an embedding-backed retrieval index for prior cases
-
-## Two Types of Operational Learning
-
-### Pattern Memory
-
-Learns directly from analyzer evidence.
-
-Stores:
-
-- Operational behaviors
-- Analyzer combinations
-- Metric characteristics
-- Pattern summaries
-- Representative examples
-- Cross-service observations
-
-Answers questions such as:
-
-- Have we seen this behavior before?
-- What type of operational pattern is this?
-- Which analyzers usually detect this pattern?
-- Is this normal system behavior?
-
-### Operational Knowledge
-
-Learns from completed investigations.
-
-Stores:
-
-- Findings
-- Investigation notes
-- Root cause
-- Resolution
-- Verification
-- Outcome
-
-Answers questions such as:
-
-- How was this solved previously?
-- What root causes were confirmed?
-- Which resolutions were successful?
-- Who investigated similar incidents?
-
-## Complete Operational Intelligence Lifecycle
-
-```text
-Operational Metrics
-        │
-        ▼
-Multiple Analyzers
-        │
-        ▼
-Operational Findings
-        │
-        ├──────────────► Pattern Memory
-        │
-        ▼
-Investigation
-        │
-        ▼
-Root Cause
-        │
-        ▼
-Resolution
-        │
-        ▼
-Verification
-        │
-        ▼
-Operational Knowledge
-        │
-        ▼
-Operational Assistant
-        │
-        ▼
-Future Autonomous Operations
-```
-
-## Target Users
-
-- Platform engineers
-- SREs and operations teams
-- Observability-oriented product teams
-- Engineers who want a structured incident review workflow
-
-## Principles
-
-- Keep PostgreSQL authoritative
-- Keep analysis deterministic and explainable
-- Prefer explicit metadata over hidden heuristics
-- Treat semantic retrieval as assistance, not proof
-
-## Current Scope
-
-- CSV, Prometheus, and OTLP metrics ingestion (see
-  [`docs/design/otlp-metrics-ingestion-plan.md`](design/otlp-metrics-ingestion-plan.md) for the OTLP path)
-- Analyzer-driven signal generation
-- Finding aggregation
-- Declarative behavior intelligence across multiple signals
-- Operational cases
-- Qdrant-backed retrieval
-- Alert enrichment: Alertmanager alerts analyzed on arrival and posted to Slack with what happened,
-  what changed (deploys and other change events), and whether it has been seen before (see
-  [`docs/alert-enrichment.md`](alert-enrichment.md))
-- Slack notifications for high-importance findings
-
-## Non-Goals
-
-- Autonomous remediation
-- Replacing existing observability systems
-- Claiming root cause from similarity alone
-- Treating the assistant as an oracle: it is a retrieval and explanation layer, grounded in stored operational context
-
-## Why Ops Signals?
-
-Traditional observability platforms answer:
-
-- What is happening?
-- Where is the problem?
-
-Ops Signals answers the next generation of operational questions:
-
-- What changed?
-- What does this behavior mean?
-- Have we seen this operational pattern before?
-- How was a similar incident resolved?
-- What should I investigate next?
-- Can operational knowledge be reused to reduce MTTR?
-- Can future investigations become AI-assisted or autonomous?
-
-Instead of treating every incident as a new problem, Ops Signals transforms operational observations into reusable operational intelligence—allowing every investigation to improve future operations.
-
-## Future Direction
-
-The project is moving toward richer case comparison, better retrieval filters, and more useful operational memory without losing determinism.
+- **An autopilot.** Ops Signals won't change your systems on its own.
+- **Another monitoring stack.** It builds on Prometheus, Grafana and OpenTelemetry; it doesn't
+  replace them.
+- **A guessing machine.** It won't claim a root cause from similarity alone: a past case is a lead
+  to check, not proof.
+- **An oracle.** The assistant explains what is stored; it doesn't invent answers.
+
+## Where We Are Now
+
+Ops Signals already explains metric changes in plain words, links them to deploys, keeps cases and
+shows when a problem was seen before, and runs as a web UI or a Grafana app plugin. The
+[README](../README.md) has the full list; [roadmap.md](roadmap.md) has what's planned next.
+
+## Help Shape It
+
+The vision is set in the open. Share ideas in
+[Discussions → Ideas](https://github.com/ramprasadgk9/ops-signals/discussions/categories/ideas);
+how decisions are made is in [GOVERNANCE.md](../GOVERNANCE.md).
