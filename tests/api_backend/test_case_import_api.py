@@ -187,6 +187,8 @@ def test_notes_added_in_ops_signals_survive_reimport(client: TestClient) -> None
     notes = _cases_by_source_id()["INC-1001"].investigation_notes
     assert any(note["note"] == "Same pattern seen in staging" for note in notes)
     assert sum(1 for note in notes if note.get("source") == "import") == 1
+    # Times carry their zone, so browsers don't read UTC as local time.
+    assert all(note["timestamp"].endswith("+00:00") for note in notes if note.get("timestamp"))
 
 
 def test_markdown_without_id_reimports_as_unchanged(client: TestClient) -> None:

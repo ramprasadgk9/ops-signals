@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -187,7 +187,7 @@ class CaseImportService:
         case.investigation_status = "completed"
         local_notes = [note for note in (case.investigation_notes or []) if note.get("source") != IMPORT_NOTE_SOURCE]
         imported_notes = [
-            {"timestamp": started_at.isoformat() if started_at else None, "note": note, "source": IMPORT_NOTE_SOURCE}
+            {"timestamp": started_at.replace(tzinfo=timezone.utc).isoformat() if started_at else None, "note": note, "source": IMPORT_NOTE_SOURCE}
             for note in record.notes
         ]
         case.investigation_notes = imported_notes + local_notes

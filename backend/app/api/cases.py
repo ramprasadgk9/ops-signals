@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.app.alerts.correlation import as_utc
 from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.ai.services.narrative_service import synthesize_narrative
 from backend.app.api.assistant import get_assistant
@@ -85,6 +86,19 @@ def _refresh_case_memory(
     db.commit()
 
 
+def _note_out(note: dict) -> dict:
+    """The note with its time marked as UTC. Notes saved before this was fixed hold UTC times with no
+    zone (`2026-10-30T17:13:06`), which browsers read as local time, so the note showed hours off."""
+    stamp = note.get("timestamp")
+    if not isinstance(stamp, str):
+        return note
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except ValueError:
+        return note
+    return {**note, "timestamp": as_utc(moment).isoformat()}
+
+
 def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
     computed_case_status, computed_investigation_status = derive_case_status(case)
     
@@ -97,7 +111,7 @@ def _to_case_out(case: OperationalCaseEntity) -> CaseOut:
         case_status=computed_case_status,
         finding_snapshot=case.finding_snapshot or {},
         investigation_status=computed_investigation_status,
-        investigation_notes=case.investigation_notes or [],
+        investigation_notes=[_note_out(note) for note in case.investigation_notes or []],
         root_cause_status=case.root_cause_status,
         root_cause_summary=case.root_cause_summary,
         root_cause_confidence=case.root_cause_confidence,
@@ -364,7 +378,7 @@ def update_investigation(
     if payload.investigation_note:
         notes = list(case.investigation_notes or [])
         notes.append({
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "note": payload.investigation_note,
         })
         case.investigation_notes = notes
