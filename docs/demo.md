@@ -8,7 +8,7 @@ workspace, or any data of your own.
 ```bash
 git clone https://github.com/ramprasadgk9/ops-signals.git
 cd ops-signals
-docker compose -f docker-compose.demo.yml up --build
+docker compose -f docker-compose.demo.yml up
 ```
 
 Within a few minutes of the containers starting, open:
@@ -21,9 +21,12 @@ Within a few minutes of the containers starting, open:
 | http://localhost:9094 | Alertmanager |
 
 Requirements: Docker with Compose v2.20 or later and about 4 GB of memory for Docker (8 GB with
-`--profile ai`, see [Turn on AI](#turn-on-ai)). `--build` builds the images from this checkout,
-which takes 10+ minutes the first time (mostly PyTorch for the embedding model); without it,
-Compose uses the published images, which can be older than the code.
+`--profile ai`, see [Turn on AI](#turn-on-ai)). The demo downloads the published images of the
+latest release; if they can't be downloaded, Compose builds them from this checkout instead (10+
+minutes the first time, mostly PyTorch for the embedding model). Compose keeps the images it
+downloaded, so to move to a newer release run `docker compose -f docker-compose.demo.yml pull`
+first. On a checkout that is ahead of the latest release, such as `main` between releases, add
+`--build` so the images match the code (see "Build the images yourself" under [Common tasks](#common-tasks)).
 
 ## The story
 
@@ -57,7 +60,9 @@ they show their usual fallback, and everything else works.
 
 The same ten steps are in the app: a **Things to try** guide in the corner, on by default, with a
 button for each step that takes you there and ticks itself off. Progress is kept in your browser.
-`OPS_SIGNALS_DEMO_TOUR=false` in front of the command hides it.
+`OPS_SIGNALS_DEMO_TOUR=false` in front of the command hides it. With AI off, the case step is
+**Make a case** and ticks off when the case opens; with AI on, it's **Make a case and draft a root
+cause** and ticks off with **Draft from case**.
 
 1. **Read the alert as it reached the team** at http://localhost:8090: what happened, the deploy
    (`v2.14.0`), and the past case with its fix (roll back).
@@ -91,7 +96,7 @@ Nothing is sent anywhere unless you choose a provider. Three ways:
 downloads `gemma3:4b` into it, and switches AI on:
 
 ```bash
-docker compose -f docker-compose.demo.yml --profile ai up --build
+docker compose -f docker-compose.demo.yml --profile ai up
 ```
 
 - First start: about 10 GB to download (the Ollama image is about 7 GB, the model about 3 GB),
@@ -108,7 +113,7 @@ fill in three lines, and start the demo with it:
 
 ```bash
 cp demo/ai-api.env.example demo/ai-api.env
-docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up --build
+docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up
 ```
 
 | Setting | What to put |
@@ -132,7 +137,7 @@ docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up --build
 [Ollama](https://ollama.com) on your own machine, with a model already pulled:
 
 ```bash
-OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama OPS_SIGNALS_OLLAMA_URL=http://host.docker.internal:11434 OPS_SIGNALS_OLLAMA_MODEL=gemma3:4b docker compose -f docker-compose.demo.yml up -d --build
+OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama OPS_SIGNALS_OLLAMA_URL=http://host.docker.internal:11434 OPS_SIGNALS_OLLAMA_MODEL=gemma3:4b docker compose -f docker-compose.demo.yml up -d
 ```
 
 Any OpenAI-compatible endpoint works too (`OPS_SIGNALS_AI_PROVIDER=openai_compatible` with
@@ -160,7 +165,7 @@ visit, so it changes a few things (off by default, and the local demo above stay
   New Analysis.
 
 ```bash
-OPS_SIGNALS_DEMO_MODE=true OPS_SIGNALS_DEMO_RESET_HOURS=2 OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=recorded docker compose -f docker-compose.demo.yml up -d --build
+OPS_SIGNALS_DEMO_MODE=true OPS_SIGNALS_DEMO_RESET_HOURS=2 OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=recorded docker compose -f docker-compose.demo.yml up -d
 ```
 
 | Setting | What it does |

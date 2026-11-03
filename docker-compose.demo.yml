@@ -13,11 +13,11 @@
 #
 # With AI, from a model running in its own container (downloads about 10 GB the first time and
 # needs about 8 GB of memory for Docker):
-#   docker compose -f docker-compose.demo.yml --profile ai up --build
+#   docker compose -f docker-compose.demo.yml --profile ai up
 #
 # With AI from a model API you already have (nothing to download): copy demo/ai-api.env.example to
 # demo/ai-api.env, fill in the URL, key and model, then
-#   docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up --build
+#   docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up
 #
 # A "Things to try" guide in the corner walks you through it; OPS_SIGNALS_DEMO_TOUR=false hides it.
 #

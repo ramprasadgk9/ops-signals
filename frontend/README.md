@@ -42,7 +42,9 @@ allow_loading_unsigned_plugins = breezypoppy3596-opssignals-app
 ```
 
 or `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-opssignals-app` in Grafana's
-environment.
+environment. The plugin's page in Grafana then shows an **Invalid plugin signature** notice and an
+**Unsigned** badge: that's expected for an unsigned plugin you allowed by name, and the plugin
+works.
 
 ## Configure
 

@@ -4,7 +4,29 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
-## 1.0.35 - Unreleased (ships with the next Ops Signals release)
+## 1.0.35 - 2026-11-02 (Ops Signals 0.6.0)
+
+- **Metrics split by pod are analyzed as one line.** Interactive Analysis through a Grafana data
+  source sent every pod's samples as one series, so one pod going from 90 to 1150 among four made no
+  finding. Metric mode now combines the pods the way scheduled runs read the metric, says "Analyzed
+  as one line: the average of N pods" and names the odd pod. Combine buttons pick another way;
+  more than 20 pods work, and the samples keep their own step instead of being rounded to a minute.
+- **Fix didn't hold.** A finding or case back within 30 days of a fix on the same service shows the
+  same banners as the web UI, naming the old case and its fix.
+- **Found with custom settings.** A finding made with per-service analyzer settings says so on the
+  overview's finding panel, with the value used and the default.
+- **Filter the Autonomous overview by service.** A Service select next to the cluster chips; findings,
+  behavior findings and cases follow it, and it's kept in the page URL.
+- **Hide overview sections you don't need.** Current Run Summary, Service Priorities, Observed
+  Changes and Behavior findings fold to one line with their numbers; the choice is remembered in
+  that browser. "Fix the data first" lists each metric once.
+- **What's what?** The Overview explains its words and the signal → finding → case → memory chain.
+- **Old charts say why they're empty.** A finding whose chart points were deleted by retention says
+  so, and that the finding itself is kept.
+- **Fixed: the overview card's chips could be about another service.** "Highest importance", "First
+  observed" and what Investigate / Create case act on now come from the card's own service.
+- **Fixed: Run details.** It opens full width below the result tiles, reads as a link, and ends with
+  a Hide run details button. The Evidence card's signal count reads as one sentence.
 
 - **Autonomous Analysis read-only for Viewers.** A Grafana Viewer gets the Overview only: the saved
   schedule with its owner and next run, without Edit, Pause, the Configure stage or the set-up form,

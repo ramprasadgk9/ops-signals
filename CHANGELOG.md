@@ -1,8 +1,134 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-11-02
 
 Includes Grafana plugin 1.0.35.
+
+**Install and run**
+
+- **Production-ready Helm chart.** Settings for Jira, Slack, Alertmanager, AI and Qdrant secrets,
+  `extraEnv` / `extraEnvFrom`, readiness and liveness probes on `/api/health` and
+  `/api/health/live`, resource requests and limits, a service account, Ingress TLS, and the web UI's
+  proxy pointed at the release's own backend service. The MCP server is optional (off by default)
+  and now has its own image, `ghcr.io/ramprasadgk9/ops-signals-mcp`.
+- **A demo you can try in one command, with a guided tour.** `docker-compose.demo.yml` starts with
+  "Things to try", ten steps from a finding to a published fix (`OPS_SIGNALS_DEMO_TOUR=false` hides
+  it). AI is off, local (`--profile ai` runs Ollama with gemma3:4b) or from a model API you set in
+  `demo/ai-api.env` (`DEMO_AI_URL`, `DEMO_AI_KEY`, `DEMO_AI_MODEL`, or the Anthropic settings).
+  Demo mode (`OPS_SIGNALS_DEMO_MODE`) keeps a shared demo safe: visitors can't reach Admin pages,
+  schedules, deletes, Jira or ingestion, and AI answers can be replayed from recorded ones. Two of
+  the demo's changes now come from specific pods, and the demo starts with the same history each
+  time.
+- **Who can use Ops Signals, in three steps.** `docs/access.md` is the one place for locking the
+  API, giving people roles (through the Grafana plugin, a company login or a sign-in proxy) and
+  checking it, with the only roles table. Setup check → Login says which step you're on and the
+  one next action.
+- **Fixed: the demo's guide stuck on step 4 without AI.** Its case step only ticked off with Draft
+  from case, which shows only with AI on, so the no-AI demo never got past it. With AI off the step
+  is now "Make a case" and ticks off when a case is created.
+- **Fixed: signing out of a company login asked "Do you want to log out?"** Sign-out now passes the
+  sign-in's ID token to the provider, so it ends the session straight away.
+- **Fixed: setup script.** The Qdrant readiness check works, and Python 3.11 installs a matching
+  numpy.
+
+**Analysis**
+
+- **Metrics split by pod are analyzed instead of refused.** New Analysis stopped with "matched N
+  series, which differ by pod", which is most Kubernetes metrics. It now combines the pods the way
+  scheduled runs read that metric (highest, added up, average or lowest, from
+  `config/prometheus_metric_knowledge.yaml`), analyzes the one line, and says which pod the change
+  came from. Preview shows the split and the odd pod out; the Pods box picks another way to combine
+  or one pod. Works past 20 pods (labels only, up to 2,000 series). Pod labels are recognised as
+  `pod`, `pod_name`, `kubernetes_pod_name`, `instance` or `host` by default.
+- **Per-service analyzer settings.** Files in `config/analyzer_overrides.d/` change an analyzer's
+  settings, or which analyzers run, for one service or metric (exact or wildcard), each with a
+  reason. Only settings an analyzer lists as tunable can change, and a file with a problem is
+  skipped and reported while the others apply. Findings made with them say so ("Found with custom
+  settings", the value used and the default) and their trust drops the tested rate ("Custom
+  settings · not tested"). Setup check lists what's in use, skipped files and overrides that
+  matched nothing. Overrides now merge key by key, so changing one setting keeps the rest of its
+  block.
+- **Settings in use.** Analyzer Workbench → Settings in use shows what every run uses: each setting
+  with its value, the file it comes from and what it means; what's changed from the defaults;
+  which analyzers run; and, for a picked service and metric, which override won. Keys no analyzer
+  reads are flagged as likely typos. Analyzer Labs say they are a sandbox.
+- **"Which analyzer fits my metric?"** replaces the Recommendations form: pick an analyzed metric
+  and see Good fit, Can help and Not a fit, with what each analyzer looks for and whether it ran on
+  that metric last time. Fit score and confidence move into a "How sure?" tooltip.
+- **Multi-metric patterns match in scheduled and OTLP analysis.** Those analyze each metric in its
+  own run, so a pattern over two metrics (pool exhaustion, cascading failure) never matched there.
+  Rules are now checked again across a cycle's runs, per service.
+- **Fixed: custom metrics shared one analysis job.** An explicit metric list or include pattern ran
+  one metric per service and skipped the rest; each now gets its own job.
+- **Fixed: one huge metric could hide a whole service.** Series discovery downloaded every series
+  and trimmed afterwards; at about a million series Mimir refused the answer. Each request now asks
+  for only as many series as it keeps.
+- **Fixed: backends sharing a database could repeat work.** A scheduled analysis is claimed by one
+  backend before it runs, and the OTLP analysis cycle runs on one backend at a time. See
+  `docs/running-multiple-backends.md`.
+- **Stored points: each saved once, and deleted after 30 days.** A schedule used to save its whole
+  window on every run (48 copies of each point a day for a 24h window every 30 minutes); a run now
+  saves only new points. Points older than `OPS_SIGNALS_POINT_RETENTION_DAYS` (30; 0 keeps all) are
+  deleted about once an hour. Findings are never deleted, points behind a case are kept, and a
+  finding whose chart data is gone says why.
+
+**Findings, cases and memory**
+
+- **The Overview leads with what needs you now.** "Look at this first" names the one problem to open;
+  Needs Attention lists this shift's open cases, combined patterns and new problems; the shift
+  handoff is a button.
+- **"Fix didn't hold."** A finding or case back within 30 days of a fix on the same service says so
+  on the finding, the new case and the old case, naming the old fix and what it left open. Found
+  without AI; with AI on, "Why might it not have held?" lists up to three possible reasons, never
+  saved. Also in the Grafana plugin.
+- **Draft from case.** With AI on, Editors can draft Root Cause and Resolution from the case's notes,
+  ticket comments, matched deploy and similar past cases. Drafts are never saved by themselves, can
+  be undone, and drop any sentence that names a number, version or name not in the case, claims
+  certainty, or claims a fix the case never mentions.
+- **Case timeline and write-up.** Publish Knowledge shows the case's timeline (built without AI) and
+  time to fix, and a write-up saved with the case and added to memory. With AI on, Draft write-up
+  fills it in through the same checks.
+- **AI wording for unfamiliar metrics.** With AI on, a finding on a metric Ops Signals has no
+  description for can get a plain-language explanation. `docs/ai-features.md` lists every place AI
+  is used, what each sends and what shows without it.
+- **Finding cards: Seen before.** The card's right column shows the closest past case and what fixed
+  it, or "New pattern"; "Recurring · N past cases" opens the details there. Trust for findings
+  without a service label counts answers per metric and shows "2 of 5 answers" until the team's own
+  rate takes over.
+- **Filter by service.** Findings and Cases have a Service dropdown with counts (`?service=`); the
+  plugin's Autonomous overview has one too. `GET /api/cases?service=` filters before the limit.
+- **Behavior Intelligence filter and pattern search.** Findings can show only those that are part of
+  a combined pattern (`?only=patterns`), and search finds a pattern's findings by its name or rule
+  id.
+- **Cases and Investigations are one page.** Cases has Open / In progress / On hold / Resolved / All
+  tabs; `/investigations` opens the In progress tab.
+- **Behavior rules in plain words.** Conditions are picked as [metric] [is rising / is falling / has
+  an unusual spike / changed by more than N%], and See it on my data tries a draft rule on a
+  service's recent runs before saving.
+- **Metric Usage: Add to Grafana and Drop.** Metrics nobody watches get a ready query for Grafana or
+  copyable scrape config to drop them, with checkboxes for several at once, and recording rules
+  nobody reads get removal steps. Storage leads with series counts and shows cost only when a rate
+  is set.
+- **Runbook link in Slack alerts.** An alert rule's `runbook_url` shows as "Runbook: Open the
+  runbook" in the enriched message.
+- **What's what?** Findings, Cases, Behavior Intelligence and Recurring problems explain their words
+  and the signal → finding → case → memory chain, with `docs/glossary.md` behind them.
+- **Fixed: past-case search ranked on the wrong vector.** Memory points left behind by deleted cases
+  forced every symptom search onto the full-document vector. They are removed at startup, only when
+  the database holds cases.
+- **Fixed: case drafts failed on cases opened from a finding.** The technical title is replaced by
+  the finding's plain headline before drafting.
+
+**Project**
+
+- **Contributor and community files.** `CONTRIBUTING.md` with DCO sign-off, a dev container, Code of
+  Conduct (Contributor Covenant 2.1), `SUPPORT.md`, `GOVERNANCE.md`, `MAINTAINERS.md` and
+  `CITATION.cff`. `docs/glossary.md`, `docs/vision.md`, and a guide to writing docs Ask Ops Signals
+  can answer from.
+- **CI runs on demand.** CI, Demo smoke test and Integration start from Actions → Run workflow; image
+  and plugin builds still run on release tags.
+
+**Earlier in this release**
 
 - **Company sign-in for the web UI.** With `OPS_SIGNALS_AUTH_MODE=oidc` Ops Signals signs people in
   itself with any OpenID Connect provider: a sign-in page, the provider's page, and back with the

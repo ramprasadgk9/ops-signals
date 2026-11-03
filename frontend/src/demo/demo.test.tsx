@@ -9,10 +9,10 @@ import { AiLabel } from './AiLabel';
 import { DemoBanner } from './DemoBanner';
 import { DemoTurnedOff } from './DemoTurnedOff';
 import { ThingsToTry } from './ThingsToTry';
-import { DEMO_STEPS, loadProgress, resetText, stepDoneBy, turnedOffReason } from './demo';
+import { DEMO_STEPS, demoSteps, loadProgress, resetText, stepDoneBy, turnedOffReason } from './demo';
 import { markDemoStep } from './events';
 
-vi.mock('../api/queries', () => ({ api: { demo: vi.fn(), findings: vi.fn(), createCase: vi.fn() } }));
+vi.mock('../api/queries', () => ({ api: { demo: vi.fn(), findings: vi.fn(), createCase: vi.fn(), aiStatus: vi.fn() } }));
 
 const DEMO: DemoInfo = {
   enabled: true,
@@ -59,6 +59,7 @@ beforeEach(() => {
     { id: 42, service: 'checkout-api', metric_name: 'request_latency_p95', health_status: 'significant' },
   ] as never);
   vi.mocked(api.createCase).mockResolvedValue({ case_id: 7 } as never);
+  vi.mocked(api.aiStatus).mockResolvedValue({ active: false } as never);
 });
 
 describe('demo helpers', () => {
@@ -69,6 +70,20 @@ describe('demo helpers', () => {
     expect(stepDoneBy(alert, { page: '/alerts-old' })).toBe(false);
     expect(stepDoneBy(overview, { mark: 'handoff' })).toBe(true);
     expect(stepDoneBy(overview, { page: '/' })).toBe(false);
+  });
+
+  it('asks only for what this site can do: no AI step without AI', () => {
+    const caseWith = demoSteps(true).find((step) => step.id === 'case')!;
+    const caseWithout = demoSteps(false).find((step) => step.id === 'case')!;
+    expect(caseWith.title).toBe('Make a case and draft a root cause');
+    expect(stepDoneBy(caseWith, { mark: 'case-draft' })).toBe(true);
+    expect(caseWithout.title).toBe('Make a case');
+    expect(caseWithout.how).not.toMatch(/Draft from case/);
+    expect(stepDoneBy(caseWithout, { mark: 'case-created' })).toBe(true);
+    expect(stepDoneBy(caseWithout, { mark: 'case-draft' })).toBe(false);
+    // Every other step is the same either way, and the order and count don't change.
+    expect(demoSteps(false).map((step) => step.id)).toEqual(DEMO_STEPS.map((step) => step.id));
+    expect(demoSteps(false).filter((step) => step.id !== 'case')).toEqual(DEMO_STEPS.filter((step) => step.id !== 'case'));
   });
 
   it('says when the site resets', () => {
@@ -125,11 +140,31 @@ describe('Things to try', () => {
     act(() => markDemoStep('finding:checkout-api'));
     expect(screen.getByTestId('demo-step-pods')).toHaveAttribute('data-done', 'true');
 
-    // Step 4 creates the case itself and opens it where Draft from case is.
+    // Step 4 creates the case itself and opens it on Root Cause. With AI off (the plain demo) there is
+    // no Draft from case, so making the case is the step (the API client marks it once it exists).
+    expect(screen.getByTestId('demo-step-case')).toHaveTextContent('Make a case');
+    expect(screen.getByTestId('demo-step-case')).not.toHaveTextContent('draft a root cause');
     fireEvent.click(screen.getByRole('button', { name: 'Create the case' }));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/cases/7?tab=root-cause'));
     expect(api.createCase).toHaveBeenCalledWith(42);
-    expect(JSON.parse(window.localStorage.getItem('ops-signals.demo.progress') ?? '{}').done).toEqual(['alert', 'overview', 'pods']);
+    act(() => markDemoStep('case-created'));
+    expect(screen.getByTestId('demo-step-case')).toHaveAttribute('data-done', 'true');
+    expect(screen.getByTestId('demo-guide')).toHaveTextContent('4 of 10');
+    expect(JSON.parse(window.localStorage.getItem('ops-signals.demo.progress') ?? '{}').done).toEqual(['alert', 'overview', 'pods', 'case']);
+    // The next step's button shows, so the guide doesn't stick on step 4.
+    expect(screen.getByRole('button', { name: 'Open the finding' })).toBeInTheDocument();
+  });
+
+  it('with AI on, step 4 asks for a drafted root cause and only Draft from case ticks it', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue({ active: true } as never);
+    window.localStorage.setItem('ops-signals.demo.progress', JSON.stringify({ period: DEMO.resets_at, done: ['alert', 'overview', 'pods'], hidden: false }));
+    renderWith(<ThingsToTry />);
+    await waitFor(() => expect(screen.getByTestId('demo-step-case')).toHaveTextContent('Make a case and draft a root cause'));
+
+    act(() => markDemoStep('case-created'));
+    expect(screen.getByTestId('demo-step-case')).not.toHaveAttribute('data-done');
+    act(() => markDemoStep('case-draft'));
+    expect(screen.getByTestId('demo-step-case')).toHaveAttribute('data-done', 'true');
   });
 
   it('hides to one button that keeps the count, and the banner opens it again', async () => {

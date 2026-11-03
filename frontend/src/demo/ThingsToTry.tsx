@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Box, Button, LinearProgress, Paper, Stack, Typography } from '@mui/material';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api/queries';
-import { DEMO_STEP_EVENT, DEMO_STEPS, OPEN_HANDOFF_EVENT, loadProgress, saveProgress, stepDoneBy, stepTarget, useDemoTour } from './demo';
+import { useAiActive } from '../components/CaseAiDraft';
+import { DEMO_STEP_EVENT, OPEN_HANDOFF_EVENT, demoSteps, loadProgress, saveProgress, stepDoneBy, stepTarget, useDemoTour } from './demo';
 import type { DemoProgress, DemoStep } from './demo';
 import { OPEN_GUIDE_EVENT } from './DemoBanner';
 
@@ -20,6 +21,8 @@ function Guide({ period }: { period: string }) {
   const [progress, setProgress] = useState<DemoProgress>(() => loadProgress(period));
   const location = useLocation();
   const navigate = useNavigate();
+  const aiActive = useAiActive();
+  const steps = useMemo(() => demoSteps(aiActive), [aiActive]);
 
   const update = useCallback((change: (current: DemoProgress) => DemoProgress) => {
     setProgress((current) => {
@@ -31,10 +34,10 @@ function Guide({ period }: { period: string }) {
 
   const complete = useCallback((event: { page?: string; mark?: string }) => {
     update((current) => {
-      const done = DEMO_STEPS.filter((step) => !current.done.includes(step.id) && stepDoneBy(step, event)).map((step) => step.id);
+      const done = steps.filter((step) => !current.done.includes(step.id) && stepDoneBy(step, event)).map((step) => step.id);
       return done.length ? { ...current, done: [...current.done, ...done] } : current;
     });
-  }, [update]);
+  }, [steps, update]);
 
   useEffect(() => complete({ page: location.pathname }), [complete, location.pathname]);
   useEffect(() => {
@@ -58,15 +61,15 @@ function Guide({ period }: { period: string }) {
   // the button while one is open so it doesn't cover what the step sent the visitor to see.
   const panelOpen = useModalOpen();
 
-  const doneCount = DEMO_STEPS.filter((step) => progress.done.includes(step.id)).length;
-  const current = DEMO_STEPS.find((step) => !progress.done.includes(step.id));
+  const doneCount = steps.filter((step) => progress.done.includes(step.id)).length;
+  const current = steps.find((step) => !progress.done.includes(step.id));
   const position = { position: 'fixed', right: 20, bottom: 20, zIndex: 1250 } as const;
 
   if (progress.hidden || panelOpen) {
     return (
       <Button variant="contained" onClick={() => update((value) => ({ ...value, hidden: false }))} data-testid="demo-guide-pill"
         sx={{ ...position, borderRadius: 999, px: 2.25, py: 1.1, textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 30px rgba(79,70,229,.35)' }}>
-        Things to try · {doneCount} of {DEMO_STEPS.length}
+        Things to try · {doneCount} of {steps.length}
       </Button>
     );
   }
@@ -76,13 +79,13 @@ function Guide({ period }: { period: string }) {
       sx={{ ...position, width: 340, maxWidth: 'calc(100vw - 40px)', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--os-border)' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 1.75, py: 1.25, bgcolor: 'var(--os-surface-alt)' }}>
         <Typography sx={{ fontWeight: 850, fontSize: 14 }}>
-          Things to try <Box component="span" sx={{ color: 'var(--os-muted)', fontWeight: 700, fontSize: 12 }}>· {doneCount} of {DEMO_STEPS.length}</Box>
+          Things to try <Box component="span" sx={{ color: 'var(--os-muted)', fontWeight: 700, fontSize: 12 }}>· {doneCount} of {steps.length}</Box>
         </Typography>
         <Button size="small" onClick={() => update((value) => ({ ...value, hidden: true }))} sx={{ textTransform: 'none', color: 'var(--os-muted)', fontWeight: 700, minWidth: 0 }}>Hide</Button>
       </Stack>
-      <LinearProgress variant="determinate" value={(doneCount / DEMO_STEPS.length) * 100} sx={{ height: 4 }} aria-label="Steps done" />
+      <LinearProgress variant="determinate" value={(doneCount / steps.length) * 100} sx={{ height: 4 }} aria-label="Steps done" />
       <Box component="ol" sx={{ listStyle: 'none', m: 0, p: 0, py: 0.75, maxHeight: '55vh', overflowY: 'auto' }}>
-        {DEMO_STEPS.map((step, index) => {
+        {steps.map((step, index) => {
           const done = progress.done.includes(step.id);
           const now = step.id === current?.id;
           return (
