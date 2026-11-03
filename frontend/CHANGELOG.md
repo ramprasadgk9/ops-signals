@@ -4,7 +4,7 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
-## 1.0.35 - Unreleased (ships with the next Ops Signals release)
+## 1.0.35 - 2026-11-02 (Ops Signals 0.6.0)
 
 - **Autonomous Analysis read-only for Viewers.** A Grafana Viewer gets the Overview only: the saved
   schedule with its owner and next run, without Edit, Pause, the Configure stage or the set-up form,
