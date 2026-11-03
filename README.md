@@ -45,18 +45,20 @@ cd ops-signals
 
 | | AI features | Downloads | Needs | Start with |
 |---|---|---|---|---|
-| [**1. Demo**](#1-demo-no-ai) | Off | Images only | Docker with 4 GB memory | `up --build` |
+| [**1. Demo**](#1-demo-no-ai) | Off | Images only | Docker with 4 GB memory | `up` |
 | [**2. Demo + local AI**](#2-demo--local-ai-no-api-key) | A model on your machine | + about 10 GB, once | 8 GB memory, no account | `--profile ai` |
 | [**3. Demo + your AI API**](#3-demo--your-ai-api) | The model behind your API | Nothing extra | An API key (usage billed by the provider) | `--env-file demo/ai-api.env` |
 
 A few minutes after start, open **http://localhost:8080** for the full UI (the guide is in its
 corner) and **http://localhost:8090** for the enriched alert as it would appear in Slack.
-[`docs/demo.md`](docs/demo.md) covers what's running, what to try, and how it works.
+[`docs/demo.md`](docs/demo.md) covers what's running, what to try, and how it works. Each way
+downloads the published images of the latest release; add `--build` to build them from your
+checkout instead.
 
 ##### 1. Demo (no AI)
 
 ```bash
-docker compose -f docker-compose.demo.yml up --build
+docker compose -f docker-compose.demo.yml up
 ```
 
 Everything except the AI features: findings, the deploy behind each change, matching past cases,
@@ -66,7 +68,7 @@ AI adds drafts and plain-language explanations on top.
 ##### 2. Demo + local AI (no API key)
 
 ```bash
-docker compose -f docker-compose.demo.yml --profile ai up --build
+docker compose -f docker-compose.demo.yml --profile ai up
 ```
 
 Adds a model server in its own container with the `gemma3:4b` model. No account or key, and
@@ -79,7 +81,7 @@ for Docker; answers take 5-20 seconds each on CPU.
 
 ```bash
 cp demo/ai-api.env.example demo/ai-api.env
-docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up --build
+docker compose -f docker-compose.demo.yml --env-file demo/ai-api.env up
 ```
 
 The same AI features as option 2, from a model API you already have; nothing to download. Before
