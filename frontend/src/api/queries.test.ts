@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getJson } from './client';
+import { getJson, postJson } from './client';
+import { DEMO_STEP_EVENT } from '../demo/events';
 import { api } from './queries';
 
 vi.mock('./client', () => ({
@@ -22,5 +23,21 @@ describe('api.signalsByRunIds', () => {
     expect(getJson).toHaveBeenCalledTimes(3);
     expect(signals).toHaveLength(250);
     expect(new Set(signals.map((signal) => signal.analysis_run_id)).size).toBe(250);
+  });
+});
+
+describe('creating a case', () => {
+  it('ticks off the demo guide\'s case step once the case exists, not when the request fails', async () => {
+    const marks: string[] = [];
+    const listener = (event: Event) => marks.push(String((event as CustomEvent).detail));
+    window.addEventListener(DEMO_STEP_EVENT, listener);
+    vi.mocked(postJson).mockResolvedValueOnce({ case_id: 7 }).mockResolvedValueOnce({ case_id: 8 }).mockRejectedValueOnce(new Error('down'));
+
+    await api.createCase(42);
+    await api.createCaseFromBehavior(5);
+    await expect(api.createCase(43)).rejects.toThrow('down');
+
+    window.removeEventListener(DEMO_STEP_EVENT, listener);
+    expect(marks).toEqual(['case-created', 'case-created']);
   });
 });

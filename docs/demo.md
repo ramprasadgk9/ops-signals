@@ -60,7 +60,9 @@ they show their usual fallback, and everything else works.
 
 The same ten steps are in the app: a **Things to try** guide in the corner, on by default, with a
 button for each step that takes you there and ticks itself off. Progress is kept in your browser.
-`OPS_SIGNALS_DEMO_TOUR=false` in front of the command hides it.
+`OPS_SIGNALS_DEMO_TOUR=false` in front of the command hides it. With AI off, the case step is
+**Make a case** and ticks off when the case opens; with AI on, it's **Make a case and draft a root
+cause** and ticks off with **Draft from case**.
 
 1. **Read the alert as it reached the team** at http://localhost:8090: what happened, the deploy
    (`v2.14.0`), and the past case with its fix (roll back).

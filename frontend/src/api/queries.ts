@@ -288,12 +288,13 @@ export const api = {
   autonomousDeletePolicy: (policyId: string) =>
     deleteJson<{ deleted: boolean; id: string }>(`/api/autonomous/policies/${encodeURIComponent(policyId)}`),
   createCase: (findingId: number) =>
-    postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {}),
+    postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {})
+      .then((created) => { markDemoStep('case-created'); return created; }),
   createCaseFromBehavior: (behaviorFindingId: number) =>
     postJson<{}, { case_id: number; behavior_finding_id: number; case_status: string; memory_status: string }>(
       `/api/cases/behaviors/${behaviorFindingId}/create`,
       {}
-    ),
+    ).then((created) => { markDemoStep('case-created'); return created; }),
   getCase: (caseId: number) => getJson<OperationalCase>(`/api/cases/${caseId}`),
   updateInvestigation: (caseId: number, payload: { investigation_status: string; investigation_note?: string }) =>
     patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/investigation`, payload),

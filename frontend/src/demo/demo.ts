@@ -47,6 +47,8 @@ export type DemoStep = {
   open?: 'handoff';
   /** The button creates a case on that finding (or reuses its case) and opens it on Root Cause. */
   createCase?: boolean;
+  /** The step with AI off, when what it asks for needs AI (Draft from case shows only with AI on). */
+  withoutAi?: Pick<DemoStep, 'title' | 'how' | 'marks'>;
 };
 
 // The tour in docs/demo.md, "Things to try". The story's services come from demo/scenario.py.
@@ -86,6 +88,11 @@ export const DEMO_STEPS: DemoStep[] = [
     marks: ['case-draft'],
     finding: { service: 'checkout-api', metric: 'request_latency_p95' },
     createCase: true,
+    withoutAi: {
+      title: 'Make a case',
+      how: 'This opens a case on today\'s checkout-api finding, on its Root Cause tab, where the team writes down what caused it.',
+      marks: ['case-created'],
+    },
   },
   {
     id: 'came-back',
@@ -138,6 +145,11 @@ export const DEMO_STEPS: DemoStep[] = [
     marks: ['ask'],
   },
 ];
+
+/** The steps as this site can do them: with AI off, a step that needs AI asks for what works without it. */
+export function demoSteps(aiActive: boolean): DemoStep[] {
+  return DEMO_STEPS.map((step) => (!aiActive && step.withoutAi ? { ...step, ...step.withoutAi } : step));
+}
 
 export function stepDoneBy(step: DemoStep, event: { page?: string; mark?: string }): boolean {
   if (event.mark) return Boolean(step.marks?.includes(event.mark));

@@ -23,6 +23,9 @@ Includes Grafana plugin 1.0.35.
   API, giving people roles (through the Grafana plugin, a company login or a sign-in proxy) and
   checking it, with the only roles table. Setup check → Login says which step you're on and the
   one next action.
+- **Fixed: the demo's guide stuck on step 4 without AI.** Its case step only ticked off with Draft
+  from case, which shows only with AI on, so the no-AI demo never got past it. With AI off the step
+  is now "Make a case" and ticks off when a case is created.
 - **Fixed: signing out of a company login asked "Do you want to log out?"** Sign-out now passes the
   sign-in's ID token to the provider, so it ends the session straight away.
 - **Fixed: setup script.** The Qdrant readiness check works, and Python 3.11 installs a matching
