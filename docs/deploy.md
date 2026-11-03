@@ -74,25 +74,33 @@ more than one backend on the same database is in
 Once the backend runs (Docker Compose or Helm above), your team can use Ops Signals inside your own
 Grafana (13.1 or later). You need a Prometheus datasource in that Grafana.
 
-1. **Build the plugin zip** from this checkout (needs Node.js 20+):
+1. **Download the plugin zip** from the project's
+   [Releases](https://github.com/ramprasadgk9/ops-signals/releases): each release has
+   `breezypoppy3596-opssignals-app-<plugin version>.zip` and its `.sha1`. For Ops Signals 0.6.0 that
+   is plugin 1.0.35:
 
    ```bash
-   ./scripts/release/build_grafana_plugin_artifact.sh 0.5.0
+   curl -fLO https://github.com/ramprasadgk9/ops-signals/releases/download/v0.6.0/breezypoppy3596-opssignals-app-1.0.35.zip
    ```
 
-   It writes `dist/release/0.5.0/breezypoppy3596-opssignals-app-<version>.zip`.
+   To build it from a checkout instead (needs Node.js 20+), run
+   `./scripts/release/build_grafana_plugin_artifact.sh`; it writes the zip under `dist/release/`.
 
 2. **Install it:** unzip it into Grafana's plugins folder (`/var/lib/grafana/plugins` by default).
-   The zip holds one folder named after the plugin id, as Grafana expects.
+   The zip holds one folder named after the plugin id, as Grafana expects. Or let the Grafana CLI
+   download and unzip it: `grafana cli --pluginUrl <zip URL> plugins install
+   breezypoppy3596-opssignals-app`.
 
    ```bash
-   unzip dist/release/0.5.0/breezypoppy3596-opssignals-app-*.zip -d /var/lib/grafana/plugins
+   unzip breezypoppy3596-opssignals-app-1.0.35.zip -d /var/lib/grafana/plugins
    ```
 
 3. **Allow it, then restart Grafana.** The plugin isn't signed yet, so Grafana loads it only when
    it's named in `allow_loading_unsigned_plugins` under `[plugins]` in `grafana.ini`, or in
    `GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-opssignals-app` in Grafana's
-   environment. Grafana reads the plugin only when it starts.
+   environment. Grafana reads the plugin only when it starts. The plugin's page in Grafana then
+   shows an **Invalid plugin signature** notice and an **Unsigned** badge: that's expected for an
+   unsigned plugin you allowed by name, and the plugin works.
 
 4. **Connect it to the backend** (a Grafana admin, once): **Administration → Plugins and data →
    Plugins → Ops Signals → Configuration**.
@@ -110,7 +118,7 @@ To try this on one computer, run Grafana in Docker with the plugins folder mount
 
 ```bash
 mkdir -p ~/grafana-plugins
-unzip dist/release/0.5.0/breezypoppy3596-opssignals-app-*.zip -d ~/grafana-plugins
+unzip breezypoppy3596-opssignals-app-1.0.35.zip -d ~/grafana-plugins
 docker run -d --name grafana -p 3000:3000 \
   -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-opssignals-app \
   -v ~/grafana-plugins:/var/lib/grafana/plugins \
