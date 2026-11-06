@@ -137,7 +137,7 @@ those three.
 
 | Template | Used when | Placeholders |
 |---|---|---|
-| `level_change` | A lasting step up or down (ruptures, baseline_shift) | `rose_or_dropped`, `sharply`, `higher_or_lower`, `before`, `after`, `change`, `change_time`, `window_start`, `window_end` |
+| `level_change` | A lasting step up or down (ruptures, baseline_shift) | `rose_or_dropped`, `sharply`, `higher_or_lower`, `before`, `after`, `change`, `change_time`, `window_start`, `window_end`; in `over_headline`, `over_what` and `partly` also `duration`, `during`, `now`, `back_time` |
 | `trend` | A slow climb or fall. When the two halves of the window average within 5% of each other, the badge is **Changed** and `small` is the only line under the headline, so a 1% drift isn't called Better or Worse. | `climbing_or_falling`, `steadily_or_unevenly`, `first_half`, `second_half`, `half`, `change`, `peak`, `down_or_up` |
 | `spikes` | Short bursts outside the normal range (pyod_outlier, anomaly_zscore) | `above_or_below`, `times`, `up_or_down`, `peak`, `first_time`, `last_time`, `normal_low`, `normal_high`, `duration`, `typical`, `count`, `end_time` |
 | `odd_stretch` | A stretch unlike the rest of the series (stumpy) | `first_time`, `last_time` |
@@ -152,6 +152,12 @@ When a spike, data gap or stuck value is over (the analysis saw data after its l
 its `over` line is added to `what`: "Normal again since 09:45", "Data has been arriving again since
 10:12", "Changing again since 10:12". `end_time` is when it ended. The card, the details and Slack
 show the same sentence. See [when a problem is over](finding-trust.md#when-a-problem-is-over).
+
+A level change whose level came back uses `over_headline` and `over_what` instead of `headline` and
+`what` ("Latency rose sharply for 4 hours, then came back"; "About 200 ms until 07:30, then about
+1.8 s. Back to about 200 ms since 11:30."). `during` is the level between the jump and the way back,
+`now` the level since, `back_time` when it came back and `duration` how long it was up. One only
+partly back keeps its lines and adds `partly` ("Partly back: about 700 ms since 11:30.").
 
 ## AI wording
 

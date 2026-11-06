@@ -305,6 +305,29 @@ class FindingEntity(Base):
     ai_wording: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
+class ProblemEventEntity(Base):
+    """A level change's state change: it came back (`ended`), came partly back (`partly_back`) or
+    went high again (`reopened`). Written after each run (intelligence/level_endings.py), one row per
+    change and never edited; read by services/active_findings.py problem_states."""
+
+    __tablename__ = "ops_problem_events"
+    # The same index as sql/init.sql and PostgresStore, so whichever creates the table first, there's one.
+    __table_args__ = (Index("idx_ops_problem_event_problem", "problem_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    problem_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    # When the stretch that's back (or partly back, or high again) began.
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # When the level jumped (the problem's first level change).
+    changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    level_before: Mapped[float | None] = mapped_column(Float, nullable=True)
+    level_during: Mapped[float | None] = mapped_column(Float, nullable=True)
+    level_now: Mapped[float | None] = mapped_column(Float, nullable=True)
+    analysis_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+
+
 class FindingFeedbackEntity(Base):
     """The team's answer to "Was this real?" on one finding (services/finding_trust.py). Service and
     trust group are copied in, so a service's own rate per group is one grouped count."""

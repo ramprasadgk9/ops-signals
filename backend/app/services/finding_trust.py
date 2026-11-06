@@ -21,10 +21,12 @@ time moves up to needs attention; a needs-attention group real less than DEMOTE_
 moves down to context. Data problems never move down: a metric that stopped reporting is a fact.
 
 A problem that is over (its newest finding says the data went on after its last bad reading, see
-services/active_findings.py problem_ends) leaves Needs attention OVER_GRACE after it ended, with
+services/active_findings.py problem_states) leaves Needs attention OVER_GRACE after it ended, with
 the "over" badge: it needs no action now. Its findings, answers and any case on it stay as they are.
-Only data problems and spikes (OVER_GROUPS) move: a level change or trend runs to the last reading,
-so a finding with one isn't over even when a spike on top of it ended.
+Data problems and spikes (OVER_GROUPS) are over when their newest finding says the data went on
+after the last bad reading. A level change (LEVEL_GROUPS) is over only when its level came back near
+where it was before the jump (intelligence/level_endings.py): its checks run to the last reading,
+so a spike on top of it ending doesn't count. Trends don't end yet.
 
 A finding with no service label (stored as "unknown", or none at all) has no service to learn for:
 its answers are counted per metric instead, so a CPU gap and a latency gap don't share one bucket.
@@ -44,7 +46,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.entities import FindingEntity, FindingFeedbackEntity, SignalEntity
-from backend.app.services.active_findings import problem_ends
+from backend.app.services.active_findings import LEVEL_BACK, problem_states
 
 TRUST_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "finding_trust.yaml"
 
@@ -61,6 +63,8 @@ OVER_GRACE = timedelta(hours=1)
 # reading, so a finding with one is still going even when a spike riding on it ended (a finding's
 # `ongoing` follows its most recent event, which can be that spike).
 OVER_GROUPS = {"data_problem", "spike"}
+# Level changes end when their level came back (intelligence/level_endings.py), not by `ongoing`.
+LEVEL_GROUPS = {"level_change_agree", "level_change_single"}
 
 DATA_SIGNAL_TYPES = {"data_gap", "flatline"}
 CHANGE_IDS = {"ruptures", "baseline_shift"}
@@ -156,7 +160,7 @@ def finding_trust(db: Session, rows: list[FindingEntity], now: datetime | None =
     }
     answers = _answers(db, [row.id for row in rows if row.id is not None])
     history = _service_history(db, {row.service for row in rows})
-    ends = problem_ends(db, rows)
+    states = problem_states(db, rows)
 
     result: dict[int, dict[str, Any]] = {}
     for row in rows:
@@ -166,8 +170,12 @@ def finding_trust(db: Session, rows: list[FindingEntity], now: datetime | None =
         scope = "metric" if is_unlabeled(row.service) else "service"
         real, answered = history.get(_bucket(row.service, row.metric_name, group), (0, 0))
         tier, badge, moved = placement(group, real, answered)
-        ended_at = ends.get(row.id)
-        if tier == "needs_attention" and group in OVER_GROUPS and ended_at is not None and now - ended_at >= OVER_GRACE:
+        state = states.get(row.id)
+        ended_at = state.ended_at if state else None
+        # A level change is over only when its level came back: its findings' own `ongoing` can
+        # follow a spike on top of it.
+        can_end = group in OVER_GROUPS or (group in LEVEL_GROUPS and state is not None and state.how == LEVEL_BACK)
+        if tier == "needs_attention" and can_end and ended_at is not None and now - ended_at >= OVER_GRACE:
             tier, badge, moved = "context", "over", None
         result[row.id] = {
             "group": group,

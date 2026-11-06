@@ -9,8 +9,13 @@
   again since 09:45" (or "Data has been arriving again since…", "Changing again since…"). One hour
   after it ended, a problem that needed attention moves to Context only with the **Over** badge,
   on the Findings page, the Overview count, the shift handoff, the `ops_signals_active_findings`
-  metric and the Grafana plugin. Nothing is deleted; a case on it stays open. Only data problems
-  and spikes move; level changes and trends aren't covered yet (#82).
+  metric and the Grafana plugin. Nothing is deleted; a case on it stays open.
+- **Level changes that came back say so.** After each run, Ops Signals checks whether an open level
+  change's level came back near where it was before the jump (80% of it undone for 15 minutes).
+  The card reads "Latency rose sharply for 4 hours, then came back … Back to about 200 ms since
+  11:30" and moves to Context only an hour later; a level only partly back says "Partly back: about
+  700 ms since 11:30" and stays. Before, the card kept saying "stayed higher" after a recovery.
+  Trends aren't covered yet (#82).
 
 ## 0.6.0 - 2026-11-02
 

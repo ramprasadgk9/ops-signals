@@ -17,6 +17,15 @@ describe('problemTiming', () => {
     expect(over?.label).toMatch(/^.*–.* · over$/);
   });
 
+  it('calls a level change that came back over, until the time it came back', () => {
+    const trust = { ended_at: '2026-10-12T10:12:00Z' } as Finding['trust'];
+    const back = problemTiming({ ...base, event_start: '2026-10-12T09:00:00Z', event_end: '2026-10-12T10:25:00Z', ongoing: true, trust }, undefined, now);
+
+    expect(back?.ongoing).toBe(false);
+    const sameLabel = problemTiming({ ...base, event_start: '2026-10-12T09:00:00Z', event_end: '2026-10-12T10:12:00Z', ongoing: false }, undefined, now);
+    expect(back?.label).toBe(sameLabel?.label);
+  });
+
   it('does not call a problem in old data still happening, and says when the data ended', () => {
     const oldCsv = { ...base, event_start: '2026-09-20T09:00:00Z', event_end: '2026-09-20T12:00:00Z', ongoing: true };
     const timing = problemTiming(oldCsv, undefined, now);

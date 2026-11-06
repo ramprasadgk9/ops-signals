@@ -19,11 +19,15 @@ function time(value: string): string {
 export function problemTiming(finding: Finding, startedAt?: string, now: number = Date.now()): { label: string; ongoing: boolean } | null {
   if (!finding.event_start || !finding.event_end) return null;
   const start = startedAt && Date.parse(startedAt) < Date.parse(finding.event_start) ? startedAt : finding.event_start;
-  if (finding.ongoing) {
+  // The problem's end, when the backend found it over (trust.ended_at): a level change that came
+  // back still has `ongoing` findings, since its checks run to the last reading.
+  const endedAt = finding.trust?.ended_at;
+  if (finding.ongoing && !endedAt) {
     if (now - Date.parse(finding.event_end) <= STILL_HAPPENING_MAX_AGE_MS) return { label: `Started ${at(start)} · still happening`, ongoing: true };
     return { label: `Started ${at(start)} · still going when the data ended (${at(finding.event_end)})`, ongoing: false };
   }
-  const sameDay = new Date(start).toDateString() === new Date(finding.event_end).toDateString();
-  const end = sameDay ? time(finding.event_end) : at(finding.event_end);
+  const endAt = endedAt ?? finding.event_end;
+  const sameDay = new Date(start).toDateString() === new Date(endAt).toDateString();
+  const end = sameDay ? time(endAt) : at(endAt);
   return { label: `${at(start)}–${end} · over`, ongoing: false };
 }

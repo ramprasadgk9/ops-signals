@@ -49,14 +49,23 @@ it, and its card already says it ended ("Data has been arriving again since 10:1
 
 - **Over** means the latest analysis saw data after the problem's last bad reading. A data gap is
   over when data arrives again, a stuck value when it changes again.
-- If a later run sees the problem again, it is back in Needs attention.
+- A **level change** is over when its level comes back near where it was before the jump: the
+  latest 15 minutes (at least 3 readings) undid at least 80% of it. For 200 ms → 1.8 s, that's back
+  under 520 ms. The card then reads "Latency rose sharply for 4 hours, then came back … Back to
+  about 200 ms since 11:30". If the level came only part of the way back (30% to 80%), the card
+  adds "Partly back: about 700 ms since 10:30" and it stays in Needs attention.
+- If a later run sees the problem again, or the level goes back up, it is back in Needs attention.
 - Nothing is deleted or changed: every run's finding, "Seen in N runs", your answers and any case
   stay. Over is not closed: a case on it stays open until someone closes it.
 - The same rule decides the Overview's Needs attention count, the shift handoff and the
   `ops_signals_active_findings` metric.
-- Only data problems and spikes move to Over. Level changes and trends don't yet: their checks
-  look at the level up to the last reading, so a finding with one stays where it is, even when a
-  spike on top of it ended.
+- Each run checks only the series it read. Missing readings at the end of the data don't count as
+  back: no data isn't proof it's fixed.
+- Trends ("has been climbing") don't move to Over yet. A level change isn't over just because a
+  spike on top of it ended: only its level coming back counts.
+- Each time a level change comes back, comes partly back or goes up again, one row is added to
+  `ops_problem_events` (created at startup); finding rows are never edited. Slack posts nothing when
+  a level comes back.
 
 ## "Was this real?"
 

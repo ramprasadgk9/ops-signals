@@ -37,6 +37,10 @@ class InMemoryStore:
     def save_findings(self, findings) -> None:
         self.saved_findings = list(findings)
 
+    def save_level_events(self, analysis_run_id, normalized) -> list:
+        self.level_checks = getattr(self, "level_checks", []) + [(analysis_run_id, len(normalized))]
+        return []
+
     def fetch_findings(self):
         return None
 
@@ -75,6 +79,8 @@ def test_csv_pipeline_generates_operational_signals() -> None:
 
     assert store.normalized_points is not None
     assert len(result.normalized_points) == 24
+    # After its findings, the run checks whether earlier level changes on these series came back.
+    assert store.level_checks == [(result.analysis_run_id, 24)]
     assert len(result.signals) >= 2
     signal_types = {signal.signal_type for signal in result.signals}
     assert "baseline_shift" in signal_types

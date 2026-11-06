@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.models.entities import FindingEntity, SignalEntity
-from backend.app.services.active_findings import problem_ends
+from backend.app.services.active_findings import LEVEL_BACK, ProblemState, problem_states
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ ANOMALY_TYPES = {"anomaly", "spike", "outlier"}
 COMMON_FIELDS = {"plain_name", "service", "metric"}
 # The placeholders each template may use, on top of COMMON_FIELDS.
 TEMPLATE_FIELDS: dict[str, set[str]] = {
-    "level_change": {"rose_or_dropped", "sharply", "higher_or_lower", "before", "after", "change", "change_time", "window_start", "window_end"},
+    "level_change": {"rose_or_dropped", "sharply", "higher_or_lower", "before", "after", "change", "change_time", "window_start", "window_end", "duration", "during", "now", "back_time"},
     "trend": {"climbing_or_falling", "steadily_or_unevenly", "first_half", "second_half", "half", "change", "peak", "down_or_up"},
     "spikes": {"above_or_below", "times", "up_or_down", "peak", "first_time", "last_time", "normal_low", "normal_high", "duration", "typical", "count", "end_time"},
     "odd_stretch": {"first_time", "last_time"},
@@ -372,6 +372,8 @@ class FindingFacts:
     event_end: datetime | None = None
     # Whether the problem was still going on at the end of the analyzed data; None when unknown.
     ongoing: bool | None = None
+    # How a level change stands, when it came back or came partly back (active_findings.ProblemState).
+    level: Any = None
 
 
 @dataclass(frozen=True)
@@ -518,6 +520,33 @@ def _level_change(finding: FindingFacts, signal: SignalFacts, meaning: MetricMea
     headline, what = _fill(template.get("headline"), values), _fill(template.get("what"), values)
     if not headline or not what:
         return None
+    level = finding.level
+    if level is not None and level.how == LEVEL_BACK and level.ended_at is not None:
+        # It came back. Every finding of the problem says so from the jump (the problem's first level
+        # change), with the level between the jump and the way back: a later run can see the way
+        # back as a change of its own ("dropped and stayed lower").
+        jump_from = level.level_before if level.level_before is not None else before
+        jump_to = level.level_during if level.level_during is not None else after
+        jumped_at = level.changed_at or change_at
+        jump_direction = 1 if jump_to > jump_from else -1
+        jump_percent = (jump_to - jump_from) / abs(jump_from) * 100 if jump_from else None
+        back = {
+            **values,
+            "rose_or_dropped": "rose" if jump_direction > 0 else "dropped",
+            "sharply": " sharply" if jump_percent is not None and abs(jump_percent) >= SHARP_PERCENT else "",
+            "before": format_value(jump_from, meaning.unit),
+            "change_time": time_marker(jumped_at),
+            "duration": duration_words(_minutes(jumped_at, level.ended_at)),
+            "during": format_value(jump_to, meaning.unit),
+            "now": format_value(level.level_now, meaning.unit),
+            "back_time": time_marker(level.ended_at),
+        }
+        over_headline, over_what = _fill(template.get("over_headline"), back), _fill(template.get("over_what"), back)
+        if over_headline and over_what:
+            headline, what, badge = over_headline, over_what, _direction_badge(jump_direction, meaning)
+    elif level is not None and level.partly_since is not None:
+        partly = {**values, "now": format_value(level.level_now, meaning.unit), "back_time": time_marker(level.partly_since)}
+        what = _join(what, _fill(template.get("partly"), partly)) or what
     concept = wording.concepts.get(meaning.concept or "") or {}
     return Plain(
         kind="level_change",
@@ -939,23 +968,23 @@ def _signal_facts(db: Session, signal_ids: set[str]) -> dict[str, SignalFacts]:
     return facts
 
 
-def _finding_facts(row: FindingEntity, ended_at: datetime | None = None) -> FindingFacts:
+def _finding_facts(row: FindingEntity, state: ProblemState | None = None) -> FindingFacts:
     """The finding as its wording sees it. Whether it is over is the problem's, not the row's: an
     older finding of a problem that ended says so too, and one whose problem came back doesn't."""
-    if ended_at is not None:
-        ongoing, event_end = False, ended_at
+    if state is not None and state.ended_at is not None:
+        ongoing, event_end = False, state.ended_at
     else:
         ongoing, event_end = (None if row.ongoing is False else row.ongoing), row.event_end
-    return FindingFacts(row.metric_name, row.service, row.title or "", row.category or "", row.comparison_json or {}, row.event_start, event_end, ongoing)
+    return FindingFacts(row.metric_name, row.service, row.title or "", row.category or "", row.comparison_json or {}, row.event_start, event_end, ongoing, state)
 
 
 def _build_rows(db: Session, rows: Iterable[FindingEntity], wording: Wording) -> list[tuple[FindingEntity, Plain]]:
     row_list = list(rows)
     facts = _signal_facts(db, {signal_id for row in row_list for signal_id in (row.signal_ids or [])})
-    ends = problem_ends(db, row_list)
+    states = problem_states(db, row_list)
     built = []
     for row in row_list:
-        plain = build_plain(_finding_facts(row, ends.get(row.id)), [facts[signal_id] for signal_id in (row.signal_ids or []) if signal_id in facts], wording)
+        plain = build_plain(_finding_facts(row, states.get(row.id)), [facts[signal_id] for signal_id in (row.signal_ids or []) if signal_id in facts], wording)
         if plain is not None:
             built.append((row, plain))
     return built
