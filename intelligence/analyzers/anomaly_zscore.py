@@ -90,6 +90,9 @@ class ZScoreAnomalyAnalyzer(Analyzer):
                 remaining,
                 min_segment_size=self.rebaseline_min_segment_size,
                 change_threshold=self.rebaseline_change_threshold,
+                # Binseg's own break: the exact split can hand a noisy transition's last reading to
+                # the settled level, which then flags that reading instead of the real deviation.
+                exact=False,
             )
             if change_point is None:
                 break

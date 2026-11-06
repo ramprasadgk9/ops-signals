@@ -18,7 +18,11 @@ def detect_primary_change_point(
     model: str = "l2",
     jump: int = 5,
     n_bkps: int = 1,
+    exact: bool = True,
 ) -> dict[str, float | int] | None:
+    """The strongest change point and its score: the step between the two sides' means against the
+    noise on each side. With exact, the break is moved to the exact point near Binseg's (see
+    _exact_break); without it, Binseg's every-`jump`-th-point break is kept."""
     if algorithm.lower().strip() != "binseg":
         raise ValueError("Only ruptures algorithm 'binseg' is supported")
 
@@ -37,18 +41,25 @@ def detect_primary_change_point(
     except rpt.exceptions.BadSegmentationParameters:
         return None
 
-    candidates = [point for point in breakpoints if min_segment_size <= point <= len(clean_values) - min_segment_size]
+    candidates = [
+        _exact_break(clean_values, point, jump, min_segment_size) if exact else point
+        for point in breakpoints
+        if min_segment_size <= point <= len(clean_values) - min_segment_size
+    ]
     if not candidates:
         return None
 
-    scale = max(float(np.std(clean_values, ddof=0)), 1e-9)
     best: dict[str, float | int] | None = None
     for point in candidates:
         left = clean_values[:point]
         right = clean_values[point:]
         left_mean = float(left.mean())
         right_mean = float(right.mean())
-        score = abs(right_mean - left_mean) / scale
+        # The step against the noise on each side of it. The whole series' spread holds the step
+        # itself, so it grew with the step: a step halfway through could never score above 2,
+        # 50 -> 500 scored the same as 50 -> 54, and a clear 2-sigma shift scored 1.3 (issue #76).
+        noise = np.sqrt((len(left) * left.var() + len(right) * right.var()) / len(clean_values))
+        score = abs(right_mean - left_mean) / max(float(noise), 1e-9)
         if best is None or score > float(best["score"]):
             percent_change = ((right_mean - left_mean) / max(abs(left_mean), 1e-9)) * 100.0
             best = {
@@ -62,6 +73,23 @@ def detect_primary_change_point(
     if best is None or float(best["score"]) < change_threshold:
         return None
     return best
+
+
+def _exact_break(values: np.ndarray, point: int, jump: int, min_segment_size: int) -> int:
+    """The split within `jump` points of Binseg's that leaves the least spread on either side.
+    Binseg only tries every `jump`-th point, so a step at 144 came back as 145, and the one old-level
+    reading left on the new side counted as noise: 50 -> 500 scored 17 instead of 225."""
+    low = max(min_segment_size, point - jump)
+    high = min(len(values) - min_segment_size, point + jump)
+    if low >= high:
+        return point
+    sums = np.concatenate(([0.0], np.cumsum(values)))
+    squares = np.concatenate(([0.0], np.cumsum(values**2)))
+    splits = np.arange(low, high + 1)
+    left_n, right_n = splits, len(values) - splits
+    left_ss = squares[splits] - sums[splits] ** 2 / left_n
+    right_ss = (squares[-1] - squares[splits]) - (sums[-1] - sums[splits]) ** 2 / right_n
+    return int(splits[np.argmin(left_ss + right_ss)])
 
 
 def change_point_time(timestamps: pd.Series, values: pd.Series, change_point_index: int) -> str | None:

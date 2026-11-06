@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Findings**
+
+- **Finished problems say so, and leave Needs attention.** When the latest analysis shows a spike,
+  data gap or stuck value already ended, the card, its details and the Slack message add "Normal
+  again since 09:45" (or "Data has been arriving again since…", "Changing again since…"). One hour
+  after it ended, a problem that needed attention moves to Context only with the **Over** badge,
+  on the Findings page, the Overview count, the shift handoff, the `ops_signals_active_findings`
+  metric and the Grafana plugin. Nothing is deleted; a case on it stays open. Only data problems
+  and spikes move; level changes and trends aren't covered yet (#82).
+
 ## 0.6.0 - 2026-11-02
 
 Includes Grafana plugin 1.0.35.

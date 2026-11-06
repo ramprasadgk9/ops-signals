@@ -23,8 +23,9 @@ export interface GlossaryTerm {
 }
 
 const TERMS = {
-  evidence: { term: 'Evidence badge', heading: 'Evidence badge', text: 'How much to trust a finding: Strong (two checks agree), Moderate (one check), Data problem (the metric stopped or froze), Context only.' },
-  attention: { term: 'Needs attention', heading: 'Needs attention and Context only', text: "Worth a look now. Context only is background for when you're already investigating." },
+  evidence: { term: 'Evidence badge', heading: 'Evidence badge', text: 'How much to trust a finding: Strong (two checks agree), Moderate (one check), Data problem (the metric stopped or froze), Context only, Over (it ended more than an hour ago).' },
+  attention: { term: 'Needs attention', heading: 'Needs attention and Context only', text: "Worth a look now. Context only is background for when you're already investigating. A problem that ended moves to Context only an hour later." },
+  states: { term: 'Finding states', heading: 'Finding states', text: 'Still happening, or over ("Normal again since 09:45"); Seen in N runs counts one problem once. Over an hour after it ended, it moves to Context only.' },
   real: { term: 'Was this real?', heading: 'Was this real?', text: "Your team's answer: Real problem, Not a problem, or Expected change (real but planned, like a deploy)." },
   seenBefore: { term: 'Seen before', heading: 'Seen before', text: 'Past cases look like this one; shows the closest and what fixed it.' },
   findingVsAlert: { term: 'Finding vs alert', heading: 'Finding vs alert', text: 'An alert is what your own alert rule paged for. A finding is something unusual Ops Signals noticed, maybe with no rule.' },
@@ -41,7 +42,7 @@ const TERMS = {
 } satisfies Record<string, GlossaryTerm>;
 
 export const PAGE_GLOSSARY: Record<GlossaryPage, { step: ChainStep | null; terms: GlossaryTerm[] }> = {
-  findings: { step: 'finding', terms: [TERMS.evidence, TERMS.attention, TERMS.real, TERMS.seenBefore, TERMS.findingVsAlert] },
+  findings: { step: 'finding', terms: [TERMS.evidence, TERMS.attention, TERMS.states, TERMS.real, TERMS.seenBefore, TERMS.findingVsAlert] },
   cases: { step: 'case', terms: [TERMS.findingVsCase, TERMS.rootCause, TERMS.resolution, TERMS.fixDidntHold, TERMS.seenBefore] },
   behavior: { step: 'finding', terms: [TERMS.combined, TERMS.pattern, TERMS.signal] },
   recurring: { step: 'memory', terms: [TERMS.memory, TERMS.recurring, TERMS.fixDidntHold, TERMS.imported] },

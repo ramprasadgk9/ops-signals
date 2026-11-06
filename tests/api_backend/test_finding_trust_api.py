@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -209,3 +209,76 @@ def test_resetting_operational_data_also_clears_the_answers(monkeypatch: pytest.
             assert response.json()["deleted_rows"]["ops_finding_feedback"] == 1
             with get_session_local()() as db:
                 assert db.query(FindingFeedbackEntity).count() == 0
+
+
+def _seed_run(db, finding_id: int, *, created_at: datetime, ongoing: bool | None, event_end: datetime, problem_id: int | None = None,
+              signals: tuple[str, str] = ("data_health", "data_gap"), category: str = "data_quality") -> None:
+    """One run's finding of a problem: `problem_id` links it to the problem's first finding."""
+    signal_id = f"sig-{finding_id}"
+    db.add(SignalEntity(signal_id=signal_id, signal_type=signals[1], analyzer_id=signals[0], metric_name="cpu_usage", service="cart",
+                        severity="high", start_time=event_end, end_time=event_end, evidence_json={}, importance_score=0.7, analysis_run_id="run-1"))
+    db.add(FindingEntity(id=finding_id, analysis_run_id="run-1", service="cart", metric_name="cpu_usage", title=f"finding {finding_id}",
+                         summary="s", category=category, health_status="significant", importance_score=0.7, investigation_priority=2,
+                         signal_ids=[signal_id], comparison_json={}, created_at=created_at, problem_id=problem_id,
+                         event_start=event_end - timedelta(minutes=30), event_end=event_end, ongoing=ongoing))
+
+
+def test_a_problem_that_ended_over_an_hour_ago_moves_to_context_with_the_over_badge(db_session) -> None:
+    now = datetime(2026, 11, 5, 12, 0, tzinfo=timezone.utc)
+    # Problem 1: seen at 10:00 still going, then at 10:20 over since 10:12.
+    _seed_run(db_session, 1, created_at=now - timedelta(hours=2), ongoing=True, event_end=now - timedelta(hours=2))
+    _seed_run(db_session, 2, created_at=now - timedelta(hours=1, minutes=40), ongoing=False, event_end=now - timedelta(hours=1, minutes=48), problem_id=1)
+    # Problem 3: over since 11:30, inside the hour.
+    _seed_run(db_session, 3, created_at=now - timedelta(minutes=25), ongoing=False, event_end=now - timedelta(minutes=30))
+    # Problem 4: over once, then a later run saw it again.
+    _seed_run(db_session, 4, created_at=now - timedelta(hours=3), ongoing=False, event_end=now - timedelta(hours=3))
+    _seed_run(db_session, 5, created_at=now - timedelta(minutes=10), ongoing=True, event_end=now - timedelta(minutes=10), problem_id=4)
+    # A spike that ended is already context: it keeps its own badge.
+    _seed_run(db_session, 6, created_at=now - timedelta(hours=3), ongoing=False, event_end=now - timedelta(hours=3),
+              signals=("pyod_outlier", "anomaly"), category="unusual_activity")
+    db_session.commit()
+
+    rows = db_session.query(FindingEntity).all()
+    trust = ft.finding_trust(db_session, rows, now=now)
+
+    # Every finding of problem 1 says so, the one seen while it was still going too.
+    for finding_id in (1, 2):
+        assert (trust[finding_id]["tier"], trust[finding_id]["badge"], trust[finding_id]["moved"]) == ("context", "over", None)
+        assert trust[finding_id]["ended_at"].startswith("2026-11-05T10:12")
+    assert (trust[3]["tier"], trust[3]["badge"]) == ("needs_attention", "data_problem")
+    assert trust[3]["ended_at"].startswith("2026-11-05T11:30")
+    for finding_id in (4, 5):
+        assert (trust[finding_id]["tier"], trust[finding_id]["ended_at"]) == ("needs_attention", None)
+    assert (trust[6]["tier"], trust[6]["badge"]) == ("context", None)
+
+
+def test_a_problem_that_ended_leaves_the_overview_needs_attention_count(client: TestClient) -> None:
+    now = datetime.now(timezone.utc)
+    with get_session_local()() as db:
+        _seed_run(db, 1, created_at=now - timedelta(hours=3), ongoing=False, event_end=now - timedelta(hours=3))
+        _seed_run(db, 2, created_at=now - timedelta(minutes=5), ongoing=True, event_end=now - timedelta(minutes=5))
+        db.commit()
+
+    summary = client.get("/api/overview/summary").json()
+
+    assert summary["active_findings"] == 2
+    assert (summary["attention_findings"], summary["context_findings"]) == (1, 1)
+    by_id = {item["id"]: item["trust"] for item in client.get("/api/findings").json()}
+    assert (by_id[1]["tier"], by_id[1]["badge"]) == ("context", "over")
+
+
+def test_a_level_change_does_not_end_when_a_spike_on_top_of_it_does(db_session) -> None:
+    now = datetime(2026, 11, 5, 12, 0, tzinfo=timezone.utc)
+    # The finding's most recent event is the spike, which ended; the level change runs to the last reading.
+    _seed_run(db_session, 1, created_at=now - timedelta(hours=2), ongoing=False, event_end=now - timedelta(hours=2),
+              signals=("pyod_outlier", "anomaly"), category="behavior_change")
+    db_session.add(SignalEntity(signal_id="sig-1-change", signal_type="ruptures", analyzer_id="ruptures", metric_name="cpu_usage", service="cart",
+                                severity="high", start_time=now - timedelta(hours=3), end_time=now, evidence_json={}, importance_score=0.7, analysis_run_id="run-1"))
+    db_session.commit()
+    row = db_session.query(FindingEntity).filter(FindingEntity.id == 1).one()
+    row.signal_ids = ["sig-1", "sig-1-change"]
+    db_session.commit()
+
+    trust = ft.finding_trust(db_session, [row], now=now)[1]
+
+    assert (trust["group"], trust["tier"], trust["badge"]) == ("level_change_agree", "needs_attention", "strong")

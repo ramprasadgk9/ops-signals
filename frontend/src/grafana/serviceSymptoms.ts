@@ -68,9 +68,11 @@ export function symptomOf(symptoms: ServiceSymptom[], finding: Finding | null): 
 export type SymptomRole = 'attention' | 'data' | 'background';
 
 /** Data problems (no data arrived, or the value froze) are monitoring fixes, not service changes;
- * the rest follow the trust tiers the web UI uses: needs attention, or context (background). */
+ * the rest follow the trust tiers the web UI uses: needs attention, or context (background). A
+ * problem that ended over an hour ago (badge `over`) is background, data problems included. */
 export function symptomRole(finding: Finding): SymptomRole {
   const trust = finding.trust;
+  if (trust?.badge === 'over') return 'background';
   if (trust?.group === 'data_problem' || trust?.badge === 'data_problem' || (!trust && finding.category === 'data_quality')) return 'data';
   return needsAttention(finding) ? 'attention' : 'background';
 }

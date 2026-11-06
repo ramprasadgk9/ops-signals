@@ -343,9 +343,12 @@ export type FindingTrustGroup = 'data_problem' | 'level_change_agree' | 'level_c
 export type FindingTrust = {
   group: FindingTrustGroup;
   tier: 'needs_attention' | 'context';
-  badge: 'strong' | 'moderate' | 'data_problem' | 'team_confirmed' | null;
+  /** `over`: it needed attention, ended more than an hour ago (`ended_at`), and moved to Context. */
+  badge: 'strong' | 'moderate' | 'data_problem' | 'team_confirmed' | 'over' | null;
   /** Set when this service's own answers moved the group off its tested list. */
   moved?: 'up' | 'down' | null;
+  /** When the problem ended, if it's over: the data went on after its last bad reading. */
+  ended_at?: string | null;
   checks: string[];
   /** Tested numbers from public benchmark data; null when the group wasn't tested enough. */
   tested: {
