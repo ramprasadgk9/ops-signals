@@ -22,6 +22,7 @@ Each finding carries a badge:
 | **Moderate evidence** | One check saw the level move and stay there | 67% real, against 56% for a random alert (503 checked) |
 | **Data problem** | The metric stopped reporting or froze at one value | A fact, not a guess, so no rate |
 | **Context only** | A single unusual value, a pattern, a trend or a forecast | Spikes were real 60% of the time, the same as a random alert |
+| **Over** | It needed attention, and ended more than an hour ago | Not a rate: the data shows it ended |
 
 Findings in "Needs attention" show two columns side by side:
 
@@ -39,6 +40,23 @@ Findings in "Needs attention" show two columns side by side:
 The tested rate ("In testing": how often findings like this were real on public test data, and
 what a random alert would have scored) is on the evidence badge's tooltip and in the finding's
 details. It still decides the badge and which list a finding goes to.
+
+## When a problem is over
+
+A problem that is over leaves Needs attention one hour after it ended, and moves to Context only
+with the **Over** badge. Until then it stays in Needs attention, so the people on shift still see
+it, and its card already says it ended ("Data has been arriving again since 10:12").
+
+- **Over** means the latest analysis saw data after the problem's last bad reading. A data gap is
+  over when data arrives again, a stuck value when it changes again.
+- If a later run sees the problem again, it is back in Needs attention.
+- Nothing is deleted or changed: every run's finding, "Seen in N runs", your answers and any case
+  stay. Over is not closed: a case on it stays open until someone closes it.
+- The same rule decides the Overview's Needs attention count, the shift handoff and the
+  `ops_signals_active_findings` metric.
+- Only data problems and spikes move to Over. Level changes and trends don't yet: their checks
+  look at the level up to the last reading, so a finding with one stays where it is, even when a
+  spike on top of it ended.
 
 ## "Was this real?"
 

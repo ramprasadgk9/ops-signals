@@ -6,6 +6,7 @@ The golden cases are real findings from a local database, with their signals' ev
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import re
@@ -473,3 +474,68 @@ def test_a_trend_that_moved_the_level_keeps_its_direction() -> None:
     assert plain.badge == "better"
     assert plain.why.startswith("mixed-lab is using less CPU")
     assert plain.check is not None
+
+
+def _ended(finding_id: int, ongoing: bool | None):
+    """A real finding, as the analysis saw it: over since its last bad reading, or still going."""
+    finding, signals = _facts(REAL[finding_id])
+    finding = dataclasses.replace(finding, ongoing=ongoing)
+    return build_plain(finding, signals, load_wording()), finding
+
+
+@pytest.mark.parametrize(
+    ("finding_id", "sentence"),
+    [
+        (8305, "Data has been arriving again since Oct 20, 19:32 UTC."),
+        (8286, "Normal again since Oct 19, 11:06 UTC."),
+        (8279, "Normal again since Oct 20, 01:02 UTC."),
+    ],
+)
+def test_a_finished_problem_says_since_when_it_is_normal_again(finding_id: int, sentence: str) -> None:
+    plain, finding = _ended(finding_id, ongoing=False)
+    assert utc_text(plain.what) == f"{GOLDEN[finding_id][2]} {sentence}"
+    # Still going, or not known: the card reads as before.
+    for ongoing in (True, None):
+        assert utc_text(_ended(finding_id, ongoing)[0].what) == GOLDEN[finding_id][2]
+
+
+@pytest.mark.parametrize("finding_id", [8233, 8300, 8282])
+def test_only_kinds_that_can_end_say_so(finding_id: int) -> None:
+    # Readings inside the normal range were never abnormal; level changes and trends end at the last reading.
+    plain, _ = _ended(finding_id, ongoing=False)
+    assert utc_text(plain.what) == GOLDEN[finding_id][2]
+
+
+def test_a_finished_problem_reads_the_same_on_every_finding_of_it() -> None:
+    from backend.app.models.db import get_engine, get_session_local, init_engine
+    from backend.app.models.entities import Base, FindingEntity, SignalEntity
+    from backend.app.services.finding_plain import finding_plain
+
+    init_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(get_engine())
+    item = REAL[8305]
+    gap = item["signals"][0]
+    end = datetime.fromisoformat(item["event_end"].replace("Z", "+00:00"))
+    with get_session_local()() as db:
+        db.add(SignalEntity(signal_id="gap", signal_type=gap["signal_type"], analyzer_id=gap["analyzer_id"], metric_name=item["metric_name"],
+                            service=item["service"], severity="high", start_time=gap["start_time"] and datetime.fromisoformat(gap["start_time"].replace("Z", "+00:00")),
+                            end_time=end, evidence_json=gap["evidence"], importance_score=0.7, analysis_run_id="run"))
+
+        def finding(finding_id: int, minutes: int, ongoing: bool, problem_id: int | None = None) -> None:
+            db.add(FindingEntity(id=finding_id, analysis_run_id="run", service=item["service"], metric_name=item["metric_name"], title=item["title"],
+                                 summary="s", category=item["category"], health_status="significant", importance_score=0.7, investigation_priority=2,
+                                 signal_ids=["gap"], comparison_json={}, created_at=end + timedelta(minutes=minutes), problem_id=problem_id,
+                                 event_start=end - timedelta(hours=1), event_end=end, ongoing=ongoing))
+
+        # Problem 1: still going at the first run, over at the second.
+        finding(1, -5, True)
+        finding(2, 5, False, problem_id=1)
+        # Problem 3: over at the first run, back at the second.
+        finding(3, -5, False)
+        finding(4, 5, True, problem_id=3)
+        db.commit()
+        plain = finding_plain(db, db.query(FindingEntity).all())
+
+    over = "Data has been arriving again since Oct 20, 19:32 UTC."
+    assert utc_text(plain[1]["what"]).endswith(over) and utc_text(plain[2]["what"]).endswith(over)
+    assert over not in utc_text(plain[3]["what"]) and over not in utc_text(plain[4]["what"])

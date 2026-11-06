@@ -139,14 +139,19 @@ those three.
 |---|---|---|
 | `level_change` | A lasting step up or down (ruptures, baseline_shift) | `rose_or_dropped`, `sharply`, `higher_or_lower`, `before`, `after`, `change`, `change_time`, `window_start`, `window_end` |
 | `trend` | A slow climb or fall. When the two halves of the window average within 5% of each other, the badge is **Changed** and `small` is the only line under the headline, so a 1% drift isn't called Better or Worse. | `climbing_or_falling`, `steadily_or_unevenly`, `first_half`, `second_half`, `half`, `change`, `peak`, `down_or_up` |
-| `spikes` | Short bursts outside the normal range (pyod_outlier, anomaly_zscore) | `above_or_below`, `times`, `up_or_down`, `peak`, `first_time`, `last_time`, `normal_low`, `normal_high`, `duration`, `typical`, `count` |
+| `spikes` | Short bursts outside the normal range (pyod_outlier, anomaly_zscore) | `above_or_below`, `times`, `up_or_down`, `peak`, `first_time`, `last_time`, `normal_low`, `normal_high`, `duration`, `typical`, `count`, `end_time` |
 | `odd_stretch` | A stretch unlike the rest of the series (stumpy) | `first_time`, `last_time` |
-| `data_gap` | Data stopped arriving | `duration`, `first_time`, `last_time`, `missing_points`, `gap_count` |
-| `flatline` | The value stopped changing | `stuck_value`, `duration`, `first_time`, `last_time`, `normal_change` |
+| `data_gap` | Data stopped arriving | `duration`, `first_time`, `last_time`, `missing_points`, `gap_count`, `end_time` |
+| `flatline` | The value stopped changing | `stuck_value`, `duration`, `first_time`, `last_time`, `normal_change`, `end_time` |
 | `forecast` | Ran away from the forecast | `higher_or_lower`, `actual`, `expected`, `off` |
 | `targets` | The "Your target" line, for a service with a target on the metric | `target`, `breach_side`, `since`, `until`, `duration`, `half`, `peak`, `value` |
 
 Times (`change_time`, `first_time`...) are shown in each reader's own time zone.
+
+When a spike, data gap or stuck value is over (the analysis saw data after its last bad reading),
+its `over` line is added to `what`: "Normal again since 09:45", "Data has been arriving again since
+10:12", "Changing again since 10:12". `end_time` is when it ended. The card, the details and Slack
+show the same sentence. See [when a problem is over](finding-trust.md#when-a-problem-is-over).
 
 ## AI wording
 

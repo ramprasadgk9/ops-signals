@@ -26,7 +26,16 @@ const BADGES: Record<NonNullable<FindingTrust['badge']>, { label: string; color:
     color: 'error',
     detail: 'The data itself stopped arriving or froze at one value. Fix this before trusting other findings on the metric.',
   },
+  over: {
+    label: 'Over',
+    color: 'success',
+    detail: 'This ended more than an hour ago, so it moved to Context. Its history and any case on it stay; open a case if you still want to find the cause.',
+  },
 };
+
+function endedAt(value: string): string {
+  return new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
 
 export const VERDICTS: Array<{ id: FindingVerdict; label: string }> = [
   { id: 'real_problem', label: 'Real problem' },
@@ -36,6 +45,12 @@ export const VERDICTS: Array<{ id: FindingVerdict; label: string }> = [
 
 export function trustBadge(trust?: FindingTrust | null): { label: string; color: ChipColor; detail: string } | null {
   if (!trust) return null;
+  if (trust.badge === 'over' && trust.ended_at) {
+    return {
+      ...BADGES.over,
+      detail: `This ended at ${endedAt(trust.ended_at)}, more than an hour ago, so it moved to Context. Its history and any case on it stay; open a case if you still want to find the cause.`,
+    };
+  }
   if (trust.badge) return BADGES[trust.badge];
   if (trust.moved === 'down') {
     return {

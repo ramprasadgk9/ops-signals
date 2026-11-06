@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.models.entities import FindingEntity, SignalEntity
+from backend.app.services.active_findings import problem_ends
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +54,10 @@ COMMON_FIELDS = {"plain_name", "service", "metric"}
 TEMPLATE_FIELDS: dict[str, set[str]] = {
     "level_change": {"rose_or_dropped", "sharply", "higher_or_lower", "before", "after", "change", "change_time", "window_start", "window_end"},
     "trend": {"climbing_or_falling", "steadily_or_unevenly", "first_half", "second_half", "half", "change", "peak", "down_or_up"},
-    "spikes": {"above_or_below", "times", "up_or_down", "peak", "first_time", "last_time", "normal_low", "normal_high", "duration", "typical", "count"},
+    "spikes": {"above_or_below", "times", "up_or_down", "peak", "first_time", "last_time", "normal_low", "normal_high", "duration", "typical", "count", "end_time"},
     "odd_stretch": {"first_time", "last_time"},
-    "data_gap": {"duration", "first_time", "last_time", "missing_points", "gap_count"},
-    "flatline": {"stuck_value", "duration", "first_time", "last_time", "normal_change"},
+    "data_gap": {"duration", "first_time", "last_time", "missing_points", "gap_count", "end_time"},
+    "flatline": {"stuck_value", "duration", "first_time", "last_time", "normal_change", "end_time"},
     "forecast": {"higher_or_lower", "actual", "expected", "off"},
     # Lines comparing a finding with the service's own target (the `services` section).
     "targets": {"target", "breach_side", "since", "until", "duration", "half", "peak", "value"},
@@ -66,6 +67,10 @@ REQUIRED_LINES: dict[str, tuple[str, ...]] = {
     "targets": (),
 }
 SERVICE_IMPORTANCE = ("critical", "normal", "low")
+# Kinds whose template has an `over` line, added to `what` when the problem is over: the analysis
+# saw data after its last bad reading ("Normal again since 09:45"). Level changes and trends end at
+# the last reading, so they never are; odd stretches don't say what normal is.
+OVER_KINDS = ("spikes", "data_gap", "flatline")
 BADGES = ("worse", "better", "changed", "gap", "noise", "blip")
 
 
@@ -779,6 +784,9 @@ def build_plain(finding: FindingFacts, signals: Iterable[SignalFacts], wording: 
         return None
     if plain is not None:
         plain.service, plain.metric_name = service, finding.metric_name
+        if plain.kind in OVER_KINDS and plain.badge != "noise" and finding.ongoing is False:
+            over = _fill(wording.templates[plain.kind].get("over"), {**base, "end_time": time_marker(finding.event_end)})
+            plain.what = _join(plain.what, over) or plain.what
         context = wording.services.get((service or "").lower())
         if context is not None:
             plain.service_about, plain.service_importance = context.about, context.importance
@@ -931,16 +939,23 @@ def _signal_facts(db: Session, signal_ids: set[str]) -> dict[str, SignalFacts]:
     return facts
 
 
-def _finding_facts(row: FindingEntity) -> FindingFacts:
-    return FindingFacts(row.metric_name, row.service, row.title or "", row.category or "", row.comparison_json or {}, row.event_start, row.event_end, row.ongoing)
+def _finding_facts(row: FindingEntity, ended_at: datetime | None = None) -> FindingFacts:
+    """The finding as its wording sees it. Whether it is over is the problem's, not the row's: an
+    older finding of a problem that ended says so too, and one whose problem came back doesn't."""
+    if ended_at is not None:
+        ongoing, event_end = False, ended_at
+    else:
+        ongoing, event_end = (None if row.ongoing is False else row.ongoing), row.event_end
+    return FindingFacts(row.metric_name, row.service, row.title or "", row.category or "", row.comparison_json or {}, row.event_start, event_end, ongoing)
 
 
 def _build_rows(db: Session, rows: Iterable[FindingEntity], wording: Wording) -> list[tuple[FindingEntity, Plain]]:
     row_list = list(rows)
     facts = _signal_facts(db, {signal_id for row in row_list for signal_id in (row.signal_ids or [])})
+    ends = problem_ends(db, row_list)
     built = []
     for row in row_list:
-        plain = build_plain(_finding_facts(row), [facts[signal_id] for signal_id in (row.signal_ids or []) if signal_id in facts], wording)
+        plain = build_plain(_finding_facts(row, ends.get(row.id)), [facts[signal_id] for signal_id in (row.signal_ids or []) if signal_id in facts], wording)
         if plain is not None:
             built.append((row, plain))
     return built

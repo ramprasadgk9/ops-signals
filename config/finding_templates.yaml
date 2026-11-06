@@ -155,6 +155,8 @@ templates:
     what: Between {first_time} and {last_time}. Normally {normal_low} to {normal_high}.
     what_once: At {first_time}, for {duration}. Normally {normal_low} to {normal_high}.
     what_typical: Between {first_time} and {last_time}. It usually sits around {typical}.
+    # Added to `what` when the analysis saw normal data after the last spike.
+    over: Normal again since {end_time}.
     noise_headline: "{plain_name} had {count} odd-looking readings, all within its normal range"
     noise_what: Between {first_time} and {last_time}. Values stayed between {normal_low} and {normal_high}, as usual.
     noise_why: No sign of user impact. It's shown because the pattern was unusual, not the level.
@@ -170,6 +172,8 @@ templates:
     headline: We lost {plain_name} data for {duration}
     what: No data from {first_time} to {last_time} ({missing_points} readings missing).
     more: There were {gap_count} gaps in this window. This card shows the longest.
+    # Added to `what` when data came back before the end of the analyzed data.
+    over: Data has been arriving again since {end_time}.
     why: Alerts and dashboards using this metric couldn't see problems during this time.
     check: Is the data source running? Did the metric name or a label change?
 
@@ -177,6 +181,8 @@ templates:
   flatline:
     headline: "{plain_name} got stuck at {stuck_value} for {duration}"
     what: From {first_time} to {last_time} it didn't change at all. It normally changes on {normal_change} of readings.
+    # Added to `what` when the value moved again before the end of the analyzed data.
+    over: Changing again since {end_time}.
     why: A stuck value often means the data source froze. Alerts on this metric may miss real problems.
     check: Is the data source running and sending fresh values?
 

@@ -27,6 +27,19 @@ describe('findingTrust wording', () => {
     expect(trustBadge(data)?.label).toBe('Data problem');
   });
 
+  it('says a problem that ended over an hour ago is over and moved to Context', () => {
+    const over: FindingTrust = { ...base, group: 'data_problem', tier: 'context', badge: 'over', tested: null, ended_at: '2026-11-05T10:12:00Z' };
+    const badge = trustBadge(over);
+    expect(badge?.label).toBe('Over');
+    expect(badge?.color).toBe('success');
+    expect(badge?.detail).toMatch(/^This ended at .+, more than an hour ago, so it moved to Context\. Its history and any case on it stay/);
+    expect(needsAttention({ trust: over } as Finding)).toBe(false);
+    // Inside the hour it still needs attention, with its own badge.
+    const recent: FindingTrust = { ...over, tier: 'needs_attention', badge: 'data_problem' };
+    expect(trustBadge(recent)?.label).toBe('Data problem');
+    expect(needsAttention({ trust: recent } as Finding)).toBe(true);
+  });
+
   it('shows the service count, and says when it is too few to lead', () => {
     expect(serviceHeadline(base)).toBe('0 of 5 answers');
     expect(serviceCaption(base, 'cart')).toBe('5 more "Real problem" or "Not a problem" answers on findings like this on cart, and your team\'s own rate shows here.');

@@ -100,13 +100,35 @@ something your own alerting rule decided to page someone for. See [Alert](#alert
 
 The evidence badge says how much to trust a finding. **Strong evidence**: two checks agree.
 **Moderate evidence**: one check saw the level move and stay there. **Data problem**: the metric
-stopped reporting or froze. **Context only**: a single unusual value, a pattern or a forecast. See
+stopped reporting or froze. **Context only**: a single unusual value, a pattern or a forecast.
+**Over**: it needed attention and ended more than an hour ago. See
 [`finding-trust.md`](finding-trust.md).
 
 ### Needs attention and Context only
 
 Needs attention and Context only are the two lists on the Findings page. Needs attention is worth a
-look now; Context only is background for when you're already investigating something.
+look now; Context only is background for when you're already investigating something. A problem
+that ended moves from Needs attention to Context only an hour later.
+
+### Finding states
+
+A finding's state says whether its problem is still going on, which list it's in, and what your
+team did about it. Each run that sees the problem again adds a finding to the same problem; nothing
+is overwritten.
+
+| State | Where you see it | Means |
+| --- | --- | --- |
+| **Still happening** | Timing chip, "Started 09:40 · still happening" | Still going at the latest analyzed data, from the last 2 hours |
+| **Still going when the data ended** | Timing chip | Still going at the end of older data, such as an uploaded file |
+| **Over** (timing) | Timing chip, "09:40–09:45 · over" | The data went on after the last bad reading; a spike's card adds "Normal again since 09:45" |
+| **Over** (badge) | Evidence badge, in Context only | It needed attention and ended more than an hour ago |
+| **Seen in N runs** | Chip on the card | N runs saw the same problem; it's counted once |
+| **Needs attention** / **Context only** | The two lists | Worth a look now / background |
+| **Real problem**, **Not a problem**, **Expected change** | "Was this real?" | Your team's answer |
+| **Case open** / **Case closed** | Cases | A closed case takes the problem out of the Overview counts |
+
+Only data problems and spikes move to Over; level changes and trends don't yet. See
+[finding states](operational-findings.md#finding-states-from-found-to-over).
 
 ### Was this real?
 

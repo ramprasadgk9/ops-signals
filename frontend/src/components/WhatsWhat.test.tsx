@@ -19,7 +19,7 @@ describe("What's what?", () => {
     expect(steps[1]).toHaveTextContent('This page');
     expect(steps[2]).not.toHaveAttribute('aria-current');
 
-    expect(within(dialog).getAllByRole('term').map((term) => term.textContent)).toEqual(['Evidence badge', 'Needs attention', 'Was this real?', 'Seen before', 'Finding vs alert']);
+    expect(within(dialog).getAllByRole('term').map((term) => term.textContent)).toEqual(['Evidence badge', 'Needs attention', 'Finding states', 'Was this real?', 'Seen before', 'Finding vs alert']);
     expect(within(dialog).getByRole('link', { name: /full glossary/i })).toHaveAttribute('href', expect.stringMatching(/docs\/glossary\.md$/));
   });
 

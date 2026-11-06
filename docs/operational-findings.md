@@ -15,6 +15,10 @@ Signals are useful, but they are still too granular for many operator workflows.
 - importance score
 - source signal references
 - comparison metadata
+- when the problem started and ended (`event_start`, `event_end`), and whether it was still going
+  at the end of the analyzed data (`ongoing`)
+- the problem it belongs to (`problem_id`): the first finding of the problem, shared by every later
+  run that sees it again
 
 ## Example
 
@@ -48,6 +52,57 @@ importance score (0.8 or more, 0.55 or more, below that). The UI shows them as *
 and **Low** importance: `normal` means a change was found but it is small, not that all is well.
 How the card is worded from these fields is in [`finding-anatomy.md`](finding-anatomy.md); how a
 finding becomes a case is in [`operational-cases.md`](operational-cases.md).
+
+## Finding states: from found to over
+
+A finding is still happening, over, or still going when its data ended. Its state also says which
+list it's in (Needs attention or Context only), how many runs saw it, and what your team answered.
+Each run that sees a problem again saves a new finding with the same `problem_id`; earlier
+findings are never changed, so the start, every sighting and the end all stay in the history.
+
+**Is it still going on?** The timing chip on the card says:
+
+| Chip | When |
+| --- | --- |
+| Started 09:40 · still happening | The newest finding says `ongoing`, and its data is from the last 2 hours |
+| Started 09:40 · still going when the data ended (10:00) | `ongoing`, but the data is older, such as an uploaded file |
+| 09:40–09:45 · over | The data went on after the last bad reading (`ongoing` is false) |
+
+A problem that is over also says so under the headline: "Normal again since 09:45" for a spike,
+"Data has been arriving again since 10:12" for a data gap, "Changing again since 10:12" for a stuck
+value. The details and the Slack message use the same sentence.
+
+**Which list is it in?** Needs attention or Context only, from its
+[evidence badge](finding-trust.md). A problem that needed attention moves to Context only one hour
+after it ended, with the **Over** badge; the hour keeps it in view for the people on shift. The
+Overview counts, the shift handoff and `ops_signals_active_findings` follow the same lists. See
+[when a problem is over](finding-trust.md#when-a-problem-is-over).
+
+**How often was it seen?** "Seen in N runs" counts the findings of one problem. The problem is
+counted once everywhere. Slack posts when a problem is new or gets worse, not on every run.
+
+**What did your team do?** "Was this real?" keeps the team's answer: Real problem, Not a problem
+or Expected change. A case on the problem stays open until someone closes it, even after the
+problem is over; a closed case takes the problem out of the Overview counts.
+
+**How long is it listed?** The Findings page and the Overview show the findings created in the
+chosen window (24 hours by default; **Last 7 days** shows a week). Older findings stay in the
+database and in any case made from them.
+
+An example: checkout latency data stops at 09:40 and comes back at 10:12, with a run every 10
+minutes.
+
+| Run | Finding | Card says | List |
+| --- | --- | --- | --- |
+| 09:45 | #101, starts the problem | Started 09:40 · still happening | Needs attention |
+| 09:55, 10:05 | #102, #103, same problem | still happening · Seen in 3 runs | Needs attention |
+| 10:15 | #104, same problem | 09:40–10:12 · over, "Data has been arriving again since 10:12" | Needs attention |
+| after 11:12 | later runs add findings only while the gap is in their window | the same | Context only, **Over** |
+
+Level changes and trends don't move to Over yet: their checks measure the level up to the last
+reading, so a finding with one stays in its list even when a spike on top of it ended (its timing
+chip can still say "over", for that spike). Telling when a level went back to normal is planned
+(#82).
 
 ## Role in the Workflow
 

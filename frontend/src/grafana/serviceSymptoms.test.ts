@@ -80,6 +80,12 @@ describe('triageSymptoms', () => {
     expect(symptomRole(oldBackend)).toBe('data');
   });
 
+  it('puts a data problem that ended over an hour ago in the background', () => {
+    const ended = finding({ id: 6, metric_name: 'up', category: 'data_quality', trust: { ...trust('data_problem', 'context', null), badge: 'over', ended_at: '2026-10-09T03:12:00Z' } });
+    expect(symptomRole(gap)).toBe('data');
+    expect(symptomRole(ended)).toBe('background');
+  });
+
   it('counts a symptom as still showing when it was seen within 90 minutes of the newest finding', () => {
     const [recent, earlier] = serviceSymptoms([
       finding({ id: 10, created_at: '2026-10-09T05:00:00Z' }),

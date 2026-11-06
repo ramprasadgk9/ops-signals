@@ -20,6 +20,12 @@ SERVICE_MIN_ANSWERS of them: a context group whose findings were real at least P
 time moves up to needs attention; a needs-attention group real less than DEMOTE_RATE of the time
 moves down to context. Data problems never move down: a metric that stopped reporting is a fact.
 
+A problem that is over (its newest finding says the data went on after its last bad reading, see
+services/active_findings.py problem_ends) leaves Needs attention OVER_GRACE after it ended, with
+the "over" badge: it needs no action now. Its findings, answers and any case on it stay as they are.
+Only data problems and spikes (OVER_GROUPS) move: a level change or trend runs to the last reading,
+so a finding with one isn't over even when a spike on top of it ended.
+
 A finding with no service label (stored as "unknown", or none at all) has no service to learn for:
 its answers are counted per metric instead, so a CPU gap and a latency gap don't share one bucket.
 """
@@ -28,7 +34,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
@@ -38,6 +44,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.entities import FindingEntity, FindingFeedbackEntity, SignalEntity
+from backend.app.services.active_findings import problem_ends
 
 TRUST_CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "finding_trust.yaml"
 
@@ -47,6 +54,13 @@ SERVICE_MIN_ANSWERS = 5
 # Moving a group between lists for one service, from that service's answers (see module docstring).
 PROMOTE_RATE = 0.5
 DEMOTE_RATE = 0.2
+# A problem that needed attention and is over stays in Needs attention this long after it ended,
+# so the people on shift still see it, then moves to Context with the "over" badge.
+OVER_GRACE = timedelta(hours=1)
+# The groups whose checks stop when the problem stops. A level change or a trend runs to the last
+# reading, so a finding with one is still going even when a spike riding on it ended (a finding's
+# `ongoing` follows its most recent event, which can be that spike).
+OVER_GROUPS = {"data_problem", "spike"}
 
 DATA_SIGNAL_TYPES = {"data_gap", "flatline"}
 CHANGE_IDS = {"ruptures", "baseline_shift"}
@@ -120,10 +134,11 @@ def tested_evidence(group: str, metric_name: str, config: dict[str, Any]) -> dic
     }
 
 
-def finding_trust(db: Session, rows: list[FindingEntity]) -> dict[int, dict[str, Any]]:
-    """Trust for each finding, keyed by finding id. Three queries, whatever the number of rows."""
+def finding_trust(db: Session, rows: list[FindingEntity], now: datetime | None = None) -> dict[int, dict[str, Any]]:
+    """Trust for each finding, keyed by finding id. Four queries, whatever the number of rows."""
     if not rows:
         return {}
+    now = now or datetime.now(timezone.utc)
     config = load_trust_config()
     signal_ids = sorted({signal_id for row in rows for signal_id in (row.signal_ids or [])})
     facts: dict[str, SignalFacts] = {}
@@ -141,6 +156,7 @@ def finding_trust(db: Session, rows: list[FindingEntity]) -> dict[int, dict[str,
     }
     answers = _answers(db, [row.id for row in rows if row.id is not None])
     history = _service_history(db, {row.service for row in rows})
+    ends = problem_ends(db, rows)
 
     result: dict[int, dict[str, Any]] = {}
     for row in rows:
@@ -150,6 +166,9 @@ def finding_trust(db: Session, rows: list[FindingEntity]) -> dict[int, dict[str,
         scope = "metric" if is_unlabeled(row.service) else "service"
         real, answered = history.get(_bucket(row.service, row.metric_name, group), (0, 0))
         tier, badge, moved = placement(group, real, answered)
+        ended_at = ends.get(row.id)
+        if tier == "needs_attention" and group in OVER_GROUPS and ended_at is not None and now - ended_at >= OVER_GRACE:
+            tier, badge, moved = "context", "over", None
         result[row.id] = {
             "group": group,
             "tier": tier,
@@ -161,6 +180,7 @@ def finding_trust(db: Session, rows: list[FindingEntity]) -> dict[int, dict[str,
             "your_answer": answer[0] if (answer := answers.get(row.id)) else None,
             "answered_by": answer[1] if answer else None,
             "answered_at": _iso(answer[2]) if answer else None,
+            "ended_at": _iso(ended_at),
         }
     return result
 
