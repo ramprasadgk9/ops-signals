@@ -99,10 +99,16 @@ minutes.
 | 10:15 | #104, same problem | 09:40–10:12 · over, "Data has been arriving again since 10:12" | Needs attention |
 | after 11:12 | later runs add findings only while the gap is in their window | the same | Context only, **Over** |
 
-Level changes and trends don't move to Over yet: their checks measure the level up to the last
-reading, so a finding with one stays in its list even when a spike on top of it ended (its timing
-chip can still say "over", for that spike). Telling when a level went back to normal is planned
-(#82).
+**Level changes** are over when the level comes back near where it was before the jump. Their
+checks look at the level up to the last reading, so their findings always say still going; instead,
+after each run, Ops Signals compares that run's latest readings with the level before and after the
+jump. Latency at 200 ms that jumps to 1.8 s at 07:30 and comes back at 11:30 reads "Latency rose
+sharply for 4 hours, then came back. About 200 ms until 07:30, then about 1.8 s. Back to about
+200 ms since 11:30", and moves to Context only at 12:30. A level only partly back says "Partly
+back: about 700 ms since 11:30" and stays in Needs attention. See
+[when a problem is over](finding-trust.md#when-a-problem-is-over).
+
+Trends ("has been climbing") don't move to Over yet.
 
 ## Role in the Workflow
 

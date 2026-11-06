@@ -39,6 +39,9 @@ class InMemoryStore:
     def save_findings(self, findings) -> None:
         self.saved_findings = list(findings)
 
+    def save_level_events(self, analysis_run_id, normalized) -> list:
+        return []
+
     def create_analysis_run(self, payload) -> None:
         return None
 

@@ -136,6 +136,11 @@ templates:
   level_change:
     headline: "{plain_name} {rose_or_dropped}{sharply} and stayed {higher_or_lower}"
     what: About {before} until {change_time}. Since then about {after} ({change}).
+    # When the level came back near where it was before (instead of headline and what), and when it
+    # came only partly back (added to what).
+    over_headline: "{plain_name} {rose_or_dropped}{sharply} for {duration}, then came back"
+    over_what: About {before} until {change_time}, then about {during}. Back to about {now} since {back_time}.
+    partly: "Partly back: about {now} since {back_time}."
     check: Deploys or config changes in {service} between {window_start} and {window_end}.
     related: "{plain_name} also {rose_or_dropped} at {change_time} ({before} to {after})."
 

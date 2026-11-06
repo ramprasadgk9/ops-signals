@@ -17,6 +17,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from intelligence.config import AppConfig
 from intelligence.findings.schema import OperationalFinding
+from intelligence.level_endings import LevelEvent, OpenLevelChange, level_event
+from intelligence.series_identity import cluster_points
 from intelligence.storage.database_url import database_url_from_env
 from intelligence.signals.schema import OperationalSignal
 
@@ -28,6 +30,25 @@ logger = logging.getLogger(__name__)
 PROBLEM_MATCH_TOLERANCE = timedelta(minutes=10)
 NORMALIZED_LABEL_COLUMNS = ("metric_name", "service", "env", "host", "namespace", "pod", "source", "unit", "metric_type", "cluster")
 _HEALTH_RANK = {"normal": 0, "significant": 1, "critical": 2}
+# Level changes whose level may have gone back are looked for among findings this recent.
+LEVEL_CHECK_WINDOW = timedelta(hours=24)
+LEVEL_CHANGE_TYPES = ("ruptures", "baseline_shift")
+
+
+def _open_level_change(problem_id: int, evidence: dict[str, Any] | None, state: str | None) -> OpenLevelChange | None:
+    """The problem as a level change, from its change signal's evidence; None when it has none."""
+    if not evidence:
+        return None
+    before = evidence.get("left_mean", evidence.get("first_half_mean"))
+    after = evidence.get("right_mean", evidence.get("second_half_mean"))
+    change_at = pd.to_datetime(evidence.get("change_point_time"), utc=True, errors="coerce")
+    try:
+        before, after = float(before), float(after)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(change_at):
+        return None
+    return OpenLevelChange(problem_id, before, after, change_at.to_pydatetime(), state)
 
 # Optional post-write hook, set via register_findings_hook(). Kept generic (not
 # Slack-specific) so this storage layer stays framework-agnostic — it doesn't know or
@@ -177,6 +198,24 @@ class PostgresStore:
         Index(f"idx_{prefix}finding_metric", self.findings_table.c.metric_name, self.findings_table.c.created_at)
         Index(f"idx_{prefix}finding_service", self.findings_table.c.service, self.findings_table.c.created_at)
         Index(f"idx_{prefix}finding_importance", self.findings_table.c.importance_score)
+
+        # A level change's state changes (intelligence/level_endings.py): it came back, came partly
+        # back, or went high again. One row per change, never edited; the latest is the state.
+        self.problem_events_table = Table(
+            f"{prefix}problem_events",
+            self.metadata,
+            Column("id", BIGINT, primary_key=True, autoincrement=True),
+            Column("problem_id", BIGINT, nullable=False),
+            Column("kind", String(16), nullable=False),
+            Column("at", TIMESTAMP(timezone=True), nullable=False),
+            Column("changed_at", TIMESTAMP(timezone=True)),
+            Column("level_before", Float),
+            Column("level_during", Float),
+            Column("level_now", Float),
+            Column("analysis_run_id", Text),
+            Column("created_at", TIMESTAMP(timezone=True), server_default=func.now()),
+        )
+        Index(f"idx_{prefix}problem_event_problem", self.problem_events_table.c.problem_id, self.problem_events_table.c.id)
 
         self.capabilities_table = Table(
             "capabilities",
@@ -374,6 +413,88 @@ class PostgresStore:
         )
         row = connection.execute(query).first()
         return (row[0], row[1]) if row else None
+
+    def save_level_events(self, analysis_run_id: str, normalized: pd.DataFrame) -> list[LevelEvent]:
+        """After a run's findings are saved: for each open level change on a series this run
+        analyzed, saves whether its level came back, came partly back or went high again
+        (intelligence/level_endings.py). Only series in `normalized` are checked: a run that didn't
+        read a series says nothing about it."""
+        if normalized.empty or "metric_name" not in normalized.columns:
+            return []
+        findings, runs, signals, events = self.findings_table, self.analysis_runs_table, self.signals_table, self.problem_events_table
+        since = datetime.now(timezone.utc) - LEVEL_CHECK_WINDOW
+        found: list[LevelEvent] = []
+        with self.engine.begin() as connection:
+            connection_id = connection.execute(select(runs.c.connection_id).where(runs.c.id == analysis_run_id)).scalar()
+            same_connection = runs.c.connection_id.is_(None) if connection_id is None else runs.c.connection_id == connection_id
+            rows = connection.execute(
+                select(findings.c.id, findings.c.problem_id, findings.c.service, findings.c.metric_name, findings.c.cluster, findings.c.signal_ids)
+                .select_from(findings.outerjoin(runs, findings.c.analysis_run_id == runs.c.id))
+                .where(
+                    findings.c.metric_name.in_(sorted({str(name) for name in normalized["metric_name"].dropna().unique()})),
+                    findings.c.created_at >= since,
+                    same_connection,
+                )
+                .order_by(findings.c.created_at, findings.c.id)
+            ).all()
+            by_problem: dict[int, list[Any]] = {}
+            for row in rows:
+                by_problem.setdefault(row.problem_id or row.id, []).append(row)
+            if not by_problem:
+                return []
+            signal_ids = sorted({signal_id for problem_rows in by_problem.values() for row in problem_rows for signal_id in (row.signal_ids or [])})
+            changes = {
+                signal_id: evidence or {}
+                for signal_id, evidence in connection.execute(
+                    select(signals.c.signal_id, signals.c.evidence_json).where(
+                        signals.c.signal_id.in_(signal_ids), signals.c.signal_type.in_(LEVEL_CHANGE_TYPES)
+                    )
+                ).all()
+            }
+            states: dict[int, str] = {}
+            for problem_id, kind in connection.execute(
+                select(events.c.problem_id, events.c.kind).where(events.c.problem_id.in_(list(by_problem))).order_by(events.c.id)
+            ).all():
+                states[problem_id] = kind
+            for problem_id, problem_rows in by_problem.items():
+                # The jump is the problem's first level change, in time order.
+                first = next(
+                    ((row, changes[signal_id]) for row in problem_rows for signal_id in (row.signal_ids or []) if signal_id in changes),
+                    None,
+                )
+                if first is None:
+                    continue
+                row, change = first
+                problem = _open_level_change(problem_id, change, states.get(problem_id))
+                if problem is None:
+                    continue
+                points = normalized[normalized["metric_name"].astype(str) == str(row.metric_name)]
+                if row.service is not None and "service" in points.columns:
+                    points = points[points["service"].astype(str) == str(row.service)]
+                points = cluster_points(points, row.cluster)
+                if points.empty:
+                    continue
+                event = level_event(problem, points)
+                if event is not None:
+                    found.append(event)
+            if found:
+                connection.execute(
+                    events.insert(),
+                    [
+                        {
+                            "problem_id": event.problem_id,
+                            "kind": event.kind,
+                            "at": event.at,
+                            "changed_at": event.changed_at,
+                            "level_before": event.level_before,
+                            "level_during": event.level_during,
+                            "level_now": event.level_now,
+                            "analysis_run_id": analysis_run_id,
+                        }
+                        for event in found
+                    ],
+                )
+        return found
 
     def _worst_health(self, connection, problem_id: int) -> int:
         findings = self.findings_table

@@ -126,6 +126,23 @@ ALTER TABLE IF EXISTS ops_operational_findings
 
 CREATE INDEX IF NOT EXISTS idx_ops_finding_problem ON ops_operational_findings (problem_id);
 
+-- A level change's state changes: it came back, came partly back, or went high again
+-- (intelligence/level_endings.py). One row per change, never edited; the latest is the state.
+CREATE TABLE IF NOT EXISTS ops_problem_events (
+    id BIGSERIAL PRIMARY KEY,
+    problem_id BIGINT NOT NULL,
+    kind VARCHAR(16) NOT NULL,
+    at TIMESTAMPTZ NOT NULL,
+    changed_at TIMESTAMPTZ,
+    level_before DOUBLE PRECISION,
+    level_during DOUBLE PRECISION,
+    level_now DOUBLE PRECISION,
+    analysis_run_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ops_problem_event_problem ON ops_problem_events (problem_id, id);
+
 ALTER TABLE IF EXISTS ops_change_events
     ADD COLUMN IF NOT EXISTS cluster TEXT;
 

@@ -121,13 +121,15 @@ is overwritten.
 | **Still happening** | Timing chip, "Started 09:40 · still happening" | Still going at the latest analyzed data, from the last 2 hours |
 | **Still going when the data ended** | Timing chip | Still going at the end of older data, such as an uploaded file |
 | **Over** (timing) | Timing chip, "09:40–09:45 · over" | The data went on after the last bad reading; a spike's card adds "Normal again since 09:45" |
+| **Came back** | Card, "rose sharply for 4 hours, then came back" | A level change whose level is back near where it was before the jump |
+| **Partly back** | Card, "Partly back: about 700 ms since 11:30" | A level change only part of the way back; still needs attention |
 | **Over** (badge) | Evidence badge, in Context only | It needed attention and ended more than an hour ago |
 | **Seen in N runs** | Chip on the card | N runs saw the same problem; it's counted once |
 | **Needs attention** / **Context only** | The two lists | Worth a look now / background |
 | **Real problem**, **Not a problem**, **Expected change** | "Was this real?" | Your team's answer |
 | **Case open** / **Case closed** | Cases | A closed case takes the problem out of the Overview counts |
 
-Only data problems and spikes move to Over; level changes and trends don't yet. See
+Data problems, spikes and level changes that came back move to Over; trends don't yet. See
 [finding states](operational-findings.md#finding-states-from-found-to-over).
 
 ### Was this real?

@@ -137,6 +137,7 @@ class SignalPipeline(RegistryAnalyzerSelection):
                 finding.analysis_run_id = analysis_run_id
 
             self.store.save_findings(findings)
+            self._save_level_events(analysis_run_id, normalized)
             self._mark_finding_contributors(executed_analyzer_snapshots, scored_signals, findings)
             self.store.update_analysis_run_learning_snapshot(
                 analysis_run_id,
@@ -166,6 +167,14 @@ class SignalPipeline(RegistryAnalyzerSelection):
         except Exception:
             self.store.update_analysis_run_learning_snapshot(analysis_run_id, {"status": "failed"})
             raise
+
+    def _save_level_events(self, analysis_run_id: str, normalized: pd.DataFrame) -> None:
+        """Whether open level changes on these series came back (intelligence/level_endings.py).
+        It only labels earlier problems, so a failure is logged and the run goes on."""
+        try:
+            self.store.save_level_events(analysis_run_id, normalized)
+        except Exception:
+            logger.warning("Checking whether level changes came back failed for run %s", analysis_run_id, exc_info=True)
 
     def _run_analyzers(
         self,

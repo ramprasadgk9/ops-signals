@@ -83,6 +83,17 @@ def ensure_finding_problem_schema(engine: Engine) -> None:
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_ops_finding_problem ON ops_operational_findings (problem_id)"))
 
 
+def ensure_problem_event_schema(engine: Engine) -> None:
+    """Adds `changed_at` (when the level jumped) to ops_problem_events made before it had one."""
+    inspector = inspect(engine)
+    if "ops_problem_events" not in inspector.get_table_names():
+        return
+    if "changed_at" in {column["name"] for column in inspector.get_columns("ops_problem_events")}:
+        return
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE ops_problem_events ADD COLUMN changed_at TIMESTAMPTZ"))
+
+
 _CLUSTER_TABLES = ("ops_normalized_timeseries_points", "ops_operational_signals", "ops_operational_findings", "ops_change_events")
 
 

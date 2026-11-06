@@ -117,6 +117,9 @@ class PreviewPipelineStore:
     def save_signals(self, signals: list[object], embeddings: dict[int, object] | None = None) -> None:
         self.saved_signals = list(signals)
 
+    def save_level_events(self, analysis_run_id: str, normalized: pd.DataFrame) -> list[object]:
+        return []
+
     def save_findings(self, findings: list[object]) -> None:
         self.saved_findings = list(findings)
 
