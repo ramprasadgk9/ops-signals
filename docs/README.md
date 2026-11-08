@@ -114,6 +114,8 @@ What analyzers are, why a given one gets picked for a given metric, and how much
   random alert), and the "Was this real?" answers that replace them for your service.
 - [`finding-wording.md`](finding-wording.md) - how finding cards and Slack messages describe a
   finding in plain words, and how to change that wording in `config/finding_templates.yaml`.
+- [`investigate.md`](investigate.md) - Investigate on a finding: what it checks, what your team
+  knows about a service, when it stops, and saving it to a case.
 - [`ai-features.md`](ai-features.md) - every place AI is used, in one table: where it shows, what
   it adds, what shows without it, and what each feature sends to the provider.
 - [`finding-anatomy.md`](finding-anatomy.md) - one finding followed through wording, trust and

@@ -24,6 +24,7 @@ behavior when there's no provider, the call fails or the reply doesn't pass its 
 | [Case write-up](#case-write-up) | Case → Publish Knowledge | On click |
 | [Why a fix didn't hold](#why-a-fix-didnt-hold) | Finding details, Case → "came back" banner | On click |
 | [Shift handoff note](#shift-handoff-note) | Overview → Shift handoff button, plugin overview | On click |
+| [Investigate](#investigate) | Findings → Investigate on a card or in the details | On click, then each round you start |
 
 Each feature below says what AI adds and what you see without it.
 
@@ -126,6 +127,15 @@ Each feature below says what AI adds and what you see without it.
 - **Without AI:** no button; the dialog shows the same counts, what to watch first and a plain
   summary to copy.
 
+### Investigate
+
+- **AI adds:** **Investigate** on a finding: the model runs read-only checks (Prometheus queries on
+  the finding's connection, recorded changes, past cases, other findings) and lists where to look
+  next, each step linked to the check behind it. It never records a root cause; steps people mark
+  go into a case only when they save it. Details: [Investigate a finding](investigate.md).
+- **Without AI:** the button opens a dialog saying how to turn AI on. What the team knows about a
+  service can still be read; the rest of the finding works as before.
+
 ## Never AI-written
 
 - Detection: analyzers, the router, scores, priority, trust numbers, drill-down, deploy matching
@@ -137,7 +147,8 @@ Each feature below says what AI adds and what you see without it.
 
 Only the text needed for that one place: a finding's facts and wording, a case's notes and its
 similar cases' resolutions, ticket comments, the assistant's retrieved evidence, or a metric's
-profile. Where it goes depends on the provider you chose: on your own machine, or to a hosted
+profile. Investigate also sends the summarised results of its checks and the team's notes on the
+service. Where it goes depends on the provider you chose: on your own machine, or to a hosted
 service, whose terms should fit your data (ticket comments and case notes can name people and
 systems).
 

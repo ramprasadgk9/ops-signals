@@ -170,6 +170,25 @@ export async function seedAnalysisRun(params: { runId: string; service: string; 
 
 /** Sets a seeded run's per-analyzer execution record, e.g. one with settings_overrides to stand for
  * a run made with per-service analyzer settings. */
+/** A Prometheus run on the default connection, with the query it ran: what a finding needs before
+ * it can be investigated (backend/app/investigation/context.py). */
+export async function seedPrometheusRun(params: { runId: string; service: string; metricName: string; promql: string }): Promise<void> {
+  const now = new Date();
+  await pool.query(
+    `insert into analysis_runs
+       (id, source_type, provider, service, metric_name, start_time, end_time, sample_count, status, connection_id, promql, created_at)
+     values ($1, 'prometheus', 'prometheus', $2, $3, $4, $5, 60, 'completed', 'default', $6, now())
+     on conflict (id) do nothing`,
+    [params.runId, params.service, params.metricName, new Date(now.getTime() - 3_600_000), now, params.promql]
+  );
+}
+
+/** Investigations and service notes a spec created for a service. */
+export async function cleanupInvestigations(service: string): Promise<void> {
+  await pool.query(`delete from ops_investigations where service = $1`, [service]);
+  await pool.query(`delete from ops_service_notes where service = $1`, [service]);
+}
+
 export async function setRunExecutedAnalyzers(runId: string, executed: unknown[]): Promise<void> {
   await pool.query(`update analysis_runs set executed_analyzers_json = $2 where id = $1`, [runId, JSON.stringify(executed)]);
 }
