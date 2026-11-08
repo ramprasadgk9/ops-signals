@@ -351,6 +351,89 @@ class ServiceNoteEntity(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
+class InvestigationEntity(Base):
+    """A guided investigation of one finding (backend/app/investigation/). It suggests where to look;
+    it never records a root cause. Runs in rounds: the first when someone clicks Investigate, another
+    each time they continue it, mark a step or tell it something."""
+
+    __tablename__ = "ops_investigations"
+    __table_args__ = (Index("idx_ops_investigation_finding", "finding_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    finding_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    service: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # running | done | paused | stopped | failed
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    # found | nothing_found | waiting | budget | no_progress | source_down | ai_failed | stopped | confirmed
+    ending: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    ending_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Sources the person unticked: notes | changes | cases.
+    skipped_sources: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # The tool conversation (backend/app/ai/tool_calls.py turn_to_dict), to continue it later.
+    transcript: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    round: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    checks_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    check_budget: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
+    stop_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    case_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+
+
+class InvestigationCheckEntity(Base):
+    """One check an investigation ran (a tool call): the evidence its steps point to."""
+
+    __tablename__ = "ops_investigation_checks"
+    __table_args__ = (Index("idx_ops_investigation_check", "investigation_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    investigation_id: Mapped[int] = mapped_column(Integer, ForeignKey("ops_investigations.id", ondelete="CASCADE"), nullable=False)
+    # c1, c2... per investigation: what steps cite as evidence.
+    ref: Mapped[str] = mapped_column(String(16), nullable=False)
+    round: Mapped[int] = mapped_column(Integer, nullable=False)
+    tool: Mapped[str] = mapped_column(String(32), nullable=False)
+    purpose: Mapped[str | None] = mapped_column(Text, nullable=True)
+    arguments: Mapped[dict] = mapped_column(JSON, default=dict)
+    # The query, for "Show query".
+    query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    result: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+
+
+class InvestigationStepEntity(Base):
+    """One step of an investigation's answer: a check it ran, a step for the person, or a past case."""
+
+    __tablename__ = "ops_investigation_steps"
+    __table_args__ = (Index("idx_ops_investigation_step", "investigation_id", "id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    investigation_id: Mapped[int] = mapped_column(Integer, ForeignKey("ops_investigations.id", ondelete="CASCADE"), nullable=False)
+    round: Mapped[int] = mapped_column(Integer, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    # checked | your_step | from_history
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    # ruled_out | worth_a_look | todo
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    why: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Check refs (c3) and case ids (case #204) the step is based on.
+    evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # A "checked" or "from_history" step whose evidence wasn't found among this investigation's checks.
+    unverified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # What the person said about it: found | ruled_out
+    mark: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    marked_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+
+
 class FindingFeedbackEntity(Base):
     """The team's answer to "Was this real?" on one finding (services/finding_trust.py). Service and
     trust group are copied in, so a service's own rate per group is one grouped count."""
