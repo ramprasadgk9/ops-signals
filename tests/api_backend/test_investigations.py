@@ -410,7 +410,7 @@ def test_every_investigation_starts_from_the_finding_query_and_its_scrape_target
     ]
     assert body["checks_used"] == 1
     opening = model.requests[0].messages[1].content
-    assert "Checks already run for you:" in opening and "[c2] Were its scrape targets up?" in opening
+    assert "Checks already run for you (use these exact metric names" in opening and "[c2] Were its scrape targets up?" in opening
 
 
 def test_a_model_that_puts_its_answer_in_a_tool_call_has_answered(client, prometheus, run_inline, monkeypatch) -> None:
@@ -468,3 +468,35 @@ def test_a_series_summary_says_where_data_is_missing() -> None:
     line = summarise_series({"metric": {"pod": "a"}, "values": values}, None)
 
     assert line.endswith("; no data 22:19–22:26.")
+
+
+def _without_saved_query(finding_id: int) -> None:
+    with get_session_local()() as db:
+        db.get(AnalysisRunEntity, db.get(FindingEntity, finding_id).analysis_run_id).promql = None
+        db.commit()
+
+
+def test_a_finding_without_its_query_starts_from_its_metric_and_service_label(client, prometheus, monkeypatch) -> None:
+    finding_id = _finding()
+    _without_saved_query(finding_id)
+    monkeypatch.setattr(PrometheusQueryService, "direct_scoped_series", lambda self, selector, **kw: [
+        {"__name__": "http_request_duration_seconds", "app": "checkout", "job": "checkout-api"},
+        {"__name__": "db_client_wait_seconds", "app": "checkout", "job": "checkout-api"},
+    ] if 'app="checkout"' in selector else [])
+
+    with get_session_local()() as db:
+        calls = STARTING_CALLS(_toolbox(db, finding_id))
+
+    assert (calls[0].arguments["promql"], calls[0].arguments["purpose"]) == ('http_request_duration_seconds{app="checkout"}', "The metric that found it")
+    assert len(calls) == 3
+
+
+def test_a_metric_prometheus_does_not_have_is_not_guessed(client, prometheus, monkeypatch) -> None:
+    finding_id = _finding()
+    _without_saved_query(finding_id)
+    monkeypatch.setattr(PrometheusQueryService, "direct_scoped_series", lambda self, selector, **kw: [{"__name__": "http_requests_total", "service": "checkout", "job": "checkout-api"}])
+
+    with get_session_local()() as db:
+        calls = STARTING_CALLS(_toolbox(db, finding_id))
+
+    assert [call.arguments["purpose"] for call in calls] == ["Were its scrape targets up?", "Did Prometheus get as many samples as usual?"]

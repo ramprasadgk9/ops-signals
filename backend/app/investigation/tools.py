@@ -7,7 +7,9 @@ says so, but a model can ignore a prompt):
 - Change events, past cases and other findings come from Postgres.
 - The starting checks (starting_calls) are range queries the code runs before the model's first
   turn: the query that found the finding, whether its scrape targets were up, and how many samples
-  they returned. Prometheus' own `up` and `scrape_samples_scraped`, so they hold in any domain.
+  they returned. A finding from a run that didn't keep its query gets its metric selector instead
+  (request_latency_p95{service="mixed-lab"}), built from the series Prometheus has for the service,
+  so the model never has to guess how the metric and service names fit together. Prometheus' own `up` and `scrape_samples_scraped`, so they hold in any domain.
 
 A check that fails returns a message for the model, never an exception: the loop counts failures
 to tell a broken source from a bad query.
@@ -155,14 +157,18 @@ class ToolBox:
 
     def starting_calls(self) -> list[ToolCall]:
         """The checks every investigation starts with, run by the code before the model's first turn."""
+        try:
+            label, series = self._service_series(*self.context.window)
+        except Exception:  # noqa: BLE001 - the model can still look itself
+            logger.info("Investigation: couldn't list the series of %s", self.context.service, exc_info=True)
+            label, series = "", []
         calls = []
         if self.context.promql:
             calls.append(ToolCall(new_call_id(), "query_range", {"promql": self.context.promql, "purpose": "The query that found it"}))
-        try:
-            jobs = self._jobs()
-        except Exception:  # noqa: BLE001 - the model can still look itself
-            logger.info("Investigation: couldn't list the jobs of %s", self.context.service, exc_info=True)
-            jobs = []
+        elif series and any(row.get("__name__") == self.context.metric_name for row in series):
+            selector = f'{self.context.metric_name}{{{label}="{_escape(self.context.service or "")}"}}'
+            calls.append(ToolCall(new_call_id(), "query_range", {"promql": selector, "purpose": "The metric that found it"}))
+        jobs = sorted({row["job"] for row in series if row.get("job")})[:MAX_JOBS]
         if jobs:
             matcher = f'job="{_escape(jobs[0])}"' if len(jobs) == 1 else 'job=~"' + "|".join(_escape(re.escape(job)) for job in jobs) + '"'
             calls.append(ToolCall(new_call_id(), "query_range", {"promql": f"sum by (job) (up{{{matcher}}})", "purpose": "Were its scrape targets up?"}))
@@ -298,10 +304,6 @@ class ToolBox:
                 self._service_label = label
                 return label, rows
         return self.service_labels[0] if self.service_labels else "service", []
-
-    def _jobs(self) -> list[str]:
-        _, series = self._service_series(*self.context.window)
-        return sorted({row["job"] for row in series if row.get("job")})[:MAX_JOBS]
 
     def _find_service_label(self, start: datetime, end: datetime) -> str:
         if self._service_label is None:

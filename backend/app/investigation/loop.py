@@ -162,7 +162,7 @@ def run_round(
             seen_results.add(result.text)
             lines.append(f"[{ref}] {result.purpose}: {result.query}\n{result.text}")
         if lines:
-            turns[0] = replace(turns[0], content=turns[0].content + "\n\nChecks already run for you:\n" + "\n\n".join(lines))
+            turns[0] = replace(turns[0], content=turns[0].content + "\n\nChecks already run for you (use these exact metric names in your queries):\n" + "\n\n".join(lines))
             _save_transcript(db, investigation, turns)
 
     while True:
