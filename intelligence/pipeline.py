@@ -255,6 +255,8 @@ class SignalPipeline(RegistryAnalyzerSelection):
             "sample_count": int(len(normalized)),
             "status": "running",
             "connection_id": str(run_metadata["connection_id"]) if run_metadata and run_metadata.get("connection_id") else None,
+            # The query it ran, so a guided investigation can query the same series again.
+            "promql": str(run_metadata["promql"]) if run_metadata and run_metadata.get("promql") else None,
             "created_at": datetime.utcnow(),
         }
         self.store.create_analysis_run(payload)

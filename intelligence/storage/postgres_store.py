@@ -270,6 +270,7 @@ class PostgresStore:
             Column("generated_findings_json", JSON),
             Column("connection_id", String(64)),
             Column("series_key", String(64)),
+            Column("promql", Text),
             Column("created_at", TIMESTAMP(timezone=True), server_default=func.now()),
         )
 

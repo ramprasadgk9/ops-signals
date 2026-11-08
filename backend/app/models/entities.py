@@ -132,6 +132,8 @@ class AnalysisRunEntity(Base):
     # Set when the run's points are stored by series rather than by run: its points are then the
     # series' points between start_time and end_time, some saved by earlier runs (run_points.py).
     series_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The PromQL the run queried; None for CSV, OTLP and runs saved before it was kept.
+    promql: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
@@ -326,6 +328,27 @@ class ProblemEventEntity(Base):
     level_now: Mapped[float | None] = mapped_column(Float, nullable=True)
     analysis_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
+
+
+class ServiceNoteEntity(Base):
+    """What a team knows about one service: what it depends on, behaviour that is normal for it, who
+    owns it. Written by people (or saved from an investigation), read by guided investigation and
+    shown next to the service's findings."""
+
+    __tablename__ = "ops_service_notes"
+
+    service: Mapped[str] = mapped_column(Text, primary_key=True)
+    # [{"name": "payments-db", "kind": "database"}], kind: service | database | queue | cache | outside
+    depends_on: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    # [{"text": "...", "by": "priya", "at": "<iso>", "case_id": 204}]
+    behaviours: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    # Suggested dependencies someone said are not dependencies, so they aren't suggested again.
+    dismissed: Mapped[list[str]] = mapped_column(JSON, default=list)
+    owner: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel: Mapped[str | None] = mapped_column(Text, nullable=True)
+    runbook_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now())
 
 
 class FindingFeedbackEntity(Base):
