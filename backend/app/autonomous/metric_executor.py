@@ -206,6 +206,7 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
             "file_name": str(run_metadata.get("file_name")) if run_metadata and run_metadata.get("file_name") else None,
             # The Prometheus connection (Mimir tenant) it queried, as SignalPipeline records it.
             "connection_id": str(run_metadata["connection_id"]) if run_metadata and run_metadata.get("connection_id") else None,
+            "promql": str(run_metadata["promql"]) if run_metadata and run_metadata.get("promql") else None,
             "series_key": series_key,
             "provider": (self.config.input.provider or "generic").lower(),
             "service": str(normalized["service"].dropna().iloc[0]) if "service" in normalized.columns and not normalized["service"].dropna().empty else "unknown",

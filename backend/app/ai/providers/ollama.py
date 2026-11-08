@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import urllib.error
 import urllib.request
+from typing import Sequence
 
 from backend.app.ai.exceptions import LLMRequestError
 from backend.app.ai.interfaces import LLMClient, LLMMessage, LLMRequest, LLMResponse
+from backend.app.ai.tool_calls import JsonToolFallback, ToolCall, ToolRequest, ToolResponse, ToolTurn, new_call_id, parse_arguments
+
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaLLMClient(LLMClient):
@@ -29,6 +35,10 @@ class OllamaLLMClient(LLMClient):
             "model": self.model,
             "messages": [{"role": message.role, "content": message.content} for message in request.messages],
             "stream": False,
+            # No thinking for these short answers (drafts, wording, triage): a thinking model (qwen3,
+            # deepseek-r1) would spend the whole max_tokens thinking and return no text. Models that
+            # don't think accept it as is. Tool rounds (generate_with_tools) keep thinking.
+            "think": False,
             "options": {
                 "temperature": request.temperature,
             },
@@ -60,9 +70,100 @@ class OllamaLLMClient(LLMClient):
                 provider="ollama",
                 latency_ms=round((time.perf_counter() - start) * 1000, 2),
             )
+        except urllib.error.HTTPError as exc:
+            raise LLMRequestError(f"Ollama returned HTTP {exc.code}: {_error_detail(exc)}") from exc
         except urllib.error.URLError as exc:
             raise LLMRequestError(f"Failed to reach Ollama at {self.base_url}: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise LLMRequestError(f"Ollama returned invalid JSON: {exc}") from exc
         except TimeoutError as exc:
             raise LLMRequestError(f"Ollama request timed out: {exc}") from exc
+
+    def generate_with_tools(self, request: ToolRequest) -> ToolResponse:
+        """One turn of a tool conversation through /api/chat `tools`. Only models trained for tool
+        calling use them (qwen2.5, llama3.1 and later); others answer in plain text, which ends the
+        investigation with that text as the answer."""
+        start = time.perf_counter()
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": _tool_messages(request.messages),
+            "tools": [
+                {"type": "function", "function": {"name": tool.name, "description": tool.description, "parameters": tool.parameters}}
+                for tool in request.tools
+            ],
+            "stream": False,
+        }
+        if request.max_tokens is not None:
+            payload["options"] = {"num_predict": request.max_tokens}
+        req = urllib.request.Request(
+            f"{self.base_url}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout_for(LLMRequest(messages=[], timeout_seconds=request.timeout_seconds))) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = _error_detail(exc)
+            if exc.code == 400 and "does not support tools" in detail:
+                # A model without tool calling (gemma3, llama3.2:1b...) still works through the JSON
+                # fallback: the tools in the prompt, one JSON reply per turn. Less reliable.
+                logger.info("Ollama model %s has no tool calling; using the JSON fallback", self.model)
+                return JsonToolFallback(self).generate_with_tools(request)
+            raise LLMRequestError(f"Ollama returned HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise LLMRequestError(f"Failed to reach Ollama at {self.base_url}: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise LLMRequestError(f"Ollama returned invalid JSON: {exc}") from exc
+        except TimeoutError as exc:
+            raise LLMRequestError(f"Ollama request timed out: {exc}") from exc
+        message = data.get("message") if isinstance(data, dict) and isinstance(data.get("message"), dict) else {}
+        content = str(message.get("content") or "").strip()
+        calls = tuple(
+            ToolCall(
+                id=str(call.get("id") or new_call_id()),
+                name=str((call.get("function") or {}).get("name") or ""),
+                arguments=parse_arguments((call.get("function") or {}).get("arguments")),
+            )
+            for call in message.get("tool_calls") or []
+            if isinstance(call, dict) and (call.get("function") or {}).get("name")
+        )
+        if not content and not calls:
+            raise LLMRequestError("Ollama returned an empty response")
+        return ToolResponse(
+            content=content,
+            tool_calls=calls,
+            model=self.model,
+            provider="ollama",
+            latency_ms=round((time.perf_counter() - start) * 1000, 2),
+        )
+
+
+def _tool_messages(turns: Sequence[ToolTurn]) -> list[dict[str, object]]:
+    messages: list[dict[str, object]] = []
+    for turn in turns:
+        if turn.role == "tool":
+            messages.append({"role": "tool", "content": turn.content, "tool_name": turn.name})
+        elif turn.role == "assistant" and turn.tool_calls:
+            messages.append({
+                "role": "assistant",
+                "content": turn.content,
+                "tool_calls": [{"function": {"name": call.name, "arguments": call.arguments}} for call in turn.tool_calls],
+            })
+        else:
+            messages.append({"role": turn.role, "content": turn.content})
+    return messages
+
+
+def _error_detail(exc: urllib.error.HTTPError) -> str:
+    """Ollama's own error message ({"error": "..."}), or the status reason."""
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return str(exc.reason)
+    try:
+        error = json.loads(body).get("error")
+    except (json.JSONDecodeError, AttributeError):
+        return body[:300] or str(exc.reason)
+    return str(error or body[:300] or exc.reason)

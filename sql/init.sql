@@ -248,6 +248,9 @@ ALTER TABLE IF EXISTS analysis_runs
 ALTER TABLE IF EXISTS analysis_runs
     ADD COLUMN IF NOT EXISTS series_key VARCHAR(64);
 
+ALTER TABLE IF EXISTS analysis_runs
+    ADD COLUMN IF NOT EXISTS promql TEXT;
+
 CREATE TABLE IF NOT EXISTS question_answers (
     id BIGSERIAL PRIMARY KEY,
     analysis_run_id VARCHAR(64) NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,

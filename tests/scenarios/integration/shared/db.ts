@@ -170,6 +170,44 @@ export async function seedAnalysisRun(params: { runId: string; service: string; 
 
 /** Sets a seeded run's per-analyzer execution record, e.g. one with settings_overrides to stand for
  * a run made with per-service analyzer settings. */
+/** A Prometheus run on the default connection, with the query it ran: what a finding needs before
+ * it can be investigated (backend/app/investigation/context.py). */
+export async function seedPrometheusRun(params: { runId: string; service: string; metricName: string; promql: string }): Promise<void> {
+  const now = new Date();
+  await pool.query(
+    `insert into analysis_runs
+       (id, source_type, provider, service, metric_name, start_time, end_time, sample_count, status, connection_id, promql, created_at)
+     values ($1, 'prometheus', 'prometheus', $2, $3, $4, $5, 60, 'completed', 'default', $6, now())
+     on conflict (id) do nothing`,
+    [params.runId, params.service, params.metricName, new Date(now.getTime() - 3_600_000), now, params.promql]
+  );
+}
+
+/** Investigations and service notes a spec created for a service. */
+export async function cleanupInvestigations(service: string): Promise<void> {
+  await pool.query(`delete from ops_investigations where service = $1`, [service]);
+  await pool.query(`delete from ops_service_notes where service = $1`, [service]);
+}
+
+/** A finished guided investigation with one ruled-out step and one step for the engineer, as a
+ * model would have left it, so case specs don't need an AI provider. */
+export async function seedInvestigation(params: { findingId: number; service: string }): Promise<number> {
+  const inserted = await pool.query(
+    `insert into ops_investigations (finding_id, service, status, ending, summary, skipped_sources, transcript, round, checks_used, check_budget, stop_requested, model, started_by)
+     values ($1, $2, 'done', 'nothing_found', 'No recorded change explains the gap. Look at the Prometheus host.', '[]', '[]', 1, 1, 15, false, 'test-model', 'priya')
+     returning id`,
+    [params.findingId, params.service]
+  );
+  const id = Number(inserted.rows[0].id);
+  await pool.query(
+    `insert into ops_investigation_steps (investigation_id, round, position, kind, status, title, result, evidence, unverified)
+     values ($1, 1, 1, 'checked', 'ruled_out', 'Deploys and changes', 'No deploy recorded between 02:00 and 04:00 UTC.', '["c1"]', false),
+            ($1, 1, 2, 'your_step', 'todo', 'Check Prometheus restarts', 'changes(process_start_time_seconds[1h])', '[]', false)`,
+    [id]
+  );
+  return id;
+}
+
 export async function setRunExecutedAnalyzers(runId: string, executed: unknown[]): Promise<void> {
   await pool.query(`update analysis_runs set executed_analyzers_json = $2 where id = $1`, [runId, JSON.stringify(executed)]);
 }

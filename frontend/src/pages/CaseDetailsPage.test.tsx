@@ -22,6 +22,9 @@ vi.mock('../api/queries', () => ({
     caseTimeline: vi.fn().mockResolvedValue({ events: [], time_to_fix_minutes: null, memory_text: 'Operational Case' }),
     updateWriteup: vi.fn(),
     suggestWriteup: vi.fn(),
+    investigations: vi.fn().mockResolvedValue([]),
+    getInvestigation: vi.fn(),
+    investigationNoteDraft: vi.fn(),
   },
 }));
 
@@ -489,5 +492,103 @@ describe('CaseDetailsPage Publish Knowledge write-up', () => {
     fireEvent.click(await within(panel).findByRole('button', { name: /Draft write-up/i }));
 
     expect(await within(panel).findByText(/Save a root cause or a resolution first/)).toBeInTheDocument();
+  });
+});
+
+describe('CaseDetailsPage Investigation tab', () => {
+  const investigation = {
+    id: 10, finding_id: 10, service: 'payments-service', status: 'done', ending: 'nothing_found', ending_detail: null,
+    summary: 'No recorded change explains the gap.', question: null, round: 1, checks_used: 3, check_budget: 15, case_id: 1,
+    model: 'test-model', started_by: 'priya', context_note: null, skipped_sources: [], created_at: null, updated_at: null,
+    checks: [], steps: [],
+  };
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.investigations).mockResolvedValue([]);
+  });
+
+  async function openInvestigationTab() {
+    fireEvent.click(await screen.findByRole('tab', { name: /^Investigation$/i }));
+    return screen.getByRole('tabpanel');
+  }
+
+  it('without a guided investigation, shows the note form as before and saves what was typed', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.updateInvestigation).mockResolvedValue(baseCase());
+    renderPage();
+
+    const panel = await openInvestigationTab();
+    await waitFor(() => expect(api.investigations).toHaveBeenCalledWith({ case_id: 1 }));
+    expect(within(panel).queryByText('Guided investigation')).not.toBeInTheDocument();
+    expect(within(panel).queryByTestId('use-as-note')).not.toBeInTheDocument();
+    fireEvent.change(within(panel).getByLabelText('Investigation note'), { target: { value: 'Checked the pool.' } });
+    fireEvent.click(within(panel).getByRole('button', { name: /Save Investigation/i }));
+
+    await waitFor(() => expect(api.updateInvestigation).toHaveBeenCalledWith(1, { investigation_status: 'not_started', investigation_note: 'Checked the pool.' }));
+  });
+
+  it('Use as note puts the draft below what was already typed, and nothing is saved until Save', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.investigations).mockResolvedValue([investigation] as never);
+    vi.mocked(api.getInvestigation).mockResolvedValue(investigation as never);
+    vi.mocked(api.investigationNoteDraft).mockResolvedValue({ text: 'Guided investigation #10 · suggested, not confirmed\n\nWhat I found: ' });
+    renderPage();
+
+    const panel = await openInvestigationTab();
+    const box = within(panel).getByLabelText('Investigation note');
+    fireEvent.change(box, { target: { value: 'My own line.' } });
+    fireEvent.click(await within(panel).findByTestId('use-as-note'));
+
+    await waitFor(() => expect(box).toHaveValue('My own line.\n\nGuided investigation #10 · suggested, not confirmed\n\nWhat I found: '));
+    expect(api.investigationNoteDraft).toHaveBeenCalledWith(10);
+    expect(api.updateInvestigation).not.toHaveBeenCalled();
+  });
+});
+
+describe('CaseDetailsPage next step with a guided investigation', () => {
+  const investigation = {
+    id: 24, finding_id: 10, service: 'payments-service', status: 'done', ending: 'found', ending_detail: null,
+    summary: 'Everything dropped at 22:02.', question: null, round: 1, checks_used: 8, check_budget: 15, case_id: 1,
+    model: 'test-model', started_by: 'priya', context_note: null, skipped_sources: [], created_at: null, updated_at: null,
+    checks: [{ ref: 'c1', round: 1, tool: 'query_range', purpose: 'p', query: 'q', ok: true, result: 'r', at: null }],
+    steps: [
+      { id: 1, round: 1, position: 1, kind: 'your_step', status: 'todo', title: 'Check request volume at 22:02', why: null, result: null, evidence: [], unverified: false, mark: null, note: null, marked_by: null },
+      { id: 2, round: 1, position: 2, kind: 'checked', status: 'worth_a_look', title: 'Latency and CPU dropped together', why: null, result: null, evidence: ['c1'], unverified: false, mark: null, note: null, marked_by: null },
+      { id: 3, round: 1, position: 3, kind: 'checked', status: 'ruled_out', title: 'No deploy', why: null, result: null, evidence: ['c1'], unverified: false, mark: null, note: null, marked_by: null },
+    ],
+  };
+  const saved = { timestamp: '2026-11-08T13:00:00Z', note: 'Saved guided investigation #24 to this case.', investigation_id: 24 };
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.investigations).mockResolvedValue([]);
+  });
+
+  it('asks you to go through the investigation, and its saved line does not count as your note', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ investigation_status: 'in_progress', investigation_notes: [saved], finding_snapshot: { ...baseCase().finding_snapshot, signal_ids: ['s1'] } }));
+    vi.mocked(api.investigations).mockResolvedValue([investigation] as never);
+    vi.mocked(api.getInvestigation).mockResolvedValue(investigation as never);
+    renderPage();
+
+    const next = await screen.findByTestId('guided-next-action');
+    expect(next).toHaveTextContent('Go through guided investigation #24');
+    await waitFor(() => expect(next).toHaveTextContent('It ran 1 check and left you 1 step.'));
+    const listed = within(next).getAllByText(/Latency and CPU dropped together|Check request volume at 22:02/).map((node) => node.textContent);
+    expect(listed).toEqual(['Latency and CPU dropped together', 'Check request volume at 22:02']);
+    expect(within(next).queryByText('No deploy')).not.toBeInTheDocument();
+    expect(screen.getByText('Go through guided investigation #24, then use it as your note.')).toBeInTheDocument();
+
+    fireEvent.click(within(next).getByRole('button', { name: 'Open the investigation' }));
+    expect(await screen.findByRole('tab', { name: /^Investigation$/i })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('once you saved a note of your own, the case moves on as before', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ investigation_status: 'in_progress', investigation_notes: [saved, { timestamp: '2026-11-08T13:10:00Z', note: 'Request volume fell at 22:02.' }] }));
+    vi.mocked(api.investigations).mockResolvedValue([investigation] as never);
+    renderPage();
+
+    expect(await screen.findByText('Document the root cause and confidence.')).toBeInTheDocument();
+    expect(screen.queryByTestId('guided-next-action')).not.toBeInTheDocument();
   });
 });

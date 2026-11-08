@@ -48,6 +48,7 @@ import { isImportedCase } from '../standalone/casesService';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+import { CaseInvestigations, GuidedNextAction } from '../components/CaseInvestigations';
 import { CaseTicketCard } from '../components/CaseTicketCard';
 import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { findingLevel } from '../utils/findingLevel';
@@ -241,6 +242,17 @@ export function CaseDetailsPage() {
     return stepForCase(caseData.case_status, caseData.investigation_status, caseData.root_cause_status, caseData.outcome_status);
   }, [caseData]);
 
+  // Notes people wrote: the line "Saved guided investigation #N" is the system's, not an investigation note.
+  const ownNotes = (caseData?.investigation_notes ?? []).filter((note) => note.investigation_id == null);
+  const caseInvestigations = useQuery({
+    queryKey: ['investigations', { case_id: caseData?.id }],
+    queryFn: () => api.investigations({ case_id: caseData?.id }),
+    enabled: Boolean(caseData),
+  });
+  const latestInvestigation = caseInvestigations.data?.[0];
+  // A guided investigation is attached and nobody has written up what they found yet.
+  const guidedPending = Boolean(latestInvestigation) && ownNotes.length === 0 && caseData?.investigation_status !== 'completed';
+
   const matchedSignals = useMemo(() => {
     return supportingSignals(finding?.signal_ids ?? [], caseSignalsQuery.data ?? []);
   }, [caseSignalsQuery.data, finding?.signal_ids]);
@@ -278,7 +290,7 @@ export function CaseDetailsPage() {
   const workflowItems = [
     workflowState('Finding reviewed', true, tabValue === 0),
     workflowState('Evidence checked', isImported || matchedSignals.length > 0 || signalIds.length > 0, tabValue === 1),
-    workflowState('Investigation notes', caseData.investigation_notes.length > 0 || caseData.investigation_status === 'completed', tabValue === 2),
+    workflowState('Investigation notes', ownNotes.length > 0 || caseData.investigation_status === 'completed', tabValue === 2),
     workflowState('Root cause saved', Boolean(caseData.root_cause_summary) || ['identified', 'confirmed'].includes(caseData.root_cause_status), tabValue === 3),
     workflowState('Resolution recorded', resolutionRecorded, tabValue === 4),
     // Memory indexes a case when it's created, so "indexed" alone ticked this on a brand-new case (QA-40).
@@ -291,7 +303,9 @@ export function CaseDetailsPage() {
     : nextWorkflowIndex === 1
       ? 'Open Evidence and inspect the supporting signals.'
       : nextWorkflowIndex === 2
-        ? 'Add an investigation note with what you checked.'
+        ? guidedPending
+          ? `Go through guided investigation #${latestInvestigation?.id}, then use it as your note.`
+          : 'Add an investigation note with what you checked.'
         : nextWorkflowIndex === 3
           ? 'Document the root cause, confidence, and whether it is verified.'
             : nextWorkflowIndex === 4
@@ -471,6 +485,14 @@ export function CaseDetailsPage() {
               }}
             >
               <CardContent>
+                {guidedPending && latestInvestigation ? (
+                  <Stack spacing={2}>
+                    <Typography variant="overline" color="text.secondary">
+                      Next Action
+                    </Typography>
+                    <GuidedNextAction investigationId={latestInvestigation.id} onOpen={() => setTabValue(2)} />
+                  </Stack>
+                ) : (
                 <Stack spacing={2}>
                   <Typography variant="overline" color="text.secondary">
                     Next Action
@@ -490,6 +512,7 @@ export function CaseDetailsPage() {
                     Continue Investigation
                   </Button>
                 </Stack>
+                )}
               </CardContent>
             </Card>
           </Grid>
@@ -671,7 +694,8 @@ export function CaseDetailsPage() {
                     <TextField
                       label="Investigation note"
                       multiline
-                      rows={4}
+                      minRows={4}
+                      maxRows={20}
                       value={investigationNote}
                       onChange={(e) => setInvestigationNote(e.target.value)}
                       placeholder="Capture what you checked, what you ruled out, and what to do next."
@@ -684,6 +708,10 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
+              <CaseInvestigations
+                caseId={caseData.id}
+                onUseAsNote={canEdit ? (text) => setInvestigationNote((current) => (current.trim() ? `${current.trimEnd()}\n\n${text}` : text)) : undefined}
+              />
             </Grid>
 
             <Grid size={{ xs: 12, md: 5 }}>
@@ -703,7 +731,7 @@ export function CaseDetailsPage() {
                           <Typography variant="caption" color="text.secondary">
                             {note.timestamp ? new Date(note.timestamp).toLocaleString() : 'No timestamp'}
                           </Typography>
-                          <Typography variant="body2">{note.note}</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{note.note}</Typography>
                         </Box>
                       ))}
                     </Stack>

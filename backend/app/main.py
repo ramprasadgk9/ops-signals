@@ -45,6 +45,8 @@ from backend.app.api.overview import router as overview_router
 from backend.app.api.questions import router as questions_router
 from backend.app.api.notifications import router as notifications_router
 from backend.app.api.services import router as services_router
+from backend.app.api.service_notes import router as service_notes_router
+from backend.app.api.investigations import router as investigations_router
 from backend.app.api.setup_check import router as setup_check_router
 from backend.app.api.me import router as me_router
 from backend.app.api.auth import router as auth_router
@@ -486,6 +488,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     # Register routers
     app.include_router(services_router)
+    app.include_router(service_notes_router)
+    app.include_router(investigations_router)
     app.include_router(admin_analyzers_router)
     app.include_router(overview_router)
     app.include_router(analysis_runs_router)

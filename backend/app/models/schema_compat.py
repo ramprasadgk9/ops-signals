@@ -17,6 +17,7 @@ ANALYSIS_RUN_COLUMN_SQL = {
     "generated_findings_json": "JSON",
     "connection_id": "VARCHAR(64)",
     "series_key": "VARCHAR(64)",
+    "promql": "TEXT",
 }
 
 

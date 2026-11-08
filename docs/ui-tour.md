@@ -60,6 +60,15 @@ enriched alert's analysis still produces an ordinary finding, so it appears unde
 `GET /api/events`. See
 [`docs/alert-enrichment.md`](alert-enrichment.md), or run [`docs/demo.md`](demo.md) to see one.
 
+### Investigate a finding
+
+To find where to look next for a finding, click **Investigate** on its card under Needs attention
+(or in its details). Check what your team knows about the service, add anything about today, and
+start: with AI on, it runs read-only checks on the finding's Prometheus, deploys and past cases, and
+lists steps you can mark **Found something** or **Ruled out**. **Save to a case** keeps it with the
+case, where **Use as note** drafts your investigation note from it. It suggests where to look; you
+confirm the cause. See [Investigate a finding](investigate.md).
+
 ### Hand off your shift
 
 To hand off your on-call shift, open **Overview** and click **Shift handoff**. Pick the last 8, 12

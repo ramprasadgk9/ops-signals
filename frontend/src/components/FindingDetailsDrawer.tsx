@@ -1,5 +1,5 @@
-import { Alert, Box, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
-import { useEffect } from 'react';
+import { Alert, Box, Button, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
@@ -11,6 +11,8 @@ import { NoveltyBadge } from './NoveltyBadge';
 import { SuggestedFixes } from './FixHistory';
 import { FixCameBackBanner } from './FixCameBack';
 import { PastCaseMatches } from './PastCaseMatches';
+import { InvestigateDialog } from './InvestigateDialog';
+import { canInvestigate } from '../utils/investigation';
 import type { Finding, FindingDetailsSection, Signal } from '../types';
 import { breakdownScopeLabel, breakdownSpreadColor, findingBreakdown } from '../utils/findingBreakdown';
 import { categoryDetail, categoryLabel } from '../utils/findingCategories';
@@ -67,6 +69,7 @@ function providerColor(provider?: string | null): string {
 }
 
 export function FindingDetailsDrawer({ open, finding, signals = [], section = null, onClose }: Props) {
+  const [investigating, setInvestigating] = useState(false);
   useEffect(() => {
     if (!open || !section) return;
     // After the drawer has slid in and laid out its sections.
@@ -141,6 +144,17 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
           {scope && <Chip label={scope} color={breakdownSpreadColor(breakdown)} />}
           {changeChip && <Chip label={changeChip} variant="outlined" />}
         </Stack>
+        {canInvestigate(finding) ? (
+          <Box sx={{ mb: 2 }}>
+            <Button variant="outlined" size="small" onClick={() => setInvestigating(true)} data-testid="drawer-investigate-button">
+              Investigate
+            </Button>
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              Checks what it can and suggests where to look next.
+            </Typography>
+            {investigating ? <InvestigateDialog finding={finding} open={investigating} onClose={() => setInvestigating(false)} /> : null}
+          </Box>
+        ) : null}
 
         <LinkedAlerts findingId={finding.id} />
 
