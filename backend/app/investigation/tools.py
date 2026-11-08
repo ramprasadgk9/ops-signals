@@ -12,7 +12,10 @@ says so, but a model can ignore a prompt):
   so the model never has to guess how the metric and service names fit together. Prometheus' own `up` and `scrape_samples_scraped`, so they hold in any domain.
 
 A check that fails returns a message for the model, never an exception: the loop counts failures
-to tell a broken source from a bad query.
+to tell a broken source from a bad query. A range query that names a metric Prometheus doesn't have
+fails too, and lists the service's real metric names, so a wrong name never reads as "nothing there".
+Only the metric names are checked, from Prometheus' own list of names: a wrong label value still
+comes back as plain no data.
 """
 
 from __future__ import annotations
@@ -48,6 +51,9 @@ MAX_VALUES_LISTED = 50
 MAX_QUERY_LENGTH = 2000
 MAX_CASES = 5
 MAX_FINDINGS = 10
+MAX_NAMES_SHOWN = 15
+NO_DATA = "No data for that query"
+UP_PURPOSE = "Were its scrape targets up?"
 MAX_JOBS = 5
 MAX_GAPS_LISTED = 3
 # A gap between points this many times the usual spacing is reported as missing data.
@@ -67,6 +73,8 @@ class CheckResult:
     query: str | None = None
     # Prometheus couldn't be reached (not a bad query).
     source_down: bool = False
+    # A series of a range query has no data when the problem started.
+    gap_at_start: bool = False
 
 
 class ToolBox:
@@ -86,6 +94,7 @@ class ToolBox:
         self.aliases = aliases or []
         self.skipped = set(skipped or [])
         self._service_label: str | None = None
+        self._metric_names: set[str] | None = None
         self._tools: dict[str, tuple[ToolSpec, Callable[[dict[str, Any]], CheckResult]]] = {}
         self._add(
             ToolSpec(
@@ -171,7 +180,7 @@ class ToolBox:
         jobs = sorted({row["job"] for row in series if row.get("job")})[:MAX_JOBS]
         if jobs:
             matcher = f'job="{_escape(jobs[0])}"' if len(jobs) == 1 else 'job=~"' + "|".join(_escape(re.escape(job)) for job in jobs) + '"'
-            calls.append(ToolCall(new_call_id(), "query_range", {"promql": f"sum by (job) (up{{{matcher}}})", "purpose": "Were its scrape targets up?"}))
+            calls.append(ToolCall(new_call_id(), "query_range", {"promql": f"sum by (job) (up{{{matcher}}})", "purpose": UP_PURPOSE}))
             calls.append(ToolCall(new_call_id(), "query_range", {"promql": f"sum by (job) (scrape_samples_scraped{{{matcher}}})", "purpose": "Did Prometheus get as many samples as usual?"}))
         return calls
 
@@ -222,9 +231,13 @@ class ToolBox:
                 return CheckResult(False, f"That query returns more than {MAX_SERIES} series. Aggregate it, e.g. sum by (<label>) (...).", query=promql)
             raise
         if not result:
-            return CheckResult(True, f"No data for that query between {_hhmm(start)} and {_hhmm(end)} UTC.", query=promql)
+            unknown = self.unknown_metrics(metric_names_in(promql))
+            if unknown:
+                return CheckResult(False, f"{NO_DATA}: Prometheus has no metric called {', '.join(unknown)}. {self._names_hint()}".strip(), query=promql)
+            return CheckResult(True, f"{NO_DATA} between {_hhmm(start)} and {_hhmm(end)} UTC. If you expected data, check the label values with label_values.", query=promql)
         lines = [summarise_series(item, self.context.anchor) for item in result]
-        return CheckResult(True, f"{len(result)} series, {_hhmm(start)}–{_hhmm(end)} UTC, a point every {step} s:\n" + "\n".join(lines), query=promql)
+        text = f"{len(result)} series, {_hhmm(start)}–{_hhmm(end)} UTC, a point every {step} s:\n" + "\n".join(lines)
+        return CheckResult(True, text, query=promql, gap_at_start=any(GAP_AT_START in line for line in lines))
 
     # --- Postgres --------------------------------------------------------------------------
 
@@ -285,6 +298,10 @@ class ToolBox:
 
     # --- helpers ---------------------------------------------------------------------------
 
+    def window(self, args: dict[str, Any]) -> tuple[datetime, datetime]:
+        """The time range a check with these arguments covers."""
+        return self._window(args)
+
     def _window(self, args: dict[str, Any]) -> tuple[datetime, datetime]:
         default_start, default_end = self.context.window
         start = _parse_time(args.get("start")) or default_start
@@ -304,6 +321,32 @@ class ToolBox:
                 self._service_label = label
                 return label, rows
         return self.service_labels[0] if self.service_labels else "service", []
+
+    def metric_names(self) -> set[str] | None:
+        """Every metric name Prometheus has around the finding, or None when it can't be listed."""
+        if self._metric_names is None:
+            start, end = self.context.window
+            try:
+                self._metric_names = set(self.prometheus.label_values("__name__", start=start - MAX_WINDOW, end=end))
+            except Exception:  # noqa: BLE001 - without the list nothing is flagged
+                logger.info("Investigation: couldn't list metric names", exc_info=True)
+                self._metric_names = set()
+        return self._metric_names or None
+
+    def unknown_metrics(self, names: list[str]) -> list[str]:
+        known = self.metric_names() if names else None
+        return [name for name in names if name not in known] if known else []
+
+    def _names_hint(self) -> str:
+        try:
+            label, series = self._service_series(*self.context.window)
+        except Exception:  # noqa: BLE001 - the hint is optional
+            return ""
+        names = sorted({row.get("__name__", "") for row in series} - {""})
+        if not names:
+            return ""
+        shown = ", ".join(names[:MAX_NAMES_SHOWN]) + (f" ... ({len(names)} in all; list_series shows them)" if len(names) > MAX_NAMES_SHOWN else "")
+        return f'Metrics with {label}="{self.context.service}": {shown}.'
 
     def _find_service_label(self, start: datetime, end: datetime) -> str:
         if self._service_label is None:
@@ -350,6 +393,9 @@ def summarise_series(item: dict[str, Any], changed_at: datetime | None) -> str:
         third = max(1, len(values) // 3)
         level = f"first third about {significant(statistics.median(values[:third]))}, last third about {significant(statistics.median(values[-third:]))}"
     gaps = _gaps([moment for moment, _ in points])
+    if changed_at:
+        # The gap at the problem's start first: it is the one that matters, and the list is cut short.
+        gaps.sort(key=lambda gap: not gap[0] <= changed_at <= gap[1])
     smoothed = [statistics.median(values[max(0, index - 1): index + 2]) for index in range(len(values))]
     jumps = [abs(smoothed[index] - smoothed[index - 1]) for index in range(1, len(smoothed))]
     moved = ""
@@ -358,7 +404,9 @@ def summarise_series(item: dict[str, Any], changed_at: datetime | None) -> str:
         moved = f"; changed most at {_hhmm(points[index][0])}"
     missing = ""
     if gaps:
-        listed = ", ".join(f"{_hhmm(start)}–{_hhmm(end)}" for start, end in gaps[:MAX_GAPS_LISTED])
+        listed = ", ".join(
+            f"{_hhmm(start)}–{_hhmm(end)}" + (GAP_AT_START if changed_at and start <= changed_at <= end else "") for start, end in gaps[:MAX_GAPS_LISTED]
+        )
         missing = f"; no data {listed}" + (f" and {len(gaps) - MAX_GAPS_LISTED} more gaps" if len(gaps) > MAX_GAPS_LISTED else "")
     return f"{name}: {level} (min {significant(min(values))}, max {significant(max(values))}, last {significant(values[-1])}){moved}{missing}."
 
@@ -375,6 +423,38 @@ def _gaps(moments: list[datetime]) -> list[tuple[datetime, datetime]]:
 
 
 _NAME = re.compile(r"^[a-zA-Z_:][a-zA-Z0-9_:]*$")
+# What metric_names_in strips from PromQL before reading the names left: strings, label matchers,
+# durations and grouping label lists. A name followed by "(" is a function; these words are syntax.
+_STRING = re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|`[^`]*`')
+_BRACES = re.compile(r"\{[^}]*\}")
+_BRACKETS = re.compile(r"\[[^\]]*\]")
+_GROUPING = re.compile(r"\b(?:by|without|on|ignoring|group_left|group_right)\s*\([^)]*\)", re.IGNORECASE)
+_IDENT = re.compile(r"(?<![\w:.])([a-zA-Z_:][a-zA-Z0-9_:]*)(?![\w:])\s*(\()?")
+_PROMQL_WORDS = {"by", "without", "on", "ignoring", "group_left", "group_right", "offset", "bool", "and", "or", "unless", "atan2", "inf", "nan"}
+# In free text (a step for the engineer), only a name directly followed by a selector or a range is
+# taken as a metric, so commands and prose are never read as PromQL.
+_SELECTOR = re.compile(r"(?<![\w:])([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{|\[\d+[smhdwy]\])")
+
+
+def metric_names_in(promql: str) -> list[str]:
+    """The metric names a PromQL expression reads."""
+    text = _GROUPING.sub(" ", _BRACKETS.sub(" ", _BRACES.sub(" ", _STRING.sub(" ", promql or ""))))
+    names: list[str] = []
+    for match in _IDENT.finditer(text):
+        name, call = match.group(1), match.group(2)
+        if not call and name.lower() not in _PROMQL_WORDS and name not in names:
+            names.append(name)
+    return names
+
+
+def selector_names_in(text: str) -> list[str]:
+    """Metric names written as selectors (name{...} or name[5m]) in free text."""
+    names: list[str] = []
+    for name in _SELECTOR.findall(_STRING.sub(" ", text or "")):
+        if name not in names:
+            names.append(name)
+    return names
+GAP_AT_START = " (when the problem started)"
 
 
 def _schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:

@@ -78,6 +78,11 @@ def get_investigation(investigation_id: int, db: Session = Depends(get_db)) -> d
     return service.get(db, investigation_id)
 
 
+@router.get("/{investigation_id}/note-draft")
+def note_draft(investigation_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+    return {"text": service.note_draft(db, investigation_id)}
+
+
 @router.post("/{investigation_id}/continue")
 def continue_investigation(
     investigation_id: int,

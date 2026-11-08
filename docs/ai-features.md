@@ -131,8 +131,11 @@ Each feature below says what AI adds and what you see without it.
 
 - **AI adds:** **Investigate** on a finding: the model runs read-only checks (Prometheus queries on
   the finding's connection, recorded changes, past cases, other findings) and lists where to look
-  next, each step linked to the check behind it. It never records a root cause; steps people mark
-  go into a case only when they save it. Details: [Investigate a finding](investigate.md).
+  next, each step linked to the check behind it. It helps you investigate; it never records a root
+  cause or a fix, and what it found goes into a case's notes only when someone uses it. It needs a
+  model that calls tools, ideally one that thinks: a small hosted model or a local one of about 14B
+  or more ([which model](investigate.md#which-ai-model-to-use-for-investigate)). Details:
+  [Investigate a finding](investigate.md).
 - **Without AI:** the button opens a dialog saying how to turn AI on. What the team knows about a
   service can still be read; the rest of the finding works as before.
 

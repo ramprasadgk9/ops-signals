@@ -146,7 +146,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
         </Stack>
         {canInvestigate(finding) ? (
           <Box sx={{ mb: 2 }}>
-            <Button variant="outlined" color="secondary" size="small" onClick={() => setInvestigating(true)} data-testid="drawer-investigate-button">
+            <Button variant="outlined" size="small" onClick={() => setInvestigating(true)} data-testid="drawer-investigate-button">
               Investigate
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>

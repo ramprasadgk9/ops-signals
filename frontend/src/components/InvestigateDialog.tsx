@@ -400,8 +400,8 @@ function InvestigationView({
           </Button>
         ) : null}
         {investigation.case_id ? (
-          <Button variant="contained" component={RouterLink} to={`/cases/${investigation.case_id}`}>
-            Open case #{investigation.case_id}
+          <Button variant="contained" component={RouterLink} to={`/cases/${investigation.case_id}?tab=investigation`}>
+            Open case #{investigation.case_id} · Investigation
           </Button>
         ) : canEdit && !running ? (
           <Button variant="contained" onClick={() => saveToCase.mutate()} disabled={saveToCase.isPending} data-testid="save-to-case">

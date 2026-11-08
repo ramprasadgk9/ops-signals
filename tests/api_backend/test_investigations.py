@@ -18,7 +18,7 @@ from backend.app.ai.tool_calls import ToolCall, ToolRequest, ToolResponse
 from backend.app.config import PrometheusConnectionConfig, PrometheusConnections
 from backend.app.investigation import context as context_module
 from backend.app.investigation import loop, service
-from backend.app.investigation.tools import ToolBox, summarise_series
+from backend.app.investigation.tools import ToolBox, metric_names_in, selector_names_in, summarise_series
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import AnalysisRunEntity, ChangeEventEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.prometheus_service import PrometheusQueryService
@@ -85,7 +85,8 @@ def prometheus(monkeypatch):
 
     monkeypatch.setattr(PrometheusQueryService, "query_result", query_result)
     monkeypatch.setattr(PrometheusQueryService, "direct_scoped_series", lambda self, selector, **kw: [{"__name__": "db_client_wait_seconds", "service": "checkout", "db_name": "checkout-db"}])
-    monkeypatch.setattr(PrometheusQueryService, "label_values", lambda self, label, matchers, **kw: ["checkout-0", "checkout-1", "checkout-2"])
+    names = ["db_client_wait_seconds", "http_request_duration_seconds_bucket", "http_requests_total", "up"]
+    monkeypatch.setattr(PrometheusQueryService, "label_values", lambda self, label, matchers=None, **kw: names if label == "__name__" else ["checkout-0", "checkout-1", "checkout-2"])
     monkeypatch.setattr(ToolBox, "starting_calls", lambda self: [])
     return calls
 
@@ -247,19 +248,19 @@ def test_two_ai_failures_fail_the_round_and_keep_the_checks_as_steps(client, pro
     body = client.get(f"/api/investigations/{body['id']}").json()
 
     assert (body["status"], body["ending"]) == ("failed", "ai_failed")
-    assert [(step["title"], step["why"], step["evidence"]) for step in body["steps"]] == [("Metric query", "Waiting for the DB?", ["c1"])]
+    assert [(step["title"], step["evidence"]) for step in body["steps"]] == [("Waiting for the DB?", ["c1"])]
 
 
 def test_a_reply_that_is_not_the_json_gets_one_more_try(client, prometheus, run_inline, monkeypatch) -> None:
     finding_id = _finding()
-    model = ScriptedModel("I think it's the database.", {"summary": "Look at the DB.", "ending": "waiting", "question": "Did anyone change the pool size?", "steps": []})
+    model = ScriptedModel([_query(1, "pool_max")], "I think it's the database.", {"summary": "Look at the DB.", "ending": "waiting", "question": "Did anyone change the pool size?", "steps": []})
     _use(monkeypatch, model)
 
     body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
     body = client.get(f"/api/investigations/{body['id']}").json()
 
     assert (body["status"], body["ending"], body["question"]) == ("done", "waiting", "Did anyone change the pool size?")
-    assert model.requests[1].messages[-1].content == loop.REPAIR
+    assert model.requests[2].messages[-1].content == loop.REPAIR
 
 
 def test_stop_ends_the_round_after_the_current_check(client, prometheus, run_inline, monkeypatch) -> None:
@@ -312,27 +313,39 @@ def test_marks_and_notes_go_back_to_the_model_and_new_steps_are_added(client, pr
     assert len(after["steps"]) == len(body["steps"]) + 1
 
 
-def test_saving_to_a_case_adds_what_people_marked_as_a_note(client, prometheus, run_inline, monkeypatch) -> None:
+def test_saving_to_a_case_links_it_with_one_line_and_writes_nothing_else(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    _use(monkeypatch, ScriptedModel([_query(1), _query(2)], FINAL))
+    investigation = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+    case_id = client.post(f"/api/cases/findings/{finding_id}/create", headers=_as("Editor")).json()["case_id"]
+
+    saved = client.post(f"/api/investigations/{investigation['id']}/case", json={"case_id": case_id}, headers=_as("Editor")).json()
+
+    assert saved["case_id"] == case_id
+    assert client.get(f"/api/investigations?case_id={case_id}").json()[0]["id"] == investigation["id"]
+    with get_session_local()() as db:
+        case = db.get(OperationalCaseEntity, case_id)
+        assert case.investigation_status == "in_progress"
+        assert case.investigation_notes[-1]["note"] == f"Saved guided investigation #{investigation['id']} to this case (priya)."
+
+
+def test_the_note_draft_says_only_what_the_investigation_backs(client, prometheus, run_inline, monkeypatch) -> None:
     finding_id = _finding()
     _use(monkeypatch, ScriptedModel([_query(1), _query(2)], FINAL))
     investigation = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
     body = client.get(f"/api/investigations/{investigation['id']}").json()
     db_step = next(step for step in body["steps"] if step["title"] == "Waiting for checkout-db")
     client.patch(f"/api/investigations/{body['id']}/steps/{db_step['id']}", json={"mark": "found", "note": "analytics-export holds 14 connections"}, headers=_as("Editor"))
-    case_id = client.post(f"/api/cases/findings/{finding_id}/create", headers=_as("Editor")).json()["case_id"]
 
-    saved = client.post(f"/api/investigations/{body['id']}/case", json={"case_id": case_id}, headers=_as("Editor")).json()
+    draft = client.get(f"/api/investigations/{body['id']}/note-draft", headers=_as("Viewer")).json()["text"]
 
-    assert saved["case_id"] == case_id
-    assert client.get(f"/api/investigations?case_id={case_id}").json()[0]["id"] == body["id"]
-    with get_session_local()() as db:
-        case = db.get(OperationalCaseEntity, case_id)
-        note = case.investigation_notes[-1]["note"]
-        assert case.investigation_status == "in_progress"
-    assert "Found something: Waiting for checkout-db. Wait rose at 22:28." in note
-    assert 'Note: "analytics-export holds 14 connections"' in note
-    assert "Ruled out: Is it one bad pod?." in note
-    assert "Traffic jumped" not in note
+    assert draft.startswith(f"Guided investigation #{body['id']} · suggested, not confirmed · ")
+    assert "Where to look: a likely cause is checkout-db: checkout waits for it from 22:28." in draft
+    assert "Ruled out:\n- Is it one bad pod?: All 3 pods jumped. (c1)" in draft
+    assert "Still to do:\n- [ ] Check the pool size change: Who changed it?" in draft
+    assert 'What people marked:\n- Found something: Waiting for checkout-db (priya). Note: "analytics-export holds 14 connections"' in draft
+    assert "Evidence:" not in draft and "Traffic jumped" not in draft
+    assert draft.endswith("What I found: ")
 
 
 def test_a_note_marked_always_true_is_saved_for_the_service(client, prometheus, run_inline, monkeypatch) -> None:
@@ -457,8 +470,8 @@ def test_without_a_write_up_each_distinct_check_is_one_step(client, prometheus, 
 
     assert body["ending"] == "no_progress" and body["ending_detail"] == loop.FELL_BACK
     assert [(step["title"], step["status"], step["evidence"]) for step in body["steps"]] == [
-        ("Metric query", "todo", ["c1"]),
-        ("Deploys and changes", "ruled_out", ["c2", "c3", "c4", "c5"]),
+        ("Waiting for the DB?", "todo", ["c1"]),
+        ("Any deploy?", "ruled_out", ["c2", "c3", "c4", "c5"]),
     ]
 
 
@@ -500,3 +513,178 @@ def test_a_metric_prometheus_does_not_have_is_not_guessed(client, prometheus, mo
         calls = STARTING_CALLS(_toolbox(db, finding_id))
 
     assert [call.arguments["purpose"] for call in calls] == ["Were its scrape targets up?", "Did Prometheus get as many samples as usual?"]
+
+
+def test_the_gap_when_the_problem_started_is_listed_first() -> None:
+    gaps = [range(10, 16), range(30, 36), range(50, 56), range(70, 76), range(90, 96)]
+    values = [[(START + timedelta(minutes=minute)).timestamp(), "1"] for minute in range(0, 120) if not any(minute in gap for gap in gaps)]
+
+    line = summarise_series({"metric": {}, "values": values}, START + timedelta(minutes=92))
+
+    assert "; no data 22:59–23:06 (when the problem started), 21:39–21:46, 21:59–22:06 and 2 more gaps." in line
+
+
+def test_when_up_is_missing_too_the_model_is_told_prometheus_was_not_scraping(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    monkeypatch.setattr(ToolBox, "starting_calls", STARTING_CALLS)
+    monkeypatch.setattr(PrometheusQueryService, "direct_scoped_series", lambda self, selector, **kw: [{"__name__": "http_requests_total", "service": "checkout", "job": "checkout-api"}])
+    hole = [[(START + timedelta(minutes=minute)).timestamp(), "1"] for minute in range(0, 120) if not 55 <= minute < 66]
+    monkeypatch.setattr(PrometheusQueryService, "query_result", lambda self, query, **kw: [{"metric": {"job": "checkout-api"}, "values": hole}])
+    model = ScriptedModel({"summary": "Look at Prometheus.", "ending": "nothing_found", "steps": []})
+    _use(monkeypatch, model)
+
+    client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor"))
+
+    opening = model.requests[0].messages[1].content
+    assert "(when the problem started)" in opening and loop.SCRAPE_GAP in opening
+
+
+def test_the_turn_limit_says_so_instead_of_running_out_of_time(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    model = ScriptedModel(*[[_query(n)] for n in range(1, loop.MAX_TURNS + 1)], {"summary": "Look at the DB.", "ending": "found", "steps": []})
+    _use(monkeypatch, model)
+    monkeypatch.setattr(PrometheusQueryService, "query_result", lambda self, query, **kw: [_series({"query": query}, 1, 2)])
+
+    body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+    body = client.get(f"/api/investigations/{body['id']}").json()
+
+    assert (body["ending"], body["ending_detail"]) == ("budget", f"It asked the model {loop.MAX_TURNS} times this round.")
+
+
+def test_a_failed_query_rules_nothing_out_and_a_made_up_lead_is_not_found(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    answer = {"summary": "Check the past case #123 for checkout.", "ending": "found", "steps": [
+        {"title": "Trend over the last hour", "kind": "checked", "status": "ruled_out", "evidence": ["c1"]},
+        {"title": "Case #123", "kind": "from_history", "status": "worth_a_look", "evidence": ["case #123"]},
+    ]}
+    model = ScriptedModel([_query(1, "down_bad")], answer)
+    _use(monkeypatch, model)
+
+    body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+    body = client.get(f"/api/investigations/{body['id']}").json()
+
+    assert (body["ending"], body["summary"]) == ("nothing_found", None)
+    assert [(step["status"], step["unverified"]) for step in body["steps"]] == [("todo", False), ("worth_a_look", True)]
+
+
+@pytest.mark.parametrize(("promql", "names"), [
+    ("mixed-lab_request_latency_p95", ["mixed", "lab_request_latency_p95"]),
+    ('histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service="checkout"}[5m])))', ["http_request_duration_seconds_bucket"]),
+    ('sum(rate(errors_total{code=~"5.."}[5m])) by (pod) / on(pod) group_left sum(rate(requests_total[5m])) by (pod) > bool 0.1', ["errors_total", "requests_total"]),
+    ('label_replace(up, "dst", "$1", "src", "(.*)") offset 1h', ["up"]),
+    ("job:latency:p99 > 2e3", ["job:latency:p99"]),
+])
+def test_the_metric_names_a_query_reads(promql: str, names: list[str]) -> None:
+    assert metric_names_in(promql) == names
+
+
+def test_only_selectors_in_free_text_are_read_as_metrics() -> None:
+    text = 'Run scrape_interval{job="api"} in Prometheus, then kubectl get pods -l app=x, and look for {"level": "error"} in the logs.'
+
+    assert selector_names_in(text) == ["scrape_interval"]
+
+
+def test_a_query_with_a_metric_prometheus_lacks_fails_and_lists_the_real_names(client, prometheus, monkeypatch) -> None:
+    finding_id = _finding()
+    monkeypatch.setattr(PrometheusQueryService, "query_result", lambda self, query, **kw: [])
+    with get_session_local()() as db:
+        tools = _toolbox(db, finding_id)
+        wrong = tools.run(_query(1, "checkout_latency_p95"))
+        empty = tools.run(_query(2, 'http_requests_total{code="500"}'))
+
+    assert not wrong.ok and "Prometheus has no metric called checkout_latency_p95" in wrong.text and "db_client_wait_seconds" in wrong.text
+    assert empty.ok and empty.text.startswith("No data for that query between") and "label_values" in empty.text
+
+
+def test_a_step_for_the_engineer_with_a_metric_prometheus_lacks_says_so(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    model = ScriptedModel([_query(1, "db_wait")], {"summary": "Look at the scrape.", "ending": "found", "steps": [
+        {"title": "Did the scrape interval change?", "kind": "your_step", "status": "todo", "result": 'Run scrape_interval{job="checkout"} in Prometheus.'},
+        {"title": "Requests per pod", "kind": "your_step", "status": "todo", "result": "Run sum by (pod) (rate(http_requests_total[5m]))."},
+    ]})
+    _use(monkeypatch, model)
+
+    body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+    body = client.get(f"/api/investigations/{body['id']}").json()
+
+    assert "Note: Prometheus has no metric called scrape_interval" in body["steps"][0]["result"]
+    assert "Note:" not in body["steps"][1]["result"]
+
+
+def test_an_answer_without_a_check_of_its_own_is_sent_back_once(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    early = {"summary": "Look at the DB.", "ending": "found", "steps": [{"title": "Check the DB", "kind": "your_step", "status": "worth_a_look", "result": "Look at db wait."}]}
+    model = ScriptedModel(early, [_query(1, "db_wait")], early)
+    _use(monkeypatch, model)
+
+    body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+    body = client.get(f"/api/investigations/{body['id']}").json()
+
+    assert "you haven't run any checks of your own" in model.requests[1].messages[-1].content
+    assert [check["ref"] for check in body["checks"]] == ["c1"]
+    assert [(step["kind"], step["status"]) for step in body["steps"]] == [("your_step", "todo")]
+
+
+def test_a_step_that_names_its_own_tool_is_sent_back_once_and_the_next_answer_stands(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    lazy = {"summary": "Look at dependencies.", "ending": "found", "steps": [{"title": "Dependencies", "kind": "your_step", "status": "todo", "result": "Use list_series to find them."}]}
+    model = ScriptedModel([_query(1, "db_wait")], lazy, lazy)
+    _use(monkeypatch, model)
+
+    body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+    body = client.get(f"/api/investigations/{body['id']}").json()
+
+    assert "use list_series, which you can run yourself" in model.requests[2].messages[-1].content
+    assert len(model.requests) == 3 and body["steps"][0]["title"] == "Dependencies"
+
+
+def test_the_same_check_with_its_time_range_written_out_is_a_repeat(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    with get_session_local()() as db:
+        start, end = _toolbox(db, finding_id).window({})
+    spelled = ToolCall("t2", "query_range", {"promql": "db_wait", "start": start.isoformat(), "end": end.isoformat(), "purpose": "again"})
+    model = ScriptedModel([_query(1, "db_wait")], [spelled], {"summary": "Look at the DB.", "ending": "found", "steps": []})
+    _use(monkeypatch, model)
+
+    body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+    body = client.get(f"/api/investigations/{body['id']}").json()
+
+    assert [check["ref"] for check in body["checks"]] == ["c1"] and len(prometheus["queries"]) == 1
+
+
+def test_the_note_draft_of_a_run_without_steps_lists_what_was_checked(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    model = ScriptedModel([_query(1, "db_wait", "Waiting for the DB?")], LLMRequestError("timed out"), LLMRequestError("timed out"))
+    _use(monkeypatch, model)
+    body = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+
+    draft = client.get(f"/api/investigations/{body['id']}/note-draft").json()["text"]
+
+    assert "Checked, no conclusion:\n- Waiting for the DB? (c1)" in draft
+
+
+@pytest.mark.parametrize(("value", "seconds"), [(None, 120.0), ("300", 300.0), ("5", 30.0), ("99999", 1800.0), ("soon", 120.0)])
+def test_the_round_time_is_a_setting_within_limits(monkeypatch, value, seconds) -> None:
+    if value is None:
+        monkeypatch.delenv("OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS", value)
+
+    assert loop.round_seconds() == seconds
+
+
+@pytest.mark.parametrize(("seconds", "text"), [(120.0, "2 minutes"), (60.0, "1 minute"), (300.0, "5 minutes"), (90.0, "90 seconds")])
+def test_a_paused_round_says_how_long_it_had(seconds: float, text: str) -> None:
+    assert loop._duration(seconds) == text
+
+
+def test_a_check_it_meant_to_run_written_as_a_step_is_left_out() -> None:
+    final = {"steps": [
+        {"title": "List metrics", "kind": "checked", "status": "worth_a_look", "result": 'list_series(match="db|pool", purpose="deps")'},
+        {"title": "Past cases", "kind": "your_step", "status": "todo", "result": "`similar_cases(purpose=\"look\")`"},
+        {"title": "Check the load balancer", "kind": "your_step", "status": "todo", "result": "Look at request volume at the load balancer."},
+    ]}
+
+    steps = loop.check_steps(final, refs=set(), cases=set(), tools=["list_series", "similar_cases", "query_range"])
+
+    assert [step["title"] for step in steps] == ["Check the load balancer"]

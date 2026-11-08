@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { cleanupInvestigations, cleanupRun, makeRunId, seedFinding, seedPrometheusRun, seedSignal } from '../../shared/db';
+import { cleanupInvestigations, cleanupRun, createCaseFromFinding, makeRunId, seedFinding, seedInvestigation, seedPrometheusRun, seedSignal } from '../../shared/db';
 import { env } from '../../shared/env';
 
 /**
@@ -96,6 +96,49 @@ test('first investigation of a service: describe it, start, and mark what was fo
     await expect(steps.first()).toContainText('db_client_wait_seconds');
     await steps.first().getByRole('button', { name: 'Found something' }).click();
     await expect(steps.first()).toContainText('You found something');
+  } finally {
+    await cleanupInvestigations(service);
+    await cleanupRun({ runId, findingId });
+  }
+});
+
+test('a case without a guided investigation keeps its Investigation tab as it was', async ({ page }) => {
+  const { runId, findingId, service } = await seedInvestigable('investigate-case-plain');
+  try {
+    const { case_id: caseId } = await createCaseFromFinding(env.webUiBackendUrl, findingId);
+    await page.goto(`/cases/${caseId}?tab=investigation`);
+
+    await expect(page.getByLabel('Investigation note')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('No notes yet.')).toBeVisible();
+    await expect(page.getByTestId('case-investigations')).toHaveCount(0);
+    await expect(page.getByTestId('use-as-note')).toHaveCount(0);
+  } finally {
+    await cleanupInvestigations(service);
+    await cleanupRun({ runId, findingId });
+  }
+});
+
+test('saving an investigation to a case adds one line, and Use as note drafts the note to edit', async ({ page }) => {
+  const { runId, findingId, service } = await seedInvestigable('investigate-case-note');
+  try {
+    const investigationId = await seedInvestigation({ findingId, service });
+    const { case_id: caseId } = await createCaseFromFinding(env.webUiBackendUrl, findingId);
+    const saved = await page.request.post(`${env.webUiBackendUrl}/api/investigations/${investigationId}/case`, { data: { case_id: caseId } });
+    expect(saved.ok()).toBe(true);
+
+    await page.goto(`/cases/${caseId}`);
+    const next = page.getByTestId('guided-next-action');
+    await expect(next).toContainText(`Go through guided investigation #${investigationId}`, { timeout: 20_000 });
+    await expect(next).toContainText('Check Prometheus restarts');
+    await next.getByRole('button', { name: 'Open the investigation' }).click();
+    await expect(page.getByText(`Saved guided investigation #${investigationId} to this case`)).toBeVisible();
+    await page.getByTestId('use-as-note').click();
+
+    const box = page.getByLabel('Investigation note');
+    await expect(box).toHaveValue(new RegExp(`^Guided investigation #${investigationId} · suggested, not confirmed`));
+    await expect(box).toHaveValue(/Ruled out:\n- Deploys and changes: No deploy recorded between 02:00 and 04:00 UTC\. \(c1\)/);
+    await expect(box).toHaveValue(/Still to do:\n- \[ \] Check Prometheus restarts: changes\(process_start_time_seconds\[1h\]\)/);
+    await expect(box).toHaveValue(/What I found: $/);
   } finally {
     await cleanupInvestigations(service);
     await cleanupRun({ runId, findingId });

@@ -190,27 +190,17 @@ def mark_step(db: Session, investigation_id: int, step_id: int, *, mark: str | N
 
 
 def attach_to_case(db: Session, investigation_id: int, case_id: int, by: str | None) -> dict[str, Any]:
-    """Link the investigation to its case and add what it found as an investigation note, so the
-    case's "Draft from case" can use it. Only steps a person marked count as found."""
+    """Link the investigation to its case, with a one-line entry in the case's notes. What it found
+    goes into the notes only when a person puts it there (note_draft, "Use as note")."""
     investigation = _investigation(db, investigation_id)
     case = db.get(OperationalCaseEntity, case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     investigation.case_id = case_id
-    steps = _steps(db, investigation_id)
-    found = [step for step in steps if step.mark == "found"]
-    ruled_out = [step for step in steps if step.mark == "ruled_out" or (step.status == "ruled_out" and step.kind == "checked" and not step.unverified)]
-    lines = [f"Guided investigation #{investigation.id}" + (f" by {by}" if by else "") + "."]
-    if investigation.summary:
-        lines.append(f"Where to look (suggested, not confirmed): {investigation.summary}")
-    lines += [f"Found something: {step.title}." + (f" {step.result}" if step.result else "") + (f' Note: "{step.note}"' if step.note else "") for step in found]
-    if ruled_out:
-        lines.append("Ruled out: " + "; ".join(step.title for step in ruled_out) + ".")
-    notes = [step for step in steps if step.note and step.mark != "found"]
-    lines += [f'Note on "{step.title}": "{step.note}"' for step in notes]
+    line = f"Saved guided investigation #{investigation.id} to this case" + (f" ({by})" if by else "") + "."
     case.investigation_notes = [
         *(case.investigation_notes or []),
-        {"timestamp": datetime.now(timezone.utc).isoformat(), "note": "\n".join(lines), "investigation_id": investigation.id},
+        {"timestamp": datetime.now(timezone.utc).isoformat(), "note": line, "investigation_id": investigation.id},
     ]
     if case.investigation_status == "not_started":
         case.investigation_status = "in_progress"
@@ -218,6 +208,41 @@ def attach_to_case(db: Session, investigation_id: int, case_id: int, by: str | N
     case.updated_at = datetime.utcnow()
     db.commit()
     return investigation_dict(db, investigation)
+
+
+def note_draft(db: Session, investigation_id: int) -> str:
+    """The investigation as a case note the engineer can edit: where to look, the evidence, what was
+    ruled out, what is still to do and what people marked. Built from the saved steps and checks, so
+    it says nothing the investigation doesn't; steps nothing backs are left out. Empty sections too."""
+    investigation = _investigation(db, investigation_id)
+    steps = [step for step in _steps(db, investigation_id) if not step.unverified]
+
+    def line(step: InvestigationStepEntity) -> str:
+        refs = f" ({', '.join(step.evidence)})" if step.evidence else ""
+        return f"- {step.title}" + (f": {step.result}" if step.result else "") + refs
+
+    created = investigation.created_at or datetime.now(timezone.utc)
+    when = f"{created.day} {created:%b %Y}"
+    parts = [" · ".join(part for part in (f"Guided investigation #{investigation.id}", "suggested, not confirmed", when, investigation.model) if part)]
+    if investigation.summary:
+        parts.append(f"Where to look: {investigation.summary}")
+    sections = (
+        ("Evidence", [line(step) for step in steps if step.kind != "your_step" and step.status == "worth_a_look" and not step.mark]),
+        ("Ruled out", [line(step) for step in steps if step.kind != "your_step" and step.status == "ruled_out" and not step.mark]),
+        # Checks with no conclusion (the model wrote no steps): what was looked at, without the raw results.
+        ("Checked, no conclusion", [
+            f"- {step.title}" + (f" ({', '.join(step.evidence)})" if step.evidence else "")
+            for step in steps if step.kind == "checked" and step.status == "todo" and not step.mark
+        ]),
+        ("Still to do", [f"- [ ] {step.title}" + (f": {step.result}" if step.result else "") for step in steps if step.kind == "your_step" and not step.mark]),
+        ("What people marked", [
+            f"- {'Found something' if step.mark == 'found' else 'Ruled out'}: {step.title}" + (f" ({step.marked_by})" if step.marked_by else "") + (f'. Note: "{step.note}"' if step.note else "")
+            for step in steps if step.mark
+        ]),
+    )
+    parts += [f"{title}:\n" + "\n".join(lines) for title, lines in sections if lines]
+    parts.append("What I found: ")
+    return "\n\n".join(parts)
 
 
 def list_for(db: Session, *, finding_id: int | None, case_id: int | None) -> list[dict[str, Any]]:

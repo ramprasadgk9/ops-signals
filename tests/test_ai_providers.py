@@ -302,6 +302,17 @@ def test_ollama_sends_the_callers_token_limit_and_timeout_unchanged(monkeypatch)
     assert response.content == "deploy regression"
 
 
+def test_ollama_short_answers_ask_a_thinking_model_not_to_think(monkeypatch) -> None:
+    """A thinking model (qwen3) given a 200-token draft spent it all thinking and returned no text."""
+    captured: dict = {}
+    body = {"message": {"role": "assistant", "content": "Traffic dropped at 22:02."}}
+    monkeypatch.setattr(ollama_provider.urllib.request, "urlopen", _fake_urlopen(captured, body))
+
+    OllamaLLMClient(base_url="http://ollama:11434", model="qwen3:14b").generate(dataclasses.replace(_request(), max_tokens=200))
+
+    assert captured["body"]["think"] is False
+
+
 def test_ollama_waits_at_least_its_minimum_for_a_model_on_cpu(monkeypatch) -> None:
     # A feature asking 15 s timed out on every answer from a CPU-only model (10-20 s each).
     captured: dict = {}

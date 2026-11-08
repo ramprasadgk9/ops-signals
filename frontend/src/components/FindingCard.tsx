@@ -243,7 +243,7 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
         </Tooltip>
         {canInvestigate(finding) ? (
           <Tooltip title="Checks what it can and suggests where to look next. It doesn't claim a root cause: you confirm one.">
-            <Button size="small" variant="outlined" color="secondary" onClick={() => setInvestigating(true)} data-testid="investigate-button">
+            <Button size="small" variant="outlined" onClick={() => setInvestigating(true)} data-testid="investigate-button">
               Investigate
             </Button>
           </Tooltip>

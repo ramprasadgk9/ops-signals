@@ -35,6 +35,10 @@ class OllamaLLMClient(LLMClient):
             "model": self.model,
             "messages": [{"role": message.role, "content": message.content} for message in request.messages],
             "stream": False,
+            # No thinking for these short answers (drafts, wording, triage): a thinking model (qwen3,
+            # deepseek-r1) would spend the whole max_tokens thinking and return no text. Models that
+            # don't think accept it as is. Tool rounds (generate_with_tools) keep thinking.
+            "think": False,
             "options": {
                 "temperature": request.temperature,
             },

@@ -66,7 +66,8 @@ To find where to look next for a finding, click **Investigate** on its card unde
 (or in its details). Check what your team knows about the service, add anything about today, and
 start: with AI on, it runs read-only checks on the finding's Prometheus, deploys and past cases, and
 lists steps you can mark **Found something** or **Ruled out**. **Save to a case** keeps it with the
-case. It suggests where to look; you confirm the cause. See [Investigate a finding](investigate.md).
+case, where **Use as note** drafts your investigation note from it. It suggests where to look; you
+confirm the cause. See [Investigate a finding](investigate.md).
 
 ### Hand off your shift
 

@@ -142,7 +142,7 @@ describe('InvestigateDialog steps', () => {
 
     fireEvent.click(screen.getByTestId('save-to-case'));
     await waitFor(() => expect(mocked.attachInvestigationToCase).toHaveBeenCalledWith(5, 31));
-    expect(await screen.findByRole('link', { name: 'Open case #31' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Open case #31 · Investigation' })).toHaveAttribute('href', '/cases/31?tab=investigation');
   });
 
   it('sends what the engineer says as the next round', async () => {

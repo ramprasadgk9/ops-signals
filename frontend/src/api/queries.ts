@@ -479,6 +479,7 @@ export const api = {
     getJson<InvestigationSummary[]>(`/api/investigations?${new URLSearchParams(Object.entries(filter).filter(([, value]) => value != null).map(([key, value]) => [key, String(value)])).toString()}`),
   startInvestigation: (payload: StartInvestigationRequest) => postJson<StartInvestigationRequest, Investigation>('/api/investigations', payload),
   getInvestigation: (id: number) => getJson<Investigation>(`/api/investigations/${id}`),
+  investigationNoteDraft: (id: number) => getJson<{ text: string }>(`/api/investigations/${id}/note-draft`),
   continueInvestigation: (id: number, message?: string) =>
     postJson<{ message?: string }, Investigation>(`/api/investigations/${id}/continue`, message ? { message } : {}),
   stopInvestigation: (id: number) => postJson<{}, Investigation>(`/api/investigations/${id}/stop`, {}),

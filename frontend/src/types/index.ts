@@ -381,7 +381,8 @@ export type OperationalCase = {
   case_status: string;
   finding_snapshot: Finding;
   investigation_status: string;
-  investigation_notes: Array<{ timestamp?: string; note: string; source?: string }>;
+  // investigation_id: added by saving a guided investigation to the case, not written by a person.
+  investigation_notes: Array<{ timestamp?: string; note: string; source?: string; investigation_id?: number }>;
   root_cause_status: string;
   root_cause_summary?: string;
   root_cause_confidence?: number;
