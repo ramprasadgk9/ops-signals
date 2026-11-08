@@ -1,8 +1,17 @@
 import { markDemoStep } from '../demo/events';
-import { deleteJson, getHealth, getJson, postForm, postJson, patchJson } from './client';
+import { deleteJson, getHealth, getJson, postForm, postJson, patchJson, putJson } from './client';
 import type { SetupCheckResult } from '../utils/setupCheck';
 import type { AnalyzerSettingsResponse } from '../utils/analyzerSettings';
 import type { Me } from '../hooks/useWebPermissions';
+import type {
+  DependencySuggestion,
+  Investigation,
+  InvestigationStartInfo,
+  InvestigationSummary,
+  ServiceNote,
+  StartInvestigationRequest,
+  StepMark,
+} from '../utils/investigation';
 
 /** Setup check's Test sign-in (GET /api/auth/test). */
 export type SignInTest = { reachable: boolean; issuer: string | null; redirect_uri: string; detail: string; test_provider: boolean };
@@ -465,4 +474,22 @@ export const api = {
     postJson<typeof payload, PrometheusPreviewResponse>('/api/prometheus/preview', payload),
   runPrometheusAnalysis: (payload: DirectPrometheusAnalysisRequest) =>
     postJson<DirectPrometheusAnalysisRequest, DirectPrometheusAnalysisResponse>('/api/analysis/prometheus', payload),
+  investigationStartInfo: (findingId: number) => getJson<InvestigationStartInfo>(`/api/investigations/start-info?finding_id=${findingId}`),
+  investigations: (filter: { finding_id?: number; case_id?: number }) =>
+    getJson<InvestigationSummary[]>(`/api/investigations?${new URLSearchParams(Object.entries(filter).filter(([, value]) => value != null).map(([key, value]) => [key, String(value)])).toString()}`),
+  startInvestigation: (payload: StartInvestigationRequest) => postJson<StartInvestigationRequest, Investigation>('/api/investigations', payload),
+  getInvestigation: (id: number) => getJson<Investigation>(`/api/investigations/${id}`),
+  continueInvestigation: (id: number, message?: string) =>
+    postJson<{ message?: string }, Investigation>(`/api/investigations/${id}/continue`, message ? { message } : {}),
+  stopInvestigation: (id: number) => postJson<{}, Investigation>(`/api/investigations/${id}/stop`, {}),
+  markInvestigationStep: (id: number, stepId: number, payload: { mark: StepMark | null; note?: string | null }) =>
+    patchJson<typeof payload, Investigation>(`/api/investigations/${id}/steps/${stepId}`, payload),
+  attachInvestigationToCase: (id: number, caseId: number) => postJson<{ case_id: number }, Investigation>(`/api/investigations/${id}/case`, { case_id: caseId }),
+  serviceNote: (service: string) => getJson<ServiceNote>(`/api/service-notes/${encodeURIComponent(service)}`),
+  serviceNoteSuggestions: (service: string, connectionId?: string | null) =>
+    getJson<DependencySuggestion[]>(
+      `/api/service-notes/${encodeURIComponent(service)}/suggestions${connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : ''}`
+    ),
+  saveServiceNote: (service: string, note: Omit<ServiceNote, 'service' | 'exists' | 'updated_by' | 'updated_at'>) =>
+    putJson<typeof note, ServiceNote>(`/api/service-notes/${encodeURIComponent(service)}`, note),
 };

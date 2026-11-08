@@ -48,6 +48,7 @@ import { isImportedCase } from '../standalone/casesService';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ErrorState';
 import { groupSignalsByAnalyzer, signalGroupChipLabel, signalGroupTooltip, supportingSignals } from '../utils/signalGroups';
+import { CaseInvestigations } from '../components/CaseInvestigations';
 import { CaseTicketCard } from '../components/CaseTicketCard';
 import { JiraTicketingHint } from '../components/JiraTicketingHint';
 import { findingLevel } from '../utils/findingLevel';
@@ -684,6 +685,7 @@ export function CaseDetailsPage() {
                   </Stack>
                 </CardContent>
               </Card>
+              <CaseInvestigations caseId={caseData.id} />
             </Grid>
 
             <Grid size={{ xs: 12, md: 5 }}>
@@ -703,7 +705,7 @@ export function CaseDetailsPage() {
                           <Typography variant="caption" color="text.secondary">
                             {note.timestamp ? new Date(note.timestamp).toLocaleString() : 'No timestamp'}
                           </Typography>
-                          <Typography variant="body2">{note.note}</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{note.note}</Typography>
                         </Box>
                       ))}
                     </Stack>

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Box, Button, Card, CardActions, CardContent, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import { findingSourceLabel } from '../utils/findingSource';
 import { useNavigate } from 'react-router-dom';
@@ -16,6 +17,8 @@ import { changeChipLabel, findingChanges, priorChange } from '../utils/findingCh
 import { watchedByTag } from '../utils/metricUsage';
 import { useWebPermissions, WEB_LOCK_REASONS } from '../hooks/useWebPermissions';
 import { AiLabel } from '../demo/AiLabel';
+import { canInvestigate } from '../utils/investigation';
+import { InvestigateDialog } from './InvestigateDialog';
 
 /** The same finding seen in several runs; the card shows one of them. */
 export type FindingRepeats = {
@@ -48,6 +51,7 @@ function seenAt(value?: string): string {
 export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [], seenBefore }: Props) {
   const { canEdit } = useWebPermissions();
   const navigate = useNavigate();
+  const [investigating, setInvestigating] = useState(false);
   const connectionName = useConnectionName(finding.connection_id);
   const timing = problemTiming(repeats?.latest ?? finding, repeats?.startedAt);
   // Prometheus is the usual source; say so only for the others, which can't drill down by pod.
@@ -237,7 +241,15 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
             </Button>
           </span>
         </Tooltip>
+        {canInvestigate(finding) ? (
+          <Tooltip title="Checks what it can and suggests where to look next. It doesn't claim a root cause: you confirm one.">
+            <Button size="small" variant="outlined" color="secondary" onClick={() => setInvestigating(true)} data-testid="investigate-button">
+              Investigate
+            </Button>
+          </Tooltip>
+        ) : null}
       </CardActions>
+      {investigating ? <InvestigateDialog finding={finding} open={investigating} onClose={() => setInvestigating(false)} /> : null}
     </Card>
   );
 }

@@ -363,3 +363,15 @@ describe('FindingCard custom settings', () => {
     expect(screen.queryByTestId('finding-custom-settings')).not.toBeInTheDocument();
   });
 });
+
+describe('FindingCard Investigate', () => {
+  it('offers Investigate on a Prometheus finding that needs attention, not on others', () => {
+    renderCard({ ...newPodsFinding, connection_id: 'default', source: 'prometheus' });
+    expect(screen.getByTestId('investigate-button')).toBeInTheDocument();
+  });
+
+  it('leaves it out for findings from uploaded files', () => {
+    renderCard({ ...newPodsFinding, connection_id: null, source: 'csv' });
+    expect(screen.queryByTestId('investigate-button')).not.toBeInTheDocument();
+  });
+});

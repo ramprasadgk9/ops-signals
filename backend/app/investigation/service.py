@@ -72,6 +72,7 @@ def start_info(db: Session, finding_id: int, client: LLMClient | None) -> dict[s
         "reason": context.reason,
         "ai_on": client is not None,
         "service": context.service,
+        "connection_id": context.connection_id,
         "connection_name": context.connection_name,
         "has_query": bool(context.promql),
         "note": context.note,
