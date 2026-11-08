@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import urllib.error
 import urllib.request
@@ -10,7 +11,10 @@ from typing import Sequence
 
 from backend.app.ai.exceptions import LLMRequestError
 from backend.app.ai.interfaces import LLMClient, LLMMessage, LLMRequest, LLMResponse
-from backend.app.ai.tool_calls import ToolCall, ToolRequest, ToolResponse, ToolTurn, new_call_id, parse_arguments
+from backend.app.ai.tool_calls import JsonToolFallback, ToolCall, ToolRequest, ToolResponse, ToolTurn, new_call_id, parse_arguments
+
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaLLMClient(LLMClient):
@@ -62,6 +66,8 @@ class OllamaLLMClient(LLMClient):
                 provider="ollama",
                 latency_ms=round((time.perf_counter() - start) * 1000, 2),
             )
+        except urllib.error.HTTPError as exc:
+            raise LLMRequestError(f"Ollama returned HTTP {exc.code}: {_error_detail(exc)}") from exc
         except urllib.error.URLError as exc:
             raise LLMRequestError(f"Failed to reach Ollama at {self.base_url}: {exc}") from exc
         except json.JSONDecodeError as exc:
@@ -94,6 +100,14 @@ class OllamaLLMClient(LLMClient):
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_for(LLMRequest(messages=[], timeout_seconds=request.timeout_seconds))) as response:
                 data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = _error_detail(exc)
+            if exc.code == 400 and "does not support tools" in detail:
+                # A model without tool calling (gemma3, llama3.2:1b...) still works through the JSON
+                # fallback: the tools in the prompt, one JSON reply per turn. Less reliable.
+                logger.info("Ollama model %s has no tool calling; using the JSON fallback", self.model)
+                return JsonToolFallback(self).generate_with_tools(request)
+            raise LLMRequestError(f"Ollama returned HTTP {exc.code}: {detail}") from exc
         except urllib.error.URLError as exc:
             raise LLMRequestError(f"Failed to reach Ollama at {self.base_url}: {exc}") from exc
         except json.JSONDecodeError as exc:
@@ -136,3 +150,16 @@ def _tool_messages(turns: Sequence[ToolTurn]) -> list[dict[str, object]]:
         else:
             messages.append({"role": turn.role, "content": turn.content})
     return messages
+
+
+def _error_detail(exc: urllib.error.HTTPError) -> str:
+    """Ollama's own error message ({"error": "..."}), or the status reason."""
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return str(exc.reason)
+    try:
+        error = json.loads(body).get("error")
+    except (json.JSONDecodeError, AttributeError):
+        return body[:300] or str(exc.reason)
+    return str(error or body[:300] or exc.reason)

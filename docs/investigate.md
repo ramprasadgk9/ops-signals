@@ -109,8 +109,10 @@ notes on the service, your note about today, and the results of each check (summ
 points). Where it goes depends on the AI provider you configured: your own machine or a hosted
 service.
 
-It works best with a strong model. Small local models often lose track over several checks or
-answer in plain text instead of the steps; then the round ends with **The AI model didn't answer**.
+It works best with a strong model that can call tools. A local model without tool calling (Ollama's
+`gemma3`, for example) still runs, with the checks asked for as JSON in its replies, but less
+reliably. Small local models often lose track over several checks or answer in plain text instead of
+the steps; then the round ends with **The AI model didn't answer**, with the provider's error.
 
 ## Current limitations
 

@@ -203,3 +203,40 @@ def test_turns_survive_a_round_trip_through_json() -> None:
     turns = [*_conversation(), ToolTurn(role="assistant", raw=[{"type": "text", "text": "x"}], provider="anthropic", content="x")]
 
     assert [turn_from_dict(json.loads(json.dumps(turn_to_dict(turn)))) for turn in turns] == turns
+
+
+def _http_error(code: int, error: str):
+    import urllib.error
+
+    return urllib.error.HTTPError("http://ollama:11434/api/chat", code, "Bad Request", {}, io.BytesIO(json.dumps({"error": error}).encode()))
+
+
+def test_an_ollama_model_without_tool_calling_falls_back_to_json(monkeypatch) -> None:
+    sent: list[dict] = []
+
+    def urlopen(req, timeout=None):
+        body = json.loads(req.data.decode("utf-8"))
+        sent.append(body)
+        if "tools" in body:
+            raise _http_error(400, "registry.ollama.ai/library/gemma3:4b does not support tools")
+        reply = {"message": {"role": "assistant", "content": json.dumps({"tool_calls": [{"name": "query_range", "arguments": {"promql": "up"}}]})}}
+        return _FakeHTTPResponse(json.dumps(reply).encode("utf-8"))
+
+    monkeypatch.setattr(ollama_provider.urllib.request, "urlopen", urlopen)
+    reply = OllamaLLMClient(base_url="http://ollama:11434", model="gemma3:4b").generate_with_tools(ToolRequest(messages=_conversation(), tools=TOOLS))
+
+    assert [(call.name, call.arguments) for call in reply.tool_calls] == [("query_range", {"promql": "up"})]
+    assert "tools" not in sent[1] and sent[1]["format"] == "json"
+
+
+def test_ollama_errors_say_what_ollama_said(monkeypatch) -> None:
+    def urlopen(req, timeout=None):
+        raise _http_error(404, 'model "qwen9" not found, try pulling it first')
+
+    monkeypatch.setattr(ollama_provider.urllib.request, "urlopen", urlopen)
+    client = OllamaLLMClient(base_url="http://ollama:11434", model="qwen9")
+
+    with pytest.raises(LLMRequestError, match='Ollama returned HTTP 404: model "qwen9" not found'):
+        client.generate_with_tools(ToolRequest(messages=_conversation(), tools=TOOLS))
+    with pytest.raises(LLMRequestError, match="Ollama returned HTTP 404"):
+        client.generate(LLMRequest(messages=[]))
