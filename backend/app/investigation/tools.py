@@ -5,6 +5,9 @@ says so, but a model can ignore a prompt):
   or a credential. A range query covers at most MAX_WINDOW, returns at most MAX_SERIES series and
   about POINTS points each, and comes back summarised in a few lines, not as raw points.
 - Change events, past cases and other findings come from Postgres.
+- The starting checks (starting_calls) are range queries the code runs before the model's first
+  turn: the query that found the finding, whether its scrape targets were up, and how many samples
+  they returned. Prometheus' own `up` and `scrape_samples_scraped`, so they hold in any domain.
 
 A check that fails returns a message for the model, never an exception: the loop counts failures
 to tell a broken source from a bad query.
@@ -24,7 +27,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from backend.app.ai.tool_calls import ToolCall, ToolSpec
+from backend.app.ai.tool_calls import ToolCall, ToolSpec, new_call_id
 from backend.app.alerts.correlation import as_utc, service_names
 from backend.app.investigation.context import FindingContext
 from backend.app.models.entities import ChangeEventEntity, FindingEntity, OperationalCaseEntity
@@ -43,6 +46,10 @@ MAX_VALUES_LISTED = 50
 MAX_QUERY_LENGTH = 2000
 MAX_CASES = 5
 MAX_FINDINGS = 10
+MAX_JOBS = 5
+MAX_GAPS_LISTED = 3
+# A gap between points this many times the usual spacing is reported as missing data.
+GAP_FACTOR = 2.5
 # Statuses that mean Prometheus itself is unreachable, not that the query was wrong.
 SOURCE_DOWN_STATUSES = {502, 503, 504}
 
@@ -145,6 +152,22 @@ class ToolBox:
             result = CheckResult(False, f"The check failed: {type(exc).__name__}.")
         result.purpose = purpose
         return result
+
+    def starting_calls(self) -> list[ToolCall]:
+        """The checks every investigation starts with, run by the code before the model's first turn."""
+        calls = []
+        if self.context.promql:
+            calls.append(ToolCall(new_call_id(), "query_range", {"promql": self.context.promql, "purpose": "The query that found it"}))
+        try:
+            jobs = self._jobs()
+        except Exception:  # noqa: BLE001 - the model can still look itself
+            logger.info("Investigation: couldn't list the jobs of %s", self.context.service, exc_info=True)
+            jobs = []
+        if jobs:
+            matcher = f'job="{_escape(jobs[0])}"' if len(jobs) == 1 else 'job=~"' + "|".join(_escape(re.escape(job)) for job in jobs) + '"'
+            calls.append(ToolCall(new_call_id(), "query_range", {"promql": f"sum by (job) (up{{{matcher}}})", "purpose": "Were its scrape targets up?"}))
+            calls.append(ToolCall(new_call_id(), "query_range", {"promql": f"sum by (job) (scrape_samples_scraped{{{matcher}}})", "purpose": "Did Prometheus get as many samples as usual?"}))
+        return calls
 
     # --- Prometheus ------------------------------------------------------------------------
 
@@ -276,6 +299,10 @@ class ToolBox:
                 return label, rows
         return self.service_labels[0] if self.service_labels else "service", []
 
+    def _jobs(self) -> list[str]:
+        _, series = self._service_series(*self.context.window)
+        return sorted({row["job"] for row in series if row.get("job")})[:MAX_JOBS]
+
     def _find_service_label(self, start: datetime, end: datetime) -> str:
         if self._service_label is None:
             self._service_series(start, end)
@@ -320,13 +347,29 @@ def summarise_series(item: dict[str, Any], changed_at: datetime | None) -> str:
     else:
         third = max(1, len(values) // 3)
         level = f"first third about {significant(statistics.median(values[:third]))}, last third about {significant(statistics.median(values[-third:]))}"
+    gaps = _gaps([moment for moment, _ in points])
     smoothed = [statistics.median(values[max(0, index - 1): index + 2]) for index in range(len(values))]
     jumps = [abs(smoothed[index] - smoothed[index - 1]) for index in range(1, len(smoothed))]
     moved = ""
     if jumps and max(jumps) > 0:
         index = jumps.index(max(jumps)) + 1
         moved = f"; changed most at {_hhmm(points[index][0])}"
-    return f"{name}: {level} (min {significant(min(values))}, max {significant(max(values))}, last {significant(values[-1])}){moved}."
+    missing = ""
+    if gaps:
+        listed = ", ".join(f"{_hhmm(start)}–{_hhmm(end)}" for start, end in gaps[:MAX_GAPS_LISTED])
+        missing = f"; no data {listed}" + (f" and {len(gaps) - MAX_GAPS_LISTED} more gaps" if len(gaps) > MAX_GAPS_LISTED else "")
+    return f"{name}: {level} (min {significant(min(values))}, max {significant(max(values))}, last {significant(values[-1])}){moved}{missing}."
+
+
+def _gaps(moments: list[datetime]) -> list[tuple[datetime, datetime]]:
+    """Stretches with no points: between two points much further apart than the usual spacing."""
+    if len(moments) < 3:
+        return []
+    spacings = [(later - earlier).total_seconds() for earlier, later in zip(moments, moments[1:])]
+    usual = statistics.median(spacings)
+    if usual <= 0:
+        return []
+    return [(moments[index], moments[index + 1]) for index, spacing in enumerate(spacings) if spacing > usual * GAP_FACTOR]
 
 
 _NAME = re.compile(r"^[a-zA-Z_:][a-zA-Z0-9_:]*$")

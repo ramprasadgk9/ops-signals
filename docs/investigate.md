@@ -44,6 +44,12 @@ It can use these read-only checks, each limited in code:
 | Past cases | Closed cases on the service with their recorded cause and fix |
 | Other findings | Findings on other services in the same time range, such as its dependencies |
 
+Before the model's first turn, every investigation runs three starting checks: the query that found
+the finding, whether the service's scrape targets were up (`up`), and how many samples Prometheus got
+from them (`scrape_samples_scraped`). They don't count toward its checks. A range query's result says
+where data is missing ("no data 14:19–14:26"), so a gap that shows in `up` too points at
+Prometheus or the scrape, not at the service.
+
 It reads metrics only: not logs, traces or the databases and services themselves. When the next
 step needs one of those, it gives you the step to do, with the exact query or command.
 
@@ -76,7 +82,8 @@ is ruled out, or when it needs your answer. Ops Signals stops it when:
 - you click **Stop**.
 
 Every ending keeps the steps so far. After a stop forced by the limits, it is asked once, with no
-more checks allowed, to write up what it found.
+more checks allowed, to write up what it found. If it doesn't, each distinct check becomes a step
+and the dialog says the model didn't write up its steps.
 
 ## What the steps mean
 
@@ -109,10 +116,12 @@ notes on the service, your note about today, and the results of each check (summ
 points). Where it goes depends on the AI provider you configured: your own machine or a hosted
 service.
 
-It works best with a strong model that can call tools. A local model without tool calling (Ollama's
-`gemma3`, for example) still runs, with the checks asked for as JSON in its replies, but less
-reliably. Small local models often lose track over several checks or answer in plain text instead of
-the steps; then the round ends with **The AI model didn't answer**, with the provider's error.
+## Which model works best for Investigate?
+
+A strong model that can call tools. A model without tool calling (Ollama's `gemma3`, for example)
+still runs, with the checks asked for as JSON in its replies, but less reliably. Small local models often lose track over several checks or answer in plain text instead of
+the steps; then the round ends with **The AI model didn't answer**, with the provider's error. Some
+put their answer inside a tool call instead of replying; that is taken as the answer.
 
 ## Current limitations
 

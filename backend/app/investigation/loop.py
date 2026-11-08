@@ -13,8 +13,15 @@ The code ends it when:
 - the AI provider failed or answered unreadably MAX_AI_FAILURES times: failed;
 - the person pressed Stop: stopped.
 
+Before the model's first turn the code runs the starting checks itself (ToolBox.starting_calls: the
+query that found the finding and its scrape targets), so every investigation starts from real
+metric data, whatever the model would have tried first.
+
+A model that puts its answer in a tool call's arguments instead of replying with it (small local
+models do) has answered: the answer is taken, the call isn't run.
+
 Except after Stop or an AI failure, the model is asked once more, with no checks allowed, to write
-up what it found. If that fails too, each check of the round becomes a step on its own.
+up what it found. If that fails too, each distinct check of the round becomes a step on its own.
 
 Every claim must point at a check of this investigation (c3) or a past case it was shown (case
 #204). A step that points at nothing real is kept but marked unverified; a summary never says
@@ -27,7 +34,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -66,13 +73,15 @@ Rules:
 
 Before each check, ask yourself: is there a lead with evidence (something that changed at or just
 before the problem started)? Can I check it further with my tools?
+Some checks were run for you before you started; they are in the first message. Don't repeat them.
+
 Stop and give your steps when:
 - you have a lead and the next check needs something you can't reach, or
 - everything you can reach is ruled out, or
 - the next step needs an answer from the engineer.
 Otherwise make the single check that rules out the most.
 
-When you stop, reply with only this JSON:
+When you stop, reply with only this JSON as your message, not as a tool call:
 {"summary": "<one sentence: where to look next. Never 'the root cause is'>",
  "ending": "found" | "nothing_found" | "waiting",
  "question": "<your question for the engineer when ending is waiting, else null>",
@@ -89,6 +98,17 @@ WRAP_UP = (
     "checks above."
 )
 REPAIR = "Your reply wasn't the JSON asked for. Reply again with only the JSON."
+FELL_BACK = "The model didn't write up its steps, so these are the checks it ran."
+TOOL_TITLES = {
+    "query_range": "Metric query",
+    "list_series": "Metrics of the service",
+    "label_values": "Label values",
+    "changes": "Deploys and changes",
+    "similar_cases": "Past cases",
+    "findings_for": "Findings on other services",
+}
+# How a check that found nothing starts, per tool: in a fallback step it is ruled out.
+NOTHING_FOUND = {"changes": "No deploy", "similar_cases": "No past case", "findings_for": "No findings"}
 KINDS = {"checked", "your_step", "from_history"}
 STATUSES = {"ruled_out", "worth_a_look", "todo"}
 ENDINGS = {"found", "nothing_found", "waiting"}
@@ -130,6 +150,21 @@ def run_round(
     detail: str | None = None
     system = ToolTurn(role="system", content=SYSTEM)
 
+    if not earlier and len(turns) == 1 and turns[0].role == "user":
+        lines = []
+        for call in toolbox.starting_calls():
+            result = toolbox.run(call)
+            ref = f"c{next_ref}"
+            next_ref += 1
+            check = _save_check(db, investigation, ref, call, result)
+            round_checks.append(check)
+            seen[_call_key(call.name, call.arguments)] = ref
+            seen_results.add(result.text)
+            lines.append(f"[{ref}] {result.purpose}: {result.query}\n{result.text}")
+        if lines:
+            turns[0] = replace(turns[0], content=turns[0].content + "\n\nChecks already run for you:\n" + "\n\n".join(lines))
+            _save_transcript(db, investigation, turns)
+
     while True:
         db.refresh(investigation)
         if investigation.stop_requested:
@@ -162,6 +197,12 @@ def run_round(
             turns.append(ToolTurn(role="user", content=REPAIR))
             _save_transcript(db, investigation, turns)
             continue
+
+        answer = _answer_in_calls(reply.tool_calls)
+        if answer is not None:
+            _decline_calls(turns, reply.tool_calls, "Not run: taken as your final answer.")
+            final = answer
+            break
 
         over_budget = False
         for call in reply.tool_calls:
@@ -202,9 +243,12 @@ def run_round(
         final = _wrap_up(client, toolbox, system, turns, detail or forced)
     _save_transcript(db, investigation, turns)
 
-    if final is None:
-        final = {"summary": None, "ending": None, "question": None, "steps": [_check_step(check) for check in round_checks]}
+    fell_back = final is None
+    if fell_back:
+        final = {"summary": None, "ending": None, "question": None, "steps": fallback_steps(round_checks)}
     outcome = _outcome(forced, final, detail)
+    if fell_back and round_checks and forced != "ai_failed":
+        outcome.detail = " ".join(part for part in (outcome.detail, FELL_BACK) if part)
     _save_steps(db, investigation, final, round_checks)
     investigation.status = outcome.status
     investigation.ending = outcome.ending
@@ -273,7 +317,7 @@ def _outcome(forced: str | None, final: dict[str, Any], detail: str | None) -> R
     if forced == "budget":
         return RoundOutcome("paused", "budget", detail)
     if forced == "no_progress":
-        return RoundOutcome("done", "no_progress", detail)
+        return RoundOutcome("done", "no_progress")
     if forced == "source_down":
         return RoundOutcome("stopped", "source_down", detail)
     if forced == "ai_failed":
@@ -291,9 +335,27 @@ def _wrap_up(client: LLMClient, toolbox: ToolBox, system: ToolTurn, turns: list[
     except AIError:
         return None
     turns.append(reply.as_turn())
-    for call in reply.tool_calls:
-        turns.append(ToolTurn(role="tool", content="Not run: no more checks in this round.", tool_call_id=call.id, name=call.name, is_error=True))
-    return None if reply.tool_calls else parse_final(reply.content)
+    if not reply.tool_calls:
+        return parse_final(reply.content)
+    answer = _answer_in_calls(reply.tool_calls)
+    _decline_calls(turns, reply.tool_calls, "Not run: taken as your final answer." if answer is not None else "Not run: no more checks in this round.")
+    return answer
+
+
+def _answer_in_calls(calls: tuple[ToolCall, ...]) -> dict[str, Any] | None:
+    """The final answer when the model put it in a tool call's arguments instead of replying with it."""
+    for call in calls:
+        arguments = call.arguments or {}
+        if isinstance(arguments.get("final"), dict) and isinstance(arguments["final"].get("steps", []), list):
+            return dict(arguments["final"])
+        if isinstance(arguments.get("steps"), list):
+            return {key: value for key, value in arguments.items() if key != "purpose"}
+    return None
+
+
+def _decline_calls(turns: list[ToolTurn], calls: tuple[ToolCall, ...], text: str) -> None:
+    for call in calls:
+        turns.append(ToolTurn(role="tool", content=text, tool_call_id=call.id, name=call.name, is_error=True))
 
 
 def _save_check(db: Session, investigation: InvestigationEntity, ref: str, call: ToolCall, result: CheckResult) -> InvestigationCheckEntity:
@@ -323,9 +385,26 @@ def _save_steps(db: Session, investigation: InvestigationEntity, final: dict[str
         db.add(InvestigationStepEntity(investigation_id=investigation.id, round=investigation.round, position=start + offset, **step))
 
 
-def _check_step(check: InvestigationCheckEntity) -> dict[str, Any]:
-    first = check.result.splitlines()[0] if check.result else ""
-    return {"title": check.purpose or f"Ran {check.tool}", "kind": "checked", "status": "todo", "why": None, "result": first[:500], "evidence": [check.ref]}
+def fallback_steps(checks: list[InvestigationCheckEntity]) -> list[dict[str, Any]]:
+    """The round's checks as steps, when the model wrote none: one step per distinct result, named
+    after what it checked, ruled out when it found nothing."""
+    steps: dict[tuple[str, str], dict[str, Any]] = {}
+    for check in checks:
+        key = (check.tool, check.result or "")
+        if key in steps:
+            steps[key]["evidence"].append(check.ref)
+            continue
+        nothing = NOTHING_FOUND.get(check.tool)
+        empty = check.ok and bool(nothing) and (check.result or "").startswith(nothing)
+        steps[key] = {
+            "title": TOOL_TITLES.get(check.tool, check.tool),
+            "kind": "checked",
+            "status": "ruled_out" if empty else "todo",
+            "why": check.purpose,
+            "result": (check.result or "")[:1000],
+            "evidence": [check.ref],
+        }
+    return list(steps.values())
 
 
 def _save_transcript(db: Session, investigation: InvestigationEntity, turns: list[ToolTurn]) -> None:

@@ -169,7 +169,7 @@ export function endingBanner(investigation: InvestigationSummary): { severity: '
     case 'budget':
       return { severity: 'warning', title: 'Paused', detail: detail ?? 'The checks for this round are used up.' };
     case 'no_progress':
-      return { severity: 'info', title: 'It stopped finding anything new', detail: 'The steps so far are kept.' };
+      return { severity: 'info', title: 'It stopped finding anything new', detail: detail ?? 'The steps so far are kept.' };
     case 'source_down':
       return { severity: 'error', title: "Couldn't reach Prometheus", detail: 'The steps so far are kept.' };
     case 'ai_failed':
