@@ -72,15 +72,25 @@ services:
 
   backend:
     <<: *backend-image
-    # AI turns on by itself when you give a model API (DEMO_AI_URL) or the `ai` profile's model
-    # server is running, unless you set OPS_SIGNALS_AI_ENABLED yourself; otherwise the backend
-    # starts exactly as the image does. The API wins over the `ai` profile.
+    # Which AI the backend uses, said in one line at start:
+    # - a model API (DEMO_AI_URL) always wins;
+    # - else the `ai` profile's model server, when it runs and you haven't chosen another AI;
+    # - else your own settings. Docker Compose also reads the repo's .env, so the dev stack's
+    #   Ollama settings arrive here too: an Ollama address that is empty or localhost would be this
+    #   container itself, so it becomes the `ai` profile's server, or Ollama on your machine.
     command:
       - sh
       - -c
       - |
-        if [ -z "$${OPS_SIGNALS_AI_ENABLED}" ] && [ -n "$${DEMO_AI_URL}" ]; then
+        case "$${OPS_SIGNALS_OLLAMA_URL}" in
+          ""|*://localhost*|*://127.0.0.1*) ollama_here=yes ;;
+          *) ollama_here=no ;;
+        esac
+        ai_on=no
+        case "$${OPS_SIGNALS_AI_ENABLED}" in 1|true|TRUE|True|yes|on) ai_on=yes ;; esac
+        if [ -n "$${DEMO_AI_URL}" ]; then
           if [ -z "$${DEMO_AI_MODEL}" ]; then
+            export OPS_SIGNALS_AI_ENABLED=false
             echo "AI stays off: DEMO_AI_URL is set but DEMO_AI_MODEL is empty (see demo/ai-api.env.example)"
           else
             export OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=openai_compatible
@@ -88,12 +98,22 @@ services:
             if [ -n "$${DEMO_AI_KEY}" ]; then export OPS_SIGNALS_OPENAI_API_KEY="$${DEMO_AI_KEY}"; fi
             echo "AI is on: $${DEMO_AI_MODEL} from $${DEMO_AI_URL} (the key is not printed)"
           fi
-        elif [ -z "$${OPS_SIGNALS_AI_ENABLED}" ] && getent hosts ollama >/dev/null 2>&1; then
+        elif getent hosts ollama >/dev/null 2>&1 && { [ -z "$${OPS_SIGNALS_AI_ENABLED}" ] || { [ "$${OPS_SIGNALS_AI_PROVIDER}" = ollama ] && [ "$$ollama_here" = yes ]; }; }; then
           export OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama
           export OPS_SIGNALS_OLLAMA_URL=http://ollama:11434 OPS_SIGNALS_OLLAMA_MODEL="$${DEMO_AI_MODEL:-gemma3:4b}"
-          # The model runs on CPU: 5-20 s an answer, more when several queue.
-          export OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS=90
-          echo "AI is on: $${DEMO_AI_MODEL:-gemma3:4b} from the ollama container (--profile ai)"
+          # The model runs on CPU: 5-20 s an answer, more when several queue; an Investigate round
+          # gets 5 minutes before it pauses.
+          export OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS="$${OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS:-90}"
+          export OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS="$${OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS:-300}"
+          echo "AI is on: $${OPS_SIGNALS_OLLAMA_MODEL} from the ollama container (--profile ai)"
+        elif [ "$$ai_on" = yes ] && [ "$${OPS_SIGNALS_AI_PROVIDER}" = ollama ] && [ "$$ollama_here" = yes ]; then
+          export OPS_SIGNALS_OLLAMA_URL=http://host.docker.internal:11434
+          # A laptop model: up to 3 minutes a reply, 5 minutes an Investigate round.
+          export OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS="$${OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS:-180}"
+          export OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS="$${OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS:-300}"
+          echo "AI is on: $${OPS_SIGNALS_OLLAMA_MODEL:-the configured model} from Ollama on your machine ($${OPS_SIGNALS_OLLAMA_URL})"
+        elif [ "$$ai_on" = yes ]; then
+          echo "AI is on: $${OPS_SIGNALS_AI_PROVIDER:-the configured provider}, from your settings"
         fi
         exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
     environment:
@@ -113,6 +133,10 @@ services:
       OPS_SIGNALS_AI_PROVIDER: ${OPS_SIGNALS_AI_PROVIDER:-}
       OPS_SIGNALS_OLLAMA_URL: ${OPS_SIGNALS_OLLAMA_URL:-}
       OPS_SIGNALS_OLLAMA_MODEL: ${OPS_SIGNALS_OLLAMA_MODEL:-}
+      # Investigate with a local model: how long to wait for one reply, and how long one round may
+      # run before it pauses (docs/investigate.md, "Settings for a local model").
+      OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS: ${OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS:-}
+      OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS: ${OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS:-}
       OPS_SIGNALS_OPENAI_BASE_URL: ${OPS_SIGNALS_OPENAI_BASE_URL:-}
       OPS_SIGNALS_OPENAI_MODEL: ${OPS_SIGNALS_OPENAI_MODEL:-}
       OPS_SIGNALS_OPENAI_API_KEY: ${OPS_SIGNALS_OPENAI_API_KEY:-}

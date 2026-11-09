@@ -153,7 +153,27 @@ OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=ollama OPS_SIGNALS_OLLAMA_UR
 Any OpenAI-compatible endpoint works too (`OPS_SIGNALS_AI_PROVIDER=openai_compatible` with
 `OPS_SIGNALS_OPENAI_BASE_URL`, `OPS_SIGNALS_OPENAI_MODEL` and, if it needs one,
 `OPS_SIGNALS_OPENAI_API_KEY`); [ai-features.md](ai-features.md) lists the providers and every place
-AI is used. Settings you pass win over the `ai` profile.
+AI is used. Settings you pass win over the `ai` profile, except an Ollama with no address (see below).
+
+For **Investigate** with a model on your machine, give it more time:
+`OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS=300 OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS=300` in front of the
+command ([settings for a local model](investigate.md#settings-for-a-local-model)).
+
+### Which AI does the demo use?
+
+The backend log says it in one line at start, for example
+`AI is on: qwen3:14b from Ollama on your machine (http://host.docker.internal:11434)`. It picks, in
+this order:
+
+1. **A model API** (`DEMO_AI_URL` and `DEMO_AI_MODEL`), whatever else is set.
+2. **The `ai` profile's model**, when it runs and you haven't chosen another AI.
+3. **Your own settings**, from the command or from the repo's `.env`: Docker Compose reads `.env`
+   by itself, so the dev stack's AI settings reach the demo too. An Ollama address that is empty or
+   `localhost` would point at the backend's own container, so the demo uses the `ai` profile's
+   model when it runs, and otherwise Ollama on your machine (`host.docker.internal:11434`, with
+   3 minutes a reply and 5 minutes an Investigate round unless you set them).
+
+`--env-file demo/ai-api.env` reads that file instead of `.env`.
 
 Either way, **Integrations → AI provider → Test connection** checks it. Every AI line is checked
 before it's shown: a sentence naming a number, version or fix that isn't in the case is dropped, so

@@ -11,6 +11,12 @@
   **Download CSV** link each, the first rows of the one you pick, and which columns are needed, so
   you can see what your own file should look like (`GET /api/samples`). In the hosted and the
   local demo, **Analyze it** analyzes one in a click.
+- **Fixed: Investigate in the demo with local AI.** Docker Compose reads the repo's `.env`, so the
+  dev stack's Ollama settings reached the demo with no address, and the backend looked for Ollama
+  inside its own container: every investigation failed. An empty or `localhost` Ollama address now
+  means the `ai` profile's model, or Ollama on your machine; a model API (`DEMO_AI_URL`) always
+  wins; `OPS_SIGNALS_OLLAMA_TIMEOUT_SECONDS` and `OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS` now reach
+  the backend; and the log says which AI is on in one line.
 - **Fixed:** a link to a case's tab (the guide's **Create the case**) did nothing when that case
   was already open; it now switches to the tab.
 
