@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**Demo and New Analysis**
+
+- **Things to try includes Investigate.** With AI on, the guide has an eleventh step after the pods
+  step: open today's checkout-api finding and click **Investigate**. It ticks off when the
+  investigation starts. With AI off the guide keeps its ten steps.
+- **Sample CSVs for everyone.** New Analysis → CSV Upload shows four sample files with a
+  **Download CSV** link each, the first rows of the one you pick, and which columns are needed, so
+  you can see what your own file should look like (`GET /api/samples`). In the hosted and the
+  local demo, **Analyze it** analyzes one in a click.
+- **Fixed:** a link to a case's tab (the guide's **Create the case**) did nothing when that case
+  was already open; it now switches to the tab.
+
 **Findings**
 
 - **Finished problems say so, and leave Needs attention.** When the latest analysis shows a spike,

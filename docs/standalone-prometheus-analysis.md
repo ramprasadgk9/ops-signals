@@ -114,6 +114,23 @@ Standalone UI
 The CSV tab on `/validate-data` keeps the existing CSV file selector, provider
 mapping, analyzer selector, service, metric, interval, and validation behavior.
 
+### What should my CSV file look like?
+
+One row per sample, with a `timestamp` (ISO time, UTC) and a numeric `value`. `metric_name`,
+`service` and `env` columns are optional: without them, type the metric and service in the form.
+
+```text
+timestamp,metric_name,value,service,env
+2026-07-30T00:00:00Z,cpu_usage,0.8242,sample-inventory,demo
+2026-07-30T00:05:00Z,cpu_usage,0.8058,sample-inventory,demo
+```
+
+To see a whole file, open **New Analysis → CSV Upload**: the **Sample files** box at the top has
+four files (a sudden jump, a slow climb, short spikes and a repeating pattern), each with
+**Download CSV** and its first rows shown. Each has 120 rows, one every 5 minutes. They are also at
+`GET /api/samples` (the list) and `GET /api/samples/<file>.csv` (one file). In the demo, **Analyze
+it** analyzes one in a click.
+
 ## Grafana Datasource-Based Prometheus
 
 Flow:
