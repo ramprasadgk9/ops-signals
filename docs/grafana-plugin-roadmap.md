@@ -7,7 +7,7 @@ plan in one place for when we decide to do it.
 
 Tracking issue: [#58](https://github.com/ramprasadgk9/ops-signals/issues/58).
 
-## Where it stands (plugin 1.0.35)
+## Where it stands (plugin 1.0.36)
 
 - **Id:** `breezypoppy3596-opssignals-app`. `breezypoppy3596` is the grafana.com organization that
   will publish it. Grafana's id rule allows one word between the organization and `-app`, so the
