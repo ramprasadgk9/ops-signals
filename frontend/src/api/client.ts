@@ -1,5 +1,10 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
+/** A backend URL for a plain link (a download), not a fetch. */
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 async function errorMessage(res: Response) {
   const fallback = `Request failed: ${res.status}`;
   const text = await res.text();

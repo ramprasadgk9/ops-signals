@@ -49,6 +49,8 @@ export type DemoStep = {
   createCase?: boolean;
   /** The step with AI off, when what it asks for needs AI (Draft from case shows only with AI on). */
   withoutAi?: Pick<DemoStep, 'title' | 'how' | 'marks'>;
+  /** Left out with AI off, when there is nothing to do without it (Investigate needs AI). */
+  needsAi?: boolean;
 };
 
 // The tour in docs/demo.md, "Things to try". The story's services come from demo/scenario.py.
@@ -78,6 +80,16 @@ export const DEMO_STEPS: DemoStep[] = [
     goLabel: 'Open the finding',
     marks: ['finding:checkout-api'],
     finding: { service: 'checkout-api', metric: 'request_latency_p95' },
+  },
+  {
+    id: 'investigate',
+    title: 'Let it investigate checkout\'s slowdown',
+    how: 'In today\'s checkout-api finding, click Investigate: it checks the deploy, the pods and past cases, and says where to look. You confirm the cause.',
+    go: '/findings?service=checkout-api',
+    goLabel: 'Open the finding',
+    marks: ['investigate'],
+    finding: { service: 'checkout-api', metric: 'request_latency_p95' },
+    needsAi: true,
   },
   {
     id: 'case',
@@ -131,7 +143,7 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     id: 'analysis',
     title: 'Analyze a metric yourself',
-    how: 'New Analysis: pick a metric from the demo\'s Prometheus, or try a sample file.',
+    how: 'New Analysis: pick a metric from the demo\'s Prometheus, or try a sample file. Download one to see what your own CSV should look like.',
     go: '/validate-data',
     goLabel: 'Open New Analysis',
     marks: ['analysis'],
@@ -146,9 +158,10 @@ export const DEMO_STEPS: DemoStep[] = [
   },
 ];
 
-/** The steps as this site can do them: with AI off, a step that needs AI asks for what works without it. */
+/** The steps as this site can do them: with AI off, a step that needs AI asks for what works without
+ * it, or is left out when nothing does. */
 export function demoSteps(aiActive: boolean): DemoStep[] {
-  return DEMO_STEPS.map((step) => (!aiActive && step.withoutAi ? { ...step, ...step.withoutAi } : step));
+  return DEMO_STEPS.filter((step) => aiActive || !step.needsAi).map((step) => (!aiActive && step.withoutAi ? { ...step, ...step.withoutAi } : step));
 }
 
 export function stepDoneBy(step: DemoStep, event: { page?: string; mark?: string }): boolean {

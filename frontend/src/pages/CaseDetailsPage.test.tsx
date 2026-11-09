@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { CaseDetailsPage } from './CaseDetailsPage';
 import { ApiError } from '../api/client';
 import { api } from '../api/queries';
@@ -59,13 +59,18 @@ function baseCase(overrides: Partial<OperationalCase> = {}): OperationalCase {
   };
 }
 
+function GoTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(to)}>Go to {to}</button>;
+}
+
 function renderPage(path = '/cases/1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/cases/:caseId" element={<CaseDetailsPage />} />
+          <Route path="/cases/:caseId" element={<><CaseDetailsPage /><GoTo to="/cases/1?tab=root-cause" /></>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -101,6 +106,22 @@ describe('CaseDetailsPage resolution tab', () => {
     renderPage('/cases/1?tab=root-cause');
 
     expect(await screen.findByRole('tab', { name: 'Root Cause' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('switches to the tab a link names when the case is already open', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+
+    renderPage('/cases/1?tab=similar-cases');
+    expect(await screen.findByRole('tab', { name: 'Similar Cases' })).toHaveAttribute('aria-selected', 'true');
+
+    // Demo mode's "Create the case" reuses this case and links to its Root Cause tab.
+    fireEvent.click(screen.getByRole('button', { name: 'Go to /cases/1?tab=root-cause' }));
+    expect(await screen.findByRole('tab', { name: 'Root Cause' })).toHaveAttribute('aria-selected', 'true');
+
+    // Again after picking another tab: the same link still goes to Root Cause.
+    fireEvent.click(screen.getByRole('tab', { name: 'Evidence' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to /cases/1?tab=root-cause' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Root Cause' })).toHaveAttribute('aria-selected', 'true'));
   });
 
   it('hides the Learning Outcome field when Outcome Status is not Resolved', async () => {

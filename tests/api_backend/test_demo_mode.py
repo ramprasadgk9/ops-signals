@@ -144,6 +144,42 @@ def test_an_unknown_sample_is_not_found(demo_client) -> None:
     assert demo_client.post("/api/demo/samples/nope", headers=VISITOR).status_code == 404
 
 
+def test_the_local_demo_analyzes_samples_too(monkeypatch) -> None:
+    # The local demo (the tour on, not demo mode) offers the same one-click samples.
+    monkeypatch.delenv("OPS_SIGNALS_DEMO_MODE", raising=False)
+    monkeypatch.setenv("OPS_SIGNALS_DEMO_TOUR", "true")
+    with patch("backend.app.main.load_memory_config", return_value=MemoryConfig(enabled=False)):
+        with TestClient(create_app("sqlite+pysqlite:///:memory:")) as client:
+            with patch("backend.app.api.ingestion.SignalPipeline", lambda config: SignalPipeline(config, store=PreviewPipelineStore())):
+                response = client.post("/api/demo/samples/sudden-jump", headers=VISITOR)
+    assert response.status_code == 200
+    assert response.json()["sample_count"] == 120
+
+
+def test_everyone_can_see_and_download_the_sample_files(monkeypatch) -> None:
+    # Not only in the demo: they show anyone what a CSV upload looks like.
+    monkeypatch.delenv("OPS_SIGNALS_DEMO_MODE", raising=False)
+    monkeypatch.delenv("OPS_SIGNALS_DEMO_TOUR", raising=False)
+    with patch("backend.app.main.load_memory_config", return_value=MemoryConfig(enabled=False)):
+        with TestClient(create_app("sqlite+pysqlite:///:memory:")) as client:
+            files = client.get("/api/samples", headers=VISITOR).json()
+            assert [item["file"] for item in files] == ["sudden-jump.csv", "slow-climb.csv", "short-spikes.csv", "repeating.csv"]
+            first = files[0]
+            assert (first["rows"], first["interval"]) == (120, "5m")
+            assert first["preview"][0] == "timestamp,metric_name,value,service,env"
+            assert len(first["preview"]) == 4
+
+            download = client.get("/api/samples/sudden-jump.csv", headers=VISITOR)
+            assert download.status_code == 200
+            assert download.headers["content-type"].startswith("text/csv")
+            assert download.headers["content-disposition"] == 'attachment; filename="sudden-jump.csv"'
+            assert download.text.splitlines()[:4] == first["preview"]
+
+            # Only the files the manifest lists.
+            assert client.get("/api/samples/samples.yml", headers=VISITOR).status_code == 404
+            assert client.get("/api/samples/..%2F..%2Fconfig.yaml", headers=VISITOR).status_code == 404
+
+
 def test_the_next_reset_is_the_first_period_still_ahead(monkeypatch) -> None:
     started = datetime(2026, 10, 30, 10, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(demo, "_STARTED_AT", started)

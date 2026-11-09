@@ -32,7 +32,7 @@ import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUncheckedRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, retryUnlessClientError } from '../api/client';
 import { api } from '../api/queries';
@@ -104,8 +104,15 @@ export function CaseDetailsPage() {
   const { caseId } = useParams<{ caseId: string }>();
   const { canEdit, canAdmin } = useWebPermissions();
   const [searchParams] = useSearchParams();
-  // ?tab=root-cause and the like open the case on that tab (demo mode's guide links there).
-  const [tabValue, setTabValue] = useState(() => Math.max(0, CASE_TABS.indexOf(searchParams.get('tab') ?? '')));
+  // ?tab=root-cause and the like open the case on that tab (demo mode's guide links there), also when
+  // the link is followed while this case is already open.
+  const linkedTab = CASE_TABS.indexOf(searchParams.get('tab') ?? '');
+  const [tabValue, setTabValue] = useState(() => Math.max(0, linkedTab));
+  const locationKey = useLocation().key;
+  useEffect(() => {
+    if (linkedTab >= 0) setTabValue(linkedTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- each navigation, not each tab change
+  }, [locationKey]);
   const queryClient = useQueryClient();
   const [initialized, setInitialized] = useState(false);
 

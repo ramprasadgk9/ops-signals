@@ -58,18 +58,28 @@ they show their usual fallback, and everything else works.
 
 ## Things to try
 
-The same ten steps are in the app: a **Things to try** guide in the corner, on by default, with a
+The same steps are in the app: a **Things to try** guide in the corner, on by default, with a
 button for each step that takes you there and ticks itself off. Progress is kept in your browser.
-`OPS_SIGNALS_DEMO_TOUR=false` in front of the command hides it. With AI off, the case step is
-**Make a case** and ticks off when the case opens; with AI on, it's **Make a case and draft a root
-cause** and ticks off with **Draft from case**.
+`OPS_SIGNALS_DEMO_TOUR=false` in front of the command hides it. There are ten steps with AI off and
+eleven with AI on ([Turn on AI](#turn-on-ai)):
+
+- With AI on, **Let it investigate checkout's slowdown** comes after the pods step. It opens
+  today's checkout-api finding; click **Investigate**, and the step ticks off when the
+  investigation starts. With AI off it isn't in the guide, since Investigate needs AI.
+- With AI off, the case step is **Make a case** and ticks off when the case opens; with AI on, it's
+  **Make a case and draft a root cause** and ticks off with **Draft from case**.
+- **Analyze a metric yourself** opens New Analysis. Under **CSV Upload**, **Analyze it** on a
+  sample file analyzes it in a click, and **Download CSV** gives you the file, to see what your own
+  CSV should look like.
 
 1. **Read the alert as it reached the team** at http://localhost:8090: what happened, the deploy
    (`v2.14.0`), and the past case with its fix (roll back).
 2. **Overview**: what needs attention now, and the **Shift handoff** button.
 3. **Findings → checkout-api**: the pods chip (**3 new pods** or **3 of 6 pods**) says where the
-   change came from: hover for the three pods the rollout started. And **Seen before** opens the past case and its fix. Then **Create Case**; with AI
-   on, try **Draft from case** on Root Cause.
+   change came from: hover for the three pods the rollout started. And **Seen before** opens the past case and its fix. With AI on,
+   click **Investigate** ([how it works](investigate.md)): it checks the `v2.14.0` deploy, the
+   pods and the past case, and lists where to look; you confirm the cause. Then **Create Case**;
+   with AI on, try **Draft from case** on Root Cause.
 4. **Findings → payments-db**: the warning that the problem came back 9 days after a fix, with
    what was left open; with AI on, **Why might it not have held?**. The old case shows the same
    banner.
@@ -162,7 +172,7 @@ visit, so it changes a few things (off by default, and the local demo above stay
 - **View-only settings**: anything that would change the site for everyone, reach in from outside,
   or keep someone's own data is refused, with the reason on screen. Visitors can still open and work
   cases, answer "Was this real?", ask Ops Signals, and analyze the demo's metrics or a sample file in
-  New Analysis.
+  New Analysis (and download the sample to see what a CSV should look like).
 
 ```bash
 OPS_SIGNALS_DEMO_MODE=true OPS_SIGNALS_DEMO_RESET_HOURS=2 OPS_SIGNALS_AI_ENABLED=true OPS_SIGNALS_AI_PROVIDER=recorded docker compose -f docker-compose.demo.yml up -d

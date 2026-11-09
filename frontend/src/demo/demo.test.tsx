@@ -81,9 +81,12 @@ describe('demo helpers', () => {
     expect(caseWithout.how).not.toMatch(/Draft from case/);
     expect(stepDoneBy(caseWithout, { mark: 'case-created' })).toBe(true);
     expect(stepDoneBy(caseWithout, { mark: 'case-draft' })).toBe(false);
-    // Every other step is the same either way, and the order and count don't change.
-    expect(demoSteps(false).map((step) => step.id)).toEqual(DEMO_STEPS.map((step) => step.id));
-    expect(demoSteps(false).filter((step) => step.id !== 'case')).toEqual(DEMO_STEPS.filter((step) => step.id !== 'case'));
+    // Investigate needs AI and has nothing to do without it, so it's left out; every other step is
+    // the same either way, in the same order.
+    expect(demoSteps(true).map((step) => step.id)).toEqual(DEMO_STEPS.map((step) => step.id));
+    expect(demoSteps(true)).toHaveLength(11);
+    expect(demoSteps(false).map((step) => step.id)).toEqual(DEMO_STEPS.filter((step) => step.id !== 'investigate').map((step) => step.id));
+    expect(demoSteps(false).filter((step) => step.id !== 'case')).toEqual(DEMO_STEPS.filter((step) => step.id !== 'case' && step.id !== 'investigate'));
   });
 
   it('says when the site resets', () => {
@@ -165,6 +168,29 @@ describe('Things to try', () => {
     expect(screen.getByTestId('demo-step-case')).not.toHaveAttribute('data-done');
     act(() => markDemoStep('case-draft'));
     expect(screen.getByTestId('demo-step-case')).toHaveAttribute('data-done', 'true');
+  });
+
+  it('with AI on, Investigate follows the pods step: it opens the finding and starting one ticks it', async () => {
+    vi.mocked(api.aiStatus).mockResolvedValue({ active: true } as never);
+    window.localStorage.setItem('ops-signals.demo.progress', JSON.stringify({ period: DEMO.resets_at, done: ['alert', 'overview', 'pods'], hidden: false }));
+    renderWith(<ThingsToTry />);
+    await waitFor(() => expect(screen.getByTestId('demo-guide')).toHaveTextContent('3 of 11'));
+    expect(screen.getByTestId('demo-step-investigate')).toHaveTextContent('click Investigate');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open the finding' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/findings?service=checkout-api&finding=42'));
+    // Opening the finding isn't the step; starting the investigation is.
+    act(() => markDemoStep('finding:checkout-api'));
+    expect(screen.getByTestId('demo-step-investigate')).not.toHaveAttribute('data-done');
+    act(() => markDemoStep('investigate'));
+    expect(screen.getByTestId('demo-step-investigate')).toHaveAttribute('data-done', 'true');
+    expect(screen.getByTestId('demo-guide')).toHaveTextContent('4 of 11');
+  });
+
+  it('with AI off, there is no Investigate step', async () => {
+    renderWith(<ThingsToTry />);
+    expect(await screen.findByTestId('demo-guide')).toHaveTextContent('0 of 10');
+    expect(screen.queryByTestId('demo-step-investigate')).toBeNull();
   });
 
   it('hides to one button that keeps the count, and the banner opens it again', async () => {

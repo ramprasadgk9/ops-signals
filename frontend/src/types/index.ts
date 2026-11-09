@@ -1724,6 +1724,8 @@ export type SlackStatus = {
 
 // GET /api/demo: demo mode for the hosted demo (backend/app/api/demo.py).
 export type DemoSample = { id: string; title: string; description: string; service: string; metric: string };
+// GET /api/samples: the bundled sample CSVs, for everyone (what a CSV upload looks like).
+export type SampleFile = DemoSample & { file: string; interval: string; rows: number; preview: string[] };
 export type DemoInfo = {
   enabled: boolean;
   /** Show the "Things to try" guide: in demo mode, or on its own (the local demo). */

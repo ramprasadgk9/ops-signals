@@ -43,6 +43,7 @@ import {
   type StepMark,
 } from '../utils/investigation';
 import { ServiceNotesEditor, noteDraft, type NoteDraft } from './ServiceNotesEditor';
+import { markDemoStep } from '../demo/events';
 
 const POLL_MS = 1500;
 
@@ -136,6 +137,8 @@ function BeforeStart({ info, onStarted, onClose }: { info: InvestigationStartInf
     },
     onSuccess: (investigation) => {
       queryClient.invalidateQueries({ queryKey: ['investigation-start', info.finding_id] });
+      // Demo mode's "Things to try" ticks off its Investigate step.
+      markDemoStep('investigate');
       onStarted(investigation);
     },
   });

@@ -6,6 +6,7 @@ import { api } from '../api/queries';
 import type { Finding } from '../types';
 import type { Investigation, InvestigationStartInfo, ServiceNote } from '../utils/investigation';
 import { InvestigateDialog } from './InvestigateDialog';
+import { DEMO_STEP_EVENT } from '../demo/events';
 
 vi.mock('../api/queries', () => ({
   api: {
@@ -83,6 +84,9 @@ describe('InvestigateDialog before Start', () => {
     mocked.investigationStartInfo.mockResolvedValue(info());
     mocked.saveServiceNote.mockResolvedValue({ ...emptyNote, exists: true });
     mocked.startInvestigation.mockResolvedValue(investigation);
+    const marks: string[] = [];
+    const onMark = (event: Event) => marks.push(String((event as CustomEvent).detail));
+    window.addEventListener(DEMO_STEP_EVENT, onMark);
     renderDialog();
 
     expect(await screen.findByText('Help it start in the right place')).toBeInTheDocument();
@@ -96,6 +100,9 @@ describe('InvestigateDialog before Start', () => {
     expect(mocked.saveServiceNote).toHaveBeenCalledWith('search', expect.objectContaining({ depends_on: [{ name: 'elasticsearch', kind: 'database' }] }));
     expect(mocked.startInvestigation).toHaveBeenCalledWith({ finding_id: 11, note: 'The index rebuild ran late.', save_note: false, skipped_sources: ['cases'] });
     expect(await screen.findByText('Found where to look')).toBeInTheDocument();
+    // Demo mode's "Things to try" ticks off its Investigate step.
+    expect(marks).toEqual(['investigate']);
+    window.removeEventListener(DEMO_STEP_EVENT, onMark);
   });
 
   it('explains how to turn on AI when it is off', async () => {
