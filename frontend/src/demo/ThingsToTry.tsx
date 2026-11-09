@@ -9,8 +9,8 @@ import type { DemoProgress, DemoStep } from './demo';
 import { OPEN_GUIDE_EVENT } from './DemoBanner';
 
 /** The "Things to try" guide, in demo mode or with the tour on its own: ten steps through the demo
- * story. Each has a button that goes there and ticks itself off when the visitor does it (a page visit
- * or a markDemoStep). */
+ * story, eleven with AI on. Each has a button that goes there and ticks itself off when the visitor
+ * does it (a page visit or a markDemoStep). */
 export function ThingsToTry() {
   const demo = useDemoTour();
   if (!demo) return null;

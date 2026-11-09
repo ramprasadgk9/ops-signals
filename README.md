@@ -33,7 +33,8 @@ case in progress. You only need Docker: no Python, Node, Slack workspace or data
 
 > [!TIP]
 > **Every way below opens with a "Things to try" guide in the corner: ten steps through the
-> demo, each with a button that takes you there and ticks itself off when you've done it.**
+> demo (eleven with AI on, which adds Investigate), each with a button that takes you there and
+> ticks itself off when you've done it.**
 > Nothing to set up. To hide it, put `OPS_SIGNALS_DEMO_TOUR=false` in front of the command.
 
 Get the code once, then pick one of three ways to start it:
