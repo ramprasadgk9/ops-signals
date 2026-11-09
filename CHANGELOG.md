@@ -1,6 +1,32 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 - 2026-11-09
+
+Includes Grafana plugin 1.0.36.
+
+**Investigate a finding**
+
+- **Investigate button.** With AI on, Needs attention cards from Prometheus and the finding's
+  details have **Investigate**. It runs read-only checks against the finding's Prometheus, the
+  deploys recorded for the service and past cases, then lists steps: what it checked and found,
+  what you need to check yourself (with the exact query), and what a past case suggests. It says
+  where to look, never "the root cause is"; you confirm the cause and fix on the case. See
+  [Investigate a finding](docs/investigate.md).
+- **Steer it.** The checks show up as they run; Stop any time. Mark a step **Found something** or
+  **Ruled out** with a note, ask or tell it something to start the next round, or **Keep going**
+  when it pauses. Each step shows the query behind it, and a step nothing backs is marked **Not
+  checked**.
+- **What your team knows about a service.** Before it starts, the dialog shows what the service
+  depends on (with suggestions from its own labels), behaviour that is normal for it, and its
+  owner, channel and runbook, editable in place and saved for everyone (`/api/service-notes`).
+- **Save to a case.** Opens a case for the finding and attaches the investigation; the case's
+  Investigation tab shows it, and **Use as note** puts a draft built from the steps in the note box.
+- **Works with local and hosted models.** Anthropic, OpenAI-compatible APIs and Ollama use tool
+  calling; a model without tool calling still investigates. Each round has a time limit
+  (`OPS_SIGNALS_INVESTIGATION_ROUND_SECONDS`, default 120 s). Viewers read saved investigations but
+  can't start or steer one.
+- A Prometheus run now keeps the PromQL it ran (`analysis_runs.promql`, a nullable column added on
+  startup), so an investigation queries the same series.
 
 **Demo and New Analysis**
 
@@ -34,6 +60,9 @@
   11:30" and moves to Context only an hour later; a level only partly back says "Partly back: about
   700 ms since 11:30" and stays. Before, the card kept saying "stayed higher" after a recovery.
   Trends aren't covered yet (#82).
+- **Fixed: clear level changes scored too low (#76).** A level change was scored against the whole
+  series' spread, which includes the jump itself, so a clear change halfway through could score
+  well under its real size. It is now scored against the noise on each side of the jump.
 
 ## 0.6.0 - 2026-11-02
 

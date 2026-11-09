@@ -4,6 +4,12 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
+## 1.0.36 - 2026-11-09 (Ops Signals 0.6.1)
+
+- **Finished problems move to the background.** A problem that ended over an hour ago (the **Over**
+  badge) is listed with the background symptoms on the Autonomous overview, data problems included,
+  instead of under what needs attention.
+
 ## 1.0.35 - 2026-11-02 (Ops Signals 0.6.0)
 
 - **Metrics split by pod are analyzed as one line.** Interactive Analysis through a Grafana data
