@@ -74,7 +74,7 @@ test('the rest of the steps go where they happen and tick themselves off', async
   await page.goto('/');
 
   await guide.getByRole('button', { name: 'Open New Analysis' }).click();
-  await page.getByTestId('demo-samples').getByRole('button', { name: 'Memory creeping up' }).click();
+  await page.getByTestId('sample-slow-climb').getByRole('button', { name: 'Analyze it' }).click();
   await expect(step('analysis')).toHaveAttribute('data-done', 'true', { timeout: 60_000 });
 
   await guide.getByRole('button', { name: 'Open Ask Ops Signals' }).click();
@@ -94,9 +94,14 @@ test('settings are view-only, and the backend refuses them too', async ({ page }
 
 test('New Analysis offers sample files and ticks off its step', async ({ page }) => {
   await page.goto('/validate-data');
-  const samples = page.getByTestId('demo-samples');
+  const samples = page.getByTestId('sample-files');
   await expect(samples).toContainText('Try a sample file');
-  await samples.getByRole('button', { name: 'A sudden jump that stays' }).click();
+  // Each one downloads too, so a visitor sees what their own file should look like.
+  const download = page.waitForEvent('download');
+  await samples.getByRole('link', { name: 'Download sudden-jump.csv' }).click();
+  expect((await download).suggestedFilename()).toBe('sudden-jump.csv');
+  await expect(page.getByTestId('sample-preview')).toContainText('timestamp,metric_name,value,service,env');
+  await page.getByTestId('sample-sudden-jump').getByRole('button', { name: 'Analyze it' }).click();
   await expect(page.getByText(/Saved: \d+ samples/)).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('demo-step-analysis')).toHaveAttribute('data-done', 'true');
 });

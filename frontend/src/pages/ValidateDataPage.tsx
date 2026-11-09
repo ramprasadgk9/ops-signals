@@ -49,7 +49,8 @@ import { leadSignal, leadSignalText } from '../utils/findingPlain';
 import { useFindingAiWording } from '../hooks/useFindingAiWording';
 import { RouterDecisionPanel } from '../components/RouterDecisionPanel';
 import { Tooltip as MuiTooltip } from '@mui/material';
-import { useDemo } from '../demo/demo';
+import { useDemo, useDemoTour } from '../demo/demo';
+import { SampleFiles } from '../components/SampleFiles';
 import { markDemoStep } from '../demo/events';
 import { combinedPhrase, combineName, combineValues, PodCombineBox, podChoiceQuery, type PodChoice } from '../components/PodCombineBox';
 
@@ -385,6 +386,7 @@ export function ValidateDataPage() {
   // Validate Data only previews; this stores the run (csv-run, router-chosen analyzers) so its
   // findings show up in Findings and can become cases.
   const demo = useDemo();
+  const demoTour = useDemoTour();
   const savedRunWithFindings = async (run: CsvRunResult) => {
     const findings = run.findings_count ? await api.findings(undefined, undefined, run.analysis_run_id) : [];
     return { run, findings: findings.filter((finding): finding is SavedFinding => typeof finding.id === 'number') };
@@ -400,7 +402,8 @@ export function ValidateDataPage() {
     },
   });
 
-  // Demo mode: a bundled sample, analyzed and saved like an upload (backend/app/api/demo.py).
+  // The demo (hosted, or local with the tour on): a bundled sample, analyzed and saved like an upload
+  // (backend/app/api/demo.py).
   const sampleMutation = useMutation({
     mutationFn: async (sampleId: string) => savedRunWithFindings(await api.demoSample(sampleId)),
     onSuccess: (result) => showSavedRun(result),
@@ -652,26 +655,11 @@ export function ValidateDataPage() {
           <CardContent>
             <Stack spacing={2}>
               <Typography variant="h6">CSV Upload</Typography>
-              {demo?.samples.length ? (
-                <Box data-testid="demo-samples" sx={{ p: 1.5, borderRadius: '8px', border: '1px solid var(--os-border)', bgcolor: 'var(--os-surface-alt)' }}>
-                  <Typography sx={{ fontWeight: 800, fontSize: 14 }}>Try a sample file</Typography>
-                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 1 }}>
-                    Everyone shares this demo, so saving your own file is off. Pick a sample to see how it's analyzed; Validate Data still previews your own file without saving it.
-                  </Typography>
-                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                    {demo.samples.map((sample) => (
-                      <MuiTooltip key={sample.id} title={`${sample.description} (${sample.service} · ${sample.metric})`}>
-                        <span>
-                          <Button size="small" variant="outlined" disabled={sampleMutation.isPending} onClick={() => { setMessage(null); setError(null); setSavedCsvRun(null); sampleMutation.mutate(sample.id); }} sx={{ textTransform: 'none', fontWeight: 750 }}>
-                            {sampleMutation.isPending && sampleMutation.variables === sample.id ? <CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> : null}
-                            {sample.title}
-                          </Button>
-                        </span>
-                      </MuiTooltip>
-                    ))}
-                  </Stack>
-                </Box>
-              ) : null}
+              <SampleFiles
+                onAnalyze={demoTour && (demo || canEdit) ? (sample) => { setMessage(null); setError(null); setSavedCsvRun(null); sampleMutation.mutate(sample.id); } : undefined}
+                analyzingId={sampleMutation.isPending ? sampleMutation.variables : null}
+                note={demo ? 'Everyone shares this demo, so saving your own file is off; Validate Data still previews your own file without saving it.' : undefined}
+              />
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
                 <FormControl fullWidth><InputLabel>Provider</InputLabel><Select value={provider} label="Provider" onChange={(e) => setProvider(e.target.value as Provider)}><MenuItem value="prometheus">Prometheus CSV</MenuItem><MenuItem value="datadog">Datadog CSV</MenuItem><MenuItem value="generic">Generic CSV</MenuItem><MenuItem value="custom">Custom / Other</MenuItem></Select></FormControl>
                 <FormControl fullWidth><InputLabel>Analyzer</InputLabel><Select value={analyzerId} label="Analyzer" onChange={(e) => setAnalyzerId(e.target.value)}>{analyzerOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}</Select></FormControl>

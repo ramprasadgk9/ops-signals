@@ -96,6 +96,7 @@ from backend.app.models.schema_compat import (
 from backend.app.roles import require_grafana_role
 from backend.app.demo import refuse_in_demo
 from backend.app.api.demo import router as demo_router
+from backend.app.api.demo import samples_router
 from backend.app.oidc import setup_problem as oidc_setup_problem
 from backend.app.security import require_api_token
 from backend.app.storage.bootstrap import seed_reference_data
@@ -521,6 +522,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     app.include_router(alerts_router)
     app.include_router(ai_router)
     app.include_router(demo_router)
+    app.include_router(samples_router)
     app.include_router(events_router)
     app.include_router(metric_usage_router)
     app.include_router(notifications_router)

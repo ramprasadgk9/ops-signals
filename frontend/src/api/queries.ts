@@ -111,6 +111,7 @@ import type {
   MetricUsageStatus,
   GrafanaStatus,
   DemoInfo,
+  SampleFile,
 } from '../types';
 import type { AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { AutonomousPolicy, AutonomousPolicySaveRequest, AutonomousPreviewRequest, AutonomousPreviewResponse, AutonomousRunResponse } from '../grafana/contracts';
@@ -396,6 +397,7 @@ export const api = {
   caseImports: () => getJson<CaseImportBatch[]>('/api/case-imports'),
   aiStatus: () => getJson<AIStatus>('/api/ai/status'),
   demo: () => getJson<DemoInfo>('/api/demo'),
+  sampleFiles: () => getJson<SampleFile[]>('/api/samples'),
   demoSample: (sampleId: string) => postJson<Record<string, never>, CsvRunResult>(`/api/demo/samples/${encodeURIComponent(sampleId)}`, {}),
   testAiConnection: () => postJson<Record<string, never>, AITestResult>('/api/ai/test', {}),
   undoCaseImport: (batchId: string) => deleteJson<{ batch_id: string; deleted_cases: number }>(`/api/case-imports/${batchId}`),
