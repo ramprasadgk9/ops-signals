@@ -159,6 +159,24 @@ A level change whose level came back uses `over_headline` and `over_what` instea
 `now` the level since, `back_time` when it came back and `duration` how long it was up. One only
 partly back keeps its lines and adds `partly` ("Partly back: about 700 ms since 11:30.").
 
+## The chart in a finding's details
+
+The chart under **What the readings show** in a finding's details marks the times its sentence names, so
+the picture shows what the words say:
+
+| Template | What the chart marks |
+|---|---|
+| `flatline`, `odd_stretch` | A shaded stretch from `first_time` to `last_time` |
+| `spikes` | One shaded stretch per burst, all between `first_time` and `last_time` |
+| `data_gap` | A grey **No data** stretch from `first_time` to `last_time` (the longest gap) |
+| `level_change` | A line at `change_time`, and at `back_time` when it came back or partly back |
+| `trend`, `forecast` | Nothing; a trend says it is about the whole time shown |
+
+A single stretch is labelled with its times and length, or "Started ... · still happening" when the
+problem was still going at the end of the data. The marks come from the same times the template is
+filled with, not from the text, so editing a template's words doesn't move them. Times outside the
+charted readings aren't drawn. Findings saved before this have no marks and show the plain line.
+
 ## AI wording
 
 With an AI provider on ([Enabling Local AI](ask-ops-signals-assistant.md#enabling-local-ai)), a

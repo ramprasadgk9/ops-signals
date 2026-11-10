@@ -75,7 +75,7 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     id: 'pods',
     title: 'Find where checkout\'s slowdown came from',
-    how: 'Today\'s checkout-api finding: under "Where the change came from", the pods the deploy started.',
+    how: 'Today\'s checkout-api finding: under "Where the change came from", the pods the deploy started. Its chart, under "What the readings show", marks the moment latency stepped up.',
     go: '/findings?service=checkout-api',
     goLabel: 'Open the finding',
     marks: ['finding:checkout-api'],

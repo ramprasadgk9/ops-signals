@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 import yaml
 
+from backend.app.services.active_findings import LEVEL_BACK, ProblemState
 from backend.app.services.finding_plain import (
     TEMPLATES_PATH,
     FindingFacts,
@@ -237,6 +238,48 @@ def test_a_finding_without_usable_evidence_keeps_its_summary() -> None:
     finding = FindingFacts("error_rate", "checkout", "error_rate has unusual behaviour.", "operational_insight")
     assert build_plain(finding, [], load_wording()) is None
     assert build_plain(finding, [SignalFacts("pattern_discovery", "stumpy", {"motif_distance": 0.1}, None, None)], load_wording()) is None
+
+
+def _marker_times(text: str) -> list[str]:
+    return re.findall(r"\[\[time:([^\]]+)\]\]", text)
+
+
+def test_the_chart_marks_the_times_the_sentence_names() -> None:
+    gap = _plain(8305).to_json(load_wording())
+    assert gap["marks"] == {"bands": [{"start": "2026-10-19T21:40:00Z", "end": "2026-10-20T19:32:00Z"}], "style": "gap"}
+    assert _marker_times(gap["what"])[:2] == ["2026-10-19T21:40:00Z", "2026-10-20T19:32:00Z"]
+
+    change = _plain(6724).to_json(load_wording())
+    assert change["marks"] == {"lines": [{"at": _marker_times(change["change_time"])[0], "kind": "change"}]}
+
+
+def test_each_burst_gets_its_own_band_inside_the_sentences_first_and_last_time() -> None:
+    plain = _plain(8279).to_json(load_wording())
+    first, last = _marker_times(plain["what"])[:2]
+    bands = plain["marks"]["bands"]
+    assert len(bands) == 5
+    assert bands == sorted(bands, key=lambda band: band["start"])
+    assert bands[0]["start"] == first and max(band["end"] for band in bands) == last
+
+
+def test_a_stuck_value_is_shaded_from_its_first_to_its_last_stuck_reading() -> None:
+    finding = FindingFacts("error_rate", "trend-lab", "", "data_quality", {}, "2026-11-09T04:36:00Z", "2026-11-09T21:33:00Z", True)
+    signal = SignalFacts("flatline", "data_health", {"stuck_value": 0.006, "flatline_minutes": 1017, "normal_change_ratio": 0.89}, "2026-11-09T04:36:00Z", "2026-11-09T21:33:00Z")
+    plain = build_plain(finding, [signal], load_wording()).to_json(load_wording())
+    assert plain["marks"] == {"bands": [{"start": "2026-11-09T04:36:00Z", "end": "2026-11-09T21:33:00Z"}]}
+
+
+def test_a_level_that_came_back_marks_the_jump_and_the_way_back() -> None:
+    finding, signals = _facts(REAL[8300])
+    jumped, back = datetime(2026, 10, 19, 22, 54, tzinfo=timezone.utc), datetime(2026, 10, 20, 2, 54, tzinfo=timezone.utc)
+    finding = dataclasses.replace(finding, level=ProblemState(ended_at=back, how=LEVEL_BACK, changed_at=jumped, level_before=11.3, level_during=1.2, level_now=11.0))
+    plain = build_plain(finding, signals, load_wording()).to_json(load_wording())
+    assert plain["marks"] == {"lines": [{"at": "2026-10-19T22:54:00Z", "kind": "change"}, {"at": "2026-10-20T02:54:00Z", "kind": "back"}]}
+
+
+@pytest.mark.parametrize("finding_id", [522, 8282])
+def test_a_trend_or_forecast_is_not_about_one_moment_so_nothing_is_marked(finding_id: int) -> None:
+    assert _plain(finding_id).to_json(load_wording())["marks"] is None
 
 
 def test_level_changes_of_one_service_at_the_same_moment_mention_each_other() -> None:

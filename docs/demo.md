@@ -76,7 +76,9 @@ eleven with AI on ([Turn on AI](#turn-on-ai)):
    (`v2.14.0`), and the past case with its fix (roll back).
 2. **Overview**: what needs attention now, and the **Shift handoff** button.
 3. **Findings → checkout-api**: the pods chip (**3 new pods** or **3 of 6 pods**) says where the
-   change came from: hover for the three pods the rollout started. And **Seen before** opens the past case and its fix. With AI on,
+   change came from: hover for the three pods the rollout started. In its details, the chart under
+   **What the readings show** marks the moment latency stepped up, minutes after the deploy. And
+   **Seen before** opens the past case and its fix. With AI on,
    click **Investigate** ([how it works](investigate.md)): it checks the `v2.14.0` deploy, the
    pods and the past case, and lists where to look; you confirm the cause. Then **Create Case**;
    with AI on, try **Draft from case** on Root Cause.
