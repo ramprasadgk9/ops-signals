@@ -1,11 +1,11 @@
 import { Alert, Box, Button, Chip, CircularProgress, Drawer, List, ListItem, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api/queries';
 import { useConnectionName } from '../api/useConnectionName';
 import { LinkedAlerts } from './AlertComponents';
 import { FindingBreakdown } from './FindingBreakdown';
+import { FindingReadingsChart } from './FindingReadingsChart';
 import { FoundDeployTag } from './FoundDeployTag';
 import { NoveltyBadge } from './NoveltyBadge';
 import { SuggestedFixes } from './FixHistory';
@@ -307,7 +307,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
         {analysisRunId && (
           <>
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mt: 3, mb: 1 }}>
-              <Typography variant="h6">Ingested Data</Typography>
+              <Typography variant="h6">What the readings show</Typography>
               {analysisRunQuery.data && (
                 <Chip
                   size="small"
@@ -318,7 +318,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
             </Stack>
             {analysisRunQuery.data && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                {analysisRunQuery.data.sample_count} points · {analysisRunQuery.data.status} · run {analysisRunId.slice(0, 8)}
+                {analysisRunQuery.data.sample_count} readings · {analysisRunQuery.data.status} · run {analysisRunId.slice(0, 8)}
               </Typography>
             )}
 
@@ -329,7 +329,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
             )}
             {timeseriesQuery.isError && (
               <Typography variant="body2" color="error">
-                Could not load the ingested data for this finding.
+                Could not load the readings for this finding.
               </Typography>
             )}
             {timeseriesQuery.data && timeseriesQuery.data.length === 0 && (
@@ -346,20 +346,7 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
               )
             )}
             {timeseriesQuery.data && timeseriesQuery.data.length > 0 && (
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={timeseriesQuery.data}>
-                  <XAxis
-                    dataKey="timestamp"
-                    tickFormatter={(value: string) => new Date(value).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    tickLine={false}
-                    axisLine={false}
-                    minTickGap={40}
-                  />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40} />
-                  <RechartsTooltip labelFormatter={(value: string) => new Date(value).toLocaleString()} />
-                  <Line type="monotone" dataKey="value" stroke="#4f46e5" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              <FindingReadingsChart finding={finding} readings={timeseriesQuery.data} />
             )}
           </>
         )}

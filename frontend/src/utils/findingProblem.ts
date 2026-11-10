@@ -5,6 +5,11 @@ import type { Finding } from '../types';
 // weeks ago, and its problem isn't happening now.
 const STILL_HAPPENING_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
+/** Whether a problem still going when its data ended is still happening now: the data is recent. */
+export function stillHappening(eventEnd: string, now: number = Date.now()): boolean {
+  return now - Date.parse(eventEnd) <= STILL_HAPPENING_MAX_AGE_MS;
+}
+
 function at(value: string): string {
   return new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
@@ -23,7 +28,7 @@ export function problemTiming(finding: Finding, startedAt?: string, now: number 
   // back still has `ongoing` findings, since its checks run to the last reading.
   const endedAt = finding.trust?.ended_at;
   if (finding.ongoing && !endedAt) {
-    if (now - Date.parse(finding.event_end) <= STILL_HAPPENING_MAX_AGE_MS) return { label: `Started ${at(start)} · still happening`, ongoing: true };
+    if (stillHappening(finding.event_end, now)) return { label: `Started ${at(start)} · still happening`, ongoing: true };
     return { label: `Started ${at(start)} · still going when the data ended (${at(finding.event_end)})`, ongoing: false };
   }
   const endAt = endedAt ?? finding.event_end;

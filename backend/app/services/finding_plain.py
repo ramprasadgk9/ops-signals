@@ -338,6 +338,18 @@ def time_marker(value: Any) -> str | None:
     return f"[[time:{moment.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}]]"
 
 
+def _marker_time(marker: str | None) -> str | None:
+    match = TIME_MARKER.fullmatch(marker or "")
+    return match.group(1) if match else None
+
+
+def _chart_band(start_marker: str | None, end_marker: str | None) -> dict[str, str] | None:
+    """A shaded stretch for the View details chart, from two of the time markers a sentence is
+    filled with, so the picture marks the same times the words say."""
+    start, end = _marker_time(start_marker), _marker_time(end_marker)
+    return {"start": start, "end": end} if start and end else None
+
+
 def render_times(text: str, render: Any) -> str:
     """Replaces each time marker with render(datetime)."""
     return TIME_MARKER.sub(lambda match: render(_utc(match.group(1))) if _utc(match.group(1)) else match.group(0), text)
@@ -415,6 +427,10 @@ class Plain:
     target: str | None = None
     service_about: str | None = None
     service_importance: str | None = None
+    # What the View details chart marks on the readings: shaded `bands` ({start, end}), drawn as a
+    # missing stretch when `style` is "gap", and moments as `lines` ({at, kind}). Built from the same
+    # times the sentence uses. Empty when the finding isn't about one moment (a trend, a forecast).
+    marks: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self, wording: Wording) -> dict[str, Any]:
         return {
@@ -431,6 +447,7 @@ class Plain:
             "service_about": self.service_about,
             "service_importance": self.service_importance,
             "service_importance_label": wording.importance_labels.get(self.service_importance or ""),
+            "marks": self.marks or None,
         }
 
 
@@ -521,6 +538,8 @@ def _level_change(finding: FindingFacts, signal: SignalFacts, meaning: MetricMea
     if not headline or not what:
         return None
     level = finding.level
+    # The chart marks the moments the sentence names: the change, and the way back when it says so.
+    lines = [{"at": _marker_time(values["change_time"]), "kind": "change"}]
     if level is not None and level.how == LEVEL_BACK and level.ended_at is not None:
         # It came back. Every finding of the problem says so from the jump (the problem's first level
         # change), with the level between the jump and the way back: a later run can see the way
@@ -544,9 +563,13 @@ def _level_change(finding: FindingFacts, signal: SignalFacts, meaning: MetricMea
         over_headline, over_what = _fill(template.get("over_headline"), back), _fill(template.get("over_what"), back)
         if over_headline and over_what:
             headline, what, badge = over_headline, over_what, _direction_badge(jump_direction, meaning)
+            lines = [{"at": _marker_time(back["change_time"]), "kind": "change"}, {"at": _marker_time(back["back_time"]), "kind": "back"}]
     elif level is not None and level.partly_since is not None:
         partly = {**values, "now": format_value(level.level_now, meaning.unit), "back_time": time_marker(level.partly_since)}
-        what = _join(what, _fill(template.get("partly"), partly)) or what
+        partly_line = _fill(template.get("partly"), partly)
+        what = _join(what, partly_line) or what
+        if partly_line:
+            lines.append({"at": _marker_time(partly["back_time"]), "kind": "partly_back"})
     concept = wording.concepts.get(meaning.concept or "") or {}
     return Plain(
         kind="level_change",
@@ -558,6 +581,7 @@ def _level_change(finding: FindingFacts, signal: SignalFacts, meaning: MetricMea
         change_time=time_marker(change_at),
         related_sentence=_fill(template.get("related"), values),
         facts={"before": before, "after": after, "change_at": change_at},
+        marks={"lines": [line for line in lines if line["at"]]},
     )
 
 
@@ -660,7 +684,7 @@ def _spikes(finding: FindingFacts, anomalies: list[SignalFacts], meaning: Metric
         headline, what = _fill(template.get("noise_headline"), values), _fill(template.get("noise_what"), values)
         if not headline or not what:
             return None
-        return Plain(kind="spikes", badge="noise", headline=headline, what=what, why=_fill(template.get("noise_why"), values), check=None)
+        return Plain(kind="spikes", badge="noise", headline=headline, what=what, why=_fill(template.get("noise_why"), values), check=None, marks=_burst_marks(anomalies))
 
     peaks = [(_spike_peak(signal, finding.comparison), signal) for signal in anomalies]
     peaks = [item for item in peaks if item[0][0] is not None]
@@ -700,7 +724,15 @@ def _spikes(finding: FindingFacts, anomalies: list[SignalFacts], meaning: Metric
         why=_why(badge, meaning, wording, values),
         check=_fill(concept.get("check"), values),
         facts={"peak": peak},
+        marks=_burst_marks(anomalies),
     )
+
+
+def _burst_marks(anomalies: list[SignalFacts]) -> dict[str, Any]:
+    """One band per burst, all inside the sentence's first and last time ("went above normal 5
+    times, between ... and ..."), so the gaps between bursts stay unshaded."""
+    bands = [_chart_band(time_marker(signal.start_time), time_marker(signal.end_time)) for signal in anomalies]
+    return {"bands": sorted((band for band in bands if band), key=lambda band: band["start"])}
 
 
 def _odd_stretch(signals: list[SignalFacts], meaning: MetricMeaning, wording: Wording, base: dict[str, Any]) -> Plain | None:
@@ -715,7 +747,7 @@ def _odd_stretch(signals: list[SignalFacts], meaning: MetricMeaning, wording: Wo
     # sentence rather than its worse or better one; an undescribed metric says it isn't described.
     concept = wording.concepts.get(meaning.concept or "") or {}
     why = _fill(template.get("why"), values) if meaning.concept else _fill(wording.unknown_meaning, values)
-    return Plain(kind="odd_stretch", badge="changed", headline=headline, what=what, why=why, check=_fill(concept.get("check"), values))
+    return Plain(kind="odd_stretch", badge="changed", headline=headline, what=what, why=why, check=_fill(concept.get("check"), values), marks=_band_marks(values))
 
 
 def _data_gap(gaps: list[SignalFacts], wording: Wording, base: dict[str, Any]) -> Plain | None:
@@ -742,7 +774,15 @@ def _data_gap(gaps: list[SignalFacts], wording: Wording, base: dict[str, Any]) -
         what=_join(what, _fill(template.get("more"), values) if len(gaps) > 1 else None) or what,
         why=_fill(template.get("why"), values),
         check=_fill(template.get("check"), values),
+        marks=_band_marks(values, style="gap"),
     )
+
+
+def _band_marks(values: dict[str, Any], style: str | None = None) -> dict[str, Any]:
+    band = _chart_band(values["first_time"], values["last_time"])
+    if band is None:
+        return {}
+    return {"bands": [band], **({"style": style} if style else {})}
 
 
 def _flatline(signal: SignalFacts, meaning: MetricMeaning, wording: Wording, base: dict[str, Any]) -> Plain | None:
@@ -760,7 +800,7 @@ def _flatline(signal: SignalFacts, meaning: MetricMeaning, wording: Wording, bas
     headline, what = _fill(template.get("headline"), values), _fill(template.get("what"), values)
     if not headline or not what:
         return None
-    return Plain(kind="flatline", badge="gap", headline=headline, what=what, why=_fill(template.get("why"), values), check=_fill(template.get("check"), values))
+    return Plain(kind="flatline", badge="gap", headline=headline, what=what, why=_fill(template.get("why"), values), check=_fill(template.get("check"), values), marks=_band_marks(values))
 
 
 def _forecast(signal: SignalFacts, meaning: MetricMeaning, wording: Wording, base: dict[str, Any]) -> Plain | None:

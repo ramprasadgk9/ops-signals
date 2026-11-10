@@ -280,6 +280,17 @@ export type FindingPlain = {
   service_about?: string | null;
   service_importance?: 'critical' | 'normal' | 'low' | null;
   service_importance_label?: string | null;
+  /** What the Finding details chart marks, from the same times the sentence names; null when the
+   * finding isn't about one moment (a trend, a forecast). Read with utils/findingChartMarks. */
+  marks?: FindingChartMarks | null;
+};
+
+export type FindingChartMarks = {
+  /** Shaded stretches; drawn as missing data when `style` is "gap". */
+  bands?: Array<{ start: string; end: string }>;
+  style?: 'gap';
+  /** Moments: where a level changed, and where it came (partly) back. */
+  lines?: Array<{ at: string; kind: 'change' | 'back' | 'partly_back' }>;
 };
 
 /** GET /api/findings/{id}/ai-wording: lines the AI provider wrote for this finding's details

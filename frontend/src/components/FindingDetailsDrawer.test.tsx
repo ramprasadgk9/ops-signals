@@ -39,7 +39,7 @@ const otlpFinding: Finding = {
   created_at: '2026-09-22T17:47:07Z',
 };
 
-describe('FindingDetailsDrawer ingested data section', () => {
+describe('FindingDetailsDrawer readings section', () => {
   it('shows an OTLP badge and the run id for an otel-sourced finding', async () => {
     vi.mocked(api.analysisRun).mockResolvedValue({
       id: 'c06d17a3dd9143ef8ebd8c454031fd89',
@@ -61,7 +61,7 @@ describe('FindingDetailsDrawer ingested data section', () => {
     renderDrawer(otlpFinding);
 
     expect(await screen.findByText('OTLP')).toBeInTheDocument();
-    expect(screen.getByText(/288 points/)).toBeInTheDocument();
+    expect(screen.getByText(/288 readings/)).toBeInTheDocument();
     expect(screen.getByText(/c06d17a3/)).toBeInTheDocument();
     expect(api.timeseries).toHaveBeenCalledWith('test-otlp-service', 'cpu_usage', 'c06d17a3dd9143ef8ebd8c454031fd89', undefined);
   });
