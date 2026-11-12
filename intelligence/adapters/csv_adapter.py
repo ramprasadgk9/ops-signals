@@ -14,6 +14,10 @@ from intelligence.config import InputConfig
 # this app's actual use case (metric time series), not against arbitrary big-data workloads.
 MAX_CSV_ROWS = int(os.getenv("OPS_SIGNALS_MAX_CSV_ROWS", "200000"))
 
+# Provider column names the normalizer renames to a canonical column (see
+# intelligence/normalize/normalizer.py:_apply_provider_mappings).
+CANONICAL_ALIASES = {"metric": "metric_name", "__name__": "metric_name", "ts_epoch_ms": "timestamp", "ts_epoch": "timestamp"}
+
 
 class CSVAdapter:
     def __init__(self, config: InputConfig, base_path: Path) -> None:
@@ -42,10 +46,29 @@ class CSVAdapter:
             )
 
     def _validate_columns(self, dataframe: pd.DataFrame) -> None:
-        missing = [column for column in self.config.required_columns if column not in dataframe.columns]
+        missing = [
+            column
+            for column in self.config.required_columns
+            if not self._column_present(column, set(dataframe.columns))
+        ]
         if missing:
             raise ValueError(f"CSV is missing required columns: {missing}")
 
         provider = (self.config.provider or "generic").lower()
         if provider not in {"generic", "prometheus", "datadog", "custom", "otel"}:
             raise ValueError(f"Unsupported input provider: {provider}")
+
+    def _column_present(self, column: str, columns: set[str]) -> bool:
+        # A required provider column also counts as present under the canonical name the
+        # normalizer would map it to: a Prometheus-provider file that already says metric_name (like the
+        # bundled sample files) is as good as one that says metric. A missing metric column is
+        # filled from the Metric typed in at upload, as the New Analysis form says.
+        if column in columns:
+            return True
+        canonical = CANONICAL_ALIASES.get(column, column)
+        for canonical_name, source_name in (self.config.provider_mappings or {}).items():
+            if source_name == column:
+                canonical = canonical_name
+        if canonical in columns:
+            return True
+        return canonical == "metric_name" and bool(self.config.metric_name)

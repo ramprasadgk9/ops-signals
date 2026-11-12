@@ -43,6 +43,9 @@ def normalize_timeseries(dataframe: pd.DataFrame, config: InputConfig) -> pd.Dat
     working = dataframe.copy()
     working = _apply_provider_mappings(working, config)
     working = _apply_core_renames(working, config)
+    if "metric_name" not in working.columns and config.metric_name:
+        # A file of one metric may leave the metric column out and name it at upload instead.
+        working["metric_name"] = config.metric_name
 
     _validate_required_columns(working, config)
     _apply_datadog_tags(working, config)
