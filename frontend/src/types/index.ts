@@ -781,6 +781,24 @@ export type PrometheusLabelValuesResponse = {
   values: string[];
 };
 
+// A query Prometheus runs on a schedule and saves under the metric name `name`.
+export type RecordingRule = {
+  name: string;
+  query: string;
+  group: string;
+  interval_seconds?: number | null;
+  // ok, err (last run failed) or unknown (not run yet).
+  health: 'ok' | 'err' | 'unknown' | string;
+  last_error?: string | null;
+  source_metrics: string[];
+};
+
+export type RecordingRulesResponse = {
+  connection_id: string;
+  rules: RecordingRule[];
+  message?: string | null;
+};
+
 export type PrometheusConnectionTestResponse = {
   available: boolean;
   version?: string | null;
@@ -906,6 +924,9 @@ export type AnalysisRun = {
   // The run ended before the stored-point retention period; its chart is empty unless a case kept it.
   points_deleted?: boolean;
   points_retention_days?: number | null;
+  // The Prometheus connection and PromQL the run queried; single-run reads only.
+  connection_id?: string | null;
+  promql?: string | null;
   source_type: string;
   file_name?: string | null;
   provider: string;

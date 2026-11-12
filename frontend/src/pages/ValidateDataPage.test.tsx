@@ -347,7 +347,7 @@ describe('ValidateDataPage clusters', () => {
     expect(vi.mocked(api.runPrometheusAnalysis).mock.calls[0][0].query).toBe('ops_signal_lab_value{service="ruptures-lab",cluster="us"}');
   });
 
-  it('starts with no service or metric, and can only preview or run once a metric is chosen', async () => {
+  it('starts with no service or metric, and can only preview once a metric is chosen and run once a service is too', async () => {
     setup({ services: ['checkout'], clusters: [] });
 
     await waitFor(() => expect(api.prometheusLabelValues).toHaveBeenCalledWith('service', 'mimir-a'));
@@ -359,6 +359,11 @@ describe('ValidateDataPage clusters', () => {
     fireEvent.mouseDown(screen.getByText('Simple'));
     fireEvent.click(await screen.findByRole('option', { name: 'Advanced PromQL' }));
     fireEvent.change(screen.getByLabelText('PromQL'), { target: { value: 'cpu_usage' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Preview Data' })).toBeEnabled());
+    // Every finding is saved under a service: Run waits for one instead of failing in the backend.
+    expect(runButton()).toBeDisabled();
+    expect(screen.getByTestId('service-needed')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Select or type service'), { target: { value: 'checkout' } });
     await waitFor(() => expect(runButton()).toBeEnabled());
   });
 

@@ -24,6 +24,7 @@ Backend endpoints:
 | --- | --- |
 | `GET /api/prometheus/connections` | Lists the configured connections (id, name, URL without credentials, whether it is the default, alert `match_labels`) - never tokens or passwords. |
 | `POST /api/prometheus/test-connection` | Checks the connection named by `connection_id`. |
+| `GET /api/prometheus/recording-rules` | Lists the connection's recording rules (name, query, group, how often it runs, last-run health, the metrics it reads), from `GET /api/v1/rules?type=record`. Cached for a minute; a server or Mimir tenant without rules gives an empty list. |
 | `POST /api/prometheus/preview` | Runs a bounded `query_range` and returns sample metadata plus a bounded preview. |
 | `POST /api/analysis/prometheus` | Runs direct Prometheus analysis through the existing analyzer pipeline. |
 
@@ -98,6 +99,38 @@ selected range is too short.
 
 For the first release, analysis requires a single returned series. If Prometheus
 returns multiple series, refine the label filters before running analysis.
+
+### What is a "Recording rule" in the Metrics list?
+
+A recording rule is a query Prometheus runs on a schedule (for example every 15s)
+and saves under a new metric name. `service:error_rate:percent` can be the saved
+result of `100 * avg by (service, env) (error_rate)`. The name looks like any
+other metric, so New Analysis tags it **Recording rule** in the Metrics list, with
+the rule's group (the name of the set of rules it belongs to in the rules file).
+
+Pick one and a note under the PromQL box shows the rule's saved query, how often
+Prometheus runs it, the metrics it reads, and whether its last run failed.
+Analysis reads the points Prometheus already saved; it doesn't run the query
+again. The finding's details show the same information under **How this was
+measured**. That is the rule as it is now: if someone changed it since the run,
+older points used the old query.
+
+Two things to know:
+
+- **Short history.** A rule's series starts when the rule was added; Prometheus
+  doesn't fill in earlier points. A rule added an hour ago has an hour of data,
+  so pick a window and step that give at least 30 points.
+- **No service label.** A rule that adds up every service, such as
+  `100 * avg(error_rate)`, saves one result for all services, without a
+  `service` label. Every finding is saved under one service, so such a rule can
+  be previewed but not analyzed: the note says so and **Run Analysis** stays off.
+  To analyze it per service, the rule has to keep the label, for example
+  `100 * avg by (service) (error_rate)`. In the Grafana plugin, where the metric
+  list follows the picked service, a line under the list names the rules it
+  hides for this reason.
+
+**Run Analysis** also needs a **Service** for any metric, recording rule or
+not: the finding is saved under it. Preview Data works without one.
 
 ## CSV Upload
 

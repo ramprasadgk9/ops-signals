@@ -31,7 +31,9 @@ import type {
   GrafanaQuestion,
   GrafanaQuestionAnswer,
 } from './contracts';
-import type { AssistantChatResponse } from '../types';
+import type { AssistantChatResponse, RecordingRule } from '../types';
+import { recordingRulesByName, ruleForRun } from '../utils/recordingRules';
+import { PluginRecordingRuleMeasured } from './PluginRecordingRuleNote';
 import { findingLevel } from '../utils/findingLevel';
 import { buildAnalyzerRunView, explainAnalyzerRun, summarizeAnalyzerRuns, type RanTone } from '../utils/analyzerRuns';
 
@@ -1203,7 +1205,8 @@ export function InvestigationDrawer({
   );
 }
 
-export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisResult | null; backendUrl: string }) {
+/** `recordingRules`: the connection's rules, to say what a recording rule the run read measures. */
+export function PanelPreview({ result, backendUrl, recordingRules }: { result: GrafanaAnalysisResult | null; backendUrl: string; recordingRules?: RecordingRule[] }) {
   const { canAdmin } = usePermissions();
   const [selectedFindingId, setSelectedFindingId] = useState<number | null>(null);
   const [questions, setQuestions] = useState<GrafanaQuestion[]>([]);
@@ -1225,6 +1228,10 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
   // The drawer shows a behavior case's own snapshot, not the selected single-metric finding.
   const [drawerForBehavior, setDrawerForBehavior] = useState(false);
 
+  const runRule = useMemo(
+    () => (result && recordingRules?.length ? ruleForRun(recordingRulesByName(recordingRules), result.metric, result.promql) : null),
+    [result, recordingRules],
+  );
   const sortedFindings = useMemo(
     () => [...(result?.findings ?? [])].sort((a, b) => b.importance_score - a.importance_score),
     [result?.findings]
@@ -1483,6 +1490,7 @@ export function PanelPreview({ result, backendUrl }: { result: GrafanaAnalysisRe
           {selectedFinding ? <PluginSeenBefore backendUrl={backendUrl} findingId={selectedFinding.id} service={result.service} frame={styles.card} /> : null}
           <PluginBehaviorFindings backendUrl={backendUrl} findings={result.behaviorFindings} onOpenCase={openBehaviorCase} frame={styles.card} />
           <MetricTimeline result={result} selectedFinding={selectedFinding} />
+          {runRule ? <PluginRecordingRuleMeasured rule={runRule} promql={result.promql} /> : null}
           <RecentInvestigationsTable
             caseDetails={caseDetails}
             onOpenCase={() => setDrawerOpen(true)}

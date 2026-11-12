@@ -48,6 +48,7 @@ import type {
   PrometheusConnectionsResponse,
   PrometheusConnectionTestResponse,
   PrometheusLabelValuesResponse,
+  RecordingRulesResponse,
   PrometheusPreviewResponse,
   Question,
   QuestionAnswer,
@@ -470,6 +471,8 @@ export const api = {
     if (filter?.end) params.append('end', filter.end);
     return getJson<PrometheusLabelValuesResponse>(`/api/prometheus/label-values?${params.toString()}`);
   },
+  prometheusRecordingRules: (connectionId = 'default') =>
+    getJson<RecordingRulesResponse>(`/api/prometheus/recording-rules?connection_id=${encodeURIComponent(connectionId)}`),
   testPrometheusConnection: (connectionId: string) =>
     postJson<{ connection_id: string }, PrometheusConnectionTestResponse>('/api/prometheus/test-connection', { connection_id: connectionId }),
   previewPrometheus: (payload: { connection_id: string; query: string; start: string; end: string; step: string }) =>

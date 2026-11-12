@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, listPrometheusLabelValues, connectionPodSplit, podSplit, previewAutonomousPlan, runAutonomousPlanOnce, runConnectionAnalysis, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, MAX_SENT_SERIES, type AutonomousQuestionAnswer, type FindingsWindow, type PreCombined } from './backendClient';
+import { answerAutonomousQuestion, createCaseFromFinding, createCaseTicket, getCase, getCaseTicket, getTicketingStatus, listAnalysisRuns, listAutonomousPolicies, listAutonomousPolicyRuns, listAutonomousScopeOptions, listBehaviorFindings, listCases, listFindings, listPrometheusConnections, listPrometheusLabelValues, listRecordingRules, connectionPodSplit, podSplit, previewAutonomousPlan, runAutonomousPlanOnce, runConnectionAnalysis, runPrometheusSampleAnalysis, saveAutonomousPolicy, searchFindings, setAutonomousPolicyStatus, syncCaseTicket, testPrometheusConnection, updateAutonomousPolicy, MAX_SENT_SERIES, type AutonomousQuestionAnswer, type FindingsWindow, type PreCombined } from './backendClient';
 import { buildTimeRange, calculateIntervalMs, createRelativeTimeRange, formatDateTimeLocal, parseDateTimeLocal, readGrafanaTimeRange } from './grafanaTimeRange';
 import {
   discoverMetricNames,
@@ -40,7 +40,9 @@ import { byLine, scheduleAuthorLine } from '../utils/actorLine';
 import { buildMetricQuery, buildServiceMatcher, type MetricMode } from './prometheusQueryBuilder';
 import { frameSeriesLabels, normalizePrometheusFrames } from './prometheusFrameNormalizer';
 import type { AutonomousPlanItem, AutonomousPolicy, AutonomousPreviewResponse, AutonomousRunResponse, CaseTicketLink, CaseTicketOperation, GrafanaAnalysisResult, GrafanaCase, GrafanaQueryTarget, MonitoringCategory } from './contracts';
-import type { AnalysisRun, BehaviorFinding, Finding, PodSplit, PrometheusConnection } from '../types';
+import type { AnalysisRun, BehaviorFinding, Finding, PodSplit, PrometheusConnection, RecordingRule } from '../types';
+import { missingLabelSelector, recordingRulesByName } from '../utils/recordingRules';
+import { PluginHiddenRulesLine, PluginRecordingRuleNote } from './PluginRecordingRuleNote';
 import { autonomousSourceFor, buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
 import { buildAutonomousDashboardData, formatMatchedRule, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
 
@@ -132,6 +134,9 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
   const [interactiveCluster, setInteractiveCluster] = useState('');
   const [connectionServices, setConnectionServices] = useState<string[]>([]);
   const [connectionMetrics, setConnectionMetrics] = useState<string[]>([]);
+  // Recording rules of the connection, and those whose result has no service label.
+  const [connectionRules, setConnectionRules] = useState<RecordingRule[]>([]);
+  const [rulesWithoutService, setRulesWithoutService] = useState<string[]>([]);
   const [connectionClusterOptions, setConnectionClusterOptions] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState(readGrafanaTimeRange);
   const [timeFromInput, setTimeFromInput] = useState(() => formatDateTimeLocal(readGrafanaTimeRange().from));
@@ -413,6 +418,27 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
     return () => { active = false; };
   }, [activeMode, interactiveSource, backendUrl, interactiveConnection?.id, connectionServiceMatcher]);
 
+  useEffect(() => {
+    setConnectionRules([]);
+    if (activeMode !== 'interactive' || interactiveSource !== 'connection' || !backendUrl || !interactiveConnection) return;
+    let active = true;
+    listRecordingRules(backendUrl, interactiveConnection.id)
+      .then((response) => { if (active) setConnectionRules(response.rules); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [activeMode, interactiveSource, backendUrl, interactiveConnection?.id]);
+
+  const noServiceSelector = missingLabelSelector(connectionRules.map((rule) => rule.name), serviceLabel || 'service');
+  useEffect(() => {
+    setRulesWithoutService([]);
+    if (!noServiceSelector || !backendUrl || !interactiveConnection) return;
+    let active = true;
+    listPrometheusLabelValues(backendUrl, '__name__', interactiveConnection.id, { match: [noServiceSelector] })
+      .then((response) => { if (active) setRulesWithoutService(response.values); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [noServiceSelector, backendUrl, interactiveConnection?.id]);
+
   const rangeStart = timeRange.from.toISOString();
   const rangeEnd = timeRange.to.toISOString();
   useEffect(() => {
@@ -671,6 +697,8 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
             }}
             connectionServices={connectionServices}
             connectionMetrics={connectionMetrics}
+            recordingRules={connectionRules}
+            rulesWithoutService={rulesWithoutService}
             clusterOptions={needsCluster ? connectionClusterOptions : []}
             cluster={chosenCluster}
             setCluster={setInteractiveCluster}
@@ -711,7 +739,7 @@ export function PluginApp(props: { meta?: { jsonData?: PluginJsonData } }) {
               />
             ) : null}
           />
-          <PanelPreview result={result} backendUrl={backendUrl} />
+          <PanelPreview result={result} backendUrl={backendUrl} recordingRules={interactiveSource === 'connection' ? connectionRules : undefined} />
         </>
       ) : (
         <AutonomousAnalysisView
@@ -1157,6 +1185,9 @@ export type InteractiveCardProps = {
   setConnectionId: (value: string) => void;
   connectionServices: string[];
   connectionMetrics: string[];
+  /** The connection's recording rules, and the names among them whose result has no service label. */
+  recordingRules?: RecordingRule[];
+  rulesWithoutService?: string[];
   /** Clusters the chosen series exists in; empty unless there is a choice to make. */
   clusterOptions: string[];
   cluster: string;
@@ -1201,10 +1232,13 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
   const [customOpen, setCustomOpen] = useState(false);
   const activePreset = customOpen ? null : presetFor(props.timeRange);
   const viaConnection = props.source === 'connection';
+  const rulesByName = useMemo(() => recordingRulesByName(props.recordingRules), [props.recordingRules]);
+  const rulesWithoutService = new Set(props.rulesWithoutService ?? []);
+  const pickedRule = viaConnection && props.metricMode === 'metric' ? rulesByName.get(props.target.metric.trim()) ?? null : null;
   const needsCluster = viaConnection && props.clusterOptions.length > 0;
   const missing = runBlockers(props);
   const { canEdit } = usePermissions();
-  const canRun = props.ready && props.timeRangeValid && !props.isRunning && canEdit;
+  const canRun = props.ready && props.timeRangeValid && !props.isRunning && canEdit && !(pickedRule && rulesWithoutService.has(pickedRule.name));
 
   return (
     <Card>
@@ -1342,10 +1376,16 @@ export function InteractiveAnalysisCard(props: InteractiveCardProps) {
               </div>
             </div>
             <datalist id="ops-signals-metrics">
-              {(viaConnection ? props.connectionMetrics : props.metrics).map((metric) => (
-                <option key={metric} value={metric} />
-              ))}
+              {(viaConnection ? props.connectionMetrics : props.metrics).map((metric) => {
+                const rule = viaConnection ? rulesByName.get(metric) : undefined;
+                return <option key={metric} value={metric} label={rule ? `Recording rule${rule.group ? ` · ${rule.group}` : ''}` : undefined} />;
+              })}
             </datalist>
+            {pickedRule ? (
+              <PluginRecordingRuleNote rule={pickedRule} noServiceLabel={rulesWithoutService.has(pickedRule.name)} />
+            ) : viaConnection && props.metricMode === 'metric' && props.target.service ? (
+              <PluginHiddenRulesLine names={props.rulesWithoutService ?? []} />
+            ) : null}
           </div>
         </div>
       </FormStep>
@@ -1484,6 +1524,10 @@ function runBlockers(props: InteractiveCardProps): string {
     items.push('choose a data source');
   }
   if (!props.target.service) items.push('enter a service');
+  // A recording rule that adds up all services has no service label: previewable, not analyzable.
+  if (props.source === 'connection' && props.metricMode === 'metric' && props.rulesWithoutService?.includes(props.target.metric.trim())) {
+    items.push('pick a metric that keeps the service label');
+  }
   if (!props.target.metric) items.push(props.metricMode === 'promql' ? 'enter a PromQL expression' : 'enter a metric');
   if (!props.timeRangeValid) items.push('fix the time range');
   if (!items.length) return '';
