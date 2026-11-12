@@ -11,7 +11,9 @@ from collections.abc import Mapping
 from fastapi import HTTPException
 
 from backend.app.metric_usage.promql_metrics import extract_query_metrics
-from backend.app.models.prometheus import RecordingRuleOut, RecordingRulesOut
+from backend.app.models.prometheus import RecordingRuleAlertOut, RecordingRuleOut, RecordingRulesOut
+from backend.app.services.alert_rules import AlertRule, alert_labels, alert_rules, alert_text
+from backend.app.services.finding_plain import Wording, duration_words, format_value, load_wording, metric_meaning
 from backend.app.services.prometheus_service import PrometheusQueryService
 
 # Rules change when someone edits a rules file, not between two clicks in the Metrics list.
@@ -54,6 +56,35 @@ def parse_recording_rules(payload: Mapping) -> list[RecordingRuleOut]:
     return rules
 
 
+def _fires(rule: AlertRule, wording: Wording | None) -> str | None:
+    threshold = rule.threshold
+    if threshold is None:
+        return None
+    unit = metric_meaning(threshold.metric, wording).unit if wording else None
+    limit = format_value(threshold.limit, unit) or str(threshold.limit)
+    return f"{'above' if threshold.keep == 'below' else 'below'} {limit}"
+
+
+def with_alerts(rules: list[RecordingRuleOut], alerts: list[AlertRule]) -> list[RecordingRuleOut]:
+    """Each rule with the alerts whose query reads it. Their text is filled only from what the
+    alert's own query pins: no service is known yet in New Analysis."""
+    wording = load_wording()
+    for rule in rules:
+        rule.alerts = [
+            RecordingRuleAlertOut(
+                name=alert.name,
+                group=alert.group,
+                text=alert_text(alert, alert_labels(alert, rule.name, None, ())),
+                fires=_fires(alert, wording) if alert.threshold and alert.threshold.metric == rule.name else None,
+                wait=duration_words(alert.wait_seconds / 60) if alert.wait_seconds else None,
+                runbook_url=alert.runbook_url,
+            )
+            for alert in alerts
+            if rule.name in alert.metrics
+        ]
+    return rules
+
+
 def recording_rules(service: PrometheusQueryService) -> RecordingRulesOut:
     """The connection's recording rules, cached a minute. A server without a rules API (or a Mimir
     tenant without a ruler) gives an empty list and a message, not an error: the Metrics list still works."""
@@ -64,7 +95,8 @@ def recording_rules(service: PrometheusQueryService) -> RecordingRulesOut:
         if cached and now - cached[0] < CACHE_SECONDS:
             return cached[1]
     try:
-        result = RecordingRulesOut(connection_id=connection_id, rules=parse_recording_rules(service.rules("record")))
+        rules = parse_recording_rules(service.rules("record"))
+        result = RecordingRulesOut(connection_id=connection_id, rules=with_alerts(rules, alert_rules(service)) if rules else rules)
     except HTTPException as exc:
         if exc.status_code == 400:
             raise

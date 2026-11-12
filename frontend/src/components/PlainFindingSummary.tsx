@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, Button, Chip, CircularProgress, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, CircularProgress, Link, Stack, Tooltip, Typography } from '@mui/material';
 import type { FindingAIWording, FindingPlain } from '../types';
 import { AI_LINE_HINT, aiFooter, hasAiLines, plainLines, plainTimes, plainTone, type PlainTone } from '../utils/findingPlain';
 import { EnableAiHint } from './EnableAiHint';
@@ -105,6 +105,13 @@ export function PlainFindingSummary({
                       <Chip label="AI" size="small" variant="outlined" color="info" tabIndex={0} data-testid="finding-plain-ai" sx={{ height: 18, fontSize: '0.65rem', mr: 0.75, verticalAlign: 1 }} />
                     </Tooltip>
                   </AiLabel>
+                ) : null}
+                {line.href ? (
+                  <>
+                    <Link href={line.href} target="_blank" rel="noopener noreferrer" data-testid="finding-plain-link">
+                      {line.linkText ?? line.href}
+                    </Link>{' '}
+                  </>
                 ) : null}
                 {line.text}
                 {line.findingId && onOpenFinding ? (

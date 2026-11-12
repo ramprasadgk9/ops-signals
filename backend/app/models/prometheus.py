@@ -27,6 +27,20 @@ class PrometheusLabelValuesOut(BaseModel):
     values: list[str]
 
 
+class RecordingRuleAlertOut(BaseModel):
+    """An alerting rule whose query reads a recording rule: what the team wrote about it."""
+
+    name: str
+    group: str
+    # The alert's description (or summary) as written; sentences with templates it can't fill are left out.
+    text: str | None = None
+    # "above 5": where the alert fires, when its query is a plain `rule > 5`.
+    fires: str | None = None
+    # The alert's `for:` in words ("5 minutes").
+    wait: str | None = None
+    runbook_url: str | None = None
+
+
 class RecordingRuleOut(BaseModel):
     """A query Prometheus runs every `interval_seconds` and saves under the metric name `name`."""
 
@@ -39,6 +53,8 @@ class RecordingRuleOut(BaseModel):
     last_error: str | None = None
     # The metrics the query reads, e.g. error_rate for 100 * avg by (service) (error_rate).
     source_metrics: list[str] = Field(default_factory=list)
+    # Alerts whose query reads this rule.
+    alerts: list[RecordingRuleAlertOut] = Field(default_factory=list)
 
 
 class RecordingRulesOut(BaseModel):

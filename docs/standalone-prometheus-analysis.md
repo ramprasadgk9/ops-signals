@@ -24,7 +24,7 @@ Backend endpoints:
 | --- | --- |
 | `GET /api/prometheus/connections` | Lists the configured connections (id, name, URL without credentials, whether it is the default, alert `match_labels`) - never tokens or passwords. |
 | `POST /api/prometheus/test-connection` | Checks the connection named by `connection_id`. |
-| `GET /api/prometheus/recording-rules` | Lists the connection's recording rules (name, query, group, how often it runs, last-run health, the metrics it reads), from `GET /api/v1/rules?type=record`. Cached for a minute; a server or Mimir tenant without rules gives an empty list. |
+| `GET /api/prometheus/recording-rules` | Lists the connection's recording rules (name, query, group, how often it runs, last-run health, the metrics it reads), from `GET /api/v1/rules?type=record`, and the alerts that use each rule (`alerts`: name, text, where it fires, `for`, runbook) from `GET /api/v1/rules?type=alert`. Cached for a minute; a server or Mimir tenant without rules gives an empty list. |
 | `POST /api/prometheus/preview` | Runs a bounded `query_range` and returns sample metadata plus a bounded preview. |
 | `POST /api/analysis/prometheus` | Runs direct Prometheus analysis through the existing analyzer pipeline. |
 
@@ -114,6 +114,14 @@ Analysis reads the points Prometheus already saved; it doesn't run the query
 again. The finding's details show the same information under **How this was
 measured**. That is the rule as it is now: if someone changed it since the run,
 older points used the old query.
+
+When a Prometheus alert uses the rule, the note adds a line for it, so you know
+what the number means before running anything: "Used by alert
+SpikeLabErrorRateHigh (fires above 5 for 5 minutes): Orders fail at checkout."
+with a **Runbook** link when the alert has one. The findings of the run then
+show the alert's line, text and runbook as well; see [What does a Prometheus
+alert on the metric add to a
+finding?](finding-wording.md#what-does-a-prometheus-alert-on-the-metric-add-to-a-finding)
 
 Two things to know:
 

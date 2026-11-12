@@ -88,13 +88,15 @@ too long, so a gateway in front of Prometheus has to allow POST on those four pa
 |---|---|---|
 | **New Analysis** (web UI) and **Interactive Analysis** (plugin, through an Ops Signals connection) | Test Connection | `GET /api/v1/status/buildinfo`; if the backend doesn't serve it, `GET /api/v1/query?query=vector(1)` |
 | | Service, Metrics, Cluster and pod lists | `GET /api/v1/label/<name>/values`, with `match[]` to narrow it |
-| | Recording rule tag and note on a metric | `GET /api/v1/rules?type=record` |
+| | Recording rule tag and note on a metric | `GET /api/v1/rules?type=record`, then `GET /api/v1/rules?type=alert` for the alerts that use a rule |
 | | Which recording rules have no `service` label | `GET /api/v1/label/__name__/values?match[]={__name__=~"<rules>",service=""}` |
 | | Preview Data, Run Analysis, per-pod split and drill-down | `GET /api/v1/query_range` |
+| | The result's alert line, alert text and runbook | `GET /api/v1/rules?type=alert` |
 | **Autonomous Analysis** | Environment, Services, Namespaces and Clusters lists | `GET /api/v1/label/<label>/values` |
 | | Preview, Run once and scheduled runs: finding the metrics | `GET /api/v1/series?match[]=<scope>` in one call; with no scope, or a scope too large for one call, `GET /api/v1/label/__name__/values` then `GET /api/v1/series` in chunks of 80 metric names ([details](autonomous-analysis-preview.md#push-down-scoping-and-anti-starvation-discovery)) |
 | | Metric types (counter, gauge, histogram) | `GET /api/v1/metadata` |
 | | Analyzing each planned metric, drill-down | `GET /api/v1/query_range` |
+| **Findings** (list and View details, both builds) | Alert line, alert text and runbook on findings from a Prometheus connection; never OTLP or CSV. Asked with a 2-second timeout and kept a minute per connection | `GET /api/v1/rules?type=alert` |
 | **Findings → View details** | How this was measured (runs from a Prometheus connection only; never OTLP or CSV) | `GET /api/v1/rules?type=record` |
 | | Investigate | `GET /api/v1/query_range`, `GET /api/v1/label/<name>/values`, `GET /api/v1/series` |
 | **Metric Usage** | Scan | `GET /api/v1/rules`, `GET /api/v1/label/__name__/values`, `GET /api/v1/query` (series per metric and job), `GET /api/v1/metadata` |

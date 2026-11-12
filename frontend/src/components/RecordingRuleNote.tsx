@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Alert, Box, Chip, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Chip, Link, Tooltip, Typography } from '@mui/material';
 
 import type { RecordingRule } from '../types';
-import { NO_SERVICE_LABEL_NOTE, RECORDING_RULE_TOOLTIP, ruleNoteLead } from '../utils/recordingRules';
+import { NO_SERVICE_LABEL_NOTE, RECORDING_RULE_TOOLTIP, ruleAlertSentence, ruleNoteLead } from '../utils/recordingRules';
 
 const mono = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
 
@@ -37,6 +37,17 @@ export function RecordingRuleNote({ rule, noServiceLabel }: { rule: RecordingRul
       {rule.source_metrics.length ? (
         <Typography sx={{ mt: 0.5, fontSize: 12, color: 'var(--os-muted)' }}>Built from {rule.source_metrics.join(', ')}</Typography>
       ) : null}
+      {(rule.alerts ?? []).map((alert) => (
+        <Typography key={alert.name} sx={{ mt: 0.5, fontSize: 12.5 }} data-testid="recording-rule-alert">
+          {ruleAlertSentence(alert)}
+          {alert.runbook_url ? (
+            <>
+              {' '}
+              <Link href={alert.runbook_url} target="_blank" rel="noopener noreferrer">Runbook</Link>
+            </>
+          ) : null}
+        </Typography>
+      ))}
       {noServiceLabel ? <Typography sx={{ mt: 0.5, fontSize: 12.5 }}>{NO_SERVICE_LABEL_NOTE}</Typography> : null}
     </Alert>
   );

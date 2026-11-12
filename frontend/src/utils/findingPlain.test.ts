@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RELATED_HINT, aiFooter, hasAiLines, leadSignal, leadSignalText, plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
+import { RELATED_HINT, alertLineHint, aiFooter, hasAiLines, leadSignal, leadSignalText, plainLines, plainParagraph, plainTimes, plainTone } from './findingPlain';
 import type { FindingPlain } from '../types';
 
 // Finding #8300 as the backend words it (tests/test_finding_plain.py).
@@ -151,5 +151,53 @@ describe('plainLines with AI wording', () => {
   it('names the model in the footer', () => {
     expect(aiFooter(ai)).toBe("Written by AI (qwen2.5:3b) from this finding's facts");
     expect(aiFooter({ ...ai, model: null })).toBe("Written by AI from this finding's facts");
+  });
+});
+
+describe('alert context', () => {
+  const withAlert: FindingPlain = {
+    ...errors,
+    related: [],
+    alert: {
+      name: 'SpikeLabErrorRateHigh',
+      group: 'lab-alerts',
+      summary: 'spike-lab error rate above 5%',
+      text: 'Orders fail at checkout.',
+      runbook_url: 'https://wiki.example.com/runbooks/spike-lab-errors',
+      line: 'Back below the 5% alert line since [[time:2026-10-19T22:54:17Z]].',
+      line_alert: 'SpikeLabErrorRateHigh',
+    },
+  };
+  const hint = alertLineHint('SpikeLabErrorRateHigh');
+
+  it("adds the alert line, takes the alert's words for why it matters, and ends with the runbook", () => {
+    expect(plainLines(withAlert, utc)).toEqual([
+      { label: 'Alert line', text: 'Back below the 5% alert line since Oct 19, 10:54 PM.', hint: alertLineHint('SpikeLabErrorRateHigh', 'spike-lab error rate above 5%') },
+      { label: 'Why it matters', text: 'Orders fail at checkout.', hint },
+      { label: 'What to check', text: 'Deploys or config changes in spike-lab between Oct 19, 10:24 PM and 11:24 PM.' },
+      { label: 'Runbook', text: '(from alert SpikeLabErrorRateHigh)', href: 'https://wiki.example.com/runbooks/spike-lab-errors', linkText: 'Open the runbook', hint },
+    ]);
+  });
+
+  it("names the alert's summary in the Alert line tooltip", () => {
+    expect(alertLineHint('A', 'p95 above 300ms')).toBe('From the Prometheus alert A ("p95 above 300ms"), as it is now: written by the team that set it up, not by Ops Signals.');
+    expect(alertLineHint('A')).toBe('From the Prometheus alert A, as it is now: written by the team that set it up, not by Ops Signals.');
+  });
+
+  it("keeps the team's words over AI wording", () => {
+    const ai = { available: true, why: 'AI why.', check_extra: null, related_extra: null, model: 'm' };
+    expect(plainLines(withAlert, utc, ai).find((line) => line.label === 'Why it matters')?.text).toBe('Orders fail at checkout.');
+  });
+
+  it('falls back to the template why without alert text, and never links a non-web runbook', () => {
+    const lines = plainLines({ ...withAlert, alert: { ...withAlert.alert!, text: null, runbook_url: 'javascript:alert(1)' } }, utc);
+    expect(lines.find((line) => line.label === 'Why it matters')?.text).toBe(errors.why);
+    expect(lines.some((line) => line.label === 'Runbook')).toBe(false);
+  });
+
+  it('puts the alert line and words in the one-paragraph summary', () => {
+    expect(plainParagraph(withAlert, utc)).toBe(
+      'Better: Error rate dropped sharply and stayed lower. About 11.3% until Oct 19, 10:54 PM. Since then about 1.2% (down 89%). Back below the 5% alert line since Oct 19, 10:54 PM. Orders fail at checkout.',
+    );
   });
 });

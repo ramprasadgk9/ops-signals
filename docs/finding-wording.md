@@ -100,6 +100,60 @@ services:
 - An entry that isn't right (an unknown importance, a target written `{under: 0.01}`) is left out
   and logged; the rest of the service stays.
 
+## What does a Prometheus alert on the metric add to a finding?
+
+When a Prometheus alerting rule uses the finding's metric, the finding shows what the team wrote in
+that alert: its description as **Why it matters**, its `runbook_url` as a **Runbook** link, and,
+for a plain `metric > N` query, where the finding stands against that line. You don't set
+anything up: Ops Signals reads the alerting rules of the Prometheus connection the finding came
+from.
+
+> **Worse** · Error rate rose sharply and stayed higher
+> About 0.4% until 10:00 AM. Since then about 2.1% (about 5 times as high).
+> **Alert line:** Above the 1% alert line since 10:00 AM (2 hours so far). Alert CheckoutErrors fires once it stays past the line for 5 minutes.
+> **Why it matters:** Orders fail at checkout; customers see "Payment could not be processed".
+> **Runbook:** Open the runbook (from alert CheckoutErrors)
+
+```yaml
+# In your Prometheus rules file, not in Ops Signals:
+- alert: CheckoutErrors
+  expr: error_rate{service="checkout"} > 0.01
+  for: 5m
+  annotations:
+    description: Orders fail at checkout; customers see "Payment could not be processed".
+    runbook_url: https://wiki.example.com/runbooks/checkout-errors
+```
+
+- **Which alerts count.** An alert counts when its query names the metric (a raw metric or a
+  recording rule such as `service:error_rate:percent`) and its label matchers select the finding's
+  service. A matcher on `service`, `job`, `app` or `app_kubernetes_io_name` (the alert enrichment
+  service labels) has to match; an alert without one covers every service. When some alerts name
+  the service, only those count.
+- **The alert line** needs the query to be just `metric > N` (or `<`, `>=`, `<=`, or `N < metric`).
+  A query with a function, maths or `and` still gives its text and runbook, without a line. With
+  several lines (a warning at 5% and a critical at 10%), the card uses the most severe one the
+  value went past, or else the nearest one. `N` is in the metric's raw value, like a target.
+- **"Fires once it stays past the line"** is added only when the change itself crossed the line:
+  a level change that was on the safe side before, is past the line after, and is still going on.
+  A value that was already past the line before the change gets no such sentence (the alert has
+  been firing all along), and neither does a spike or a trend average.
+- **A target wins.** When the wording file sets a target for the service and metric, the card shows
+  "Your target" and no alert line; the alert's text and runbook still show.
+- **The text is shown as written.** `{{ $labels.service }}` and labels the alert's query pins are
+  filled in. A sentence with anything else in braces, such as `{{ $value }}`, is left out: a finding
+  can't know the value the alert would show. Text is cut at 300 characters. Only `http` and `https`
+  runbook links are shown.
+- **Only the description becomes Why it matters.** It replaces both the template's and the AI's
+  line. An alert's `summary` is a title that usually restates the condition ("p95 latency above
+  300ms"), so it never does: an alert with only a summary keeps the template's Why it matters, and
+  the summary shows in the Alert line tooltip, which names the alert.
+- **Nothing is stored.** The rules are read when findings are shown, kept a minute per connection.
+  An edited alert shows on old findings too. If Prometheus doesn't answer within 2 seconds, findings
+  show without alert lines, and Ops Signals asks again 30 seconds later.
+- **Where it shows:** Findings (list and details) and the New Analysis result, in the web UI and the
+  Grafana plugin. Slack messages, cases, Shift handoff and Ask Ops Signals don't use it yet, and
+  "Seen before?" searches still match on the stored title and summary.
+
 ## How "Happened with" is chosen
 
 "Happened with" points to **another finding**. When the card is shown, it looks through the other
@@ -144,7 +198,8 @@ those three.
 | `data_gap` | Data stopped arriving | `duration`, `first_time`, `last_time`, `missing_points`, `gap_count`, `end_time` |
 | `flatline` | The value stopped changing | `stuck_value`, `duration`, `first_time`, `last_time`, `normal_change`, `end_time` |
 | `forecast` | Ran away from the forecast | `higher_or_lower`, `actual`, `expected`, `off` |
-| `targets` | The "Your target" line, for a service with a target on the metric | `target`, `breach_side`, `since`, `until`, `duration`, `half`, `peak`, `value` |
+| `targets` | The "Your target" line, for a service with a target on the metric | `target`, `breach_side`, `safe_side`, `since`, `until`, `duration`, `half`, `peak`, `value` |
+| `alerts` | The "Alert line", for a metric a Prometheus alert compares to a number ([above](#what-does-a-prometheus-alert-on-the-metric-add-to-a-finding)) | the `targets` placeholders, plus `alert` and `wait` |
 
 Times (`change_time`, `first_time`...) are shown in each reader's own time zone.
 

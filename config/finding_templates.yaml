@@ -206,6 +206,25 @@ templates:
     value_breach: "{breach_side} your {target} target at {value}."
     within: Still within your {target} target.
 
+  # How a finding stands against the line of a Prometheus alert built on its metric, when the
+  # alert's query is a plain `metric > N` (or <, >=, <=). Only used without a target above.
+  # safe_side is "below" for a `>` alert and "above" for a `<` one; alert is the alert's name and
+  # wait its `for:` in words.
+  alerts:
+    breach_ongoing: "{breach_side} the {target} alert line since {since} ({duration} so far)."
+    breach_ended: "{breach_side} the {target} alert line from {since} to {until} ({duration})."
+    breach_since: "{breach_side} the {target} alert line since {since}."
+    breach_throughout: "{breach_side} the {target} alert line both before and after the change."
+    recovered: Back {safe_side} the {target} alert line since {since}.
+    trend_breach: "{breach_side} the {target} alert line on average in the last {half}."
+    trend_recovered: Back {safe_side} the {target} alert line on average in the last {half}.
+    window_breach: "{breach_side} the {target} alert line on average all through this window."
+    peak_breach: Went past the {target} alert line, reaching {peak}.
+    value_breach: "{breach_side} the {target} alert line at {value}."
+    within: Still {safe_side} the {target} alert line.
+    # Added after the line of a level change that is past it and still going on.
+    fires_after: Alert {alert} fires once it stays past the line for {wait}.
+
   # Ran away from the forecast.
   forecast:
     headline: "{plain_name} ran {higher_or_lower} than expected"

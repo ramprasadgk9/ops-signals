@@ -134,3 +134,19 @@ describe('PluginPlainFinding with AI wording', () => {
     expect(screen.queryByTestId('plugin-enable-ai-hint')).not.toBeInTheDocument();
   });
 });
+
+describe('PluginPlainFinding with an alert on the metric', () => {
+  it("shows the team's words and the runbook link", () => {
+    render(
+      <PluginPlainFinding
+        plain={{ ...gap, alert: { name: 'NotifyErrors', group: 'g', text: 'Pages may not reach on-call.', runbook_url: 'https://wiki.example.com/notify', line: null, line_alert: null } }}
+        details="stored"
+      />,
+    );
+
+    const shown = screen.getByTestId('plugin-plain');
+    expect(shown).toHaveTextContent('Pages may not reach on-call.');
+    expect(screen.getByTestId('plugin-plain-link')).toHaveAttribute('href', 'https://wiki.example.com/notify');
+    expect(screen.getByTestId('plugin-plain-link')).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+});

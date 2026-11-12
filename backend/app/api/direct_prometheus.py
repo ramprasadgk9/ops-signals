@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.autonomous.drilldown import drill_down_findings
-from backend.app.config import DrillDownConfig, PrometheusConnectionConfig, get_drilldown_config, get_prometheus_connections
+from backend.app.config import DrillDownConfig, PrometheusConnectionConfig, get_alert_enrichment_config, get_drilldown_config, get_prometheus_connections
 from backend.app.models.db import get_db
 from backend.app.models.entities import BehaviorFindingEntity, FindingEntity, SignalEntity
 from backend.app.models.prometheus import (
@@ -33,6 +33,7 @@ from backend.app.services.prometheus_service import (
     configured_connection,
     get_prometheus_connection,
 )
+from backend.app.services.alert_rules import alerts_for_findings
 from backend.app.services.finding_plain import finding_plain
 from backend.app.services.pod_split import find_pod_split
 from backend.app.services.recording_rules import recording_rules
@@ -262,7 +263,8 @@ def run_direct_prometheus_analysis(
 
     finding_rows = db.execute(select(FindingEntity).where(FindingEntity.analysis_run_id == result.analysis_run_id)).scalars().all()
     signal_rows = db.execute(select(SignalEntity).where(SignalEntity.analysis_run_id == result.analysis_run_id)).scalars().all()
-    plain_wording = finding_plain(db, list(finding_rows))
+    service_labels = get_alert_enrichment_config().service_labels
+    plain_wording = finding_plain(db, list(finding_rows), alerts=alerts_for_findings(db, list(finding_rows), service_labels), service_labels=service_labels)
     findings_count = len(finding_rows)
     signal_count = len(signal_rows)
     behavior_count = db.execute(select(func.count(BehaviorFindingEntity.id)).where(BehaviorFindingEntity.analysis_run_id == result.analysis_run_id)).scalar() or 0

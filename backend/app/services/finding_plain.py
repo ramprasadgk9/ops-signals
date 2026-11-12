@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 import yaml
 from sqlalchemy import select
@@ -27,6 +27,9 @@ from sqlalchemy.orm import Session
 
 from backend.app.models.entities import FindingEntity, SignalEntity
 from backend.app.services.active_findings import LEVEL_BACK, ProblemState, problem_states
+
+if TYPE_CHECKING:
+    from backend.app.services.alert_rules import AlertRule
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +63,14 @@ TEMPLATE_FIELDS: dict[str, set[str]] = {
     "flatline": {"stuck_value", "duration", "first_time", "last_time", "normal_change", "end_time"},
     "forecast": {"higher_or_lower", "actual", "expected", "off"},
     # Lines comparing a finding with the service's own target (the `services` section).
-    "targets": {"target", "breach_side", "since", "until", "duration", "half", "peak", "value"},
+    "targets": {"target", "breach_side", "safe_side", "since", "until", "duration", "half", "peak", "value"},
+    # The same lines against the line of an alert built on the metric (services/alert_rules.py).
+    "alerts": {"target", "breach_side", "safe_side", "since", "until", "duration", "half", "peak", "value", "alert", "wait"},
 }
 REQUIRED_LINES: dict[str, tuple[str, ...]] = {
     "spikes": ("headline", "what", "noise_headline", "noise_what"),
     "targets": (),
+    "alerts": (),
 }
 SERVICE_IMPORTANCE = ("critical", "normal", "low")
 # Kinds whose template has an `over` line, added to `what` when the problem is over: the analysis
@@ -431,6 +437,9 @@ class Plain:
     # missing stretch when `style` is "gap", and moments as `lines` ({at, kind}). Built from the same
     # times the sentence uses. Empty when the finding isn't about one moment (a trend, a forecast).
     marks: dict[str, Any] = field(default_factory=dict)
+    # What an alert on this metric says about it: its text, runbook and where the finding stands
+    # against its line ({name, group, text, runbook_url, line}). None without such an alert.
+    alert: dict[str, Any] | None = None
 
     def to_json(self, wording: Wording) -> dict[str, Any]:
         return {
@@ -448,6 +457,7 @@ class Plain:
             "service_importance": self.service_importance,
             "service_importance_label": wording.importance_labels.get(self.service_importance or ""),
             "marks": self.marks or None,
+            "alert": self.alert,
         }
 
 
@@ -834,8 +844,15 @@ def _forecast(signal: SignalFacts, meaning: MetricMeaning, wording: Wording, bas
     )
 
 
-def build_plain(finding: FindingFacts, signals: Iterable[SignalFacts], wording: Wording | None) -> Plain | None:
-    """The plain wording for one finding, picked the way FindingAggregator picks its title, or None."""
+def build_plain(
+    finding: FindingFacts,
+    signals: Iterable[SignalFacts],
+    wording: Wording | None,
+    alerts: Sequence["AlertRule"] = (),
+    service_labels: Sequence[str] = (),
+) -> Plain | None:
+    """The plain wording for one finding, picked the way FindingAggregator picks its title, or None.
+    `alerts` are the alerting rules on the finding's metric and service (alert_rules.matching_alerts)."""
     if wording is None:
         return None
     signal_list = _matched(signals)
@@ -862,13 +879,87 @@ def build_plain(finding: FindingFacts, signals: Iterable[SignalFacts], wording: 
             target = context.targets.get(finding.metric_name)
             if target is not None and "targets" in wording.templates:
                 plain.target = _target_line(plain, finding, target, meaning, wording)
+        if alerts:
+            plain.alert = _alert_context(plain, finding, list(alerts), meaning, wording, service_labels)
     return plain
 
 
-def _target_line(plain: Plain, finding: FindingFacts, target: Target, meaning: MetricMeaning, wording: Wording) -> str | None:
-    """How the finding stands against the service's own target, from the same values the card
-    shows: averages before and after a change, the two halves of a trend, a spike's peak."""
-    lines = wording.templates["targets"]
+# The value a finding is held against a line with: where a level change ended up, the last half of
+# a trend, a spike's peak, a forecast's actual reading.
+_CURRENT_FACT = {"level_change": "after", "trend": "second", "spikes": "peak", "forecast": "value"}
+
+
+def _past(value: float | None, threshold: Any) -> bool:
+    """Whether `value` is on the alerting side of an alert's line."""
+    if value is None or threshold is None:
+        return False
+    return value > threshold.limit if threshold.keep == "below" else value < threshold.limit
+
+
+def _alert_context(plain: Plain, finding: FindingFacts, alerts: list["AlertRule"], meaning: MetricMeaning, wording: Wording, service_labels: Sequence[str]) -> dict[str, Any] | None:
+    """What the team's alert on this metric adds to the card: its own words, its runbook and, when
+    its query is a plain `metric > N`, how the finding stands against that line. With several
+    lines (warning 5%, critical 10%) the most severe one the value went past counts, else the
+    nearest one. A target set in the wording file wins over an alert line: the card shows one."""
+    from backend.app.services.alert_rules import alert_labels, alert_summary, alert_text
+
+    metric = finding.metric_name
+    lined = [rule for rule in alerts if rule.threshold is not None and rule.threshold.metric == metric]
+    value = _number(plain.facts.get(_CURRENT_FACT.get(plain.kind, "")))
+
+    def past(rule: "AlertRule") -> bool:
+        return _past(value, rule.threshold)
+
+    chosen = alerts[0]
+    if lined:
+        chosen = lined[0] if value is None else min([rule for rule in lined if past(rule)] or lined, key=lambda rule: abs(value - rule.threshold.limit))
+
+    service = plain.service
+    # By position: two groups can hold alerts with the same name.
+    texts = [alert_text(rule, alert_labels(rule, metric, service, service_labels)) for rule in alerts]
+    has_words = [bool(text or rule.runbook_url) for text, rule in zip(texts, alerts)]
+    picked = alerts.index(chosen)
+    source_index = picked if has_words[picked] else next((index for index, words in enumerate(has_words) if words), None)
+    source = alerts[source_index] if source_index is not None else None
+
+    line = None
+    if chosen.threshold is not None and chosen.threshold.metric == metric and plain.target is None and "alerts" in wording.templates:
+        extra = {"alert": chosen.name, "wait": duration_words(chosen.wait_seconds / 60) if chosen.wait_seconds else None}
+        line = _target_line(plain, finding, Target(chosen.threshold.limit, chosen.threshold.keep), meaning, wording, "alerts", extra)
+        # Only a level change that crossed the line can say when the alert fires: a value already
+        # past it before the change means the alert has been firing all along, and a burst or a
+        # trend average says nothing about whether its condition held.
+        crossed = past(chosen) and not _past(_number(plain.facts.get("before")), chosen.threshold)
+        if line and crossed and plain.kind == "level_change" and finding.ongoing is not False:
+            line = _join(line, _fill(wording.templates["alerts"].get("fires_after"), extra)) or line
+    if source is None and line is None:
+        return None
+    named = source or chosen
+    return {
+        "name": named.name,
+        "group": named.group,
+        # The alert's title, for the tooltip naming it; never Why it matters (alert_rules.alert_text).
+        "summary": alert_summary(named, alert_labels(named, metric, service, service_labels)),
+        "text": texts[source_index] if source_index is not None else None,
+        "runbook_url": source.runbook_url if source else None,
+        "line": line,
+        "line_alert": chosen.name if line else None,
+    }
+
+
+def _target_line(
+    plain: Plain,
+    finding: FindingFacts,
+    target: Target,
+    meaning: MetricMeaning,
+    wording: Wording,
+    lines_key: str = "targets",
+    extra: Mapping[str, Any] | None = None,
+) -> str | None:
+    """How the finding stands against the service's own target (or, with `lines_key` "alerts", an
+    alert's line), from the same values the card shows: averages before and after a change, the
+    two halves of a trend, a spike's peak."""
+    lines = wording.templates[lines_key]
     facts = plain.facts
 
     def misses(value: Any) -> bool | None:
@@ -883,9 +974,11 @@ def _target_line(plain: Plain, finding: FindingFacts, target: Target, meaning: M
         "metric": finding.metric_name,
         "target": format_value(target.limit, meaning.unit),
         "breach_side": "Above" if target.keep == "below" else "Below",
+        "safe_side": "below" if target.keep == "below" else "above",
         "half": facts.get("half"),
         "peak": format_value(facts.get("peak"), meaning.unit),
         "value": format_value(facts.get("value"), meaning.unit),
+        **(extra or {}),
     }
     if plain.kind == "level_change":
         before, after = misses(facts.get("before")), misses(facts.get("after"))
@@ -1018,24 +1111,43 @@ def _finding_facts(row: FindingEntity, state: ProblemState | None = None) -> Fin
     return FindingFacts(row.metric_name, row.service, row.title or "", row.category or "", row.comparison_json or {}, row.event_start, event_end, ongoing, state)
 
 
-def _build_rows(db: Session, rows: Iterable[FindingEntity], wording: Wording) -> list[tuple[FindingEntity, Plain]]:
+def _build_rows(
+    db: Session,
+    rows: Iterable[FindingEntity],
+    wording: Wording,
+    alerts: Mapping[int, Sequence["AlertRule"]] | None = None,
+    service_labels: Sequence[str] = (),
+) -> list[tuple[FindingEntity, Plain]]:
     row_list = list(rows)
     facts = _signal_facts(db, {signal_id for row in row_list for signal_id in (row.signal_ids or [])})
     states = problem_states(db, row_list)
     built = []
     for row in row_list:
-        plain = build_plain(_finding_facts(row, states.get(row.id)), [facts[signal_id] for signal_id in (row.signal_ids or []) if signal_id in facts], wording)
+        plain = build_plain(
+            _finding_facts(row, states.get(row.id)),
+            [facts[signal_id] for signal_id in (row.signal_ids or []) if signal_id in facts],
+            wording,
+            (alerts or {}).get(row.id, ()),
+            service_labels,
+        )
         if plain is not None:
             built.append((row, plain))
     return built
 
 
-def finding_plain(db: Session, rows: list[FindingEntity], path: Path | None = None) -> dict[int, dict[str, Any]]:
-    """Plain wording for each finding that has one, keyed by finding id."""
+def finding_plain(
+    db: Session,
+    rows: list[FindingEntity],
+    path: Path | None = None,
+    alerts: Mapping[int, Sequence["AlertRule"]] | None = None,
+    service_labels: Sequence[str] = (),
+) -> dict[int, dict[str, Any]]:
+    """Plain wording for each finding that has one, keyed by finding id. `alerts` (by finding id,
+    from alert_rules.alerts_for_findings) add what the team's alerts say; without them, none."""
     wording = load_wording(path)
     if wording is None or not rows:
         return {}
-    built = [(row, plain) for row, plain in _build_rows(db, [row for row in rows if row.id is not None], wording)]
+    built = [(row, plain) for row, plain in _build_rows(db, [row for row in rows if row.id is not None], wording, alerts, service_labels)]
 
     # Level changes of the same services found around the same time, for "Happened with".
     changes = [(row, plain) for row, plain in built if plain.kind == "level_change" and plain.service and row.created_at]

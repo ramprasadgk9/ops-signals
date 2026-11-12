@@ -42,7 +42,29 @@ export function plainTimes(text: string | null | undefined, options: { locale?: 
   });
 }
 
-export type PlainLine = { label: string; text: string; findingId?: number | null; hint?: string; /** Written or extended by the AI provider. */ ai?: true };
+export type PlainLine = {
+  label: string;
+  text: string;
+  findingId?: number | null;
+  hint?: string;
+  /** Written or extended by the AI provider. */
+  ai?: true;
+  /** A link shown before `text`, opened in a new tab (a runbook). */
+  href?: string;
+  linkText?: string;
+};
+
+/** Tooltip on the lines that come from a Prometheus alert on the finding's metric, with the
+ * alert's summary when it has one. */
+export function alertLineHint(alert: string, summary?: string | null): string {
+  const title = summary ? ` ("${summary}")` : '';
+  return `From the Prometheus alert ${alert}${title}, as it is now: written by the team that set it up, not by Ops Signals.`;
+}
+
+/** Only web links are shown as runbooks; the backend checks this too. */
+function webLink(url: string | null | undefined): string | null {
+  return url && /^https?:\/\//i.test(url) ? url : null;
+}
 
 /** Tooltip on "Happened with": how the other finding was chosen. The 10 minutes is
  * RELATED_WINDOW in backend/app/services/finding_plain.py; docs/finding-wording.md explains it. */
@@ -61,13 +83,21 @@ export function hasAiLines(ai: FindingAIWording | null | undefined): boolean {
 
 /** The lines under the headline, in card order, with times shown in the reader's time zone. The
  * target comes first: against a target the team set, the finding is a fact about their service.
+ * An alert on the metric adds where the finding stands against its line, and its own words take
+ * the place of Why it matters: the team that owns the service wrote them.
  * With AI wording, its why replaces the template's, and its extra check and Happened with sentences
  * follow the template's, so the template's facts and the link to the other finding stay. */
 export function plainLines(plain: FindingPlain, options: { locale?: string; timeZone?: string } = {}, ai?: FindingAIWording | null): PlainLine[] {
   const lines: PlainLine[] = [];
   const written = ai?.available ? ai : null;
+  const alert = plain.alert ?? null;
   if (plain.target) lines.push({ label: 'Your target', text: plainTimes(plain.target, options) });
-  if (written?.why) lines.push({ label: 'Why it matters', text: written.why, ai: true });
+  if (alert?.line) {
+    const lineAlert = alert.line_alert ?? alert.name;
+    lines.push({ label: 'Alert line', text: plainTimes(alert.line, options), hint: alertLineHint(lineAlert, lineAlert === alert.name ? alert.summary : null) });
+  }
+  if (alert?.text) lines.push({ label: 'Why it matters', text: alert.text, hint: alertLineHint(alert.name) });
+  else if (written?.why) lines.push({ label: 'Why it matters', text: written.why, ai: true });
   else if (plain.why) lines.push({ label: 'Why it matters', text: plainTimes(plain.why, options) });
   if (plain.service_about) lines.push({ label: 'This service', text: plain.service_about });
   (plain.related ?? []).forEach((item, index) => {
@@ -77,6 +107,8 @@ export function plainLines(plain: FindingPlain, options: { locale?: string; time
   const check = plain.check ? plainTimes(plain.check, options) : '';
   if (written?.check_extra) lines.push({ label: 'What to check', text: check ? `${check} ${written.check_extra}` : written.check_extra, ai: true });
   else if (check) lines.push({ label: 'What to check', text: check });
+  const runbook = webLink(alert?.runbook_url);
+  if (alert && runbook) lines.push({ label: 'Runbook', text: `(from alert ${alert.name})`, href: runbook, linkText: 'Open the runbook', hint: alertLineHint(alert.name) });
   return lines;
 }
 
@@ -119,7 +151,7 @@ export function dismissAiHint(): void {
 /** One paragraph for places that show a single line of text (the assistant, copied summaries). */
 export function plainParagraph(plain: FindingPlain | null | undefined, options: { locale?: string; timeZone?: string } = {}): string | null {
   if (!plain) return null;
-  return [`${plain.badge_label}: ${plain.headline}.`, plainTimes(plain.what, options), plainTimes(plain.target, options), plainTimes(plain.why, options)].filter(Boolean).join(' ');
+  return [`${plain.badge_label}: ${plain.headline}.`, plainTimes(plain.what, options), plainTimes(plain.target, options), plainTimes(plain.alert?.line, options), plain.alert?.text || plainTimes(plain.why, options)].filter(Boolean).join(' ');
 }
 
 export type LeadSignal = { id?: string; summary?: string | null; signal_type?: string; analyzer_id?: string | null; confidence?: number | null; importance_score?: number | null };
