@@ -17,6 +17,7 @@ from backend.app.models.db import get_db
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity
 from backend.app.services.finding_ai_wording import wording_facts, write_ai_wording
 from backend.app.services.finding_changes import finding_changes
+from backend.app.services.alert_rules import alerts_for_findings
 from backend.app.services.finding_plain import finding_plain
 from backend.app.services.finding_settings import finding_custom_settings
 from backend.app.identity import Actor, actor_name, current_actor
@@ -94,7 +95,8 @@ def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmen
         else {}
     )
     trust = finding_trust(db, rows)
-    plain = finding_plain(db, rows)
+    # What the team's Prometheus alerts say about each finding's metric; none when they can't be read.
+    plain = finding_plain(db, rows, alerts=alerts_for_findings(db, rows, config.service_labels), service_labels=config.service_labels)
     custom = finding_custom_settings(db, rows)
     out = []
     for row in rows:

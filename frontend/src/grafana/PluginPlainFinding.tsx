@@ -128,6 +128,13 @@ export function PluginPlainFinding({ plain, details, signal, findingId, backendU
                     AI
                   </span>
                 ) : null}
+                {line.href ? (
+                  <>
+                    <a href={line.href} target="_blank" rel="noopener noreferrer" data-testid="plugin-plain-link" style={{ color: '#5794f2' }}>
+                      {line.linkText ?? line.href}
+                    </a>{' '}
+                  </>
+                ) : null}
                 {line.text}
               </dd>
             </React.Fragment>

@@ -86,3 +86,25 @@ describe('PlainFindingSummary with AI wording', () => {
     expect(screen.queryByTestId('enable-ai-hint')).not.toBeInTheDocument();
   });
 });
+
+describe('PlainFindingSummary with an alert on the metric', () => {
+  it("shows the alert line, the team's words and a runbook link that opens in a new tab", () => {
+    render(
+      <PlainFindingSummary
+        plain={{ ...stuck, alert: { name: 'PoolStuck', group: 'db', text: 'Checkout waits for a database connection.', runbook_url: 'https://wiki.example.com/pool', line: 'Still below the 120 alert line.', line_alert: 'PoolStuck' } }}
+        summary="stored"
+      />,
+    );
+
+    const shown = screen.getByTestId('finding-plain');
+    expect(shown).toHaveTextContent('Alert line');
+    expect(shown).toHaveTextContent('Still below the 120 alert line.');
+    expect(shown).toHaveTextContent('Checkout waits for a database connection.');
+    expect(shown).not.toHaveTextContent('A stuck value often means the data source froze.');
+    const link = screen.getByTestId('finding-plain-link');
+    expect(link).toHaveAttribute('href', 'https://wiki.example.com/pool');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(shown).toHaveTextContent('Open the runbook (from alert PoolStuck)');
+  });
+});

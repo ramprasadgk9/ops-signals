@@ -170,7 +170,7 @@ def test_the_shipped_wording_loads_with_every_template_on(caplog: pytest.LogCapt
     with caplog.at_level(logging.WARNING):
         wording = parse_wording(_shipped())
     assert caplog.records == []
-    assert set(wording.templates) == {"level_change", "trend", "spikes", "odd_stretch", "data_gap", "flatline", "forecast", "targets"}
+    assert set(wording.templates) == {"level_change", "trend", "spikes", "odd_stretch", "data_gap", "flatline", "forecast", "targets", "alerts"}
     # Shipped without services: every finding reads as it would without this section.
     assert wording.services == {}
     assert wording.badges["worse"] == "Worse"

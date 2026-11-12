@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RecordingRule } from '../types';
-import { missingLabelSelector, recordingRulesByName, ruleForRun, ruleNoteLead, ruleSchedule, selectorMetricName } from './recordingRules';
+import { missingLabelSelector, recordingRulesByName, ruleAlertSentence, ruleForRun, ruleNoteLead, ruleSchedule, selectorMetricName } from './recordingRules';
 
 const rule = (overrides: Partial<RecordingRule> = {}): RecordingRule => ({
   name: 'service:error_rate:percent',
@@ -45,5 +45,14 @@ describe('recording rules', () => {
     expect(missingLabelSelector(['bad"name'], 'service')).toBeNull();
     expect(missingLabelSelector(['ok'], 'bad-label')).toBeNull();
     expect(missingLabelSelector([], 'service')).toBeNull();
+  });
+});
+
+describe('alerts on a recording rule', () => {
+  it('says where the alert fires and what the team wrote', () => {
+    expect(ruleAlertSentence({ name: 'SpikeLabErrorRateHigh', group: 'g', fires: 'above 5', wait: '5 minutes', text: 'Orders fail at checkout.' }))
+      .toBe('Used by alert SpikeLabErrorRateHigh (fires above 5 for 5 minutes): Orders fail at checkout.');
+    expect(ruleAlertSentence({ name: 'Mixed', group: 'g' })).toBe('Used by alert Mixed.');
+    expect(ruleAlertSentence({ name: 'A', group: 'g', fires: 'below 1' })).toBe('Used by alert A (fires below 1).');
   });
 });

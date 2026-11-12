@@ -283,6 +283,23 @@ export type FindingPlain = {
   /** What the Finding details chart marks, from the same times the sentence names; null when the
    * finding isn't about one moment (a trend, a forecast). Read with utils/findingChartMarks. */
   marks?: FindingChartMarks | null;
+  /** What a Prometheus alert on this metric says (backend/app/services/alert_rules.py); null without one. */
+  alert?: FindingPlainAlert | null;
+};
+
+export type FindingPlainAlert = {
+  /** The alert the text and runbook come from. */
+  name: string;
+  group: string;
+  /** The alert's summary: its title, shown in the tooltip that names the alert. */
+  summary?: string | null;
+  /** The alert's description as the team wrote it; never the summary. */
+  text?: string | null;
+  runbook_url?: string | null;
+  /** Where the finding stands against the alert's line ("Below the 5% alert line."), with time markers. */
+  line?: string | null;
+  /** The alert whose line `line` is about; can differ from `name` when that one has no text. */
+  line_alert?: string | null;
 };
 
 export type FindingChartMarks = {
@@ -791,6 +808,19 @@ export type RecordingRule = {
   health: 'ok' | 'err' | 'unknown' | string;
   last_error?: string | null;
   source_metrics: string[];
+  /** Alerts whose query reads this rule. */
+  alerts?: RecordingRuleAlert[];
+};
+
+export type RecordingRuleAlert = {
+  name: string;
+  group: string;
+  text?: string | null;
+  /** "above 5", when the alert's query is a plain `rule > 5`. */
+  fires?: string | null;
+  /** The alert's `for:` in words. */
+  wait?: string | null;
+  runbook_url?: string | null;
 };
 
 export type RecordingRulesResponse = {

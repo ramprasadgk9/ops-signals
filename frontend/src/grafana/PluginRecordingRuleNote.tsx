@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 
 import type { RecordingRule } from '../types';
-import { NO_SERVICE_LABEL_NOTE, ruleNoteLead } from '../utils/recordingRules';
+import { NO_SERVICE_LABEL_NOTE, ruleAlertSentence, ruleNoteLead } from '../utils/recordingRules';
 import { styles } from './plainUi';
 
 const WARN: CSSProperties = { border: '1px solid rgba(255, 152, 48, 0.45)', background: 'rgba(255, 152, 48, 0.08)' };
@@ -17,6 +17,17 @@ export function PluginRecordingRuleNote({ rule, noServiceLabel }: { rule: Record
       {rule.health === 'err' && rule.last_error ? <code style={code}>{rule.last_error}</code> : null}
       <code style={code}>{rule.query}</code>
       {rule.source_metrics.length ? <div style={{ ...styles.helperText }}>Built from {rule.source_metrics.join(', ')}</div> : null}
+      {(rule.alerts ?? []).map((alert) => (
+        <div key={alert.name} data-testid="recording-rule-alert" style={{ marginTop: 6 }}>
+          {ruleAlertSentence(alert)}
+          {alert.runbook_url ? (
+            <>
+              {' '}
+              <a href={alert.runbook_url} target="_blank" rel="noopener noreferrer" style={{ color: '#5794f2' }}>Runbook</a>
+            </>
+          ) : null}
+        </div>
+      ))}
       {noServiceLabel ? <div style={{ marginTop: 6 }}>{NO_SERVICE_LABEL_NOTE}</div> : null}
     </div>
   );

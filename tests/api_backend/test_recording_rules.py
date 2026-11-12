@@ -115,7 +115,7 @@ def test_recording_rules_are_cached_per_connection() -> None:
 
     assert [rule.name for rule in second.rules] == ["payment_failure_rate_percent"]
     assert first is second
-    assert service.calls == ["record"]
+    assert service.calls == ["record", "alert"]
 
 
 def test_unreadable_rules_give_an_empty_list_and_are_not_cached() -> None:
@@ -155,6 +155,7 @@ def test_recording_rules_endpoint() -> None:
         "health": "ok",
         "last_error": None,
         "source_metrics": ["payment_transactions_total"],
+        "alerts": [],
     }]
     # The server's file path isn't passed on.
     assert "file" not in body["rules"][0]

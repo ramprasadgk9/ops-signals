@@ -43,6 +43,17 @@ def _never_the_configured_qdrant(monkeypatch):
     monkeypatch.setattr(qdrant_client, "QdrantClient", _in_memory_qdrant)
 
 
+@pytest.fixture(autouse=True)
+def _no_alert_rules_from_a_real_prometheus(monkeypatch):
+    """Findings read the alerting rules of their run's Prometheus connection
+    (backend/app/services/alert_rules.py). A shell with OPS_SIGNALS_PROMETHEUS_URL set would make
+    every Findings API test ask that Prometheus; tests that want rules patch this themselves."""
+    from backend.app.services import alert_rules
+
+    monkeypatch.setattr(alert_rules, "_connection_rules", lambda _connection: [])
+    alert_rules.clear_cache()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _embed_each_text_once():
     """Every app startup indexes the assistant's documentation into its fresh in-memory Qdrant,

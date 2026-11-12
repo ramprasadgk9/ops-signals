@@ -1,4 +1,4 @@
-import type { RecordingRule } from '../types';
+import type { RecordingRule, RecordingRuleAlert } from '../types';
 
 // Shown on the tag in the Metrics list, in both builds.
 export const RECORDING_RULE_TOOLTIP = 'Prometheus saves the result of a query under this name. Pick it to see the query.';
@@ -25,6 +25,13 @@ export function ruleSchedule(rule: RecordingRule): string {
 // A rule that adds up every service saves a result with no service label. Findings are always saved
 // under one service, so such a rule can be previewed but not analyzed.
 export const NO_SERVICE_LABEL_NOTE = "This rule adds up all services, so its result doesn't belong to one service and can't be saved as a finding. Preview still works. To analyze it per service, the rule has to keep the label, for example sum by (service) (...).";
+
+/** "Used by alert X (fires above 5 for 5 minutes): <the alert's own words>" for the note under the
+ * PromQL box, so the number's meaning is clear before anything runs. */
+export function ruleAlertSentence(alert: RecordingRuleAlert): string {
+  const when = alert.fires ? ` (fires ${alert.fires}${alert.wait ? ` for ${alert.wait}` : ''})` : '';
+  return `Used by alert ${alert.name}${when}${alert.text ? `: ${alert.text}` : '.'}`;
+}
 
 /** The first sentence of the note under the PromQL box. */
 export function ruleNoteLead(rule: RecordingRule): string {
