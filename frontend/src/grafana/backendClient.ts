@@ -51,7 +51,7 @@ import type {
   AmbiguousResolutionPayload,
 } from './contracts';
 import type { MetricSample } from './prometheusFrameNormalizer';
-import type { CombineChoice, FindingAIWording, PodSplit } from '../types';
+import type { CombineChoice, FindingAIWording, PodSplit, RecordingRulesResponse } from '../types';
 
 export type FindingsWindow = '1h' | '6h' | '24h' | '7d';
 
@@ -486,6 +486,10 @@ export async function listPrometheusLabelValues(baseUrl: string, label: string, 
   if (filter?.start) params.set('start', filter.start);
   if (filter?.end) params.set('end', filter.end);
   return fetchJson<{ connection_id: string; label: string; values: string[] }>(baseUrl, `/api/prometheus/label-values?${params.toString()}`);
+}
+
+export async function listRecordingRules(baseUrl: string, connectionId: string) {
+  return fetchJson<RecordingRulesResponse>(baseUrl, `/api/prometheus/recording-rules?connection_id=${encodeURIComponent(connectionId)}`);
 }
 
 type RunSummary = {

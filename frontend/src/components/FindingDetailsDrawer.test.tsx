@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FindingDetailsDrawer } from './FindingDetailsDrawer';
 import { api } from '../api/queries';
@@ -11,6 +11,7 @@ vi.mock('../api/queries', () => ({
     timeseries: vi.fn(),
     signalsByRunIds: vi.fn(async () => []),
     findingSeenBefore: vi.fn(),
+    prometheusRecordingRules: vi.fn(),
   },
 }));
 
@@ -424,5 +425,65 @@ describe('FindingDetailsDrawer custom settings', () => {
   it('shows no box for a finding on the default settings', () => {
     renderDrawer(otlpFinding);
     expect(screen.queryByTestId('finding-custom-settings-box')).not.toBeInTheDocument();
+  });
+});
+
+describe('FindingDetailsDrawer recording rule', () => {
+  const ruleRun = {
+    id: 'run-rule', source_type: 'prometheus', provider: 'prometheus', service: 'spike-lab', metric_name: 'service:error_rate:percent',
+    start_time: '2026-11-12T00:00:00Z', end_time: '2026-11-12T01:00:00Z', sample_count: 240, status: 'completed', created_at: '2026-11-12T01:00:00Z',
+    connection_id: 'local', promql: 'service:error_rate:percent{service="spike-lab"}',
+  };
+  const ruleFinding: Finding = { ...otlpFinding, id: 42, service: 'spike-lab', metric_name: 'service:error_rate:percent', analysis_run_id: 'run-rule' };
+
+  it('says how a recording rule finding was measured', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue(ruleRun);
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.prometheusRecordingRules).mockResolvedValue({ connection_id: 'local', rules: [
+      { name: 'service:error_rate:percent', query: '100 * avg by (service, env) (error_rate)', group: 'lab-rules', interval_seconds: 15, health: 'ok', source_metrics: ['error_rate'] },
+    ] });
+
+    renderDrawer(ruleFinding);
+
+    const section = await screen.findByTestId('recording-rule-measured');
+    expect(within(section).getByText('How this was measured')).toBeInTheDocument();
+    expect(within(section).getByText('100 * avg by (service, env) (error_rate)')).toBeInTheDocument();
+    expect(within(section).getByText('service:error_rate:percent{service="spike-lab"}')).toBeInTheDocument();
+    expect(api.prometheusRecordingRules).toHaveBeenCalledWith('local');
+  });
+
+  it('never asks for recording rules for an OTLP finding, even with a matching metric name', async () => {
+    vi.mocked(api.prometheusRecordingRules).mockClear();
+    vi.mocked(api.analysisRun).mockResolvedValue({ ...ruleRun, id: 'run-otlp', source_type: 'otel', provider: 'otel', connection_id: null, promql: null });
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+
+    renderDrawer({ ...ruleFinding, analysis_run_id: 'run-otlp' });
+
+    expect(await screen.findByText('OTLP')).toBeInTheDocument();
+    expect(api.prometheusRecordingRules).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('recording-rule-measured')).not.toBeInTheDocument();
+  });
+
+  it('shows the rest of the details when the rules cannot be read', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue(ruleRun);
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.prometheusRecordingRules).mockRejectedValue(new Error('404 connection removed'));
+
+    renderDrawer(ruleFinding);
+
+    expect(await screen.findByText('What the readings show')).toBeInTheDocument();
+    await waitFor(() => expect(api.prometheusRecordingRules).toHaveBeenCalled());
+    expect(screen.queryByTestId('recording-rule-measured')).not.toBeInTheDocument();
+  });
+
+  it('leaves the section out for an ordinary metric', async () => {
+    vi.mocked(api.analysisRun).mockResolvedValue({ ...ruleRun, metric_name: 'cpu_usage', promql: 'cpu_usage{service="spike-lab"}' });
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    vi.mocked(api.prometheusRecordingRules).mockResolvedValue({ connection_id: 'local', rules: [] });
+
+    renderDrawer({ ...ruleFinding, metric_name: 'cpu_usage' });
+
+    await waitFor(() => expect(api.prometheusRecordingRules).toHaveBeenCalled());
+    expect(screen.queryByTestId('recording-rule-measured')).not.toBeInTheDocument();
   });
 });

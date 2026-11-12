@@ -27,6 +27,27 @@ class PrometheusLabelValuesOut(BaseModel):
     values: list[str]
 
 
+class RecordingRuleOut(BaseModel):
+    """A query Prometheus runs every `interval_seconds` and saves under the metric name `name`."""
+
+    name: str
+    query: str
+    group: str
+    interval_seconds: float | None = None
+    # ok, err (last run failed: see last_error) or unknown (not run yet).
+    health: str = "unknown"
+    last_error: str | None = None
+    # The metrics the query reads, e.g. error_rate for 100 * avg by (service) (error_rate).
+    source_metrics: list[str] = Field(default_factory=list)
+
+
+class RecordingRulesOut(BaseModel):
+    connection_id: str
+    rules: list[RecordingRuleOut]
+    # Set when the rules couldn't be read; the list is then empty.
+    message: str | None = None
+
+
 class PrometheusConnectionTestRequest(BaseModel):
     connection_id: str = "default"
 

@@ -52,6 +52,8 @@ import { Tooltip as MuiTooltip } from '@mui/material';
 import { useDemo, useDemoTour } from '../demo/demo';
 import { SampleFiles } from '../components/SampleFiles';
 import { markDemoStep } from '../demo/events';
+import { RecordingRuleNote, RecordingRuleTag } from '../components/RecordingRuleNote';
+import { missingLabelSelector, recordingRulesByName } from '../utils/recordingRules';
 import { combinedPhrase, combineName, combineValues, PodCombineBox, podChoiceQuery, type PodChoice } from '../components/PodCombineBox';
 
 type Provider = 'generic' | 'prometheus' | 'datadog' | 'custom';
@@ -282,6 +284,14 @@ export function ValidateDataPage() {
     queryFn: () => api.prometheusLabelValues('__name__', connectionId),
     enabled: mode === 'prometheus' && connectionConfigured,
   });
+  // Recording rules save a query's result under a metric name: mark those names and show the query.
+  const recordingRulesQuery = useQuery({
+    queryKey: ['prometheus-recording-rules', connectionId],
+    queryFn: () => api.prometheusRecordingRules(connectionId),
+    enabled: mode === 'prometheus' && connectionConfigured,
+    staleTime: 60_000,
+  });
+  const rulesByName = useMemo(() => recordingRulesByName(recordingRulesQuery.data?.rules), [recordingRulesQuery.data]);
 
   const analyzerOptions = useMemo(() => {
     const merged = new Map(ANALYZER_OPTIONS.map((option) => [option.id, option]));
@@ -606,6 +616,19 @@ export function ValidateDataPage() {
     ...['ops_signal_lab_value', 'cpu_usage', 'request_latency_p95', 'error_rate'].filter((item) => metricLabelsQuery.data?.values.includes(item)),
     ...(metricLabelsQuery.data?.values ?? []).filter((item) => !['ops_signal_lab_value', 'cpu_usage', 'request_latency_p95', 'error_rate'].includes(item)),
   ];
+  // Picked rules, and which of them save a result without the service label: those can be previewed
+  // but not analyzed, since every finding is saved under one service.
+  const pickedRules = queryMode === 'simple' ? selectedMetricNames.flatMap((name) => rulesByName.get(name) ?? []) : [];
+  const noServiceSelector = missingLabelSelector(pickedRules.map((rule) => rule.name), 'service');
+  const noServiceQuery = useQuery({
+    queryKey: ['prometheus-label-values', connectionId, '__name__', noServiceSelector],
+    queryFn: () => api.prometheusLabelValues('__name__', connectionId, { match: [noServiceSelector!] }),
+    enabled: Boolean(noServiceSelector),
+    staleTime: 60_000,
+  });
+  const rulesWithoutService = new Set(noServiceSelector ? noServiceQuery.data?.values ?? [] : []);
+  const pickedRuleWithoutService = pickedRules.some((rule) => rulesWithoutService.has(rule.name));
+  const serviceMissing = !service.trim();
   const previewStats = minMaxAvg(promPreview);
   const previewSamples = promPreview?.series[0]?.samples ?? [];
   const firstSample = previewSamples[0]?.timestamp;
@@ -812,6 +835,19 @@ export function ValidateDataPage() {
 	                      options={metricOptions}
 	                      value={queryMode === 'simple' ? metricNames : metricName}
 	                      loading={metricLabelsQuery.isLoading}
+	                      renderOption={(props, option) => {
+	                        const { key, ...rest } = props as typeof props & { key: string };
+	                        const rule = rulesByName.get(String(option));
+	                        return (
+	                          <li key={key} {...rest}>
+	                            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', minWidth: 0 }}>
+	                              <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(option)}</Box>
+	                              {rule?.group ? <Box component="span" sx={{ ml: 0.75, color: 'var(--os-muted)', fontSize: 12, flexShrink: 0 }}>· {rule.group}</Box> : null}
+	                              {rule ? <Box sx={{ ml: 'auto' }}><RecordingRuleTag rule={rule} /></Box> : null}
+	                            </Box>
+	                          </li>
+	                        );
+	                      }}
 	                      onChange={(_, value) => {
                           if (queryMode !== 'simple') return;
                           const next = Array.isArray(value) ? value.map(String).filter(Boolean) : [];
@@ -870,6 +906,17 @@ export function ValidateDataPage() {
                       sx: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', color: '#075985', fontWeight: 750 },
                     }}
                   />
+                  {pickedRules.length ? (
+                    <Stack spacing={1} sx={{ mt: 1 }}>
+                      {pickedRules.map((rule) => (
+                        <RecordingRuleNote
+                          key={rule.name}
+                          rule={rule}
+                          noServiceLabel={rulesWithoutService.has(rule.name)}
+                        />
+                      ))}
+                    </Stack>
+                  ) : null}
                 </Box>
 
 	                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
@@ -894,6 +941,11 @@ export function ValidateDataPage() {
                     Did you mean <strong>{suggestedLabService}</strong>? Lab service labels use hyphens, not underscores.
                   </Alert>
                 ) : null}
+                {!queryMissing && serviceMissing && !pickedRuleWithoutService ? (
+                  <Alert severity="info" data-testid="service-needed">
+                    Pick a Service to run the analysis: every finding is saved under one service. Preview Data works without one.
+                  </Alert>
+                ) : null}
 
                 {pods && activePodChoice ? (
                   <PodCombineBox
@@ -909,7 +961,7 @@ export function ValidateDataPage() {
                   <Button startIcon={<RemoveRedEyeRoundedIcon />} variant="outlined" disabled={!connectionConfigured || !rangeValid || queryMissing || previewMutation.isPending} onClick={() => previewMutation.mutate()} sx={{ height: 44, borderColor: 'var(--os-tint-cyan-border)', color: 'var(--os-ink-brand)', textTransform: 'none', fontWeight: 850 }}>
                     {previewMutation.isPending ? <CircularProgress size={20} /> : 'Preview Data'}
                   </Button>
-                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || queryMissing || belowRouterMinimum || clusterRequired || runPrometheusMutation.isPending || !canEdit} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
+                  <Button startIcon={<PlayArrowRoundedIcon />} variant="contained" disabled={!connectionConfigured || !rangeValid || queryMissing || belowRouterMinimum || clusterRequired || serviceMissing || pickedRuleWithoutService || runPrometheusMutation.isPending || !canEdit} onClick={() => runPrometheusMutation.mutate()} sx={{ height: 44, bgcolor: '#009688', textTransform: 'none', fontWeight: 850, boxShadow: '0 12px 22px rgba(0,150,136,0.22)' }}>
                     {runPrometheusMutation.isPending ? <CircularProgress size={20} color="inherit" /> : `${canEdit ? '' : '🔒 '}Run Analysis`}
                   </Button>
                 </Stack>

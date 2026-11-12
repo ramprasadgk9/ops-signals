@@ -24,6 +24,7 @@ from backend.app.models.prometheus import (
     PrometheusPreviewOut,
     PrometheusQueryRequest,
     PrometheusSeriesOut,
+    RecordingRulesOut,
 )
 from backend.app.services.prometheus_service import (
     PrometheusQueryService,
@@ -34,6 +35,7 @@ from backend.app.services.prometheus_service import (
 )
 from backend.app.services.finding_plain import finding_plain
 from backend.app.services.pod_split import find_pod_split
+from backend.app.services.recording_rules import recording_rules
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
 from backend.app.api.errors import internal_error
 from intelligence.pipeline import SignalPipeline
@@ -119,6 +121,15 @@ def get_prometheus_label_values(
 ) -> PrometheusLabelValuesOut:
     values = service.label_values(label, matchers=match or None, start=start, end=end)
     return PrometheusLabelValuesOut(connection_id=config.id, label=label, values=values)
+
+
+@router.get("/recording-rules", response_model=RecordingRulesOut)
+def get_recording_rules(
+    connection_id: str = "default",
+    service: PrometheusQueryService = Depends(get_prometheus_query_service),
+) -> RecordingRulesOut:
+    """The connection's recording rules, so the Metrics list can mark their names and show the saved query."""
+    return recording_rules(service)
 
 
 @router.post("/preview", response_model=PrometheusPreviewOut)

@@ -27,6 +27,8 @@ import { useFindingAiWording } from '../hooks/useFindingAiWording';
 import { CustomSettingsBox } from './CustomSettingsBox';
 import { markDemoStep } from '../demo/events';
 import { AiLabel } from '../demo/AiLabel';
+import { RecordingRuleMeasured } from './RecordingRuleNote';
+import { recordingRulesByName, ruleForRun } from '../utils/recordingRules';
 
 type Props = {
   open: boolean;
@@ -107,6 +109,17 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
     enabled: open && Boolean(analysisRunId),
   });
 
+  // When the run read a recording rule, say what the rule's query is. A connection removed since the
+  // run (404) or without rules just leaves the section out.
+  const runConnectionId = analysisRunQuery.data?.connection_id;
+  const recordingRulesQuery = useQuery({
+    queryKey: ['prometheus-recording-rules', runConnectionId],
+    queryFn: () => api.prometheusRecordingRules(runConnectionId!),
+    enabled: open && Boolean(runConnectionId),
+    staleTime: 60_000,
+    retry: false,
+  });
+
   const timeseriesQuery = useQuery({
     queryKey: ['finding-drawer-timeseries', finding?.service, finding?.metric_name, analysisRunId, finding?.cluster],
     queryFn: () => api.timeseries(finding!.service!, finding!.metric_name, analysisRunId!, finding!.cluster),
@@ -118,6 +131,9 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
   const matchedSignals = supportingSignals(finding.signal_ids, runSignalsQuery.data ?? signals);
 
   const signalGroups = groupSignalsByAnalyzer(matchedSignals);
+  const runRule = recordingRulesQuery.data
+    ? ruleForRun(recordingRulesByName(recordingRulesQuery.data.rules), analysisRunQuery.data?.metric_name ?? finding.metric_name, analysisRunQuery.data?.promql)
+    : null;
   const breakdown = findingBreakdown(finding);
   const changes = findingChanges(finding);
   const changeChip = changeChipLabel(changes);
@@ -303,6 +319,12 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
             </ListItem>
           )}
         </List>
+
+        {runRule ? (
+          <Box sx={{ mt: 3 }}>
+            <RecordingRuleMeasured rule={runRule} promql={analysisRunQuery.data?.promql} />
+          </Box>
+        ) : null}
 
         {analysisRunId && (
           <>

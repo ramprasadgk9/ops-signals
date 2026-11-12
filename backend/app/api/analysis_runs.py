@@ -100,6 +100,8 @@ def get_analysis_run(run_id: str, db: Session = Depends(get_db)) -> AnalysisRunO
         "router_decisions_json",
         "executed_analyzers_json",
         "generated_findings_json",
+        "connection_id",
+        "promql",
     ]
     select_columns = [
         "id",
@@ -139,6 +141,8 @@ def get_analysis_run(run_id: str, db: Session = Depends(get_db)) -> AnalysisRunO
         executed_analyzers_json=run.get("executed_analyzers_json"),
         generated_findings_json=run.get("generated_findings_json"),
         created_at=run["created_at"],
+        connection_id=run.get("connection_id"),
+        promql=run.get("promql"),
         points_deleted=points_deleted(run["end_time"]),
         points_retention_days=retention_days() or None,
     )

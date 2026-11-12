@@ -670,11 +670,12 @@ class PrometheusQueryService:
             raise HTTPException(status_code=400, detail=f"query returned {len(result)} series, which exceeds max_series {max_series}")
         return result
 
-    def rules(self) -> dict:
-        """Alerting and recording rules (Prometheus, or the Mimir ruler behind the same base URL)."""
+    def rules(self, rule_type: str | None = None) -> dict:
+        """Alerting and recording rules (Prometheus, or the Mimir ruler behind the same base URL).
+        `rule_type` "record" or "alert" asks for one kind only; servers that ignore it return both."""
         if not self.config.base_url:
             raise HTTPException(status_code=400, detail="Prometheus is not configured. Add OPS_SIGNALS_PROMETHEUS_URL and restart the backend.")
-        return self._get_json("/api/v1/rules", {})
+        return self._get_json("/api/v1/rules", {"type": rule_type} if rule_type else {})
 
     def _get_json(self, path: str, params: dict[str, object] | list[tuple[str, object]]) -> dict:
         assert self.config.base_url is not None

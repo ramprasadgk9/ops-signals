@@ -152,3 +152,59 @@ describe('InteractiveAnalysisCard roles', () => {
     expect(screen.getByRole('button', { name: 'Run Analysis' })).toBeEnabled();
   });
 });
+
+describe('InteractiveAnalysisCard recording rules', () => {
+  const RULES = [
+    { name: 'service:error_rate:percent', query: '100 * avg by (service, env) (error_rate)', group: 'lab-rules', interval_seconds: 15, health: 'ok', source_metrics: ['error_rate'] },
+    { name: 'all_services_error_rate_percent', query: '100 * avg(error_rate)', group: 'lab-rules', interval_seconds: 15, health: 'ok', source_metrics: ['error_rate'] },
+  ];
+
+  it('labels rule names in the metric list', () => {
+    renderCard({ source: 'connection', connectionMetrics: ['cpu_usage', 'service:error_rate:percent'], recordingRules: RULES });
+
+    const options = Array.from(document.querySelectorAll('#ops-signals-metrics option'));
+    expect(options.map((option) => option.getAttribute('label'))).toEqual([null, 'Recording rule · lab-rules']);
+  });
+
+  it('shows the saved query for a picked rule', () => {
+    renderCard({ source: 'connection', recordingRules: RULES, target: { datasource: 'prom', service: 'spike-lab', metric: 'service:error_rate:percent', timeRange: { from: '', to: '' } } });
+
+    const note = screen.getByTestId('recording-rule-note');
+    expect(note).toHaveTextContent('Prometheus runs this query every 15s');
+    expect(note).toHaveTextContent('100 * avg by (service, env) (error_rate)');
+    expect(note).not.toHaveTextContent('no service label');
+  });
+
+  it('says a rule without the service label can be previewed but not analyzed, and blocks Run', () => {
+    renderCard({
+      source: 'connection', recordingRules: RULES, rulesWithoutService: ['all_services_error_rate_percent'],
+      target: { datasource: 'prom', service: 'spike-lab', metric: 'all_services_error_rate_percent', timeRange: { from: '', to: '' } },
+    }, 'Editor');
+
+    expect(screen.getByTestId('recording-rule-note')).toHaveTextContent("can't be saved as a finding");
+    expect(screen.queryByRole('button', { name: 'Clear Service' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run Analysis' })).toBeDisabled();
+    expect(screen.getByText('Pick a metric that keeps the service label to run.')).toBeInTheDocument();
+  });
+
+  it('says which rules the service filter hides', () => {
+    renderCard({ source: 'connection', recordingRules: RULES, rulesWithoutService: ['all_services_error_rate_percent'], target: { datasource: 'prom', service: 'spike-lab', metric: '', timeRange: { from: '', to: '' } } });
+
+    expect(screen.getByTestId('recording-rules-hidden')).toHaveTextContent("1 recording rule (all_services_error_rate_percent) isn't listed: it adds up all services, so it has no service label and can't be analyzed per service.");
+  });
+
+  it('works as before when the connection has no recording rules', () => {
+    renderCard({ source: 'connection', recordingRules: [], rulesWithoutService: [], target: { datasource: 'prom', service: 'spike-lab', metric: 'request_latency_p95', timeRange: { from: '', to: '' } } }, 'Editor');
+
+    expect(screen.queryByTestId('recording-rule-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('recording-rules-hidden')).not.toBeInTheDocument();
+    expect(document.querySelector('#ops-signals-metrics option')?.getAttribute('label')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Run Analysis' })).toBeEnabled();
+  });
+
+  it('shows nothing extra for a Grafana data source', () => {
+    renderCard({ recordingRules: RULES, target: { datasource: 'prom', service: 'spike-lab', metric: 'service:error_rate:percent', timeRange: { from: '', to: '' } } });
+
+    expect(screen.queryByTestId('recording-rule-note')).not.toBeInTheDocument();
+  });
+});
