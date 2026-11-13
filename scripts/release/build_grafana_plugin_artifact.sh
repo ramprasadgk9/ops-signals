@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Builds the Grafana plugin zip: dist/release/<release>/<plugin-id>-<plugin version>.zip, laid out as
 # Grafana expects (one top-level folder named after the plugin id). <release> is the optional first
-# argument, the project release it ships with (e.g. 0.6.1); it defaults to the plugin version. The zip
+# argument, the project release it ships with (e.g. 0.6.2); it defaults to the plugin version. The zip
 # is always named after the plugin's own version (info.version in frontend/plugin.json, 1.0.x).
 #
 # Signing: with GRAFANA_ACCESS_POLICY_TOKEN set (a grafana.com access policy token with the

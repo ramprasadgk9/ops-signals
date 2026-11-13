@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-0.6.1}"
+VERSION="${1:-0.6.2}"
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/your-org}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ARTIFACT_DIR="$ROOT_DIR/dist/release/$VERSION"
