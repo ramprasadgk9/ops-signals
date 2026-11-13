@@ -114,6 +114,62 @@ do when this fires" page), a **📘 Runbook: Open the runbook** link sits right 
 summary, so whoever is on call has the next step one click away. Only `http://` and `https://` links
 are shown.
 
+### How is an alert linked to a finding?
+
+Ops Signals takes the alert's own query, drops the threshold (`> 0.5`), fetches the last 6 hours
+of that metric from Prometheus, keeps the one line whose labels match the alert, and runs the usual
+analyzers on it. That result is the alert's finding. If Ops Signals already found the same problem
+on its own in the last 30 minutes, it uses that finding instead and says how much earlier it
+spotted it.
+
+```mermaid
+flowchart TD
+  A["🔔 Your alert fires in Prometheus"] --> B["Alertmanager sends it to your usual Slack / pager<br/>and also to Ops Signals"]
+  B --> C{"Same alert already posted<br/>and still firing (last 6 hours)?"}
+  C -- yes --> X["Skip: already posted"]
+  C -- no --> D{"Is there a metric to look at?"}
+  D -- "no: log, absent() or up/down alert" --> S["No chart analysis:<br/>the message says why"]
+  D -- yes --> E{"Did Ops Signals already find this problem<br/>for this service in the last 30 min?"}
+  E -- yes --> R["Use that finding:<br/>'spotted 3 min before the alert'"]
+  E -- no --> F["Take the alert's query, drop the '> 0.5' part,<br/>fetch the last 6 hours from Prometheus"]
+  F --> G{"Exactly one line matches the alert's labels,<br/>with enough points?"}
+  G -- no --> S
+  G -- yes --> H["Find the change:<br/>jump, spike or slow climb"]
+  H --> R2["New finding"]
+  R --> I["Add what changed (deploys just before)"]
+  R2 --> I
+  S --> I
+  I --> J["Add whether it was seen before<br/>and what fixed it"]
+  J --> K["💬 One Slack message:<br/>What happened · What changed · Seen before"]
+```
+
+An example, step by step. The rule:
+
+```yaml
+- alert: CheckoutSlow
+  expr: histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+```
+
+1. The alert arrives with labels `alertname=CheckoutSlow, service=checkout, severity=warning`.
+   Prometheus puts the rule's expression in the alert's `generatorURL`; Ops Signals reads it there.
+2. It's a metric alert, so it's analysed. Ops Signals first looks for a finding of its own for
+   `checkout` and `http_request_duration_seconds_bucket` from the last 30 minutes. There is none.
+3. The query loses its threshold:
+   `histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m])))`.
+4. Prometheus returns one line per service (`checkout`, `cart`, `payments`) for the last 6 hours
+   at a 30-second step. Only `service="checkout"` matches the alert's labels, so that one is kept.
+5. The analyzers find "response time rose from about 0.32 s to 0.71 s around 14:01", and the
+   message adds "started 4 min after deploy `checkout v2.3.0`" and the alert's history.
+
+When a step can't work out what to look at, the rule's author can say it with an annotation:
+`ops_signals_query` for the exact query, `ops_signals_lookback` for a longer window,
+`ops_signals_analyze` to turn analysis on or off (see
+[Per-rule annotations](#per-rule-annotations-optional)).
+
+The other direction works too: a finding whose metric has an alert shows that alert's line, words
+and runbook, with no alert firing. See
+[what an alert adds to a finding](finding-wording.md#what-does-a-prometheus-alert-on-the-metric-add-to-a-finding).
+
 ### Advantages
 
 - **Faster triage.** The first questions on every page are answered in the page itself.
