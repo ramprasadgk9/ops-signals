@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.6.2 - 2026-11-13
+
+Includes Grafana plugin 1.0.37.
+
+**Upgrading**
+
+- **Helm: `helm install` with default values now stops until you name a database.** The chart no
+  longer ships an example Postgres URL with a password as its default. Set
+  `database.urlSecret.name` to a Secret holding the URL (recommended), or `database.url` for a
+  quick test; with neither, the install fails with a message saying which to set. The chart doesn't
+  install Postgres or Qdrant: point it at your own. See [Kubernetes: Helm](docs/deploy.md#kubernetes-helm).
+- **Docker Compose: the databases listen on this machine only.** In `docker-compose.yml` every port
+  is published on `127.0.0.1`, and so is Alertmanager in `docker-compose.alerting.yml`. In
+  `docker-compose.packaged.yml` only the web UI (`8080`) and the API (`8000`) are open to other
+  machines; Postgres and Qdrant are not. To reach the database from another machine, use an SSH
+  tunnel: `ssh -L 5432:127.0.0.1:5432 your-server`.
+
+**Findings**
+
+- **Findings use the alert on their metric.** Findings read the alerting rules of the Prometheus
+  connection they came from and add where the metric stands against the alert's line ("Back below
+  the 5% alert line since ..."), the alert's description as **Why it matters**, and its runbook
+  link. This works for raw metrics and recording rules; a service-specific alert wins over a
+  generic one. Nothing is stored, and a finding without an alert is unchanged.
+- **The details chart marks what the sentence says.** A finding's chart shades the stretch or
+  marks the moment its sentence names: a stuck value or odd stretch, each burst of a spike, a grey
+  **No data** stretch, and a level change and its way back. Trends and forecasts stay unmarked.
+  The section is now called **What the readings show**, and the y axis keeps decimals.
+
+**New Analysis**
+
+- **Recording rules are marked.** New Analysis and the plugin's Interactive Analysis tag recording
+  rules (such as `service:error_rate:percent`) with their group. A picked rule shows its saved
+  query, how often it runs, the metrics it reads, whether its last run failed and the alerts that
+  use it. Finding details add **How this was measured** for runs that read a rule
+  (`GET /api/prometheus/recording-rules`).
+- **Fixed: the sample CSVs failed to upload** with "CSV is missing required columns: ['metric']"
+  on the default Prometheus CSV provider. A file without a metric column now takes the Metric typed
+  at upload.
+
+**Setup and project**
+
+- **Python 3.13 is supported.** `scripts/setup.sh` and `scripts/bootstrap_sample.sh` accept it,
+  and CI compiles every Python file on 3.11, 3.13 and 3.14.
+- **CI checks the Helm chart** on every run.
+- **Current Limitations** in the README lists a known blind spot: a metric with fewer than 30
+  readings, or one that often loses scrapes, can get no finding at all
+  ([#87](https://github.com/ramprasadgk9/ops-signals/issues/87)).
+- Two tests that failed on slow CI runners are fixed.
+
 ## 0.6.1 - 2026-11-09
 
 Includes Grafana plugin 1.0.36.

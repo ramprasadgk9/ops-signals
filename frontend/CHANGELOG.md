@@ -4,6 +4,14 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
+## 1.0.37 - 2026-11-13 (Ops Signals 0.6.2)
+
+- **Findings use the alert on their metric.** Cards and details show where the metric stands
+  against its alert's line, the alert's description as **Why it matters**, and its runbook link.
+- **The details chart marks what the sentence says**, under **What the readings show**.
+- **Recording rules are marked** in Interactive Analysis, with their saved query, schedule, the
+  metrics they read and the alerts that use them.
+
 ## 1.0.36 - 2026-11-09 (Ops Signals 0.6.1)
 
 - **Finished problems move to the background.** A problem that ended over an hour ago (the **Over**

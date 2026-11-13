@@ -124,6 +124,25 @@ from.
     runbook_url: https://wiki.example.com/runbooks/checkout-errors
 ```
 
+How a finding picks its alert:
+
+```mermaid
+flowchart TD
+  A["📋 A finding is shown"] --> B{"Did it come from<br/>a Prometheus connection?"}
+  B -- "no: OTLP or CSV" --> N["Card unchanged"]
+  B -- yes --> C["Read that Prometheus's alert rules<br/>(kept for a minute)"]
+  C --> D{"An alert whose query uses<br/>this finding's metric?"}
+  D -- no --> N
+  D -- yes --> E{"Does the alert cover this service?<br/>(alerts naming the service win)"}
+  E -- no --> N
+  E -- yes --> F["Add Why it matters (the alert's description)<br/>and the Runbook link"]
+  F --> G{"Is the query just<br/>'metric > number'?"}
+  G -- no --> Z["Done: no alert line"]
+  G -- yes --> H{"A target set for this<br/>service and metric?"}
+  H -- yes --> T["Show 'Your target' instead"]
+  H -- no --> L["Add the Alert line:<br/>'Above the 1% alert line since 10:00 AM'"]
+```
+
 - **Which alerts count.** An alert counts when its query names the metric (a raw metric or a
   recording rule such as `service:error_rate:percent`) and its label matchers select the finding's
   service. A matcher on `service`, `job`, `app` or `app_kubernetes_io_name` (the alert enrichment

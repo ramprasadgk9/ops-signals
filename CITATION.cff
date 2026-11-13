@@ -13,8 +13,8 @@ authors:
 repository-code: "https://github.com/ramprasadgk9/ops-signals"
 url: "https://github.com/ramprasadgk9/ops-signals"
 license: MIT
-version: 0.6.1
-date-released: "2026-11-09"
+version: 0.6.2
+date-released: "2026-11-13"
 keywords:
   - observability
   - anomaly-detection
