@@ -23,6 +23,12 @@ Two kinds of endpoint are riskier than the rest, so they're **off by default**:
 The local dev scripts (`scripts/run_all.sh`, `scripts/run_grafana_stack.sh`) turn both on. The
 one-command demo turns on file writes only, and those land inside a throwaway container.
 
+The databases aren't open to other machines. In `docker-compose.packaged.yml`, Postgres and Qdrant
+listen only on the machine they run on; only the web UI and the API are published to the network.
+The development stack (`docker-compose.yml`) publishes every port on the local machine only, so
+its default passwords (`ops_signals`, Grafana's `admin`/`admin`) can't be used from elsewhere on
+the network.
+
 ## Turning on authentication
 
 API authentication is one shared token: set `OPS_SIGNALS_API_TOKEN` on the backend, and every caller
