@@ -57,6 +57,11 @@ docker compose -f docker-compose.packaged.yml -f docker-compose.connections.yml 
 
 ## Kubernetes: Helm
 
+The chart runs the backend, web UI and MCP server. It doesn't install Postgres or Qdrant, so you
+need both running already: the database URL goes in a Secret, and Qdrant's address in
+`backend.env.OPS_SIGNALS_QDRANT_URL` and `mcp.env.OPS_SIGNALS_QDRANT_URL` (default
+`http://ops-signals-qdrant:6333`).
+
 ```bash
 kubectl create secret generic ops-signals-db \
   --from-literal=database-url='postgresql+psycopg://USER:PASSWORD@HOST:5432/ops_signals'

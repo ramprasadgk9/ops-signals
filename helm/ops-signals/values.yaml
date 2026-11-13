@@ -47,11 +47,16 @@ security:
       # The address people use, e.g. https://ops-signals.example.com (the ingress host otherwise).
       publicUrl: ""
 
+# The chart doesn't install Postgres or Qdrant: point it at your own (database below,
+# OPS_SIGNALS_QDRANT_URL under backend.env and mcp.env).
+#
 # Postgres connection used by the backend and the MCP server. Set urlSecret.name to read the URL
-# from an existing Secret instead (recommended outside local testing): the plain url below then
-# isn't used, so no credentials end up in your values.
+# from an existing Secret (recommended): then no credentials end up in your values. For a quick test
+# you can set url instead, for example
+# postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals. With neither
+# set, the install stops with a message saying so.
 database:
-  url: postgresql+psycopg://ops_signals:ops_signals@ops-signals-postgres:5432/ops_signals
+  url: ""
   urlSecret:
     name: ""
     key: database-url

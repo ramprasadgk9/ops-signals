@@ -126,8 +126,10 @@ helm upgrade --install ops-signals ./helm/ops-signals \
   --set database.urlSecret.name=ops-signals-db
 ```
 
-Without `database.urlSecret.name`, the chart uses `database.url`, which defaults to local-testing
-credentials. Configure these values for a real environment:
+The chart doesn't install Postgres or Qdrant; point it at your own. With neither
+`database.urlSecret.name` nor `database.url` set, the install stops and says which to set.
+`database.url` puts the password in your values, so keep it for quick tests. Configure these values
+for a real environment:
 
 ```yaml
 database:
