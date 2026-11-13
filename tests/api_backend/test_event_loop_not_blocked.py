@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -22,8 +23,15 @@ from backend.app.api import memory as memory_api
 from backend.app.config import MemoryConfig
 from backend.app.main import create_app
 
-SLOW_SECONDS = 2.0
-HEALTH_LIMIT_SECONDS = 0.5
+# Shared CI runners answered /api/health in up to 1.24 s with nothing blocking, so CI gets a looser
+# limit and a longer slow part: blocked, the health check waits at least SLOW_SECONDS - 0.3, which
+# must stay well above the limit for the test to still catch a blocked event loop.
+if os.environ.get("CI"):
+    SLOW_SECONDS = 4.0
+    HEALTH_LIMIT_SECONDS = 2.0
+else:
+    SLOW_SECONDS = 2.0
+    HEALTH_LIMIT_SECONDS = 0.5
 
 
 def _slow(result=None):
