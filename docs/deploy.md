@@ -37,6 +37,10 @@ docker compose -f docker-compose.packaged.yml up -d
   green. From a terminal: `curl http://localhost:8000/api/setup/check`.
 - **Before others can reach it,** lock it down: a token, then sign-in and roles
   ([`access.md`](access.md)). Without a token, anyone who can reach port 8000 can use the API.
+- **Only the web UI (8080) and the API (8000) are open to other machines.** Postgres (5432) and
+  Qdrant (6333) answer only on this machine, so people go through the UI or API, where sign-in and
+  roles apply. To reach the database from your laptop, for a backup say, use an SSH tunnel:
+  `ssh -L 5432:127.0.0.1:5432 your-server`.
 
 Stop it with `docker compose -f docker-compose.packaged.yml down`. Your data is kept; add `-v` to
 delete it too. To update, `git pull`, then run the `up` command with `--build` added, so the images

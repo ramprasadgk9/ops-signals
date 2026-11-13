@@ -1,3 +1,6 @@
+# Postgres and Qdrant listen on this machine only (127.0.0.1); other machines use the web UI (8080)
+# and the API (8000), where sign-in and roles apply. Reach the database remotely through SSH:
+# ssh -L 5432:127.0.0.1:5432 your-server
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
@@ -6,7 +9,7 @@ services:
       POSTGRES_USER: ops_signals
       POSTGRES_PASSWORD: ops_signals
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -19,7 +22,7 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
     ports:
-      - "6333:6333"
+      - "127.0.0.1:6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
