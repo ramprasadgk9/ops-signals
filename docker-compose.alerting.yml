@@ -34,7 +34,7 @@ services:
       # were already delivered within repeat_interval - what you want for a local demo.
       - "--storage.path=/tmp/alertmanager"
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     volumes:
       # scripts/run_all.sh points this at a generated copy targeting its BACKEND_PORT.
       - ${OPS_SIGNALS_ALERTMANAGER_CONFIG:-./grafana/alertmanager/alertmanager.yml}:/etc/alertmanager/alertmanager.yml:ro
