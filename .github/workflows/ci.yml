@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # tests/test_helm_chart.py renders the Helm chart and skips without helm.
+      - uses: azure/setup-helm@v4
+
       # The MiniLM embedding model (~90 MB) used by test_memory_recall.py and test_assistant_golden.py.
       # The model is pinned by name, so the key never needs to change.
       - uses: actions/cache@v4
@@ -41,8 +44,8 @@ jobs:
       - name: Run pytest
         run: pytest -q
 
-  # The tests run on 3.12, the version the Docker images use. 3.11 and 3.14 are supported too
-  # (README, scripts/setup.sh): this catches code either one can't even parse, in about a minute.
+  # The tests run on 3.12, the version the Docker images use. 3.11, 3.13 and 3.14 are supported too
+  # (README, scripts/setup.sh): this catches code any of them can't even parse, in about a minute.
   python-versions:
     name: Python ${{ matrix.python }} (compiles)
     runs-on: ubuntu-latest
@@ -50,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.14"]
+        python: ["3.11", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
@@ -89,33 +92,3 @@ jobs:
       - name: Build Grafana plugin
         run: npm run build:grafana
 
-  # The chart has no other test: this catches a template that no longer renders or a values change
-  # that breaks it.
-  helm:
-    name: Helm chart (lint + template)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: azure/setup-helm@v4
-
-      - name: Lint
-        run: helm lint helm/ops-signals --set database.urlSecret.name=ops-signals-db
-
-      - name: Render with a database Secret
-        run: helm template ops-signals helm/ops-signals --set database.urlSecret.name=ops-signals-db > /dev/null
-
-      - name: Render with an API token and an ingress
-        run: |
-          helm template ops-signals helm/ops-signals \
-            --set database.urlSecret.name=ops-signals-db \
-            --set security.apiTokenSecret.name=ops-signals-api-token \
-            --set ingress.enabled=true > /dev/null
-
-      - name: Refuses to install without a database
-        run: |
-          if helm template ops-signals helm/ops-signals > /dev/null 2>&1; then
-            echo "Expected the chart to fail without database.urlSecret.name or database.url"
-            exit 1
-          fi

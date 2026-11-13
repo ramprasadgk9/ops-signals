@@ -13,8 +13,19 @@ HELM_BIN = shutil.which("helm")
 pytestmark = pytest.mark.skipif(HELM_BIN is None, reason="helm binary not found on PATH")
 
 
-def run_helm_template(release_name: str = "ops-signals", values: dict | None = None, extra_args: list[str] | None = None) -> list[dict]:
+# The chart refuses to render without a database, so every render names a Secret unless told not to.
+DATABASE_SECRET_ARGS = ["--set", "database.urlSecret.name=ops-signals-db"]
+
+
+def run_helm_template(
+    release_name: str = "ops-signals",
+    values: dict | None = None,
+    extra_args: list[str] | None = None,
+    database_secret: bool = True,
+) -> list[dict]:
     cmd = [HELM_BIN, "template", release_name, str(CHART_DIR)]
+    if database_secret:
+        cmd.extend(DATABASE_SECRET_ARGS)
     if extra_args:
         cmd.extend(extra_args)
     if values:
@@ -25,9 +36,41 @@ def run_helm_template(release_name: str = "ops-signals", values: dict | None = N
     return [doc for doc in yaml.safe_load_all(res.stdout) if doc]
 
 
+def backend_env(manifests: list[dict], release_name: str = "ops-signals") -> dict[str, dict]:
+    backend_dep = next(m for m in manifests if m["kind"] == "Deployment" and m["metadata"]["name"] == f"{release_name}-backend")
+    return {e["name"]: e for e in backend_dep["spec"]["template"]["spec"]["containers"][0]["env"]}
+
+
 def test_helm_lint_succeeds():
-    res = subprocess.run([HELM_BIN, "lint", str(CHART_DIR)], capture_output=True, text=True)
+    res = subprocess.run([HELM_BIN, "lint", str(CHART_DIR), *DATABASE_SECRET_ARGS], capture_output=True, text=True)
     assert res.returncode == 0, f"helm lint failed:\n{res.stderr}\n{res.stdout}"
+
+
+def test_refuses_to_render_without_a_database():
+    res = subprocess.run([HELM_BIN, "template", "ops-signals", str(CHART_DIR)], capture_output=True, text=True)
+    assert res.returncode != 0
+    assert "database.urlSecret.name" in res.stderr
+
+
+def test_database_url_comes_from_the_secret_and_no_password_is_rendered():
+    res = subprocess.run(
+        [HELM_BIN, "template", "ops-signals", str(CHART_DIR), *DATABASE_SECRET_ARGS, "--set", "mcp.enabled=true"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "postgresql" not in res.stdout
+    manifests = [doc for doc in yaml.safe_load_all(res.stdout) if doc]
+    for name in ("ops-signals-backend", "ops-signals-mcp"):
+        dep = next(m for m in manifests if m["kind"] == "Deployment" and m["metadata"]["name"] == name)
+        env = {e["name"]: e for e in dep["spec"]["template"]["spec"]["containers"][0]["env"]}
+        assert env["OPS_SIGNALS_DATABASE_URL"]["valueFrom"]["secretKeyRef"] == {"name": "ops-signals-db", "key": "database-url"}
+
+
+def test_plain_database_url_is_used_when_no_secret_is_named():
+    url = "postgresql+psycopg://user:pass@db:5432/ops_signals"
+    manifests = run_helm_template(database_secret=False, extra_args=["--set", f"database.url={url}"])
+    assert backend_env(manifests)["OPS_SIGNALS_DATABASE_URL"]["value"] == url
 
 
 def test_default_manifests_structure():

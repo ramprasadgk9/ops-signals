@@ -17,7 +17,7 @@ pick_python() {
     local existing
     existing="$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
     case "$existing" in
-      3.11|3.12|3.14)
+      3.11|3.12|3.13|3.14)
         if command -v "python${existing}" >/dev/null 2>&1; then
           echo "python${existing}"
           return
@@ -27,7 +27,7 @@ pick_python() {
   fi
 
   # 3.12 first: it's what the Docker images and CI use.
-  for candidate in python3.12 python3.14 python3.11 python3; do
+  for candidate in python3.12 python3.13 python3.14 python3.11 python3; do
     if command -v "$candidate" >/dev/null 2>&1; then
       echo "$candidate"
       return
@@ -58,9 +58,9 @@ fi
 
 selected_python_version="$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 
-if [[ "$selected_python_version" != "3.14" && "$selected_python_version" != "3.12" && "$selected_python_version" != "3.11" ]]; then
+if [[ "$selected_python_version" != "3.11" && "$selected_python_version" != "3.12" && "$selected_python_version" != "3.13" && "$selected_python_version" != "3.14" ]]; then
   echo "Unsupported Python version selected: $selected_python_version"
-  echo "Use PYTHON_BIN to point to python3.14, python3.12, or python3.11."
+  echo "Use PYTHON_BIN to point to python3.12 (recommended), python3.11, python3.13 or python3.14."
   exit 1
 fi
 
