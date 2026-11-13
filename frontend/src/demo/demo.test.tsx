@@ -130,7 +130,8 @@ describe('Things to try', () => {
 
   it('ticks off the page you open and the thing you do, and takes you to the next step', async () => {
     renderWith(<ThingsToTry />, '/alerts');
-    expect(await screen.findByTestId('demo-guide')).toHaveTextContent('1 of 10');
+    // The page you're on is ticked off by an effect after the first render, so wait for it.
+    await waitFor(() => expect(screen.getByTestId('demo-guide')).toHaveTextContent('1 of 10'));
     expect(screen.getByTestId('demo-step-alert')).toHaveAttribute('data-done', 'true');
 
     act(() => markDemoStep('handoff'));
