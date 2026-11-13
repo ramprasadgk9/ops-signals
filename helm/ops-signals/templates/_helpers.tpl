@@ -22,7 +22,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{/* OPS_SIGNALS_DATABASE_URL from database.urlSecret when a Secret is named, else database.url. */}}
+{{/* OPS_SIGNALS_DATABASE_URL from database.urlSecret when a Secret is named, else database.url;
+     fails the install when neither is set. */}}
 {{- define "ops-signals.databaseUrlEnv" -}}
 - name: OPS_SIGNALS_DATABASE_URL
 {{- if .Values.database.urlSecret.name }}
@@ -30,8 +31,10 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
     secretKeyRef:
       name: {{ .Values.database.urlSecret.name }}
       key: {{ .Values.database.urlSecret.key }}
-{{- else }}
+{{- else if .Values.database.url }}
   value: {{ .Values.database.url | quote }}
+{{- else }}
+{{- fail "Set database.urlSecret.name to a Secret holding the Postgres URL (see docs/deploy.md#kubernetes-helm), or database.url for a quick test." }}
 {{- end }}
 {{- end }}
 
