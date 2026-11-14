@@ -4,6 +4,13 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
+## 1.0.38 - 2026-11-13 (Ops Signals 0.6.3)
+
+- **Metrics a run couldn't check are counted.** The Autonomous overview's Current Run Summary shows
+  **not checked** for metrics with too much missing data or too few readings, and Run History says
+  how many each run couldn't check.
+- **Run History names how many services a run covered** ("checkout, drift-lab + 12 more").
+
 ## 1.0.37 - 2026-11-13 (Ops Signals 0.6.2)
 
 - **Findings use the alert on their metric.** Cards and details show where the metric stands
