@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.3 - 2026-11-13
+
+Includes Grafana plugin 1.0.38.
+
+**Autonomous Monitoring**
+
+- **Metrics a run couldn't check are counted.** A scheduled run whose metrics had too much missing
+  data (more than 30% of readings) or too few readings (under 30) used to finish with no findings,
+  and the page read as if everything was fine. Execution Summary now has a **Not checked** tile,
+  and each run in the history says how many it couldn't check ("33 not checked: too little
+  data"). When every metric is not checked, Prometheus usually wasn't collecting for part of the
+  window. See [Why does a run say "Not checked"?](docs/autonomous-analysis-preview.md#why-does-a-run-say-not-checked)
+  The API returns `not_checked_jobs` with a run, and `jobs_not_checked` with a stored run.
+- **Open goes to the finding.** **Open** in Top findings, here and on the Overview, opens that
+  finding's details instead of the Findings list.
+- **Run history names how many services a run covered** ("checkout, drift-lab + 12 more").
+
+**Project**
+
+- Two links that pointed at files outside the repo are fixed (SUPPORT.md and the assistant
+  writing guide).
+
 ## 0.6.2 - 2026-11-13
 
 Includes Grafana plugin 1.0.37.
