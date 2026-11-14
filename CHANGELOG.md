@@ -21,6 +21,10 @@ Includes Grafana plugin 1.0.38.
 
 - Two links that pointed at files outside the repo are fixed (SUPPORT.md and the assistant
   writing guide).
+- The demo guide and README say to stop a running plain demo before starting it with local AI:
+  the backend looks for the model only when it starts.
+- Newer minimum versions of two Python dependencies: `httpx` 0.28.1 and `PyJWT` 2.15.1 (used for
+  company sign-in).
 
 ## 0.6.2 - 2026-11-13
 
