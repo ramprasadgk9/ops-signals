@@ -1,8 +1,21 @@
 # Changelog
 
-## 0.6.3 - 2026-11-13
+## 0.6.3 - 2026-11-14
 
 Includes Grafana plugin 1.0.38.
+
+**Findings and cases**
+
+- **Every finding shows its number.** Cards and the details title show it (`#4182 · payments-api ·
+  error_rate`). To come back to a finding later, search `#4182` on the Findings page, or click the
+  number to copy a link (`/findings?finding=4182`). Both open the finding even when it is outside
+  the selected time window. A case made from a finding says "From finding #4182", linked back. See
+  [Finding numbers](docs/operational-findings.md#finding-numbers-coming-back-to-a-finding).
+- **Seen before? says what happened last time.** Each past-case match, here and under a case's
+  Similar Cases, says in one line whether it was fixed and how, the likely cause if nobody verified
+  it, or what its guided investigation found. Below that line you see the case's state ("Resolved ·
+  cause verified") and a link to the case. Above the list, a line says how many matches were fixed. See
+  [What happened last time](docs/operational-memory.md#what-happened-last-time-each-past-case-match).
 
 **Autonomous Monitoring**
 
