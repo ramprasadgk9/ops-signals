@@ -195,6 +195,16 @@ describe('GrafanaAutonomousOverview symptom triage', () => {
     expect(panel.compareDocumentPosition(coverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('shows the finding number on the row and in the panel it opens', async () => {
+    await renderOverview();
+
+    const row = screen.getByRole('button', { name: 'Look at p95_latency_ms level change' });
+    expect(row).toHaveTextContent('#6519');
+    fireEvent.click(row);
+
+    expect(await screen.findByTestId('panel-finding-number')).toHaveTextContent('Finding #6519');
+  });
+
   it('opens a data problem or a background signal in the panel too', async () => {
     await renderOverview();
 

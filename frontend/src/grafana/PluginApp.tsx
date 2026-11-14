@@ -3712,6 +3712,7 @@ function SymptomTriagePanel({ service, sourceOf: sourceOfAll, triage, selected, 
               <>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ ...styles.row, gap: 8 }}>
+                    <span style={styles.muted} title={`Finding #${row.lead.finding.id}`}>#{row.lead.finding.id}</span>
                     <strong>{row.lead.finding.metric_name}</strong>
                     <SourceChip source={sourceOf(row.lead.finding)} />
                     {row.lead.finding.plain ? (
@@ -3950,7 +3951,8 @@ function AutonomousInvestigationPanel({
       <div style={{ ...styles.rowBetween, alignItems: 'flex-start' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={styles.helperText}>
-            {position ?? `${mode === 'evidence' ? 'Evidence' : 'Investigation'} / Current Finding`}
+            <span>{position ?? `${mode === 'evidence' ? 'Evidence' : 'Investigation'} / Current Finding`}</span>
+            <span data-testid="panel-finding-number"> · Finding #{finding.id}</span>
           </div>
           {finding.plain ? <div style={{ marginTop: 6 }}><PluginPlainBadge plain={finding.plain} /></div> : null}
           <h3 style={{ margin: '4px 0 0' }}>{finding.plain?.headline ?? finding.title}</h3>

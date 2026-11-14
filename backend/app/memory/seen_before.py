@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from backend.app.memory.diversity import collapse_near_copies
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.fix_came_back import came_back_for_finding
+from backend.app.memory.match_investigations import latest_investigations
 from backend.app.memory.novelty import assess_novelty
 from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import PastIncidentMatch, SeenBeforeResponse
@@ -26,6 +27,7 @@ from backend.app.memory.similarity_service import (
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
 from backend.app.memory.availability import unavailable_reason
+from backend.app.services.case_status import derive_case_status
 
 MAX_MATCHES = 8
 
@@ -66,6 +68,7 @@ def find_seen_before(
         case.id: case
         for case in db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(case_ids))).scalars()
     } if case_ids else {}
+    investigations = latest_investigations(db, list(cases.values()))
 
     def to_match(result: dict) -> PastIncidentMatch | None:
         case = cases.get(result["payload"].get("case_id"))
@@ -74,6 +77,7 @@ def find_seen_before(
             return None
         snapshot = case.finding_snapshot or {}
         service = snapshot.get("service")
+        investigation = investigations.get(case.id)
         return PastIncidentMatch(
             case_id=case.id,
             title=case.case_title,
@@ -90,6 +94,11 @@ def find_seen_before(
             corrective_action=case.corrective_action,
             outcome_summary=case.outcome_summary,
             resolved_at=case.resolved_at,
+            case_status=derive_case_status(case)[0],
+            rca_verified=bool(case.root_cause_verified),
+            opened_at=case.created_at,
+            investigation_ending=investigation.ending if investigation else None,
+            investigation_summary=investigation.summary if investigation else None,
             reference=f"/cases/{case.id}",
         )
 

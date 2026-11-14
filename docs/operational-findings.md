@@ -116,6 +116,20 @@ Trends ("has been climbing") don't move to Over yet.
 Signals -> Finding Aggregation -> Operational Findings -> Operational Cases
 ```
 
+## Finding numbers: coming back to a finding
+
+Every finding has a number, shown at the start of the line under the card's headline (`#4182 ·
+payments-api · error_rate`). To come back to it later, for example to answer **Was this real?** or
+to mention it in a case or chat, search `#4182` on the **Findings** page, or click the number to
+copy a link (`/findings?finding=4182`). Both open the finding even when it is outside the selected
+time window.
+
+The same number is in the title of the finding's details, on the case made from it ("From finding
+#4182", linked back), and on alerts linked to it ("Finding #4182"). When **Group repeats** is on, one
+card can stand for several findings; it shows the number of the one it opens. Turn it off to see
+each finding's own number. In the Grafana plugin,
+the Autonomous overview shows the number on each row and in the evidence panel.
+
 ## Filtering by Service
 
 When the window has findings from two or more services, the **Findings** page shows a **Service**

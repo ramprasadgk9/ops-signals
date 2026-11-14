@@ -32,7 +32,7 @@ import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUncheckedRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import { useLocation, useParams, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, retryUnlessClientError } from '../api/client';
 import { api } from '../api/queries';
@@ -363,7 +363,15 @@ export function CaseDetailsPage() {
                   </Typography>
                 </Stack>
               ) : (
-                <LinkedAlerts findingId={caseData.finding_id} />
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }} data-testid="case-finding-link">
+                    From{' '}
+                    <Box component={RouterLink} to={`/findings?finding=${caseData.finding_id}`} sx={{ color: 'inherit', fontWeight: 700 }}>
+                      finding #{caseData.finding_id}
+                    </Box>
+                  </Typography>
+                  <LinkedAlerts findingId={caseData.finding_id} />
+                </>
               )}
             </Box>
 

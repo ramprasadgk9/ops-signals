@@ -1,7 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { PastCaseMatches, rankPastMatches } from './PastCaseMatches';
 import type { PastCaseMatch } from '../types';
+
+// Match titles and the Open case link navigate inside the app.
+const render = (ui: ReactElement) => rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 const match = (overrides: Partial<PastCaseMatch>): PastCaseMatch => ({
   case_id: 1, title: 'A', similarity_score: 0.5, strength: 'possible', same_service: true, ...overrides,
@@ -75,6 +80,33 @@ describe('PastCaseMatches', () => {
       />
     );
 
-    expect(screen.getAllByText(/root cause unconfirmed/)).toHaveLength(1);
+    const [unverified, verified] = screen.getAllByTestId('past-case-outcome');
+    expect(unverified).toHaveTextContent('Likely cause (unconfirmed): db query issues');
+    expect(verified).toHaveTextContent('Cause: missing index');
+    expect(verified).not.toHaveTextContent('unconfirmed');
+  });
+
+  it('links each match to its case and says what state the case is in', () => {
+    render(
+      <PastCaseMatches
+        service="checkout"
+        emptyText="none"
+        matches={[
+          match({ case_id: 8, title: 'Stuck exporter', case_status: 'resolved', rca_verified: true, root_cause_summary: 'Exporter hung', corrective_action: 'Restarted it', opened_at: '2026-10-28T10:00:00Z' }),
+          match({ case_id: 14, title: 'Shifted up', case_status: 'in_progress', investigation_ending: 'found', investigation_summary: 'Pointed at deploy v1.4.2.' }),
+          match({ case_id: 17, title: 'Stuck again', case_status: 'open' }),
+        ]}
+      />
+    );
+
+    expect(screen.getByTestId('past-case-fixed-count')).toHaveTextContent('1 of them was fixed.');
+    expect(screen.getByRole('link', { name: 'Case #8 · Open case →' })).toHaveAttribute('href', '/cases/8');
+    const [fixed, investigating, open] = screen.getAllByTestId('past-case-match');
+    expect(fixed).toHaveTextContent('Fixed: Restarted it Cause: Exporter hung');
+    expect(fixed).toHaveTextContent('Resolved · cause verified');
+    expect(fixed).toHaveTextContent('Oct 28');
+    expect(investigating).toHaveTextContent('Investigating: Pointed at deploy v1.4.2.');
+    expect(investigating).toHaveTextContent('In progress');
+    expect(open).toHaveTextContent('Open, nothing recorded yet.');
   });
 });

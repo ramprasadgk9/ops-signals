@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { FindingDetailsDrawer } from './FindingDetailsDrawer';
 import { api } from '../api/queries';
@@ -19,7 +20,9 @@ function renderDrawer(finding: Finding) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <FindingDetailsDrawer open finding={finding} signals={[]} onClose={() => {}} />
+      <MemoryRouter>
+        <FindingDetailsDrawer open finding={finding} signals={[]} onClose={() => {}} />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -39,6 +42,15 @@ const otlpFinding: Finding = {
   analysis_run_id: 'c06d17a3dd9143ef8ebd8c454031fd89',
   created_at: '2026-09-22T17:47:07Z',
 };
+
+describe('FindingDetailsDrawer finding number', () => {
+  it('names the finding by its number above the headline', () => {
+    vi.mocked(api.analysisRun).mockResolvedValue(undefined as never);
+    vi.mocked(api.timeseries).mockResolvedValue([]);
+    renderDrawer(otlpFinding);
+    expect(screen.getByTestId('drawer-finding-number')).toHaveTextContent('Finding #41');
+  });
+});
 
 describe('FindingDetailsDrawer readings section', () => {
   it('shows an OTLP badge and the run id for an otel-sourced finding', async () => {
@@ -367,7 +379,7 @@ describe('FindingDetailsDrawer seen before', () => {
     expect(within(rows[0]).getByText('CPU pinned after release')).toHaveAttribute('href', '/cases/25');
     expect(within(rows[0]).getByText('Possible match · 48%')).toBeInTheDocument();
     expect(within(rows[0]).getByText('Imported · jira OPS-101')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('Cached the schema')).toBeInTheDocument();
+    expect(within(rows[0]).getByTestId('past-case-outcome')).toHaveTextContent('Fix: Cached the schema Cause: Schema validation on every call');
     expect(within(panel).getByRole('button', { name: 'Show 1 match on other services' })).toBeInTheDocument();
     expect(api.findingSeenBefore).toHaveBeenCalledWith(41);
   });
