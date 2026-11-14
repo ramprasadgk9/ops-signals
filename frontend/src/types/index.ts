@@ -452,6 +452,11 @@ export type PastCaseMatch = {
   root_cause_summary?: string | null;
   corrective_action?: string | null;
   outcome_summary?: string | null;
+  /** When the case was opened. */
+  opened_at?: string | null;
+  /** The case's latest guided investigation: how it ended (found, nothing_found, ...) and what it suggested. */
+  investigation_ending?: string | null;
+  investigation_summary?: string | null;
   /** Near-copies folded under this match (same service, symptom, cause and fix). */
   more_like_this?: PastCaseMatch[];
 };

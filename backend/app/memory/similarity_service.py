@@ -10,6 +10,7 @@ from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.memory.diversity import collapse_near_copies
 from backend.app.memory.embedder import Embedder
 from backend.app.memory.indexer import CaseMemoryIndexer
+from backend.app.memory.match_investigations import latest_investigations
 from backend.app.memory.novelty import assess_novelty
 from backend.app.memory.recall_scoring import RecallBoost
 from backend.app.memory.schemas import SimilarCaseMatch, SimilarCasesResponse
@@ -172,11 +173,13 @@ class SimilarityService:
             ).scalars().all()
 
             case_by_id = {case.id: case for case in matched_cases}
+            investigations = latest_investigations(db, list(matched_cases))
 
             def to_match(result: dict) -> SimilarCaseMatch | None:
                 matched_case = case_by_id.get(result["payload"]["case_id"])
                 if not matched_case:
                     return None
+                investigation = investigations.get(matched_case.id)
                 return SimilarCaseMatch(
                     case_id=matched_case.id,
                     similarity_score=result["score"],
@@ -196,6 +199,9 @@ class SimilarityService:
                     corrective_action=matched_case.corrective_action,
                     outcome_status=matched_case.outcome_status,
                     outcome_summary=matched_case.outcome_summary,
+                    opened_at=matched_case.created_at,
+                    investigation_ending=investigation.ending if investigation else None,
+                    investigation_summary=investigation.summary if investigation else None,
                 )
 
             # Step 8-9: Build response preserving Qdrant ranking, near-copies folded under the

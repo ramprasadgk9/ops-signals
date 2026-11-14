@@ -44,6 +44,43 @@ type Props = {
   seenBefore?: SeenBeforeResponse;
 };
 
+/** Link that opens one finding on the Findings page; the page reads ?finding=<id>. */
+export function findingLink(id: number, origin: string = window.location.origin): string {
+  return `${origin}/findings?finding=${id}`;
+}
+
+/** "#4182": the handle people use to come back to a finding. Click copies a link to it. */
+function FindingNumber({ id }: { id: number }) {
+  const [copied, setCopied] = useState<boolean | null>(null);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(findingLink(id));
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  const title = copied === true
+    ? 'Link copied.'
+    : copied === false
+      ? "Couldn't copy: the browser blocked the clipboard."
+      : `Finding #${id}. Click to copy a link to it; search #${id} to find it again.`;
+  return (
+    <Tooltip title={title} arrow onClose={() => setCopied(null)}>
+      <Box
+        component="button"
+        type="button"
+        onClick={copy}
+        aria-label={`Finding #${id}, copy link`}
+        data-testid="finding-number"
+        sx={{ all: 'unset', cursor: 'pointer', color: 'text.primary', fontWeight: 800, '&:hover, &:focus-visible': { textDecoration: 'underline' } }}
+      >
+        #{id}
+      </Box>
+    </Tooltip>
+  );
+}
+
 function seenAt(value?: string): string {
   return value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'unknown';
 }
@@ -87,7 +124,8 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
             {finding.plain ? <PlainBadge plain={finding.plain} /> : null}
             <Typography variant="h6">{finding.plain?.headline ?? finding.title}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-              {[finding.service, finding.metric_name, finding.cluster, connectionName, sourceCaption].filter(Boolean).join(' · ')}
+              {finding.id != null ? <><FindingNumber id={finding.id} />{' · '}</> : null}
+              <span>{[finding.service, finding.metric_name, finding.cluster, connectionName, sourceCaption].filter(Boolean).join(' · ')}</span>
             </Typography>
           </Stack>
           {badge ? (

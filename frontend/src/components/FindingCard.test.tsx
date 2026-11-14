@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { api } from '../api/queries';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -373,5 +373,24 @@ describe('FindingCard Investigate', () => {
   it('leaves it out for findings from uploaded files', () => {
     renderCard({ ...newPodsFinding, connection_id: null, source: 'csv' });
     expect(screen.queryByTestId('investigate-button')).not.toBeInTheDocument();
+  });
+});
+
+describe('FindingCard finding number', () => {
+  it('shows the number so people can come back to it, and copies a link on click', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderCard(newPodsFinding);
+
+    const number = screen.getByTestId('finding-number');
+    expect(number).toHaveTextContent('#7');
+    fireEvent.click(number);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/findings?finding=7`));
+  });
+
+  it('shows no number for a finding that has none yet', () => {
+    renderCard({ ...newPodsFinding, id: undefined } as unknown as Finding);
+    expect(screen.queryByTestId('finding-number')).not.toBeInTheDocument();
   });
 });

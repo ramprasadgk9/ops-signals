@@ -81,6 +81,10 @@ class SimilarCaseMatch(BaseModel):
     corrective_action: str | None = None
     outcome_status: str | None = None
     outcome_summary: str | None = None
+    opened_at: datetime | None = None
+    # The case's latest guided investigation: how it ended and what it suggested (match_investigations).
+    investigation_ending: str | None = None
+    investigation_summary: str | None = None
     # Near-copies of this match (same service, same symptom, cause and fix), folded under it so
     # one recurring incident can't fill every slot (diversity.collapse_near_copies).
     more_like_this: list["SimilarCaseMatch"] = Field(default_factory=list)
@@ -184,6 +188,13 @@ class PastIncidentMatch(BaseModel):
     corrective_action: str | None = None
     outcome_summary: str | None = None
     resolved_at: datetime | None = None
+    # open | in_progress | resolved; whether its root cause was verified (case_status.derive_case_status).
+    case_status: str | None = None
+    rca_verified: bool = False
+    opened_at: datetime | None = None
+    # The case's latest guided investigation: how it ended and what it suggested (match_investigations).
+    investigation_ending: str | None = None
+    investigation_summary: str | None = None
     reference: str
     # Near-copies of this match (same service, same symptom, cause and fix), folded under it so
     # one recurring incident can't fill every slot (diversity.collapse_near_copies).

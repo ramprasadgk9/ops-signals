@@ -145,6 +145,11 @@ export function FindingDetailsDrawer({ open, finding, signals = [], section = nu
   return (
     <Drawer anchor="right" open={open} onClose={onClose}>
       <Box sx={{ width: { xs: '100vw', md: 560 }, p: 3, overflowY: 'auto' }}>
+        {finding.id != null ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, mb: 0.5 }} data-testid="drawer-finding-number">
+            Finding #{finding.id}
+          </Typography>
+        ) : null}
         {finding.plain ? <PlainBadge plain={finding.plain} /> : null}
         <Typography variant="h5" sx={{ mt: finding.plain ? 0.75 : 0 }}>{finding.plain?.headline ?? finding.title}</Typography>
         

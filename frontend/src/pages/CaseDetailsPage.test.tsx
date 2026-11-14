@@ -108,6 +108,15 @@ describe('CaseDetailsPage resolution tab', () => {
     expect(await screen.findByRole('tab', { name: 'Root Cause' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('links back to the finding the case came from', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+
+    renderPage();
+
+    const from = await screen.findByTestId('case-finding-link');
+    expect(within(from).getByRole('link', { name: 'finding #10' })).toHaveAttribute('href', '/findings?finding=10');
+  });
+
   it('switches to the tab a link names when the case is already open', async () => {
     vi.mocked(api.getCase).mockResolvedValue(baseCase());
 
@@ -221,6 +230,7 @@ describe('CaseDetailsPage for an imported case', () => {
     expect(within(origin).getByText('Imported · jira OPS-412')).toBeInTheDocument();
     expect(within(origin).getByRole('link')).toHaveAttribute('href', 'https://jira.example.com/browse/OPS-412');
     expect(api.signals).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('case-finding-link')).not.toBeInTheDocument();
   });
 
   it('saves a resolution without asking for a learning outcome', async () => {

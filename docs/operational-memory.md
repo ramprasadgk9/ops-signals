@@ -30,6 +30,23 @@ it came back, the new finding and any deploy matched to it. A reason naming a nu
 that isn't in those facts is dropped. Nothing is saved. A recurrence nobody opened a case for, or a
 past case that was never added to memory, isn't seen.
 
+## What happened last time: each past-case match
+
+Each match under a finding's **Seen before?** (and under a case's **Similar Cases**) says in one line
+what happened in that past case, so you can tell without opening it whether it has an answer:
+
+- **Fixed:** the fix, then **Cause:** the root cause, when the cause was verified.
+- **Likely cause (unconfirmed):** the cause, first, when nobody verified it; then the fix, if any.
+- **Investigating:** what the case's guided investigation pointed at, or **Investigated: nothing
+  found yet**, when the case has no cause or fix recorded.
+- **Open, nothing recorded yet.** when there is nothing to go on.
+
+The line is cut at two lines; hover it for the rest. Imported postmortems count as verified. Below
+it, the case's state (**Resolved · cause verified**, **Resolved · cause not verified**, **In
+progress** or **Open**) and **Case #N · Open case →**, which opens the case. Above the list, a line
+says how many of the matches were fixed. In the Grafana plugin the same line and state are shown,
+with the case number but no link.
+
 ## Flow
 
 ```mermaid

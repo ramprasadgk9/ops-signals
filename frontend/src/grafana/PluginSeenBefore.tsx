@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { Novelty, PastCaseMatch, SeenBeforeResponse } from '../types';
-import { rankPastMatches } from '../utils/pastCaseMatches';
+import { fixedCountSentence, matchDate, matchOutcome, matchStatus, rankPastMatches } from '../utils/pastCaseMatches';
 import { getFindingSeenBefore } from './backendClient';
 import { styles } from './plainUi';
 import { PluginFixCameBackBanner } from './PluginFixCameBack';
@@ -16,6 +16,8 @@ const NOVELTY_TONE: Record<Novelty['level'], string> = {
   recurring: '#ffb357',
 };
 const BOX: React.CSSProperties = { ...styles.stack, gap: 10, border: '1px solid rgba(204, 204, 220, 0.12)', borderRadius: 8, padding: 14 };
+const TWO_LINES: React.CSSProperties = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
+const STATUS_TONE = { resolved: STRONG, progress: '#5794f2', open: '#ffb357' } as const;
 const LINK_BUTTON: React.CSSProperties = { border: 0, background: 'transparent', color: '#5794f2', padding: 0, cursor: 'pointer', fontWeight: 600, width: 'fit-content' };
 
 type State = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: SeenBeforeResponse };
@@ -66,6 +68,7 @@ function SeenBeforeBody({ data, service }: { data: SeenBeforeResponse; service?:
   return (
     <>
       {data.novelty ? <NoveltyLine novelty={data.novelty} /> : null}
+      {fixedCountSentence(ranked) ? <strong data-testid="plugin-past-case-fixed-count" style={{ fontSize: 13 }}>{fixedCountSentence(ranked)}</strong> : null}
       {!ranked.length ? (
         <div style={styles.muted}>Nothing like this in memory yet. Publish resolved cases, or import past incidents from the Recurring problems page in the Ops Signals web app, to give it history.</div>
       ) : (
@@ -105,10 +108,12 @@ function NoveltyLine({ novelty }: { novelty: Novelty }) {
 function MatchRow({ match }: { match: PastCaseMatch }) {
   const [showCopies, setShowCopies] = useState(false);
   const strong = match.strength !== 'possible';
-  const fix = match.corrective_action || match.outcome_summary;
   const copies = match.more_like_this ?? [];
-  const where = [match.service, match.metric_name ?? (match.origin === 'imported' ? 'past incident' : null)].filter(Boolean).join(' · ');
+  const where = [match.service, match.metric_name ?? (match.origin === 'imported' ? 'past incident' : null), matchDate(match.opened_at)].filter(Boolean).join(' · ');
   const tone = strong ? STRONG : 'rgba(204, 204, 220, 0.72)';
+  const outcome = matchOutcome(match);
+  const status = matchStatus(match);
+  const fullOutcome = outcome.parts.map((part) => `${part.label}${part.unconfirmed ? ' (unconfirmed)' : ''}: ${part.text}`).join(' ');
   return (
     <div data-testid="plugin-past-case-match" style={{ border: '1px solid rgba(204, 204, 220, 0.14)', borderRadius: 8, padding: 12, background: strong ? 'rgba(63, 207, 142, 0.06)' : 'rgba(204, 204, 220, 0.03)' }}>
       <div style={{ ...styles.row, gap: 8 }}>
@@ -118,9 +123,21 @@ function MatchRow({ match }: { match: PastCaseMatch }) {
         </span>
         {match.origin === 'imported' && match.source ? <span style={styles.chip}>Imported from {match.source}</span> : null}
       </div>
-      <div style={{ ...styles.helperText, marginTop: 4 }}>Case #{match.case_id}{where ? ` · ${where}` : ''}{match.case_status ? ` · ${match.case_status}` : ''}</div>
-      {match.root_cause_summary ? <div style={{ fontSize: 13, marginTop: 6 }}><b>Cause:</b> {match.root_cause_summary}</div> : null}
-      {fix ? <div style={{ fontSize: 13, marginTop: 2 }}><b>Fix:</b> {fix}</div> : null}
+      {where ? <div style={{ ...styles.helperText, marginTop: 4 }}>{where}</div> : null}
+      {outcome.parts.length ? (
+        <div data-testid="plugin-past-case-outcome" title={fullOutcome} style={{ ...TWO_LINES, fontSize: 13, marginTop: 6 }}>
+          {outcome.parts.map((part, index) => (
+            <React.Fragment key={part.label}>
+              {index ? ' ' : ''}
+              <b>{part.label}</b>
+              {part.unconfirmed ? <span style={{ color: '#ffb357', fontWeight: 700 }}> (unconfirmed)</span> : null}
+              : {part.text}
+            </React.Fragment>
+          ))}
+        </div>
+      ) : (
+        <div data-testid="plugin-past-case-outcome" style={{ ...styles.muted, fontSize: 13, marginTop: 6 }}>{outcome.empty}</div>
+      )}
       {copies.length ? (
         <div style={{ marginTop: 6 }}>
           <button type="button" style={LINK_BUTTON} onClick={() => setShowCopies(!showCopies)}>
@@ -133,6 +150,11 @@ function MatchRow({ match }: { match: PastCaseMatch }) {
           )) : null}
         </div>
       ) : null}
+      <div data-testid="plugin-past-case-status" style={{ fontSize: 13, marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(204, 204, 220, 0.12)' }}>
+        <span style={{ fontWeight: 700, color: STATUS_TONE[status.tone] }}>{status.label}</span>
+        {status.detail ? <span style={styles.muted}> · {status.detail}</span> : null}
+        <span style={styles.muted}> · Case #{match.case_id}</span>
+      </div>
     </div>
   );
 }
