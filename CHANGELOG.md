@@ -30,6 +30,12 @@ Includes Grafana plugin 1.0.38.
   finding's details instead of the Findings list.
 - **Run history names how many services a run covered** ("checkout, drift-lab + 12 more").
 
+**Analyzer Labs**
+
+- **The STUMPY Motif Lab finds repeated shapes again.** Since 0.6.0 it ran STUMPY the way
+  scheduled analysis does, looking for the most unusual stretch, so a repeated shape got no
+  finding. The lab now asks for motif mode. Scheduled analysis is unchanged.
+
 **Project**
 
 - Two links that pointed at files outside the repo are fixed (SUPPORT.md and the assistant

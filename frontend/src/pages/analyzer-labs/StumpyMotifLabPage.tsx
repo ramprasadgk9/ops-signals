@@ -214,6 +214,10 @@ export function StumpyMotifLabPage() {
         stumpy: {
           implementation: {
             ...STUMPY_CONFIG.implementation,
+            // Overrides merge into the shipped settings, which run discord mode (most unusual
+            // stretch). This lab is about repeated shapes, so it asks for motif mode. Not part of
+            // the lab's values: it isn't a setting to copy into the settings in use.
+            mode: 'motif',
             window_size: windowSize,
             motif_count: motifCount,
             profile_threshold: profileThreshold,
