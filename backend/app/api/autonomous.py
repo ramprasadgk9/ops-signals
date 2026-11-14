@@ -584,6 +584,8 @@ def _policy_run_to_dict(run) -> dict:
         "jobs_completed": run.jobs_completed,
         "jobs_skipped": run.jobs_skipped,
         "jobs_failed": run.jobs_failed,
+        # None for runs saved before this count existed: unknown, not zero.
+        "jobs_not_checked": snapshot.get("jobs_not_checked"),
         "budget_limited_jobs": snapshot.get("budget_limited_jobs", 0),
         "budget_excluded_metrics_count": snapshot.get("budget_excluded_metrics_count", 0),
         "budget_excluded_metrics": snapshot.get("budget_excluded_metrics", []),

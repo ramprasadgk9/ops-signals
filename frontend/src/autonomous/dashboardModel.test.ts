@@ -297,6 +297,66 @@ describe('autonomous dashboard model', () => {
 
     expect(data.executionRows[0].metrics).toBe('100 metrics (400 budget-excluded)');
   });
+
+  it('carries the not-checked count from the latest policy run to the summary and its row', () => {
+    const data = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      policyRuns: [policyRun({ jobs_completed: 33, jobs_not_checked: 33 })],
+    });
+
+    expect(data.summary.notChecked).toBe(33);
+    expect(data.executionRows[0].notChecked).toBe(33);
+  });
+
+  it('takes the not-checked count from a run just started here', () => {
+    const data = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      runResult: runResult({ not_checked_jobs: 1 }),
+    });
+
+    expect(data.summary.notChecked).toBe(1);
+    expect(data.executionRows[0].notChecked).toBe(1);
+  });
+
+  it('links each top finding to that finding on the Findings page', () => {
+    const data = buildAutonomousDashboardData({ findings: [finding({ id: 12105 })], cases: [], analysisRuns: [] });
+
+    expect(data.topFindings[0].href).toBe('/findings?finding=12105');
+  });
+
+  it('names the first two services of a run and how many more it covered', () => {
+    const many = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      policyRuns: [policyRun({ policy_snapshot: { scope_summary: { services_resolved: ['checkout', 'drift-lab', 'payments', 'spike-lab'] } } })],
+    });
+    const two = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      policyRuns: [policyRun({ policy_snapshot: { scope_summary: { services_resolved: ['checkout', 'drift-lab'] } } })],
+    });
+
+    expect(many.executionRows[0].scope).toBe('checkout, drift-lab + 2 more');
+    expect(two.executionRows[0].scope).toBe('checkout, drift-lab');
+  });
+
+  it('keeps not-checked unknown for runs saved before it was counted', () => {
+    const data = buildAutonomousDashboardData({
+      findings: [],
+      cases: [],
+      analysisRuns: [],
+      policyRuns: [policyRun()],
+    });
+
+    expect(data.summary.notChecked).toBeNull();
+    expect(data.executionRows[0].notChecked).toBeNull();
+  });
 });
 
 describe('formatMatchedRule', () => {

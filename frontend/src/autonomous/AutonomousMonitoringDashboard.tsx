@@ -1,6 +1,6 @@
 import './AutonomousMonitoringDashboard.css';
 import React, { useState } from 'react';
-import { formatMatchedRule, type AutonomousDashboardData, type AutonomousExclusionReason } from './dashboardModel';
+import { NOT_CHECKED_HELP, formatMatchedRule, type AutonomousDashboardData, type AutonomousExclusionReason } from './dashboardModel';
 import type { AutonomousQuestionAnswer, FindingsWindow } from '../api/queries';
 import type { MonitoringCategory } from '../grafana/contracts';
 import type { Finding } from '../types';
@@ -67,9 +67,9 @@ function cls(value?: string | null) {
   return (value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
 }
 
-function Stat({ value, label, detail, tone }: { value: number | null | string; label: string; detail: string; tone?: string }) {
+function Stat({ value, label, detail, tone, title }: { value: number | null | string; label: string; detail: string; tone?: string; title?: string }) {
   return (
-    <div className="auto-stat">
+    <div className="auto-stat" title={title}>
       <div className="auto-stat-value" style={tone ? { color: tone } : undefined}>{typeof value === 'number' ? value.toLocaleString() : value}</div>
       <div className="auto-stat-label">{label}</div>
       <div className="auto-stat-detail">{detail}</div>
@@ -344,8 +344,18 @@ export function AutonomousMonitoringDashboard({ data, context, state, isLoading 
         </Panel>
 
         <Panel title="Execution Summary" span={5}>
-          <div className="auto-stat-grid compact">
+          {/* Not checked shows only when the run counted it (runs saved before it was added didn't). */}
+          <div className={`auto-stat-grid${data.summary.notChecked === null ? ' compact' : ''}`}>
             <Stat value={fmt(data.summary.executed)} label="Executed" detail="Metrics" tone="var(--auto-blue)" />
+            {data.summary.notChecked !== null ? (
+              <Stat
+                value={fmt(data.summary.notChecked)}
+                label="Not checked"
+                detail="Too little data"
+                tone="var(--auto-orange)"
+                title={NOT_CHECKED_HELP}
+              />
+            ) : null}
             <Stat value={fmt(data.summary.skipped)} label="Skipped" detail="By policy / filters" tone="var(--auto-orange)" />
             <Stat value={fmt(data.summary.failed)} label="Failed" detail="Errors" tone="var(--auto-red)" />
           </div>
@@ -454,6 +464,11 @@ export function AutonomousMonitoringDashboard({ data, context, state, isLoading 
                   <div>
                     <div className="auto-row-title">{row.scope}</div>
                     <div className="auto-row-meta">{row.metrics}</div>
+                    {row.notChecked ? (
+                      <div className="auto-row-meta" style={{ color: 'var(--auto-orange)' }} title={NOT_CHECKED_HELP}>
+                        {row.notChecked} not checked: too little data
+                      </div>
+                    ) : null}
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <span className={`auto-pill ${cls(row.status)}`}>{row.status}</span>

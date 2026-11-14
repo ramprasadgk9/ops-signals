@@ -3,6 +3,10 @@ import type { AutonomousPreviewResponse, AutonomousRunResponse, MonitoringCatego
 
 export type { AutonomousPreviewResponse, AutonomousRunResponse, MonitoringCategory };
 
+/** Hover text wherever a run's "not checked" count is shown (web UI and Grafana plugin). */
+export const NOT_CHECKED_HELP =
+  'These metrics ran, but more than 30% of their readings were missing or they had fewer than 30, so nothing was checked for spikes or shifts. No findings here does not mean they looked fine.';
+
 export type AutonomousPolicyRun = {
   id: string;
   policy_run_id?: string;
@@ -18,6 +22,8 @@ export type AutonomousPolicyRun = {
   jobs_completed?: number | null;
   jobs_skipped?: number | null;
   jobs_failed?: number | null;
+  /** Completed jobs with too little data to look for changes; null for runs saved before it was counted. */
+  jobs_not_checked?: number | null;
   budget_limited_jobs?: number | null;
   budget_excluded_metrics_count?: number | null;
   budget_excluded_metrics?: string[] | null;
@@ -65,6 +71,8 @@ export type AutonomousDashboardSummary = {
   executed: number | null;
   skipped: number | null;
   failed: number | null;
+  /** Executed, but too much data was missing to look for changes. Null when not known. */
+  notChecked: number | null;
 };
 
 export type AutonomousTopFindingRow = {
@@ -88,6 +96,7 @@ export type AutonomousExecutionRow = {
   status: string;
   completed?: string | null;
   errorSummary?: string | null;
+  notChecked?: number | null;
   current?: boolean;
 };
 
@@ -296,6 +305,12 @@ function observedChange(finding: Finding) {
   return `${direction} from ${before.toFixed(2)} to ${after.toFixed(2)}${changeText}`;
 }
 
+/** "checkout, drift-lab + 12 more": the first two names, and how many the run covered beyond them. */
+function scopeNames(names: unknown[]): string {
+  const shown = names.slice(0, 2).map(String).join(', ');
+  return names.length > 2 ? `${shown} + ${names.length - 2} more` : shown;
+}
+
 function executionRowsFromPolicyRuns(policyRuns: AutonomousPolicyRun[]) {
   return policyRuns.slice(0, 7).map((run) => {
     const snapshot = run.policy_snapshot ?? {};
@@ -303,9 +318,9 @@ function executionRowsFromPolicyRuns(policyRuns: AutonomousPolicyRun[]) {
     const services = Array.isArray(scope?.services_resolved) ? scope?.services_resolved : [];
     const namespaces = Array.isArray(scope?.namespaces_resolved) ? scope?.namespaces_resolved : [];
     const scopeLabel = services.length
-      ? String(services.slice(0, 2).join(', '))
+      ? scopeNames(services)
       : namespaces.length
-        ? String(namespaces.slice(0, 2).join(', '))
+        ? scopeNames(namespaces)
         : run.policy_id || run.trigger || 'autonomous scope';
     const budgetLimited = run.budget_limited_jobs ?? (snapshot.budget_limited_jobs as number | undefined);
     const budgetNotice = budgetLimited && budgetLimited > 0 ? ` (${budgetLimited} budget-excluded)` : '';
@@ -316,6 +331,7 @@ function executionRowsFromPolicyRuns(policyRuns: AutonomousPolicyRun[]) {
       status: run.status,
       completed: run.completed_at ?? run.updated_at ?? null,
       errorSummary: run.error_summary ?? null,
+      notChecked: numberOrNull(run.jobs_not_checked),
       current: false,
     };
   });
@@ -334,18 +350,19 @@ function executionRowsFromAnalysisRuns(analysisRuns: AnalysisRun[]) {
 
 function executionRowsFromCurrentRun(run: AutonomousRunResponse | null): AutonomousExecutionRow[] {
   if (!run) return [];
-  const scopes = Array.from(new Set(run.results.map((result) => result.service).filter(Boolean))).slice(0, 2);
+  const scopes = Array.from(new Set(run.results.map((result) => result.service).filter(Boolean)));
   const failedErrors = run.results.map((result) => result.error).filter(Boolean);
   const budgetNotice = run.budget_limited_jobs && run.budget_limited_jobs > 0
     ? ` (${run.budget_limited_jobs} budget-excluded)`
     : '';
   return [{
     id: `current:${run.requested_end}`,
-    scope: scopes.length ? scopes.join(', ') : 'current run',
+    scope: scopes.length ? scopeNames(scopes) : 'current run',
     metrics: `${run.executed_jobs} executed / ${run.planned_jobs} planned${budgetNotice}`,
     status: run.status,
     completed: run.requested_end,
     errorSummary: failedErrors.length ? failedErrors.slice(0, 2).join('; ') : null,
+    notChecked: numberOrNull(run.not_checked_jobs),
     current: true,
   }];
 }
@@ -367,8 +384,10 @@ export function buildAutonomousDashboardData(input: BuildAutonomousDashboardInpu
   const executed = numberOrNull(policyRun?.jobs_completed) ?? numberOrNull(run?.executed_jobs);
   const skipped = numberOrNull(policyRun?.jobs_skipped) ?? numberOrNull(run?.skipped_jobs);
   const failed = numberOrNull(policyRun?.jobs_failed) ?? numberOrNull(run?.failed_jobs);
+  const notChecked = numberOrNull(policyRun?.jobs_not_checked) ?? numberOrNull(run?.not_checked_jobs);
 
-  const findingHref = input.findingHref ?? (() => '/findings?window=24h');
+  // Opens that finding's details on the Findings page, whatever its time window.
+  const findingHref = input.findingHref ?? ((finding: Finding) => (finding.id ? `/findings?finding=${finding.id}` : '/findings?window=24h'));
   const caseHref = input.caseHref ?? ((caseItem) => `/cases/${caseItem.id}`);
   const scopedFindings = hasCurrentRunScope ? input.findings.filter((finding) => finding.analysis_run_id && currentAnalysisRunIds.has(finding.analysis_run_id)) : input.findings;
   const scopedCases = hasCurrentRunScope ? input.cases.filter((caseItem) => caseItem.analysis_run_id && currentAnalysisRunIds.has(caseItem.analysis_run_id)) : input.cases;
@@ -405,6 +424,7 @@ export function buildAutonomousDashboardData(input: BuildAutonomousDashboardInpu
       executed,
       skipped,
       failed,
+      notChecked,
     },
     selection: {
       title: 'Metric Selection',

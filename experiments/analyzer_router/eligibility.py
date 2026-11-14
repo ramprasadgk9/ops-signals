@@ -6,6 +6,17 @@ from .analyzer_registry import AnalyzerCapability
 from .models import SeriesProfile, ValidationDecision
 
 
+# The data every change-detecting analyzer needs. Data Health opts out of the missing-data limit,
+# so it can report the gaps; everything else is ruled out below either one.
+MAX_MISSING_PERCENTAGE = 30.0
+MIN_VALID_SAMPLES = 30
+
+
+def too_little_data_to_check(missing_percentage: float | None, valid_sample_count: int | None) -> bool:
+    """True when a series fails the limits below for every analyzer that looks for changes."""
+    return float(missing_percentage or 0.0) > MAX_MISSING_PERCENTAGE or int(valid_sample_count or 0) < MIN_VALID_SAMPLES
+
+
 @dataclass(slots=True)
 class EligibilityResult:
     eligible: bool
@@ -44,11 +55,11 @@ def evaluate_eligibility(capability: AnalyzerCapability, profile: SeriesProfile)
     if profile.constant_value_percentage >= 95.0 and not accepts_flat_or_gappy:
         return EligibilityResult(False, 0.0, ["The series is effectively constant."], ["Constant signal detected."])
 
-    if profile.missing_percentage > 30 and not accepts_flat_or_gappy:
+    if profile.missing_percentage > MAX_MISSING_PERCENTAGE and not accepts_flat_or_gappy:
         return EligibilityResult(False, 0.0, ["Missing or invalid values exceed the rejection threshold."], ["High missingness."])
 
-    if profile.valid_sample_count < 30:
-        return EligibilityResult(False, 0.0, ["Fewer than 30 valid samples remain after cleaning."], warnings)
+    if profile.valid_sample_count < MIN_VALID_SAMPLES:
+        return EligibilityResult(False, 0.0, [f"Fewer than {MIN_VALID_SAMPLES} valid samples remain after cleaning."], warnings)
 
     if profile.irregular_sampling_percentage > 40 and rules.get("requires_regular_sampling"):
         return EligibilityResult(False, 0.0, ["The series is too irregular for this analyzer."], ["Irregular sampling exceeds threshold."])

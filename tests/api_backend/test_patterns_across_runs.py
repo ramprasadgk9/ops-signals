@@ -140,10 +140,10 @@ def test_a_single_run_pattern_lists_its_own_run(client) -> None:
 
 def test_a_scheduled_run_evaluates_patterns_across_its_completed_jobs(db_session) -> None:
     completed = [
-        SimpleNamespace(status="completed", analysis_run_id=run, findings_count=1, behavior_findings_count=0, error=None)
+        SimpleNamespace(status="completed", analysis_run_id=run, findings_count=1, behavior_findings_count=0, not_checked=False, error=None)
         for run in ("run-wait", "run-active")
     ]
-    failed = SimpleNamespace(status="failed", analysis_run_id=None, findings_count=0, behavior_findings_count=0, error="no samples")
+    failed = SimpleNamespace(status="failed", analysis_run_id=None, findings_count=0, behavior_findings_count=0, not_checked=False, error="no samples")
     items = [SimpleNamespace(planned=True, metric_name=f"m{index}", exclusion_reason=None) for index in range(3)]
     preview = SimpleNamespace(
         items=items, budget_limited_jobs=0, budget_excluded_metrics=[], budget_excluded_metrics_count=0, warnings=[],

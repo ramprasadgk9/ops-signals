@@ -44,7 +44,7 @@ import type { AnalysisRun, BehaviorFinding, Finding, PodSplit, PrometheusConnect
 import { missingLabelSelector, recordingRulesByName } from '../utils/recordingRules';
 import { PluginHiddenRulesLine, PluginRecordingRuleNote } from './PluginRecordingRuleNote';
 import { autonomousSourceFor, buildAutonomousPreviewRequest, filterPreviewRows, previewRowExplanation } from './autonomousPreviewModel';
-import { buildAutonomousDashboardData, formatMatchedRule, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
+import { NOT_CHECKED_HELP, buildAutonomousDashboardData, formatMatchedRule, type AutonomousDashboardData, type AutonomousPolicyRun, type AutonomousSelectionSummary } from '../autonomous/dashboardModel';
 
 const defaultTarget: GrafanaQueryTarget = {
   datasource: 'Prometheus',
@@ -3085,6 +3085,10 @@ const autonomousSuggestedQuestions = [
 function CurrentRunSummaryPanel({ data }: { data: AutonomousDashboardData }) {
   const summaryItems = [
     { label: 'executed', value: data.summary.executed, tone: '#5794f2', detail: 'metrics analyzed' },
+    // Shown only when the run counted it (runs saved before it was added didn't).
+    ...(data.summary.notChecked !== null
+      ? [{ label: 'not checked', value: data.summary.notChecked, tone: '#ffb357', detail: 'too little data', title: NOT_CHECKED_HELP }]
+      : []),
     { label: 'skipped', value: data.summary.skipped, tone: '#ffb357', detail: 'policy / filters' },
     { label: 'finding', value: data.summary.findingsGenerated, tone: '#b877d9', detail: 'generated' },
     { label: 'cases', value: data.summary.casesOpen, tone: '#3fcf8e', detail: 'created / open' },
@@ -3098,16 +3102,16 @@ function CurrentRunSummaryPanel({ data }: { data: AutonomousDashboardData }) {
         <div style={{ ...styles.row, gap: 10 }}>
           {shown ? null : (
             <span style={{ ...styles.helperText, margin: 0 }}>
-              {count(data.summary.executed)} executed · {count(data.summary.skipped)} skipped · {count(data.summary.findingsGenerated)} findings · {count(data.summary.casesOpen)} cases
+              {count(data.summary.executed)} executed · {data.summary.notChecked ? `${count(data.summary.notChecked)} not checked · ` : ''}{count(data.summary.skipped)} skipped · {count(data.summary.findingsGenerated)} findings · {count(data.summary.casesOpen)} cases
             </span>
           )}
           <PanelToggle isOpen={shown} tone="#68707f" label="current run summary" onClick={() => setShown(!shown)} />
         </div>
       </div>
       {shown ? (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginTop: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${summaryItems.length}, minmax(0, 1fr))`, gap: 10, marginTop: 12 }}>
         {summaryItems.map((item) => (
-          <div key={item.label} style={{ border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 14, background: 'rgba(17, 18, 23, 0.55)' }}>
+          <div key={item.label} title={'title' in item ? item.title : undefined} style={{ border: '1px solid rgba(204, 204, 220, 0.16)', borderRadius: 8, padding: 14, background: 'rgba(17, 18, 23, 0.55)' }}>
             <div style={{ color: item.tone, fontSize: 24, fontWeight: 900 }}>{item.value === null ? '—' : item.value.toLocaleString()}</div>
             <div style={{ fontWeight: 850, marginTop: 5 }}>{item.label}</div>
             <div style={styles.helperText}>{item.detail}</div>
@@ -3245,6 +3249,9 @@ function RunHistoryPanel({ rows }: { rows: AutonomousDashboardData['executionRow
               <div>
                 <strong>{row.current ? 'Current run' : row.scope}</strong>
                 <div style={styles.helperText}>{row.current ? row.scope : row.metrics}</div>
+                {row.notChecked ? (
+                  <div style={{ ...styles.helperText, color: '#ffb357' }} title={NOT_CHECKED_HELP}>{row.notChecked} not checked: too little data</div>
+                ) : null}
                 {row.errorSummary ? <div style={{ ...styles.helperText, color: '#ff7381' }}>{row.errorSummary}</div> : null}
               </div>
               <StatusBadge status={row.status} />

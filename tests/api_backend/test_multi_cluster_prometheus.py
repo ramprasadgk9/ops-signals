@@ -269,7 +269,7 @@ class CapturingExecutor:
     def execute_dataframe(self, dataframe, *, run_metadata=None, db=None, series_key=None):
         CapturingExecutor.frames.append(dataframe)
         CapturingExecutor.metadata.append(run_metadata or {})
-        return type("Result", (), {"analysis_run_id": f"run-{len(CapturingExecutor.frames)}", "signal_count": 0, "findings_count": 0, "behavior_findings_count": 0})()
+        return type("Result", (), {"analysis_run_id": f"run-{len(CapturingExecutor.frames)}", "signal_count": 0, "findings_count": 0, "behavior_findings_count": 0, "series_profile": {"missing_percentage": 0.0, "valid_sample_count": 31}})()
 
 
 def test_run_once_sends_each_cluster_to_analysis_separately(monkeypatch) -> None:

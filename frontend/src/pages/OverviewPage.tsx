@@ -79,7 +79,6 @@ export function OverviewPage() {
     analysisRuns: [],
     behaviorFindings: behaviors,
     policyRuns,
-    findingHref: () => '/findings?window=24h',
     caseHref: (caseItem) => `/cases/${caseItem.id}`,
   });
   const latestAutonomousRun = latestPolicyRun(policyRuns);

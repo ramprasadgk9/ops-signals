@@ -72,6 +72,7 @@ class FakeMetricAnalysisExecutor:
                 "signal_count": 1,
                 "findings_count": 1 if suffix == "cpu" else 0,
                 "behavior_findings_count": 0,
+                "series_profile": {"missing_percentage": 0.0, "valid_sample_count": 31},
             },
         )()
 
@@ -1008,3 +1009,58 @@ def test_run_counts_add_up_with_excluded_metrics_counted_apart(monkeypatch) -> N
     assert policy_run["jobs_skipped"] == 0
     assert (dry_run["planned_jobs"], dry_run["skipped_jobs"], dry_run["excluded_jobs"]) == (1, 1, 1)
     assert dry_run["summary"]["jobs_skipped"] == 1
+
+
+class FakeGappyExecutor(FakeMetricAnalysisExecutor):
+    """A series 43% missing, as when Prometheus was down for part of the window: the run completes,
+    but no analyzer that looks for changes could check it."""
+
+    def execute_dataframe(self, dataframe, *, run_metadata=None, db=None, series_key=None):
+        result = super().execute_dataframe(dataframe, run_metadata=run_metadata, db=db, series_key=series_key)
+        result.findings_count = 0
+        result.series_profile = {"missing_percentage": 43.2, "valid_sample_count": 818}
+        return result
+
+
+def test_run_with_too_much_missing_data_counts_the_job_as_not_checked(monkeypatch) -> None:
+    monkeypatch.setattr(autonomous_execution, "MetricAnalysisExecutor", FakeGappyExecutor)
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider([metric("cpu_usage", "checkout")])
+    with TestClient(app) as client:
+        payload = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 500, "max_parallel_jobs": 20},
+            },
+        ).json()
+        stored = client.get(f"/api/autonomous/policy-runs/{payload['policy_run_id']}").json()
+        history = client.get("/api/autonomous/policy-runs").json()
+    # Still a completed job: it ran. Not checked is counted within executed, not instead of it.
+    assert payload["status"] == "completed"
+    assert payload["executed_jobs"] == 1
+    assert payload["not_checked_jobs"] == 1
+    assert payload["results"][0]["not_checked"] is True
+    assert payload["summary"]["jobs_not_checked"] == 1
+    assert stored["jobs_not_checked"] == 1
+    assert next(row for row in history if row["policy_run_id"] == payload["policy_run_id"])["jobs_not_checked"] == 1
+
+
+def test_run_with_enough_data_has_nothing_not_checked(monkeypatch) -> None:
+    monkeypatch.setattr(autonomous_execution, "MetricAnalysisExecutor", FakeMetricAnalysisExecutor)
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[get_prometheus_query_service] = lambda: FakeMetadataProvider([metric("cpu_usage", "checkout")])
+    with TestClient(app) as client:
+        payload = client.post(
+            "/api/autonomous/run-once",
+            json={
+                "scope": {"all_services": True, "all_namespaces": True},
+                "monitoring_categories": ["capacity"],
+                "execution": {"interval": "10m", "analysis_window": "24h", "max_metrics_per_run": 500, "max_parallel_jobs": 20},
+            },
+        ).json()
+        stored = client.get(f"/api/autonomous/policy-runs/{payload['policy_run_id']}").json()
+    assert payload["not_checked_jobs"] == 0
+    assert payload["results"][0]["not_checked"] is False
+    assert stored["jobs_not_checked"] == 0
