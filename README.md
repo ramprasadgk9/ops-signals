@@ -76,7 +76,9 @@ Adds a model server in its own container with the `gemma3:4b` model. No account 
 nothing leaves your machine. The AI parts work too: root cause and resolution drafts on a case,
 "why might the fix not have held?", runbook drafts, the shift handoff note, and plain explanations
 of combined patterns. The first start downloads about 10 GB (once) and needs about 8 GB of memory
-for Docker; answers take 5-20 seconds each on CPU.
+for Docker; answers take 5-20 seconds each on CPU. Already running the plain demo? Stop it first
+with `docker compose -f docker-compose.demo.yml down` (your data is kept): the backend looks for the
+model only when it starts.
 
 ##### 3. Demo + your AI API
 

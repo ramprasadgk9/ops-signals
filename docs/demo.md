@@ -116,6 +116,9 @@ docker compose -f docker-compose.demo.yml --profile ai up
 - It runs on CPU, so each answer takes 5-20 seconds. Combined pattern explanations are written in
   the background and show the next time you open the page.
 - Another model: add `DEMO_AI_MODEL=<name>` in front of the command.
+- Already running the plain demo? Stop it first with `docker compose -f docker-compose.demo.yml
+  down` (your data is kept), then run the command above. The backend looks for the model only when
+  it starts, so adding the profile to a running demo doesn't switch AI on.
 - Stop it with `docker compose -f docker-compose.demo.yml --profile ai down -v`. The downloaded
   model is in the `ollama_models` volume; `down -v` removes it too.
 
