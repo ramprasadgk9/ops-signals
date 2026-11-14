@@ -155,9 +155,9 @@ docs**.
    After: "To let your team sign in and give each person access as a Viewer, Editor or Admin, do the
    three steps below."
 2. **Don't leave a section that only links elsewhere.** Only a section's own text can be quoted.
-   Before: "See [LICENSE](LICENSE)."
+   Before: "See `LICENSE`."
    After: "Ops Signals is open source under the MIT license: free to use, change and share. See
-   [LICENSE](LICENSE)."
+   `LICENSE`."
 3. **One question per section.** Each `##` or `###` heading starts a new section. A long section is
    split into pieces of about 900 characters that each keep the heading, and a piece that mixes
    several topics matches none of them well. Split it with headings instead.
