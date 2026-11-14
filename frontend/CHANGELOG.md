@@ -4,7 +4,12 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
-## 1.0.38 - 2026-11-13 (Ops Signals 0.6.3)
+## 1.0.38 - 2026-11-14 (Ops Signals 0.6.3)
+
+- **Every finding shows its number.** The Autonomous overview shows it on each row and in the
+  evidence panel.
+- **Seen before? says what happened last time.** Each past-case match says in one line whether it
+  was fixed and how, or what is known so far, with the case's state and number.
 
 - **Metrics a run couldn't check are counted.** The Autonomous overview's Current Run Summary shows
   **not checked** for metrics with too much missing data or too few readings, and Run History says
