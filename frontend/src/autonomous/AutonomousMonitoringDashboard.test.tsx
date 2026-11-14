@@ -12,6 +12,7 @@ const data: AutonomousDashboardData = {
     executed: 4,
     skipped: 1,
     failed: 0,
+    notChecked: null,
   },
   selection: {
     title: 'Metric Selection',
@@ -54,6 +55,28 @@ describe('AutonomousMonitoringDashboard', () => {
     expect(screen.getByText(/Run a preview to see why/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'latency' })).toHaveAttribute('href', '/findings?window=24h');
     expect(screen.getByRole('link', { name: /Case #12/ })).toHaveAttribute('href', '/cases/12');
+  });
+
+  it('shows metrics that ran with too little data as Not checked, on the tile and the run', () => {
+    const withGaps: AutonomousDashboardData = {
+      ...data,
+      summary: { ...data.summary, executed: 33, notChecked: 33, findingsGenerated: 0 },
+      executionRows: [{ ...data.executionRows[0], metrics: '33 metrics', notChecked: 33 }],
+    };
+    render(<AutonomousMonitoringDashboard data={withGaps} context={{ datasource: 'Prometheus' }} state="ready" />);
+
+    const tile = screen.getByText('Not checked').closest('.auto-stat');
+    expect(tile).toHaveTextContent('33');
+    expect(tile).toHaveTextContent('Too little data');
+    expect(tile?.getAttribute('title')).toMatch(/30% of their readings were missing/);
+    expect(screen.getByText('33 not checked: too little data')).toBeInTheDocument();
+  });
+
+  it('leaves Not checked out for runs saved before it was counted', () => {
+    render(<AutonomousMonitoringDashboard data={data} context={{ datasource: 'Prometheus' }} state="ready" />);
+
+    expect(screen.queryByText('Not checked')).not.toBeInTheDocument();
+    expect(screen.queryByText(/not checked: too little data/)).not.toBeInTheDocument();
   });
 
   it('renders a first-run empty state before autonomous analysis completes', () => {

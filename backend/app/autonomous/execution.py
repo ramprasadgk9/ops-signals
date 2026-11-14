@@ -19,6 +19,7 @@ from backend.app.models.entities import AutonomousMetricJobEntity
 from backend.app.services.prometheus_service import PrometheusQueryService, configured_connection
 from backend.app.services.run_points import series_key
 from backend.app.services.timeseries_routing_service import build_csv_routing_config
+from experiments.analyzer_router.eligibility import too_little_data_to_check
 
 
 def execute_autonomous_plan_once(
@@ -168,6 +169,7 @@ def execute_autonomous_plan_once(
     # were skipped, so planned = executed + skipped + failed. Mixed together, a run read "planned 4,
     # executed 4, skipped 3".
     skipped = sum(1 for result in results if result.status == "skipped")
+    not_checked = sum(1 for result in results if result.status == "completed" and result.not_checked)
     excluded = len(skipped_items)
     status = "completed" if executed and not failed else "partial" if executed else "failed"
     # Each metric ran on its own, so rules over several metrics of a service are checked here.
@@ -184,6 +186,7 @@ def execute_autonomous_plan_once(
         jobs_failed=failed,
         findings_created=findings_created,
         error_summary=error_summary,
+        jobs_not_checked=not_checked,
     )
     return AutonomousRunResponse(
         policy_run_id=policy_run.id,
@@ -193,6 +196,7 @@ def execute_autonomous_plan_once(
         skipped_jobs=skipped,
         excluded_jobs=excluded,
         failed_jobs=failed,
+        not_checked_jobs=not_checked,
         budget_limited_jobs=budget_limited_jobs,
         budget_excluded_metrics_count=budget_excluded_metrics_count,
         budget_excluded_metrics=budget_excluded_metrics,
@@ -208,6 +212,7 @@ def execute_autonomous_plan_once(
             excluded_jobs=excluded,
             budget_limited_jobs=budget_limited_jobs,
             budget_excluded_metrics=budget_excluded_metrics,
+            not_checked_jobs=not_checked,
         ),
         analysis_window=analysis_window,
         requested_start=start,
@@ -316,6 +321,9 @@ def _execute_plan_item(
             signal_count=result.signal_count,
             findings_count=result.findings_count,
             behavior_findings_count=result.behavior_findings_count,
+            not_checked=too_little_data_to_check(
+                result.series_profile.get("missing_percentage"), result.series_profile.get("valid_sample_count")
+            ),
             warnings=preview.warnings,
         )
     except HTTPException as exc:
@@ -449,6 +457,7 @@ def _summary(
     excluded_jobs: int = 0,
     budget_limited_jobs: int = 0,
     budget_excluded_metrics: list[str] | None = None,
+    not_checked_jobs: int = 0,
 ) -> dict:
     duration_ms = None
     if started_at and completed_at:
@@ -466,6 +475,7 @@ def _summary(
         "jobs_skipped": skipped,
         "jobs_excluded": excluded_jobs,
         "jobs_failed": failed,
+        "jobs_not_checked": not_checked_jobs,
         "budget_limited_jobs": budget_limited_jobs,
         "budget_excluded_metrics_count": len(excluded),
         "budget_excluded_metrics": excluded[:50],

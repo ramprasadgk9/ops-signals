@@ -156,6 +156,7 @@ Run-once behavior:
   drops out of it.
 - surfaces execution budget coverage (`budget_limited_jobs`, `budget_excluded_metrics_count`, `budget_excluded_metrics`) in the response root and `summary` object
 - returns per-job status, sample count, signal count, finding count, behavior finding count, warnings, and errors
+- counts the jobs that ran but had too little data to look for changes (`not_checked_jobs`, `summary.jobs_not_checked`, and `not_checked` on each job); see [Not checked](#why-does-a-run-say-not-checked)
 - does not create a persistent autonomous policy or background schedule
 
 ### Execution Budget & Independent Run Model
@@ -208,6 +209,20 @@ elsewhere. The same `AutonomousRunResponse` returned by `run-once` drives a dash
 discovery/selection counts, execution summary, top findings by importance, behavior distribution,
 execution history, and recent cases, reusing the query keys the Overview page already invalidates
 so both stay in sync.
+
+### Why does a run say "Not checked"?
+
+"Not checked" counts metrics that ran but had too little data to look for spikes or shifts: more
+than 30% of their readings were missing, or fewer than 30 readings arrived in the window. These are
+the same limits every change-detecting analyzer uses, so no findings for those metrics doesn't mean
+they looked fine. The count is on the Execution Summary (the **Not checked** tile, inside
+**Executed**) and on each run in Execution history ("33 not checked: too little data").
+
+When every metric in a run is not checked, Prometheus itself usually wasn't collecting for part of
+the window: it was down or restarting, or the machine it runs on was asleep. Check Prometheus's own
+`up` metric for gaps at the same times. When only a few metrics are not checked, look at those
+targets: they may be timing out, or the window may be too short for their collection interval.
+Runs saved before this count existed don't show it.
 
 ## Non-Goals
 

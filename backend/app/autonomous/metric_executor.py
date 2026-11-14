@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -41,6 +41,8 @@ class MetricAnalysisExecutionResult:
     signal_count: int
     findings_count: int
     behavior_findings_count: int
+    # The router's profile of the series (missing_percentage, valid_sample_count, ...).
+    series_profile: dict[str, object] = field(default_factory=dict)
 
 
 class MetricAnalysisExecutor(RegistryAnalyzerSelection):
@@ -161,6 +163,7 @@ class MetricAnalysisExecutor(RegistryAnalyzerSelection):
                 signal_count=signal_count,
                 findings_count=finding_count,
                 behavior_findings_count=behavior_count,
+                series_profile=series_profile or {},
             )
         except Exception:
             self.store.update_analysis_run_learning_snapshot(analysis_run_id, {"status": "failed"})

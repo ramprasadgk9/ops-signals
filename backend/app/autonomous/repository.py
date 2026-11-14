@@ -218,9 +218,13 @@ class AutonomousPolicyRunRepository:
         jobs_failed: int,
         findings_created: int,
         error_summary: str | None = None,
+        jobs_not_checked: int | None = None,
     ) -> AutonomousPolicyRunEntity:
         run = self.get_run(run_id)
         run.status = status
+        if jobs_not_checked is not None:
+            # Kept in the snapshot JSON rather than a new column; a new dict so the change is saved.
+            run.policy_snapshot_json = {**(run.policy_snapshot_json or {}), "jobs_not_checked": jobs_not_checked}
         run.completed_at = utc_now()
         run.jobs_completed = jobs_completed
         run.jobs_skipped = jobs_skipped

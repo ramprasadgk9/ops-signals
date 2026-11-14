@@ -357,6 +357,8 @@ export type AutonomousRunResponse = {
   skipped_jobs: number;
   excluded_jobs?: number;
   failed_jobs: number;
+  /** Executed jobs whose series had too little data to look for changes. */
+  not_checked_jobs?: number;
   budget_limited_jobs?: number;
   budget_excluded_metrics_count?: number;
   budget_excluded_metrics?: string[];

@@ -88,7 +88,6 @@ export function AutonomousMonitoringPage() {
     previewResult,
     runResult,
     scheduledRunAnalysisRunIds,
-    findingHref: () => '/findings?window=24h',
     caseHref: (caseItem) => `/cases/${caseItem.id}`,
   });
 

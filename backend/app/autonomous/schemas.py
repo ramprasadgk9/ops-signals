@@ -356,6 +356,9 @@ class AutonomousJobRunResult(BaseModel):
     signal_count: int = 0
     findings_count: int = 0
     behavior_findings_count: int = 0
+    # Completed, but the series had too much missing data or too few readings for any analyzer that
+    # looks for changes, so "no findings" doesn't mean it looked fine.
+    not_checked: bool = False
     error: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
@@ -369,6 +372,8 @@ class AutonomousRunResponse(BaseModel):
     skipped_jobs: int
     excluded_jobs: int = 0
     failed_jobs: int
+    # Executed jobs whose series had too little data to look for changes (counted in executed_jobs).
+    not_checked_jobs: int = 0
     budget_limited_jobs: int = 0
     budget_excluded_metrics_count: int = 0
     budget_excluded_metrics: list[str] = Field(default_factory=list)

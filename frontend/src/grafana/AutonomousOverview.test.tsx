@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildAutonomousDashboardData } from '../autonomous/dashboardModel';
+import { buildAutonomousDashboardData, type AutonomousPolicyRun } from '../autonomous/dashboardModel';
 import type { BehaviorFinding, Finding, FindingTrust } from '../types';
 import { getCase, listCases, listPrometheusConnections } from './backendClient';
 import type { GrafanaCase } from './contracts';
@@ -69,7 +69,8 @@ function grafanaCase(id: number, findingId: number): GrafanaCase {
   };
 }
 
-function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter, behaviorFindings = [], services, serviceFilter = null, onServiceFilter }: {
+function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive = () => undefined, clusters, onClusterFilter, behaviorFindings = [], services, serviceFilter = null, onServiceFilter, policyRuns }: {
+  policyRuns?: AutonomousPolicyRun[];
   onCreateCase: (finding: Finding) => Promise<number | null>;
   services?: React.ComponentProps<typeof GrafanaAutonomousOverview>['services'];
   serviceFilter?: string | null;
@@ -81,7 +82,7 @@ function Harness({ onCreateCase, findings = FINDINGS, onInvestigateInteractive =
   onClusterFilter?: (cluster: string | null) => void;
 }) {
   const [open, setOpen] = useState<Finding | null>(null);
-  const data = buildAutonomousDashboardData({ findings, cases: [], analysisRuns: [] });
+  const data = buildAutonomousDashboardData({ findings, cases: [], analysisRuns: [], policyRuns });
   const noop = () => undefined;
   return (
     <GrafanaAutonomousOverview
@@ -127,6 +128,28 @@ describe('GrafanaAutonomousOverview symptom triage', () => {
     cases.mockReset().mockResolvedValue([grafanaCase(31, 6519)]);
     connections.mockReset().mockResolvedValue({ connections: [{ id: 'default', name: 'Default Prometheus', configured: true, is_default: true }] });
     loadCase.mockReset().mockImplementation(async (_url, id) => grafanaCase(id, id === 31 ? 6519 : 6523));
+  });
+
+  it('shows metrics that ran with too little data as not checked, in the summary and the run history', async () => {
+    const services = ['checkout', 'drift-lab', 'payments'];
+    await renderOverview({
+      policyRuns: [{
+        id: 'run-1', status: 'completed', jobs_completed: 33, jobs_skipped: 0, jobs_failed: 0, jobs_not_checked: 33,
+        completed_at: '2026-11-13T22:16:00Z', policy_snapshot: { scope_summary: { services_resolved: services } },
+      }],
+    });
+
+    const tile = screen.getByText('not checked').parentElement;
+    expect(tile).toHaveTextContent('33');
+    expect(tile).toHaveTextContent('too little data');
+    expect(tile?.getAttribute('title')).toMatch(/30% of their readings were missing/);
+    // Collapsed, the summary is one line built from several pieces, so match the line's whole text.
+    fireEvent.click(screen.getByRole('button', { name: 'Hide current run summary' }));
+    const summaryLine = (_: string, element: Element | null) => element?.tagName === 'SPAN' && /^33 executed · 33 not checked · 0 skipped/.test(element.textContent ?? '');
+    expect(screen.getByText(summaryLine)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show run history' }));
+    expect(screen.getByText('checkout, drift-lab + 1 more')).toBeInTheDocument();
+    expect(screen.getByText('33 not checked: too little data')).toBeInTheDocument();
   });
 
   it('sorts symptoms into needs attention (one row per metric), data problems and background', async () => {
