@@ -56,6 +56,12 @@ test('the Overview and the handoff name the same thing first, and the note copie
       },
     })
   );
+  // The Overview shows "Get data in" instead of Look at this first until data has arrived, and a
+  // fresh database (CI) has none.
+  await page.route('**/api/ingestion/status', async (route) => {
+    const response = await route.fetch();
+    route.fulfill({ response, json: { ...(await response.json()), has_any_data: true } });
+  });
   await page.goto('/');
   const focus = page.getByTestId('look-first');
   await expect(focus).toContainText('Look at this first', { timeout: 20_000 });

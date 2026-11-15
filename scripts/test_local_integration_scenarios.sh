@@ -16,6 +16,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="${ROOT_DIR}/.venv"
 WEB_UI_BACKEND_PORT="${WEB_UI_BACKEND_PORT:-8001}"
 PLUGIN_BACKEND_PORT="${PLUGIN_BACKEND_PORT:-8002}"
+# Grafana runs in Docker and calls the plugin backend at host.docker.internal. Docker Desktop
+# forwards that to this computer's loopback; on Linux it is the Docker bridge address, which a
+# backend listening on 127.0.0.1 refuses. CI (Linux) sets 0.0.0.0. Locally the default keeps the
+# testing API off the network.
+PLUGIN_BACKEND_HOST="${PLUGIN_BACKEND_HOST:-127.0.0.1}"
 WEB_UI_FRONTEND_PORT="${WEB_UI_FRONTEND_PORT:-5174}"
 OPS_SIGNALS_PROMETHEUS_URL="${OPS_SIGNALS_PROMETHEUS_URL:-http://localhost:9090}"
 PLAYWRIGHT_PROJECT="${1:-}"
@@ -155,10 +160,10 @@ for attempt in {1..90}; do
   sleep 2
 done
 
-echo "Starting plugin backend on :${PLUGIN_BACKEND_PORT}..."
+echo "Starting plugin backend on ${PLUGIN_BACKEND_HOST}:${PLUGIN_BACKEND_PORT}..."
 BACKEND_PORT="$PLUGIN_BACKEND_PORT" OPS_SIGNALS_PROMETHEUS_URL="$OPS_SIGNALS_PROMETHEUS_URL" \
   OPS_SIGNALS_ALLOW_FILE_WRITES=true OPS_SIGNALS_ENABLE_TESTING_API=true \
-  "$PYTHON_BIN" -m uvicorn backend.app.main:app --port "$PLUGIN_BACKEND_PORT" >"$plugin_backend_log" 2>&1 &
+  "$PYTHON_BIN" -m uvicorn backend.app.main:app --host "$PLUGIN_BACKEND_HOST" --port "$PLUGIN_BACKEND_PORT" >"$plugin_backend_log" 2>&1 &
 plugin_backend_pid=$!
 
 echo "Waiting for plugin backend to become ready..."
