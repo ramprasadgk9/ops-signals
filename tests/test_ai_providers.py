@@ -179,6 +179,54 @@ def test_openai_compatible_empty_content_is_an_error(monkeypatch) -> None:
         client.generate(_request())
 
 
+def test_openai_compatible_retries_with_thinking_headroom_when_reasoning_hits_max_tokens(monkeypatch) -> None:
+    sent_bodies: list[dict] = []
+    replies = iter([
+        {
+            "model": "thinking-model",
+            "choices": [{"finish_reason": "length", "message": {"role": "assistant", "content": "Cut off"}}],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 5, "total_tokens": 330},
+        },
+        {
+            "model": "thinking-model",
+            "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "Deploy v3.2.0 caused the failure rise."}}],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 20, "total_tokens": 350},
+        },
+        {
+            "model": "thinking-model",
+            "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "Second answer."}}],
+            "usage": {"prompt_tokens": 25, "completion_tokens": 10, "total_tokens": 200},
+        },
+    ])
+
+    def urlopen(req, timeout=None):
+        sent_bodies.append(json.loads(req.data.decode("utf-8")))
+        return _FakeHTTPResponse(json.dumps(next(replies)).encode("utf-8"))
+
+    monkeypatch.setattr(openai_compatible.urllib.request, "urlopen", urlopen)
+    client = OpenAICompatibleLLMClient(base_url="http://gw/v1", model="thinking-model")
+
+    first = client.generate(_request())
+    second = client.generate(_request())
+
+    assert first.content == "Deploy v3.2.0 caused the failure rise."
+    assert second.content == "Second answer."
+    expected_expanded = 300 + openai_compatible.THINKING_HEADROOM_TOKENS
+    assert [body["max_tokens"] for body in sent_bodies] == [300, expected_expanded, expected_expanded]
+
+
+def test_openai_compatible_empty_reply_on_length_limit_explains_thinking_exhaustion(monkeypatch) -> None:
+    monkeypatch.setattr(
+        openai_compatible.urllib.request,
+        "urlopen",
+        _fake_urlopen({}, {"choices": [{"finish_reason": "length", "message": {"content": ""}}]}),
+    )
+    client = OpenAICompatibleLLMClient(base_url="http://gw/v1", model="m")
+
+    with pytest.raises(LLMRequestError, match="ran out of tokens.*thinking"):
+        client.generate(_request())
+
+
 # --- Anthropic -----------------------------------------------------------------------------
 
 
