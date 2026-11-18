@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.4 - 2026-11-18
+
+Includes Grafana plugin 1.0.38 (unchanged).
+
+**AI features**
+
+- **Thinking models work through an OpenAI-compatible endpoint.** Models that reason before they
+  answer used to break two things. Guided investigations stopped after the first check, because
+  the model's own notes on its tool calls weren't sent back on the next step; now its reply is
+  sent back as it came. Short answers such as case drafts came back cut off or empty, because the
+  hidden reasoning used up the length limit. Now, once an endpoint shows it reasons, a cut-off
+  answer is asked again with room for the reasoning, and later requests get that room from the
+  start. Endpoints that don't reason are unchanged.
+
+**Project**
+
+- The Integration workflow's Grafana plugin tests reach the plugin backend again on Linux runners.
+
 ## 0.6.3 - 2026-11-14
 
 Includes Grafana plugin 1.0.38.
