@@ -154,6 +154,76 @@ def test_openai_compatible_sends_tools_and_parses_string_arguments(monkeypatch) 
     assert sent["messages"][3] == {"role": "tool", "tool_call_id": "toolu_1", "content": "flat at 0.2/s"}
 
 
+def test_openai_compatible_preserves_provider_fields_like_thought_signatures_across_tool_turns(monkeypatch) -> None:
+    sent_bodies: list[dict] = []
+    turn1_message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_sig_1",
+                "type": "function",
+                "function": {"name": "query_range", "arguments": "{\"promql\": \"up\"}"},
+                "extra_content": {"google": {"thought_signature": "sig-abc-123"}},
+            }
+        ],
+    }
+    replies = iter([
+        {"model": "thinking-flash", "choices": [{"finish_reason": "tool_calls", "message": turn1_message}], "usage": {"prompt_tokens": 50, "completion_tokens": 12}},
+        {"model": "thinking-flash", "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "All targets are up."}}], "usage": {"prompt_tokens": 90, "completion_tokens": 8}},
+    ])
+
+    def urlopen(req, timeout=None):
+        sent_bodies.append(json.loads(req.data.decode("utf-8")))
+        return _FakeHTTPResponse(json.dumps(next(replies)).encode("utf-8"))
+
+    monkeypatch.setattr(openai_compatible.urllib.request, "urlopen", urlopen)
+    client = OpenAICompatibleLLMClient(base_url="http://llm/v1", model="thinking-flash")
+
+    turn1 = client.generate_with_tools(ToolRequest(messages=[ToolTurn(role="user", content="Check targets")], tools=TOOLS))
+    assert turn1.raw == turn1_message
+    assert turn1.provider == "openai_compatible"
+
+    # Persist and reload through JSON just as backend/app/investigation/loop.py does.
+    restored_assistant = turn_from_dict(json.loads(json.dumps(turn_to_dict(turn1.as_turn()))))
+    turn2 = client.generate_with_tools(
+        ToolRequest(
+            messages=[
+                ToolTurn(role="user", content="Check targets"),
+                restored_assistant,
+                ToolTurn(role="tool", content="up=1", tool_call_id="call_sig_1", name="query_range"),
+            ],
+            tools=TOOLS,
+        )
+    )
+
+    assert turn2.content == "All targets are up."
+    assert sent_bodies[1]["messages"][1] == turn1_message
+    assert sent_bodies[1]["messages"][1]["tool_calls"][0]["extra_content"]["google"]["thought_signature"] == "sig-abc-123"
+
+
+def test_openai_compatible_ignores_raw_from_other_providers(monkeypatch) -> None:
+    captured: dict = {}
+    body = {"model": "m", "choices": [{"message": {"role": "assistant", "content": "Done."}}]}
+    monkeypatch.setattr(openai_compatible.urllib.request, "urlopen", _fake_urlopen(captured, body))
+    client = OpenAICompatibleLLMClient(base_url="http://llm/v1", model="m")
+    turns = [
+        ToolTurn(role="user", content="start"),
+        ToolTurn(
+            role="assistant",
+            tool_calls=(ToolCall(id="toolu_1", name="query_range", arguments={"promql": "up"}),),
+            raw=[{"type": "thinking", "signature": "anthropic-sig"}],
+            provider="anthropic",
+        ),
+        ToolTurn(role="tool", content="ok", tool_call_id="toolu_1", name="query_range"),
+    ]
+
+    reply = client.generate_with_tools(ToolRequest(messages=turns, tools=TOOLS))
+
+    assert reply.content == "Done."
+    assert captured["body"]["messages"][1]["tool_calls"][0]["id"] == "toolu_1"
+
+
 def test_ollama_names_calls_it_returns_without_ids(monkeypatch) -> None:
     captured: dict = {}
     body = {"message": {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "query_range", "arguments": {"promql": "up"}}}]}}
