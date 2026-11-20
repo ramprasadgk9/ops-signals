@@ -92,7 +92,7 @@ Grafana (13.1 or later). You need a Prometheus datasource in that Grafana.
    curl -fLO https://github.com/ramprasadgk9/ops-signals/releases/download/v0.6.4/breezypoppy3596-opssignals-app-1.0.38.zip
    ```
 
-   To build it from a checkout instead (needs Node.js 20+), run
+   To build it from a checkout instead (needs Node.js 24+), run
    `./scripts/release/build_grafana_plugin_artifact.sh`; it writes the zip under `dist/release/`.
 
 2. **Install it:** unzip it into Grafana's plugins folder (`/var/lib/grafana/plugins` by default).

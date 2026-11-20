@@ -4,6 +4,11 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
+## Unreleased
+
+- **Built with Grafana's standard plugin tooling** (create-plugin), which the plugin catalog review
+  requires. Nothing changes in how the plugin looks or is set up.
+
 ## 1.0.38 - 2026-11-14 (Ops Signals 0.6.3)
 
 - **Every finding shows its number.** The Autonomous overview shows it on each row and in the

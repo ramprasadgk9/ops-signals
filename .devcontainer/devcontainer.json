@@ -1,12 +1,12 @@
 // A ready-to-code environment for GitHub Codespaces or VS Code Dev Containers: Python 3.12 and
-// Node 20 (the versions CI uses), plus Docker for PostgreSQL, Qdrant and Prometheus. Creating it runs
+// Node 24 (the versions CI uses), plus Docker for PostgreSQL, Qdrant and Prometheus. Creating it runs
 // ./scripts/setup.sh; then start everything with ./scripts/run_all.sh. See "Set Up Your Machine" in
 // CONTRIBUTING.md.
 {
   "name": "Ops Signals",
   "build": { "dockerfile": "Dockerfile" },
   "features": {
-    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "24" },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
   // setup.sh installs PyTorch (through sentence-transformers) and pulls the database images, so

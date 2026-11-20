@@ -10,7 +10,7 @@ to the deploy behind it, and remembers how past incidents were fixed. Main parts
 
 - `backend/app/` - FastAPI backend: analyzers, pipeline, findings, cases, assistant, MCP server.
 - `frontend/` - one React + MUI codebase built two ways: the standalone web UI and the Grafana app
-  plugin (`vite.plugin.config.ts`).
+  plugin (Grafana's create-plugin webpack build: `webpack.config.ts` + `.config/`).
 - PostgreSQL is the system of record; Qdrant is only a retrieval index (ADR-004, ADR-005).
 
 ## Commands

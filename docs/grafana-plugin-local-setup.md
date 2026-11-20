@@ -603,7 +603,7 @@ Use:
 Cmd + Shift + R
 ```
 
-Also confirm `frontend/plugin.json` has a new version number and rebuild.
+Also confirm `frontend/package.json` has a new version number (the plugin version) and rebuild.
 
 ### Backend Is Not Connected
 

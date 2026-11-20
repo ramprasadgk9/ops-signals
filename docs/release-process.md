@@ -10,9 +10,10 @@
 
 1. Validate tests.
 2. Review docs for accuracy.
-3. Update changelog. When the release changes the Grafana plugin, also bump `info.version` and
-   `info.updated` in `frontend/plugin.json` and move the plugin's "Unreleased" notes in
-   `frontend/CHANGELOG.md` under the new plugin version.
+3. Update changelog. When the release changes the Grafana plugin, also bump `version` in
+   `frontend/package.json` (the plugin version; the build writes it and the build date into
+   `plugin.json`) and move the plugin's "Unreleased" notes in `frontend/CHANGELOG.md` under the new
+   plugin version.
 4. Thank contributors. End the release's changelog section with a line such as
    "Thanks to @name and @name for their contributions", naming everyone besides the maintainers
    whose pull request is in this release (`git log --format='%an' <previous-tag>..HEAD | sort -u`
@@ -29,11 +30,12 @@ This repository currently follows an early-stage release process. Public version
 
 There are two version numbers, and they are meant to differ:
 
-- **The project version** (`pyproject.toml`, `frontend/package.json`, the `vX.Y.Z` git tag and the
+- **The project version** (`pyproject.toml`, the `vX.Y.Z` git tag and the
   CHANGELOG heading) is the version of Ops Signals as a whole: backend, web UI, MCP server and
   container images. It is still `0.x`.
-- **The Grafana plugin version** (`info.version` in `frontend/plugin.json`) belongs to the plugin
-  alone. Grafana compares it to decide whether an installed plugin needs updating, so it only ever
+- **The Grafana plugin version** (`version` in `frontend/package.json`) belongs to the plugin
+  alone. Grafana's plugin validator requires the plugin's `package.json` to carry it, which is why
+  `frontend/package.json` holds the plugin version and not the project version. Grafana compares it to decide whether an installed plugin needs updating, so it only ever
   goes up, and it is bumped on every project release that changes the plugin. It is `1.0.x` because
   the plugin was versioned before the project was, and it is not reset to match.
 

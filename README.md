@@ -297,7 +297,7 @@ What you can do, and where to find it in the app. The docs go deeper.
 - **Git**
 - **Docker**, with Compose v2 (`docker compose`, not the older `docker-compose`), running
 - **Python 3.12** (recommended; 3.11, 3.13 and 3.14 also work)
-- **Node.js 20+** and npm
+- **Node.js 24+** and npm
 - macOS or Linux (on Windows, use WSL)
 
 #### Run Setup

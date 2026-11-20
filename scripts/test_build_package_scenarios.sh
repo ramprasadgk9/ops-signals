@@ -68,7 +68,7 @@ run_scenario \
 run_scenario \
   "Given Grafana plugin source and metadata, build the plugin bundle with plugin.json, README, and image assets." \
   "plugin-ui" \
-  "frontend/plugin.json, frontend/vite.plugin.config.ts, frontend/src/grafana, frontend/src/plugin" \
+  "frontend/src/plugin.json, frontend/webpack.config.ts, frontend/.config, frontend/src/grafana, frontend/src/plugin" \
   "frontend/dist contains Grafana plugin bundle metadata and assets" \
   npm --prefix frontend run build:grafana
 

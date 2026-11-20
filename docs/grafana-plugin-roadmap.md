@@ -23,52 +23,36 @@ Tracking issue: [#58](https://github.com/ramprasadgk9/ops-signals/issues/58).
   When) use the same step layout.
 
 Grafana's plugin validator (`npx @grafana/plugin-validator`, run report-only in the plugin workflow)
-still reports two errors. They block the catalog, not installing the zip.
+reports no errors. Its only warning that matters is "unsigned plugin", which is expected for a plugin
+that isn't published yet.
 
-| Validator error | What it means | Fixed by |
-| --- | --- | --- |
-| Non-standard frontend build tooling | The plugin is built with Vite; the catalog wants Grafana's `create-plugin` setup | Step 1 |
-| `package.json` version differs from `plugin.json` | The plugin shares `frontend/package.json` (project version 0.x) with the web UI | Step 1 |
+## How the plugin is built
+
+The plugin uses Grafana's [`@grafana/create-plugin`](https://grafana.com/developers/plugin-tools/)
+build (webpack), which the catalog review checks for. It lives in `frontend/`, next to the
+standalone web UI, which is still built with Vite:
+
+- `frontend/.config/` is create-plugin's configuration, copied as scaffolded (create-plugin 9.0.4).
+  Don't edit it; `npx @grafana/create-plugin update` replaces it.
+- `frontend/webpack.config.ts` extends it: the newer JSX runtime (Grafana provides
+  `react/jsx-runtime`), LICENSE from the repository root, one entry (`src/module.ts`), and the
+  build-time default backend URL (`VITE_OPS_SIGNALS_BACKEND_URL`).
+- `frontend/src/plugin.json` and `frontend/src/img/` are the plugin's metadata and images. The build
+  fills in `%VERSION%` and `%TODAY%`.
+- `frontend/package.json` carries the **plugin** version (1.0.x), because the validator compares it
+  with `plugin.json`. The project version lives in `pyproject.toml` and the git tag.
+- `npm run build:grafana` builds into `frontend/dist`; `npm run dev:grafana` rebuilds on change.
+  The build needs Node 24 (it loads its TypeScript config with Node's built-in type stripping).
+
+The plugin code is in `frontend/src/grafana/` and `frontend/src/datasource/`, and imports shared
+code (types, `utils/`, `autonomous/` models). It must not import the web UI's pages or components;
+`importBoundary.test.ts` checks that.
 
 ## Next steps to the catalog
 
-Do these in order, after the repository is public.
+### 1. Move the plugin build to Grafana's create-plugin setup (done)
 
-### 1. Move the plugin build to Grafana's create-plugin setup
-
-**What it is.** [`@grafana/create-plugin`](https://grafana.com/developers/plugin-tools/) is
-Grafana's official starter kit for plugins: a webpack build Grafana maintains, a `.config/` folder,
-standard build and test commands, and the plugin's own `package.json`. The catalog review checks
-for it.
-
-**How it works today.** The plugin lives in `frontend/`, next to the standalone web UI, and shares
-its `package.json`. `npm run build:grafana` builds it with Vite (`frontend/vite.plugin.config.ts`),
-which includes a small fix so Grafana's module loader gets React correctly. The plugin code is in
-`frontend/src/grafana/` and imports shared code (types, `utils/`, `autonomous/` models). It must
-not import the web UI's pages or components; `importBoundary.test.ts` checks that.
-
-**The work.**
-
-1. Create a plugin project in its own folder (for example `grafana-plugin/`) with
-   `npx @grafana/create-plugin`, keeping the id `breezypoppy3596-opssignals-app` and the plugin
-   version (1.0.x) in its `package.json`.
-2. Point it at the existing plugin code. Either move `frontend/src/grafana/` and the shared code it
-   imports, or make the shared code importable from both projects (a path alias or a small shared
-   package). Keep the import boundary test.
-3. Replace `npm run build:grafana` and update everything that uses its output:
-   `docker-compose.yml` (mounts `frontend/dist` into Grafana), `scripts/run_grafana_stack.sh`,
-   `scripts/record_screenshots.sh`, `scripts/release/build_grafana_plugin_artifact.sh`, the CI
-   workflows, and the setup docs ([`grafana-plugin-local-setup.md`](grafana-plugin-local-setup.md)).
-4. Move the plugin's unit tests and the Playwright plugin project to the new setup.
-
-**Is it a breaking change?** Not for people using the plugin: the id, address, settings, screens and
-install steps stay the same, and the update is an ordinary version bump. It is a large change for
-development: folder layout, build commands, compose mount, scripts, CI and docs.
-
-**The risk.** The webpack build must produce a `module.js` that behaves exactly like today's,
-especially in how it loads React and `@grafana/*` from Grafana (the reason for the Vite fix).
-
-**How to check it.** Before merging, all of these pass against a real Grafana:
+Before submitting, check the plugin against a real Grafana:
 
 - the plugin unit tests (`npm run test:plugin` and the `src/grafana` tests);
 - the Playwright plugin project (`npm run test:integration:plugin`);
@@ -76,9 +60,6 @@ especially in how it loads React and `@grafana/*` from Grafana (the reason for t
   "Grafana data source" and "Ops Signals connection"; Autonomous Configure previews and runs once,
   and the Overview loads; Memory & Alerts opens; no errors in the browser console;
 - `npx @grafana/plugin-validator` on the new zip reports no errors.
-
-This step also fixes the version error: the new `package.json` carries the plugin version. The
-dev-dependency error was fixed earlier by moving to vite 7 and vitest 4.
 
 ### 2. Submit to the catalog
 
@@ -89,8 +70,10 @@ plugin that isn't published yet; Grafana tells you during the review when it can
    `continue-on-error`).
 2. Create a GitHub Release for the tag, so the plugin workflow attaches the zip and its `.sha1`.
 3. On grafana.com, under the organization's plugins, submit a new plugin with the zip's public URL,
-   its SHA1 and the source code URL. The plugin needs the Ops Signals backend, so include short
-   steps for reviewers to start one.
+   its SHA1 and the source code URL. The source code URL must point at the `frontend/` folder of
+   the tag (`https://github.com/ramprasadgk9/ops-signals/tree/<tag>/frontend`), where the validator
+   finds `package.json`, `.config/` and `src/`. The plugin needs the Ops Signals backend, so include
+   short steps for reviewers to start one.
 
 ### 3. Sign the plugin
 

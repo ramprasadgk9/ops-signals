@@ -4,7 +4,8 @@ set -euo pipefail
 # Builds the Grafana plugin zip: dist/release/<release>/<plugin-id>-<plugin version>.zip, laid out as
 # Grafana expects (one top-level folder named after the plugin id). <release> is the optional first
 # argument, the project release it ships with (e.g. 0.6.4); it defaults to the plugin version. The zip
-# is always named after the plugin's own version (info.version in frontend/plugin.json, 1.0.x).
+# is always named after the plugin's own version ("version" in frontend/package.json, 1.0.x; the build
+# writes it into plugin.json).
 #
 # Signing: with GRAFANA_ACCESS_POLICY_TOKEN set (a grafana.com access policy token with the
 # plugins:write scope), the plugin is signed before zipping. A community or commercial signature
@@ -13,13 +14,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-read -r PLUGIN_ID PLUGIN_VERSION < <(python3 - "$ROOT_DIR/frontend/plugin.json" <<'PY'
+read -r PLUGIN_ID PLUGIN_VERSION < <(python3 - "$ROOT_DIR/frontend" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-plugin = json.loads(Path(sys.argv[1]).read_text())
-print(plugin["id"], plugin["info"]["version"])
+frontend = Path(sys.argv[1])
+plugin = json.loads((frontend / "src" / "plugin.json").read_text())
+package = json.loads((frontend / "package.json").read_text())
+print(plugin["id"], package["version"])
 PY
 )
 

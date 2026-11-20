@@ -250,7 +250,7 @@ const GRAFANA_SHOTS = {
     await page.waitForTimeout(3500);
   },
 
-  // Also the Grafana catalog's "Autonomous overview" screenshot (frontend/img/screenshots).
+  // Also the Grafana catalog's "Autonomous overview" screenshot (frontend/src/img/screenshots).
   async '07-autonomous-overview'(page) {
     await page.goto(PLUGIN);
     await page.getByRole('button', { name: /Autonomous Analysis/ }).click();
