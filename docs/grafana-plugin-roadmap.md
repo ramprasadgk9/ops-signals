@@ -23,12 +23,11 @@ Tracking issue: [#58](https://github.com/ramprasadgk9/ops-signals/issues/58).
   When) use the same step layout.
 
 Grafana's plugin validator (`npx @grafana/plugin-validator`, run report-only in the plugin workflow)
-still reports three errors. They block the catalog, not installing the zip.
+still reports two errors. They block the catalog, not installing the zip.
 
 | Validator error | What it means | Fixed by |
 | --- | --- | --- |
 | Non-standard frontend build tooling | The plugin is built with Vite; the catalog wants Grafana's `create-plugin` setup | Step 1 |
-| Known issues in dev dependencies | vite 5, vitest 2 and their dependencies are flagged | Step 1 |
 | `package.json` version differs from `plugin.json` | The plugin shares `frontend/package.json` (project version 0.x) with the web UI | Step 1 |
 
 ## Next steps to the catalog
@@ -78,28 +77,31 @@ especially in how it loads React and `@grafana/*` from Grafana (the reason for t
   and the Overview loads; Memory & Alerts opens; no errors in the browser console;
 - `npx @grafana/plugin-validator` on the new zip reports no errors.
 
-This step also fixes the other two validator errors: the new `package.json` carries the plugin
-version, and the new project starts on current build and test tools.
+This step also fixes the version error: the new `package.json` carries the plugin version. The
+dev-dependency error was fixed earlier by moving to vite 7 and vitest 4.
 
-### 2. Sign the plugin
+### 2. Submit to the catalog
+
+A new plugin is submitted unsigned. The validator reports "unsigned plugin" only as a warning for a
+plugin that isn't published yet; Grafana tells you during the review when it can be signed.
+
+1. Make the validator step in `.github/workflows/plugin.yml` blocking (remove
+   `continue-on-error`).
+2. Create a GitHub Release for the tag, so the plugin workflow attaches the zip and its `.sha1`.
+3. On grafana.com, under the organization's plugins, submit a new plugin with the zip's public URL,
+   its SHA1 and the source code URL. The plugin needs the Ops Signals backend, so include short
+   steps for reviewers to start one.
+
+### 3. Sign the plugin
+
+Once Grafana says the plugin can be signed:
 
 1. On grafana.com, in the publishing organization, create an access policy token with the
    `plugins:write` scope.
 2. Add it to the GitHub repository as the secret `GRAFANA_ACCESS_POLICY_TOKEN`. The plugin workflow
    and `build_grafana_plugin_artifact.sh` sign the zip when it is set.
-3. Make the validator step in `.github/workflows/plugin.yml` blocking (remove
-   `continue-on-error`).
-
-A community signature comes through the catalog review in step 3. Until then the zip stays
-unsigned.
-
-### 3. Submit to the catalog
-
-1. Create a GitHub Release for the tag, so the plugin workflow attaches the zip and its `.sha1`.
-2. On grafana.com, under the organization's plugins, submit a new plugin with the zip's public URL,
-   its SHA1 and the source code URL.
-3. Once it is accepted, update [`frontend/README.md`](../frontend/README.md) to install from the
-   catalog and drop the `allow_loading_unsigned_plugins` step.
+3. Build the next release signed, then update [`frontend/README.md`](../frontend/README.md) to
+   install from the catalog and drop the `allow_loading_unsigned_plugins` step.
 
 ## Later, not needed for the catalog
 
