@@ -85,11 +85,11 @@ Grafana (13.1 or later). You need a Prometheus datasource in that Grafana.
 
 1. **Download the plugin zip** from the project's
    [Releases](https://github.com/ramprasadgk9/ops-signals/releases): each release has
-   `breezypoppy3596-opssignals-app-<plugin version>.zip` and its `.sha1`. For Ops Signals 0.6.4 that
-   is plugin 1.0.38:
+   `breezypoppy3596-opssignals-app-<plugin version>.zip` and its `.sha1`. For Ops Signals 0.6.5 that
+   is plugin 1.0.39:
 
    ```bash
-   curl -fLO https://github.com/ramprasadgk9/ops-signals/releases/download/v0.6.4/breezypoppy3596-opssignals-app-1.0.38.zip
+   curl -fLO https://github.com/ramprasadgk9/ops-signals/releases/download/v0.6.5/breezypoppy3596-opssignals-app-1.0.39.zip
    ```
 
    To build it from a checkout instead (needs Node.js 24+), run
@@ -101,7 +101,7 @@ Grafana (13.1 or later). You need a Prometheus datasource in that Grafana.
    breezypoppy3596-opssignals-app`.
 
    ```bash
-   unzip breezypoppy3596-opssignals-app-1.0.38.zip -d /var/lib/grafana/plugins
+   unzip breezypoppy3596-opssignals-app-1.0.39.zip -d /var/lib/grafana/plugins
    ```
 
 3. **Allow it, then restart Grafana.** The plugin isn't signed yet, so Grafana loads it only when
@@ -127,7 +127,7 @@ To try this on one computer, run Grafana in Docker with the plugins folder mount
 
 ```bash
 mkdir -p ~/grafana-plugins
-unzip breezypoppy3596-opssignals-app-1.0.38.zip -d ~/grafana-plugins
+unzip breezypoppy3596-opssignals-app-1.0.39.zip -d ~/grafana-plugins
 docker run -d --name grafana -p 3000:3000 \
   -e GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=breezypoppy3596-opssignals-app \
   -v ~/grafana-plugins:/var/lib/grafana/plugins \
