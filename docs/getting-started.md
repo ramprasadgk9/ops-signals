@@ -90,7 +90,7 @@ lists what each feature adds.
 | --- | --- | --- |
 | `docker is required` | Docker isn't installed, or the daemon isn't running | Install/start Docker Desktop (or Docker Engine on Linux) |
 | `Unsupported Python version selected: 3.10` | System Python is older than 3.11 | Install 3.12 (recommended), 3.11, 3.13 or 3.14, then run `PYTHON_BIN=python3.12 ./scripts/setup.sh` |
-| `npm is required to install frontend dependencies` | Node.js/npm isn't installed | Install Node.js 20+ |
+| `npm is required to install frontend dependencies` | Node.js/npm isn't installed | Install Node.js 24+ |
 | `postgres did not become ready in time` or `qdrant did not become ready in time` | Docker is still starting, or the port is already taken | `docker compose ps` and `docker compose logs postgres` (or `qdrant`); confirm ports `5432`/`6333` are free |
 | A port (`8001`, `5174`, `9090`) is already in use | Another process is bound to it | Stop that process, or see `scripts/run_all.sh` for the ports it uses |
 | `permission denied` running a script | The script isn't marked executable | `chmod +x scripts/*.sh` |

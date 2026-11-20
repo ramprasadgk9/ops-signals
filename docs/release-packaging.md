@@ -13,7 +13,7 @@ Ops Signals has four release artifacts:
 ./scripts/release/build_grafana_plugin_artifact.sh 0.6.4
 ```
 
-Output (the zip is named after the plugin's own version, `info.version` in `frontend/plugin.json`):
+Output (the zip is named after the plugin's own version, `version` in `frontend/package.json`):
 
 ```text
 dist/release/0.6.4/<plugin-id>-<version>.zip
@@ -29,7 +29,7 @@ To sign the plugin, set `GRAFANA_ACCESS_POLICY_TOKEN` (a grafana.com access poli
 `GRAFANA_SIGN_ROOT_URLS`, the Grafana address(es) the plugin may run on. Without the token the zip is
 unsigned and Grafana loads it only with `allow_loading_unsigned_plugins`.
 
-The catalog screenshots are `frontend/img/screenshots/*.png` (listed in `frontend/plugin.json`). To
+The catalog screenshots are `frontend/src/img/screenshots/*.png` (listed in `frontend/src/plugin.json`). To
 refresh them, run `./scripts/record_screenshots.sh` against the demo and copy the plugin captures
 `02-metrics-analysis`, `03-case-flow`, `07-autonomous-overview` and `06-autonomous-analysis` over
 `metrics-analysis`, `finding-evidence`, `autonomous-overview` and `autonomous-configure`.
