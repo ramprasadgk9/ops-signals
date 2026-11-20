@@ -7,7 +7,7 @@ plan in one place for when we decide to do it.
 
 Tracking issue: [#58](https://github.com/ramprasadgk9/ops-signals/issues/58).
 
-## Where it stands (plugin 1.0.38)
+## Where it stands (plugin 1.0.39)
 
 - **Id:** `breezypoppy3596-opssignals-app`. `breezypoppy3596` is the grafana.com organization that
   will publish it. Grafana's id rule allows one word between the organization and `-app`, so the
@@ -22,8 +22,8 @@ Tracking issue: [#58](https://github.com/ramprasadgk9/ops-signals/issues/58).
 - **Forms:** Interactive Analysis (Data, What, When) and Autonomous Configure (Data, Scope, Watch,
   When) use the same step layout.
 
-Grafana's plugin validator (`npx @grafana/plugin-validator`, run report-only in the plugin workflow)
-reports no errors. Its only warning that matters is "unsigned plugin", which is expected for a plugin
+Grafana's plugin validator (`npx @grafana/plugin-validator`, run by the plugin workflow, which fails
+on an error) reports no errors. Its only warning that matters is "unsigned plugin", which is expected for a plugin
 that isn't published yet.
 
 ## How the plugin is built
@@ -66,10 +66,9 @@ Before submitting, check the plugin against a real Grafana:
 A new plugin is submitted unsigned. The validator reports "unsigned plugin" only as a warning for a
 plugin that isn't published yet; Grafana tells you during the review when it can be signed.
 
-1. Make the validator step in `.github/workflows/plugin.yml` blocking (remove
-   `continue-on-error`).
-2. Create a GitHub Release for the tag, so the plugin workflow attaches the zip and its `.sha1`.
-3. On grafana.com, under the organization's plugins, submit a new plugin with the zip's public URL,
+1. Create a GitHub Release for the tag, so the plugin workflow attaches the zip and its `.sha1`.
+   The workflow's validator step fails on catalog errors (warnings don't fail it).
+2. On grafana.com, under the organization's plugins, submit a new plugin with the zip's public URL,
    its SHA1 and the source code URL. The source code URL must point at the `frontend/` folder of
    the tag (`https://github.com/ramprasadgk9/ops-signals/tree/<tag>/frontend`), where the validator
    finds `package.json`, `.config/` and `src/`. The plugin needs the Ops Signals backend, so include

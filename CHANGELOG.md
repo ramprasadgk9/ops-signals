@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.5 - 2026-11-20
+
+Includes Grafana plugin 1.0.39.
+
+**Grafana plugin**
+
+- **Built with Grafana's standard plugin tooling** (create-plugin, webpack), which the Grafana
+  plugin catalog review requires. Grafana's plugin validator now reports no errors. Nothing changes
+  in how the plugin looks, installs or is set up.
+- The plugin release workflow now fails when the validator reports an error.
+
+**Project**
+
+- Node.js 24 is now required to build the frontend and the plugin (CI and the devcontainer use it).
+  Node.js 20 reached end of life in April 2026.
+- The frontend build tools moved to Vite 7 and Vitest 4, which clears the known security issues
+  in them.
+- `frontend/package.json` now carries the Grafana plugin version; the project version is in
+  `pyproject.toml` and the git tag.
+
 ## 0.6.4 - 2026-11-18
 
 Includes Grafana plugin 1.0.38 (unchanged).
