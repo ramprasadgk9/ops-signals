@@ -21,7 +21,7 @@ from backend.app.config import AlertEnrichmentConfig, get_prometheus_connections
 from backend.app.models.entities import AnalysisRunEntity, FindingEntity, SignalEntity
 from backend.app.services import service_notes
 from backend.app.services.finding_changes import change_time
-from backend.app.services.finding_plain import finding_plain
+from backend.app.services.finding_plain import finding_plain, utc_text
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,8 @@ SOURCES = ("notes", "changes", "cases")
 LEAD = timedelta(hours=1)
 # ...and at most this long after it.
 SPAN = timedelta(hours=6)
+# The other metrics that changed with it, closest first, at most this many.
+MAX_RELATED = 5
 
 
 @dataclass(slots=True)
@@ -51,6 +53,9 @@ class FindingContext:
     reason: str | None = None
     breakdown: dict[str, Any] | None = None
     note: dict[str, Any] = field(default_factory=dict)
+    # Other metrics of the service that changed at the same moment, as the card's "Happened with"
+    # says them (finding_plain.link_related).
+    related: list[str] = field(default_factory=list)
 
     @property
     def anchor(self) -> datetime | None:
@@ -102,12 +107,14 @@ def finding_context(db: Session, finding: FindingEntity) -> FindingContext:
         changed_at=as_utc(changed_at) if changed_at else None,
         ended_at=as_utc(finding.event_end) if finding.event_end else None,
         ongoing=bool(finding.ongoing),
-        headline=(plain or {}).get("headline") or finding.title,
-        what=(plain or {}).get("what") or finding.summary,
+        # The model reads times as UTC, not as the screen's time markers.
+        headline=utc_text((plain or {}).get("headline") or finding.title),
+        what=utc_text((plain or {}).get("what") or finding.summary),
         eligible=eligible,
         reason=reason,
         breakdown=(finding.comparison_json or {}).get("breakdown") if isinstance(finding.comparison_json, dict) else None,
         note=service_notes.get_note(db, finding.service) if finding.service else {},
+        related=[utc_text(item["text"]) for item in (plain or {}).get("related") or [] if item.get("text")][:MAX_RELATED],
     )
 
 
@@ -119,6 +126,8 @@ def first_message(context: FindingContext, changes: list[str], today: str | None
         f"Service: {context.service} · Metric: {context.metric_name}" + (f" · Cluster: {context.cluster}" if context.cluster else ""),
         f"What happened: {context.headline}. {context.what}".strip(),
     ]
+    if context.related:
+        lines.append(f"Other metrics of {context.service} that changed at the same moment: " + " ".join(context.related))
     if context.changed_at:
         lines.append(f"It changed at about {_hhmm(context.changed_at)} UTC on {context.changed_at:%Y-%m-%d}.")
     lines.append(f"Time range to check (UTC): {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M}. Tools use it unless you give another.")

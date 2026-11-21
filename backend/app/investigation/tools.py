@@ -36,7 +36,7 @@ from backend.app.ai.tool_calls import ToolCall, ToolSpec, new_call_id
 from backend.app.alerts.correlation import as_utc, service_names
 from backend.app.investigation.context import FindingContext
 from backend.app.models.entities import ChangeEventEntity, FindingEntity, OperationalCaseEntity
-from backend.app.services.finding_plain import significant
+from backend.app.services.finding_plain import finding_plain, significant, utc_text
 from backend.app.services.prometheus_service import PrometheusQueryService
 
 logger = logging.getLogger(__name__)
@@ -290,8 +290,13 @@ class ToolBox:
             unwatched = [name for name in services if name.lower() not in watched]
             extra = f" Ops Signals has never had a finding on {', '.join(unwatched)}, so it may not watch them." if unwatched else ""
             return CheckResult(True, f"No findings on {', '.join(services)} between {_hhmm(start)} and {_hhmm(end)} UTC.{extra}")
+        try:
+            plain = finding_plain(self.db, list(rows))
+        except Exception:  # noqa: BLE001 - the stored titles still answer the question
+            logger.info("Investigation: no plain wording for findings_for", exc_info=True)
+            plain = {}
         lines = [
-            f"{row.service} · {row.metric_name}: {row.title}" + (f" (from {_hhmm(as_utc(row.event_start))} UTC)" if row.event_start else "")
+            f"{row.service} · {row.metric_name}: {_said(row, plain.get(row.id))}" + (f" (from {_hhmm(as_utc(row.event_start))} UTC)" if row.event_start else "")
             for row in rows
         ]
         return CheckResult(True, "\n".join(lines))
@@ -488,6 +493,13 @@ def _parse_time(value: Any) -> datetime | None:
 
 def _hhmm(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%H:%M")
+
+
+def _said(row: FindingEntity, plain: dict[str, Any] | None) -> str:
+    """A finding as its card says it, with the numbers and times; its stored title without one."""
+    if not plain or not plain.get("headline"):
+        return row.title
+    return utc_text(f"{plain['headline']}. {plain.get('what') or ''}".strip())
 
 
 def _escape(value: str) -> str:
