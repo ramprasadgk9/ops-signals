@@ -22,6 +22,7 @@ from backend.app.investigation.tools import ToolBox, metric_names_in, selector_n
 from backend.app.models.db import get_session_local
 from backend.app.models.entities import AnalysisRunEntity, ChangeEventEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.prometheus_service import PrometheusQueryService
+from tests.api_backend.test_finding_plain_api import REAL, _seed
 
 STARTING_CALLS = ToolBox.starting_calls
 START = datetime(2026, 11, 5, 21, 30, tzinfo=timezone.utc)
@@ -392,6 +393,68 @@ def test_list_series_filters_by_name_and_findings_for_says_when_a_service_is_not
     assert "No metric of checkout matches 'kafka'" in none.text
     assert "never had a finding on checkout-db" in others.text
     assert not unknown.ok and "no tool called 'drop_table'" in unknown.text
+
+
+def _related_findings() -> int:
+    """8300 (error rate) and 8299 (p95): real spike-lab findings that dropped at the same moment, so
+    each card says the other "Happened with" it. 8300's run queried Prometheus."""
+    now = datetime.now(timezone.utc)
+    with get_session_local()() as db:
+        _seed(db, 8300, now)
+        _seed(db, 8299, now)
+        db.add(AnalysisRunEntity(
+            id=REAL[8300]["analysis_run_id"], source_type="prometheus", provider="prometheus", service="spike-lab", metric_name="error_rate",
+            start_time=datetime.fromisoformat(REAL[8300]["event_start"]), end_time=datetime.fromisoformat(REAL[8300]["event_end"]),
+            sample_count=24, status="completed", connection_id="default", promql='error_rate{service="spike-lab"}',
+        ))
+        db.commit()
+    return 8300
+
+
+def test_the_opening_says_what_changed_with_it_in_utc_times(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _related_findings()
+    model = ScriptedModel({"summary": "Nothing found.", "ending": "nothing_found", "steps": []})
+    _use(monkeypatch, model)
+
+    assert client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).status_code == 200
+
+    opening = model.requests[0].messages[1].content
+    assert "What happened: Error rate dropped sharply and stayed lower. About 11.3% until Oct 19, 22:54 UTC." in opening
+    assert "Other metrics of spike-lab that changed at the same moment: Slow-request time (p95) also dropped at Oct 19, 22:54 UTC (571 ms to 357 ms)." in opening
+    assert "[[time:" not in opening
+
+
+def test_an_opening_without_related_findings_has_no_such_line(client, prometheus, run_inline, monkeypatch) -> None:
+    finding_id = _finding()
+    model = ScriptedModel({"summary": "Nothing found.", "ending": "nothing_found", "steps": []})
+    _use(monkeypatch, model)
+
+    client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor"))
+
+    opening = model.requests[0].messages[1].content
+    assert "What happened: Checkout latency jumped. Latency went from about 0.2 s to about 1.8 s." in opening
+    assert "changed at the same moment" not in opening
+
+
+def test_findings_for_says_other_findings_as_their_cards_do(client, prometheus) -> None:
+    finding_id = _related_findings()
+    with get_session_local()() as db:
+        others = _toolbox(db, finding_id).run(ToolCall("a", "findings_for", {
+            "services": ["spike-lab"], "start": "2026-10-19T20:00:00Z", "end": "2026-10-20T08:00:00Z", "purpose": "What else changed?",
+        }))
+
+    assert others.ok
+    assert "spike-lab · request_latency_p95: Slow-request time (p95) dropped and stayed lower. About 571 ms until Oct 19, 22:54 UTC. Since then about 357 ms (down 38%). (from 20:24 UTC)" in others.text
+    assert "[[time:" not in others.text and "persistent baseline shift" not in others.text
+
+
+def test_findings_for_keeps_the_stored_title_of_a_finding_without_plain_wording(client, prometheus) -> None:
+    finding_id = _finding(run_id="run-inv-a")
+    _finding(run_id="run-inv-b")
+    with get_session_local()() as db:
+        others = _toolbox(db, finding_id).run(ToolCall("a", "findings_for", {"services": ["checkout"], "purpose": "Other checkout findings?"}))
+
+    assert others.ok and "checkout · http_request_duration_seconds: Checkout latency jumped (from 22:30 UTC)" in others.text
 
 
 def test_the_default_window_shows_the_change_even_for_an_old_problem_still_going_on(client, prometheus) -> None:

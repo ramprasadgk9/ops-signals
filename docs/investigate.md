@@ -58,7 +58,7 @@ It can use these read-only checks, each limited in code:
 | Range query | A PromQL range query on the finding's own Prometheus connection, summarised per series: level before and after the change, min, max and when it moved most |
 | Changes | Deploys, rollbacks and config changes recorded for a service ([deploy discovery](deploy-discovery.md) and CI events) |
 | Past cases | Closed cases on the service with their recorded cause and fix |
-| Other findings | Findings on other services in the same time range, such as its dependencies |
+| Other findings | Findings on other services in the same time range, such as its dependencies, in the words and numbers their cards show |
 
 Before the model's first turn, every investigation runs three starting checks: the query that found
 the finding, whether the service's scrape targets were up (`up`), and how many samples Prometheus got
@@ -148,10 +148,11 @@ AI provider.
 
 ## What is sent to the AI provider?
 
-The finding's plain wording, the query that found it, changes recorded near its start, the team's
-notes on the service, your note about today, and the results of each check (summarised, not the raw
-points). Where it goes depends on the AI provider you configured: your own machine or a hosted
-service.
+The finding's plain wording with its times in UTC, the other metrics of the service that changed at
+the same moment (its card's **Happened with**), the query that found it, changes recorded near its
+start, the team's notes on the service, your note about today, and the results of each check
+(summarised, not the raw points). Where it goes depends on the AI provider you configured: your own
+machine or a hosted service.
 
 ## Which AI model to use for Investigate
 
