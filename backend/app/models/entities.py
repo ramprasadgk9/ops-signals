@@ -364,7 +364,7 @@ class InvestigationEntity(Base):
     service: Mapped[str | None] = mapped_column(Text, nullable=True)
     # running | done | paused | stopped | failed
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
-    # found | nothing_found | waiting | budget | no_progress | source_down | ai_failed | stopped | confirmed
+    # found | nothing_found | waiting | budget | no_progress | source_down | ai_failed | stopped | interrupted | confirmed
     ending: Mapped[str | None] = mapped_column(String(32), nullable=True)
     ending_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)

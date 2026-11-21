@@ -31,7 +31,8 @@ export type InvestigationEnding =
   | 'no_progress'
   | 'source_down'
   | 'ai_failed'
-  | 'stopped';
+  | 'stopped'
+  | 'interrupted';
 
 export type InvestigationSummary = {
   id: number;
@@ -176,6 +177,8 @@ export function endingBanner(investigation: InvestigationSummary): { severity: '
       return { severity: 'error', title: "The AI model didn't answer", detail };
     case 'stopped':
       return { severity: 'warning', title: 'Stopped', detail: 'The steps so far are kept.' };
+    case 'interrupted':
+      return { severity: 'warning', title: 'Interrupted', detail: detail ?? 'The steps so far are kept.' };
     default:
       return { severity: 'info', title: 'Investigating…', detail: null };
   }

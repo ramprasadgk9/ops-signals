@@ -100,7 +100,10 @@ is ruled out, or when it needs your answer. Ops Signals stops it when:
 - three checks in a row found nothing new (**It stopped finding anything new**);
 - Prometheus couldn't be reached twice in a row (**Couldn't reach Prometheus**);
 - the AI provider failed or answered unreadably twice (**The AI model didn't answer**);
-- you click **Stop**.
+- you click **Stop**;
+- the backend restarted while it was checking (**Interrupted**): once the round has saved nothing
+  for its round time plus 10 minutes, the dialog shows it ended, with its checks as steps. Click
+  **Keep going** to run the round again, or **Start over**.
 
 Every ending keeps the steps so far. After a stop forced by the limits, it is asked once, with no
 more checks allowed, to write up what it found. If it doesn't, each distinct check becomes a step

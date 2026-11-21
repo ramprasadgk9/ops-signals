@@ -515,6 +515,21 @@ def fallback_steps(checks: list[InvestigationCheckEntity]) -> list[dict[str, Any
     return list(steps.values())
 
 
+def keep_round_checks(db: Session, investigation: InvestigationEntity) -> None:
+    """The checks of a round that ended without a write-up (its thread was lost) as its steps, the
+    same way as when the model doesn't write up. Nothing when the round has steps or ran no checks."""
+    of_round = (InvestigationStepEntity.investigation_id == investigation.id, InvestigationStepEntity.round == investigation.round)
+    if db.execute(select(InvestigationStepEntity.id).where(*of_round).limit(1)).first() is not None:
+        return
+    checks = db.execute(
+        select(InvestigationCheckEntity)
+        .where(InvestigationCheckEntity.investigation_id == investigation.id, InvestigationCheckEntity.round == investigation.round)
+        .order_by(InvestigationCheckEntity.id)
+    ).scalars().all()
+    if checks:
+        _save_steps(db, investigation, {"summary": None, "steps": fallback_steps(list(checks))})
+
+
 def _save_transcript(db: Session, investigation: InvestigationEntity, turns: list[ToolTurn]) -> None:
     investigation.transcript = [turn_to_dict(turn) for turn in turns]
     investigation.updated_at = datetime.now(timezone.utc)
