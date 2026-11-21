@@ -20,7 +20,15 @@ from backend.app.investigation import context as context_module
 from backend.app.investigation import loop, service
 from backend.app.investigation.tools import ToolBox, metric_names_in, selector_names_in, summarise_series
 from backend.app.models.db import get_session_local
-from backend.app.models.entities import AnalysisRunEntity, ChangeEventEntity, FindingEntity, OperationalCaseEntity
+from backend.app.models.entities import (
+    AnalysisRunEntity,
+    ChangeEventEntity,
+    FindingEntity,
+    InvestigationCheckEntity,
+    InvestigationEntity,
+    InvestigationStepEntity,
+    OperationalCaseEntity,
+)
 from backend.app.services.prometheus_service import PrometheusQueryService
 
 STARTING_CALLS = ToolBox.starting_calls
@@ -283,6 +291,98 @@ def test_stop_ends_the_round_after_the_current_check(client, prometheus, run_inl
 
     assert (body["status"], body["ending"]) == ("stopped", "stopped")
     assert len(body["checks"]) == 1 and len(model.requests) == 1
+
+
+def _lost_round(client, monkeypatch, finding_id: int) -> int:
+    """Start a round whose thread never runs, with one check saved: as when the backend restarts mid-round."""
+    monkeypatch.setattr(service, "submit", lambda task: None)
+    investigation_id = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()["id"]
+    with get_session_local()() as db:
+        db.add(InvestigationCheckEntity(
+            investigation_id=investigation_id, ref="c1", round=1, tool="query_range", purpose="Waiting for the DB?",
+            arguments={"promql": "db_wait"}, query="db_wait", ok=True, result="1 series: rose at 22:28.",
+        ))
+        db.commit()
+    return investigation_id
+
+
+def _last_saved(investigation_id: int, minutes: float) -> None:
+    with get_session_local()() as db:
+        db.get(InvestigationEntity, investigation_id).updated_at = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        db.commit()
+
+
+def test_a_round_the_backend_lost_ends_as_interrupted_with_its_checks_as_steps(client, prometheus, monkeypatch) -> None:
+    finding_id = _finding()
+    _use(monkeypatch, ScriptedModel())
+    investigation_id = _lost_round(client, monkeypatch, finding_id)
+    _last_saved(investigation_id, minutes=60)
+
+    body = client.get(f"/api/investigations/{investigation_id}").json()
+    again = client.get(f"/api/investigations/{investigation_id}").json()
+
+    assert (body["status"], body["ending"], body["ending_detail"]) == ("stopped", "interrupted", service.INTERRUPTED)
+    assert [(step["title"], step["evidence"]) for step in body["steps"]] == [("Waiting for the DB?", ["c1"])]
+    assert len(again["steps"]) == 1
+    assert client.get(f"/api/investigations/start-info?finding_id={finding_id}").json()["latest"]["status"] == "stopped"
+
+
+def test_an_interrupted_round_can_be_continued(client, prometheus, monkeypatch) -> None:
+    finding_id = _finding()
+    model = ScriptedModel([_query(2, "pool_max", "Did the pool shrink?")], {"summary": "Look at the pool.", "ending": "found", "steps": [
+        {"title": "Pool shrank", "kind": "checked", "status": "worth_a_look", "evidence": ["c2"]},
+    ]})
+    _use(monkeypatch, model)
+    investigation_id = _lost_round(client, monkeypatch, finding_id)
+    _last_saved(investigation_id, minutes=60)
+    monkeypatch.setattr(service, "submit", lambda task: task())
+
+    continued = client.post(f"/api/investigations/{investigation_id}/continue", json={}, headers=_as("Editor"))
+    body = client.get(f"/api/investigations/{investigation_id}").json()
+
+    assert continued.status_code == 200
+    assert (body["status"], body["ending"], body["round"]) == ("done", "found", 2)
+    assert [step["title"] for step in body["steps"]] == ["Waiting for the DB?", "Pool shrank"]
+
+
+def test_a_round_still_within_its_time_is_left_running(client, prometheus, monkeypatch) -> None:
+    finding_id = _finding()
+    _use(monkeypatch, ScriptedModel())
+    investigation_id = _lost_round(client, monkeypatch, finding_id)
+    _last_saved(investigation_id, minutes=loop.round_seconds() / 60 + 9)
+
+    assert client.get(f"/api/investigations/{investigation_id}").json()["status"] == "running"
+    assert client.post(f"/api/investigations/{investigation_id}/continue", json={}, headers=_as("Editor")).status_code == 409
+    assert client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()["id"] == investigation_id
+
+
+def test_a_lost_round_does_not_block_a_new_investigation(client, prometheus, monkeypatch) -> None:
+    finding_id = _finding()
+    _use(monkeypatch, ScriptedModel())
+    lost = _lost_round(client, monkeypatch, finding_id)
+    _last_saved(lost, minutes=60)
+    monkeypatch.setattr(service, "submit", lambda task: task())
+
+    fresh = client.post("/api/investigations", json={"finding_id": finding_id}, headers=_as("Editor")).json()
+
+    assert fresh["id"] != lost
+    assert client.get(f"/api/investigations/{lost}").json()["ending"] == "interrupted"
+
+
+def test_only_one_request_ends_a_lost_round(client) -> None:
+    finding_id = _finding()
+    with get_session_local()() as db:
+        db.add(InvestigationEntity(id=7001, finding_id=finding_id, status="running", transcript=[], round=1, check_budget=15,
+                                   updated_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+        db.add(InvestigationCheckEntity(investigation_id=7001, ref="c1", round=1, tool="changes", ok=True, result="No deploy."))
+        db.commit()
+    with get_session_local()() as first, get_session_local()() as second:
+        seen_first, seen_second = first.get(InvestigationEntity, 7001), second.get(InvestigationEntity, 7001)
+        assert service.release_if_stale(first, seen_first) is True
+        assert service.release_if_stale(second, seen_second) is False
+        assert seen_second.ending == "interrupted"
+    with get_session_local()() as db:
+        assert len(db.query(InvestigationStepEntity).filter_by(investigation_id=7001).all()) == 1
 
 
 def test_marks_and_notes_go_back_to_the_model_and_new_steps_are_added(client, prometheus, run_inline, monkeypatch) -> None:

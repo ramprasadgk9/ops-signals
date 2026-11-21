@@ -2,17 +2,21 @@
 
 A round runs in a background thread (run_round), so the request that starts it returns at once and
 the dialog polls GET /api/investigations/{id}. Only one round of an investigation runs at a time.
+
+A round whose thread is gone (the backend restarted mid-round) is ended as interrupted the next
+time anyone reads or acts on it (release_if_stale), so it never shows "Checking…" for ever. Not at
+startup: backends share the database, and one restarting must not end another's live round.
 """
 
 from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from backend.app.ai.factory import build_llm_client, llm_client_issue
@@ -38,6 +42,12 @@ from backend.app.services.prometheus_service import PrometheusQueryService
 logger = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="investigation")
+
+# A round saves its progress after every model turn. One that hasn't saved for the round time plus
+# this long has no thread left: long enough for one slow AI call (a local model can take minutes)
+# and that turn's checks.
+STALE_MARGIN = timedelta(minutes=10)
+INTERRUPTED = "The backend restarted while it was checking. The steps so far are kept."
 
 
 def submit(task: Callable[[], None]) -> None:
@@ -66,6 +76,8 @@ def start_info(db: Session, finding_id: int, client: LLMClient | None) -> dict[s
     latest = db.execute(
         select(InvestigationEntity).where(InvestigationEntity.finding_id == finding_id).order_by(InvestigationEntity.id.desc())
     ).scalars().first()
+    if latest is not None:
+        release_if_stale(db, latest)
     return {
         "finding_id": finding_id,
         "eligible": context.eligible,
@@ -100,7 +112,7 @@ def start(
     running = db.execute(
         select(InvestigationEntity).where(InvestigationEntity.finding_id == finding_id, InvestigationEntity.status == "running")
     ).scalars().first()
-    if running is not None:
+    if running is not None and not release_if_stale(db, running):
         return investigation_dict(db, running)
 
     skipped = [source for source in skipped if source in SOURCES]
@@ -132,6 +144,7 @@ def continue_investigation(db: Session, investigation_id: int, *, client: LLMCli
     if client is None:
         raise HTTPException(status_code=400, detail="AI is off. Investigate needs an AI provider; see AI settings.")
     investigation = _investigation(db, investigation_id)
+    release_if_stale(db, investigation)
     if investigation.status == "running":
         raise HTTPException(status_code=409, detail="This investigation is still running.")
     text = input_message(db, investigation, message)
@@ -170,6 +183,7 @@ def input_message(db: Session, investigation: InvestigationEntity, message: str 
 
 def stop(db: Session, investigation_id: int) -> dict[str, Any]:
     investigation = _investigation(db, investigation_id)
+    release_if_stale(db, investigation)
     if investigation.status == "running":
         investigation.stop_requested = True
         db.commit()
@@ -251,11 +265,44 @@ def list_for(db: Session, *, finding_id: int | None, case_id: int | None) -> lis
         query = query.where(InvestigationEntity.finding_id == finding_id)
     if case_id is not None:
         query = query.where(InvestigationEntity.case_id == case_id)
-    return [summary_dict(row) for row in db.execute(query).scalars()]
+    rows = db.execute(query).scalars().all()
+    for row in rows:
+        release_if_stale(db, row)
+    return [summary_dict(row) for row in rows]
 
 
 def get(db: Session, investigation_id: int) -> dict[str, Any]:
-    return investigation_dict(db, _investigation(db, investigation_id))
+    investigation = _investigation(db, investigation_id)
+    release_if_stale(db, investigation)
+    return investigation_dict(db, investigation)
+
+
+def release_if_stale(db: Session, investigation: InvestigationEntity, now: datetime | None = None) -> bool:
+    """End a round nothing runs any more, so the investigation can be continued or started again.
+    True when this call ended it. The update only matches the row as it was read, so when several
+    requests see it at once only one ends it and saves the round's checks as its steps."""
+    if investigation.status != "running":
+        return False
+    now = now or datetime.now(timezone.utc)
+    last = investigation.updated_at or investigation.created_at
+    if last is not None and now - _aware(last) < timedelta(seconds=loop.round_seconds()) + STALE_MARGIN:
+        return False
+    claimed = db.execute(
+        update(InvestigationEntity)
+        .where(
+            InvestigationEntity.id == investigation.id,
+            InvestigationEntity.status == "running",
+            InvestigationEntity.updated_at == investigation.updated_at,
+        )
+        .values(status="stopped", ending="interrupted", ending_detail=INTERRUPTED, question=None, stop_requested=False, updated_at=now)
+        .execution_options(synchronize_session=False)
+    ).rowcount == 1
+    if claimed:
+        logger.info("Investigation %s: round %s had no thread left; ended as interrupted", investigation.id, investigation.round)
+        loop.keep_round_checks(db, investigation)
+    db.commit()
+    db.refresh(investigation)
+    return claimed
 
 
 def summary_dict(investigation: InvestigationEntity) -> dict[str, Any]:
@@ -356,4 +403,8 @@ def _investigation(db: Session, investigation_id: int) -> InvestigationEntity:
 def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
-    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
+    return _aware(value).isoformat()
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)

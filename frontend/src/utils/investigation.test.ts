@@ -54,6 +54,7 @@ describe('endingBanner', () => {
     expect(endingBanner({ ...base, ending: 'waiting', question: 'Who changed the pool size?' }).detail).toBe('Who changed the pool size?');
     expect(endingBanner({ ...base, ending: 'budget', ending_detail: '15 of 15 checks used.' })).toEqual({ severity: 'warning', title: 'Paused', detail: '15 of 15 checks used.' });
     expect(endingBanner({ ...base, ending: 'source_down' }).title).toBe("Couldn't reach Prometheus");
+    expect(endingBanner({ ...base, ending: 'interrupted', ending_detail: 'The backend restarted while it was checking.' })).toEqual({ severity: 'warning', title: 'Interrupted', detail: 'The backend restarted while it was checking.' });
   });
 });
 
