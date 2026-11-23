@@ -33,7 +33,10 @@ class AnalyzerLearningService:
         root_cause_category: str | None = None,
         resolution_summary: str | None = None,
         resolved_by: str | None = None,
+        replace: bool = False,
     ) -> AnalyzerLearningOutcomeEntity:
+        """replace=True: a case resolved again (reopened, or its resolution edited) updates its one
+        learning outcome with the latest answer instead of being refused."""
         if outcome_status not in VALID_LEARNING_OUTCOMES:
             raise LearningOutcomeError(f"Invalid learning outcome status: {outcome_status}")
 
@@ -54,7 +57,7 @@ class AnalyzerLearningService:
                 AnalyzerLearningOutcomeEntity.finding_id == case.finding_id,
             )
         ).scalar_one_or_none()
-        if existing is not None:
+        if existing is not None and not replace:
             raise LearningOutcomeError("learning outcome already exists for this case and finding")
 
         analysis_run = self.db.execute(
@@ -73,6 +76,19 @@ class AnalyzerLearningService:
 
         resolved_at = datetime.utcnow()
         case.resolved_at = case.resolved_at or resolved_at
+
+        if existing is not None:
+            existing.outcome_status = outcome_status
+            existing.outcome_summary = outcome_summary
+            existing.root_cause_category = root_cause_category
+            existing.resolution_summary = resolution_summary
+            existing.confirmed_analyzers = confirmed
+            existing.rejected_analyzers = rejected
+            existing.resolved_by = resolved_by
+            existing.resolved_at = case.resolved_at
+            existing.updated_at = datetime.utcnow()
+            self.db.flush()
+            return existing
 
         record = AnalyzerLearningOutcomeEntity(
             id=uuid4().hex,

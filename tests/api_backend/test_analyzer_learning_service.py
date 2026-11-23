@@ -185,6 +185,22 @@ def test_duplicate_learning_outcome_is_prevented(db_session: Session) -> None:
         service.create_from_case_resolution(case_id=case.id, outcome_status="confirmed")
 
 
+def test_replace_updates_the_one_learning_outcome(db_session: Session) -> None:
+    case = _seed_case(db_session)
+    service = AnalyzerLearningService(db_session)
+    first = service.create_from_case_resolution(case_id=case.id, outcome_status="confirmed")
+    db_session.commit()
+
+    again = service.create_from_case_resolution(case_id=case.id, outcome_status="rejected", replace=True)
+    db_session.commit()
+
+    assert again.id == first.id
+    assert again.outcome_status == "rejected"
+    assert again.confirmed_analyzers == []
+    assert again.rejected_analyzers == ["baseline_shift", "ruptures"]
+    assert db_session.query(AnalyzerLearningOutcomeEntity).filter_by(case_id=case.id).count() == 1
+
+
 def test_case_not_in_final_state_is_rejected(db_session: Session) -> None:
     case = _seed_case(db_session, outcome_status="pending")
 

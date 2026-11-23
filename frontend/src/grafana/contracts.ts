@@ -49,6 +49,9 @@ export type GrafanaAnalysisFinding = {
   comparison_json?: Record<string, unknown>;
   trust?: FindingTrust | null;
   plain?: FindingPlain | null;
+  /** The problem's case (one case per problem); null when it has none. */
+  case_id?: number | null;
+  case_status?: string | null;
 };
 
 export type GrafanaAnalyzerExecution = {

@@ -41,6 +41,19 @@ describe('runConnectionAnalysis', () => {
     expect(result.findings.map((finding) => finding.title)).toEqual(['p95 stepped up']);
   });
 
+  it("keeps the problem's case on each finding, so the card can say Open Case", async () => {
+    fetchMock.mockImplementation(async (url: string) => new Response(JSON.stringify(
+      url.includes('/api/findings') ? [{ ...(respond(url) as object[])[0], case_id: 12, case_status: 'resolved' }] : respond(url),
+    ), { status: 200 }));
+
+    const result = await runConnectionAnalysis('http://backend', {
+      connectionId: 'team-a', connectionName: 'team-a', service: 'checkout', metric: 'request_latency_p95',
+      promql: 'request_latency_p95{service="checkout"}', from: 'S', to: 'E', stepSeconds: 120,
+    });
+
+    expect(result.findings[0]).toMatchObject({ case_id: 12, case_status: 'resolved' });
+  });
+
   it('asks for per-pod series to be combined and says how the run read them', async () => {
     const combined = { label: 'pod', count: 4, how: 'avg', odd: { value: 'checkout-2', message: 'checkout-2 is behaving differently from the other 3 pods: it reaches 1,150 while the others stay near 90.' } };
     fetchMock.mockImplementation(async (url: string) => new Response(JSON.stringify(

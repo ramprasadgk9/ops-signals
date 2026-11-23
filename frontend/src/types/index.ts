@@ -245,6 +245,9 @@ export type Finding = {
   ongoing?: boolean | null;
   /** The first finding of the same problem, seen by an earlier run; null when this one is the first. */
   problem_id?: number | null;
+  /** The problem's case, opened on this or another run's finding of it; null when it has none. */
+  case_id?: number | null;
+  case_status?: string | null;
   /** Deploys and other change events near the finding's change; read with utils/findingChanges. */
   changes?: unknown;
   /** How much to trust it (backend services/finding_trust.py); read with utils/findingTrust. */
@@ -398,6 +401,13 @@ export type FindingTrust = {
   answered_at?: string | null;
   /** Made with per-service analyzer settings: `tested` is null because it was measured with the defaults. */
   custom_settings?: boolean;
+};
+
+/** Whether a case's problem was found again after the case was opened and was still going (GET /api/cases/{id}/still-seen). */
+export type CaseStillSeen = {
+  still_seen: boolean;
+  finding_id?: number | null;
+  seen_at?: string | null;
 };
 
 export type OperationalCase = {

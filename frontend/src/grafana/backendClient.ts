@@ -1,6 +1,7 @@
 import type { SetupCheckResult } from '../utils/setupCheck';
 import { isGrafanaProxyUrl } from './backendUrlSetting';
 import type {
+  CaseStillSeen,
   ShiftHandoff,
   ShiftHandoffNote,
   AIStatus,
@@ -377,6 +378,8 @@ function toGrafanaFinding(finding: Finding): GrafanaAnalysisFinding {
     comparison_json: finding.comparison_json ?? {},
     trust: finding.trust ?? null,
     plain: finding.plain ?? null,
+    case_id: finding.case_id ?? null,
+    case_status: finding.case_status ?? null,
   };
 }
 
@@ -828,6 +831,11 @@ export async function getCaseSameFix(baseUrl: string, caseId: number) {
 
 export async function getCase(baseUrl: string, caseId: number) {
   return fetchJson<GrafanaCase>(baseUrl, `/api/cases/${caseId}`);
+}
+
+/** Whether the case's problem is still being found, for the warning before Resolved (GET /api/cases/{id}/still-seen). */
+export async function getCaseStillSeen(baseUrl: string, caseId: number) {
+  return fetchJson<CaseStillSeen>(baseUrl, `/api/cases/${caseId}/still-seen`);
 }
 
 export async function listCases(baseUrl: string, params?: {

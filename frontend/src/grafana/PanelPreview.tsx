@@ -20,6 +20,7 @@ import { PluginFindingTrust } from './PluginFindingTrust';
 import { PluginPlainBadge, PluginPlainFinding } from './PluginPlainFinding';
 import { leadSignal, leadSignalText, plainParagraph } from '../utils/findingPlain';
 import { PluginSameFix } from './PluginSameFix';
+import { PluginStillSeen } from './PluginStillSeen';
 import { PluginSeenBefore } from './PluginSeenBefore';
 import { PluginCaseRecurrence } from './PluginCaseRecurrence';
 import type {
@@ -555,9 +556,16 @@ function PrimaryFindingCard({
         </div>
         <div style={styles.row}>
           <button type="button" style={buttonStyle('primary')} onClick={onInvestigate}>Investigate</button>
-          <button type="button" style={buttonStyle('secondary', isBusy || !canEdit)} disabled={isBusy || !canEdit} title={canEdit ? undefined : LOCK_REASONS.createCase} onClick={onCreateCase}>
-            {isBusy ? 'Creating...' : `${canEdit ? '' : '🔒 '}Create Case`}
-          </button>
+          {finding.case_id ? (
+            // One case per problem: the same request opens the problem's existing case.
+            <button type="button" style={buttonStyle('secondary', isBusy)} disabled={isBusy} title={`This problem already has a case (#${finding.case_id}).`} onClick={onCreateCase}>
+              {isBusy ? 'Opening...' : 'Open Case'}
+            </button>
+          ) : (
+            <button type="button" style={buttonStyle('secondary', isBusy || !canEdit)} disabled={isBusy || !canEdit} title={canEdit ? undefined : LOCK_REASONS.createCase} onClick={onCreateCase}>
+              {isBusy ? 'Creating...' : `${canEdit ? '' : '🔒 '}Create Case`}
+            </button>
+          )}
           <button type="button" style={buttonStyle()} onClick={onViewEvidence}>View Evidence</button>
         </div>
         <PluginFindingTrust backendUrl={backendUrl} findingId={finding.id} trust={finding.trust} service={result.service} />
@@ -1147,11 +1155,13 @@ export function InvestigationDrawer({
               <Field label="Outcome status">
                 <select style={styles.input} value={outcomeStatus} onChange={(event) => setOutcomeStatus(event.target.value)}>
                   <option value="pending">Pending</option>
+                  <option value="in_progress">In progress</option>
                   <option value="mitigated">Mitigated</option>
                   <option value="resolved">Resolved</option>
                   <option value="won_t_fix">Won't fix</option>
                 </select>
               </Field>
+              {caseId && outcomeStatus === 'resolved' && caseDetails?.outcome_status !== 'resolved' ? <PluginStillSeen backendUrl={backendUrl} caseId={caseId} /> : null}
               <Field label="Did the original finding help explain the issue?">
                 <select style={styles.input} value={learningOutcomeStatus} onChange={(event) => setLearningOutcomeStatus(event.target.value)}>
                   <option value="">Select when resolving or closing</option>
@@ -1279,13 +1289,19 @@ export function PanelPreview({ result, backendUrl, recordingRules }: { result: G
     setIsBusy(true);
     setWorkflowError('');
     try {
-      const createdCase = await createCaseFromFinding(backendUrl, selectedFinding.id);
-      setCaseResult(createdCase);
-      setCaseDetails(await getCase(backendUrl, createdCase.case_id));
+      if (selectedFinding.case_id) {
+        // The problem's case already exists: read it, so a Viewer can open it too.
+        setCaseResult(null);
+        setCaseDetails(await getCase(backendUrl, selectedFinding.case_id));
+      } else {
+        const createdCase = await createCaseFromFinding(backendUrl, selectedFinding.id);
+        setCaseResult(createdCase);
+        setCaseDetails(await getCase(backendUrl, createdCase.case_id));
+      }
       setDrawerForBehavior(false);
       setDrawerOpen(true);
     } catch {
-      setWorkflowError('Could not create an investigation case for this finding.');
+      setWorkflowError(selectedFinding.case_id ? 'Could not open the case for this finding.' : 'Could not create an investigation case for this finding.');
     } finally {
       setIsBusy(false);
     }
