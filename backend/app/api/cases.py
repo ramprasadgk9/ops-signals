@@ -38,6 +38,7 @@ from backend.app.services.case_ai_drafts import RCA_INSTRUCTION, check_draft, rc
 from backend.app.services.case_timeline import case_timeline
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.services.case_status import CLOSING_OUTCOMES, derive_case_status, sync_case_status
+from backend.app.services.problem_cases import case_for_finding_problem
 
 logger = logging.getLogger(__name__)
 
@@ -175,17 +176,19 @@ def create_case_from_finding(
     if finding is None:
         raise HTTPException(status_code=404, detail="finding not found")
     
-    # Check if case already exists for this finding
-    existing_case = db.execute(
-        select(OperationalCaseEntity).where(OperationalCaseEntity.finding_id == finding_id)
-    ).scalar_one_or_none()
-    
+    # One case per problem: a later run's finding of a problem that already has a case (open or
+    # closed) opens that case. The lock holds until the commit below.
+    existing_case = case_for_finding_problem(db, finding, lock=True)
+
     if existing_case is not None:
         return CaseCreateResponse(
             case_id=existing_case.id,
+            # The finding asked about, which may be a later run's than the case's own: callers key
+            # the case by it.
             finding_id=finding_id,
             case_status=existing_case.case_status,
             memory_status=existing_case.memory_status,
+            existing=True,
         )
     
     # Create snapshot of the finding. Cluster and connection say where its data came from when one
@@ -240,6 +243,7 @@ def create_case_from_finding(
             finding_id=finding_id,
             case_status=existing_case.case_status,
             memory_status=existing_case.memory_status,
+            existing=True,
         )
     db.refresh(case)
 
@@ -316,6 +320,7 @@ def create_case_from_behavior(
             behavior_finding_id=behavior_finding_id,
             case_status=existing_case.case_status,
             memory_status=existing_case.memory_status,
+            existing=True,
         )
 
     case = OperationalCaseEntity(
@@ -346,6 +351,7 @@ def create_case_from_behavior(
             behavior_finding_id=behavior_finding_id,
             case_status=existing_case.case_status,
             memory_status=existing_case.memory_status,
+            existing=True,
         )
     db.refresh(case)
 

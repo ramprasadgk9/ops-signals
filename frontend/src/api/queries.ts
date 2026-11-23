@@ -299,7 +299,7 @@ export const api = {
   autonomousDeletePolicy: (policyId: string) =>
     deleteJson<{ deleted: boolean; id: string }>(`/api/autonomous/policies/${encodeURIComponent(policyId)}`),
   createCase: (findingId: number) =>
-    postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string }>(`/api/cases/findings/${findingId}/create`, {})
+    postJson<{}, { case_id: number; finding_id: number; case_status: string; memory_status: string; existing?: boolean }>(`/api/cases/findings/${findingId}/create`, {})
       .then((created) => { markDemoStep('case-created'); return created; }),
   createCaseFromBehavior: (behaviorFindingId: number) =>
     postJson<{}, { case_id: number; behavior_finding_id: number; case_status: string; memory_status: string }>(

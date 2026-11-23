@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,7 @@ from backend.app.autonomous.services import MetricClassificationService, MetricD
 from backend.app.config import PrometheusConnectionConfig, parse_duration_seconds
 from backend.app.models.db import get_db
 from backend.app.models.entities import AutonomousPolicyEntity, FindingEntity, OperationalCaseEntity
+from backend.app.services.problem_cases import problems_of
 from backend.app.services.prometheus_service import PrometheusQueryService, get_prometheus_connection, resolve_prometheus_connection
 
 router = APIRouter(prefix="/api/autonomous", tags=["autonomous"])
@@ -380,10 +381,13 @@ def _answer_window_start(window: AnswerWindow) -> datetime:
 def _cases_for_findings(db: Session, finding_ids: list[int]) -> list[OperationalCaseEntity]:
     if not finding_ids:
         return []
+    # A case on any run's finding of these findings' problems.
+    problems = list(set(problems_of(db, finding_ids).values()))
+    members = select(FindingEntity.id).where(or_(FindingEntity.id.in_(problems), FindingEntity.problem_id.in_(problems)))
     return list(
         db.execute(
             select(OperationalCaseEntity)
-            .where(OperationalCaseEntity.finding_id.in_(finding_ids))
+            .where(OperationalCaseEntity.finding_id.in_(members))
             .order_by(OperationalCaseEntity.updated_at.desc())
             .limit(20)
         ).scalars().all()

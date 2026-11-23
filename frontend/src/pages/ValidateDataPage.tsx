@@ -556,7 +556,11 @@ export function ValidateDataPage() {
     onSuccess: (result) => {
       setCreatedCases((current) => ({ ...current, [result.finding_id]: result.case_id }));
       setPromError(null);
-      setPromMessage(`Case #${result.case_id} is ready for finding #${result.finding_id}.`);
+      setPromMessage(
+        result.existing
+          ? `This problem already has case #${result.case_id}, opened from an earlier run's finding. Finding #${result.finding_id} is the same problem, so it uses that case.`
+          : `Case #${result.case_id} is ready for finding #${result.finding_id}.`,
+      );
     },
     onError: (err: unknown) => {
       const text = err instanceof Error ? err.message : 'Could not create case';

@@ -263,6 +263,8 @@ class CaseCreateResponse(BaseModel):
     behavior_finding_id: int | None = None
     case_status: str
     memory_status: str
+    # True when the finding (or its problem) already had this case; nothing was created.
+    existing: bool = False
 
 
 class CaseOut(BaseModel):

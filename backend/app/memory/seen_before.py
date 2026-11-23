@@ -27,7 +27,9 @@ from backend.app.memory.similarity_service import (
 from backend.app.memory.vector_names import SYMPTOM_VECTOR
 from backend.app.models.entities import FindingEntity, OperationalCaseEntity
 from backend.app.memory.availability import unavailable_reason
+from backend.app.services.active_findings import problem_of
 from backend.app.services.case_status import derive_case_status
+from backend.app.services.problem_cases import problems_of
 
 MAX_MATCHES = 8
 
@@ -69,11 +71,14 @@ def find_seen_before(
         for case in db.execute(select(OperationalCaseEntity).where(OperationalCaseEntity.id.in_(case_ids))).scalars()
     } if case_ids else {}
     investigations = latest_investigations(db, list(cases.values()))
+    own_problem = problem_of(finding)
+    case_problems = problems_of(db, [case.finding_id for case in cases.values() if case.finding_id is not None])
 
     def to_match(result: dict) -> PastIncidentMatch | None:
         case = cases.get(result["payload"].get("case_id"))
-        # The finding's own case would always be the top hit; it isn't "before".
-        if case is None or case.finding_id == finding.id:
+        # The finding's own case would always be the top hit; it isn't "before". Nor is a case on an
+        # earlier run's finding of the same problem: that is this problem's case.
+        if case is None or case.finding_id == finding.id or (case.finding_id is not None and case_problems.get(case.finding_id) == own_problem):
             return None
         snapshot = case.finding_snapshot or {}
         service = snapshot.get("service")

@@ -27,6 +27,7 @@ from backend.app.services.case_ai_drafts import check_draft
 from backend.app.services.finding_changes import finding_changes
 from backend.app.services.finding_plain import finding_plain
 from backend.app.services.finding_trust import finding_trust
+from backend.app.services.problem_cases import problems_of
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,8 @@ def _pattern_items(db: Session, since: datetime, cases: list[OperationalCaseEnti
 
 def _finding_items(db: Session, findings: list[FindingEntity], cases: list[OperationalCaseEntity]) -> list[WatchItem]:
     """Problems in the window that need attention and nobody has opened a case for."""
-    cased = {case.finding_id for case in cases if case.finding_id}
+    # A case on any run's finding of a problem covers the problem.
+    cased = set(problems_of(db, [case.finding_id for case in cases if case.finding_id]).values())
     active = active_findings(db, findings, cases)
     trust = finding_trust(db, active) if active else {}
     latest: dict[int | None, FindingEntity] = {}
@@ -260,7 +262,7 @@ def _finding_items(db: Session, findings: list[FindingEntity], cases: list[Opera
         if (trust.get(row.id) or {}).get("tier") != "needs_attention":
             continue
         problem = problem_of(row)
-        if problem in cased or row.id in cased:
+        if problem in cased:
             continue
         current = latest.get(problem)
         if current is None or (row.importance_score or 0) > (current.importance_score or 0):

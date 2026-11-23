@@ -261,3 +261,26 @@ def test_note_reads_findings_by_their_plain_headline(seeded, monkeypatch) -> Non
     assert "search error_rate went up;" not in facts
     # A case title someone wrote is kept as it is.
     assert "Case 10;" in facts
+
+
+def test_a_case_on_a_later_runs_finding_covers_the_problem(monkeypatch) -> None:
+    monkeypatch.setattr(shift_handoff, "finding_trust", lambda _db, rows: {row.id: {"tier": "needs_attention"} for row in rows})
+    monkeypatch.setattr(shift_handoff, "finding_changes", lambda _db, rows, _config: {row.id: {"status": "none_in_window"} for row in rows})
+    app = create_app("sqlite+pysqlite:///:memory:")
+    app.dependency_overrides[assistant_module.get_assistant] = lambda: None
+    now = datetime.utcnow()
+    with TestClient(app) as client:
+        with get_session_local()() as db:
+            db.add_all(
+                [
+                    _finding(1, "payments", "critical", now - timedelta(hours=3)),
+                    _finding(2, "payments", "critical", now - timedelta(hours=1), problem_id=1),
+                    # The case was opened from the second run's finding, not the problem's first.
+                    _case(10, 2, "open", now - timedelta(minutes=50)),
+                ]
+            )
+            db.commit()
+
+        watch = client.get("/api/overview/handoff", params={"hours": 12}).json()["watch"]
+
+    assert [(item["kind"], item["case_id"] or item["finding_id"]) for item in watch] == [("case", 10)]
