@@ -140,6 +140,8 @@ export type GrafanaCaseCreateResponse = {
   finding_id: number;
   case_status: string;
   memory_status: string;
+  /** The finding's problem already had this case; nothing was created. */
+  existing?: boolean;
 };
 
 export type GrafanaBehaviorCaseCreateResponse = {

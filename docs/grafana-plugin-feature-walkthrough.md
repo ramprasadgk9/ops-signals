@@ -339,8 +339,9 @@ Expectation:
 
 Behavior:
 
-- if no case exists yet for that finding, a new one is created
-- if a case already exists, it is reopened instead of duplicated
+- if no case exists yet for that finding's problem, a new one is created
+- if a case already exists for the problem (opened from this finding or from an earlier run's
+  finding of the same problem), it is opened instead of duplicated
 
 Expectation:
 

@@ -21,6 +21,20 @@ stateDiagram-v2
 4. Corrective action and outcome are recorded.
 5. The case is indexed into Qdrant for future retrieval.
 
+## One case per problem: Create Case on a finding seen again
+
+Create Case on a finding whose problem already has a case opens that case; it doesn't create a
+second one. Each analysis run that sees a problem again saves a new finding with the same
+`problem_id` ([finding states](operational-findings.md#finding-states-from-found-to-over)), so the
+card can show a newer finding than the one the case was opened from. This holds when the case is
+already resolved or closed: you reopen it from the case page if the problem isn't over.
+
+The same problem seen again later, after it was over, is a new problem and gets its own case.
+**Fix didn't hold** on it names the earlier case ([When a fix didn't stick](operational-memory.md#when-a-fix-didnt-stick)).
+
+A problem's case also shows on alerts linked to any of its findings, counts for the shift handoff,
+and is left out of the problem's own **Seen before** matches.
+
 ## AI drafts on the Root Cause and Resolution tabs
 
 With an AI provider on, both tabs have a **Draft from case** button for Editors. It fills the box

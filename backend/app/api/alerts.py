@@ -21,7 +21,8 @@ from backend.app.alerts.schemas import AlertmanagerWebhook, AlertReceiptOut, Gen
 from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config, get_deploy_discovery_config, get_prometheus_connections
 from backend.app.alerts.correlation import as_utc
 from backend.app.models.db import get_db, get_session_local
-from backend.app.models.entities import AlertEnrichmentEntity, OperationalCaseEntity
+from backend.app.models.entities import AlertEnrichmentEntity
+from backend.app.services.problem_cases import cases_of_problems, problems_of
 from backend.app.security import receiver_token_or_api_token
 
 router = APIRouter(prefix="/api", tags=["alerts"])
@@ -210,14 +211,10 @@ def list_alerts(
     ).scalars().all()
 
     finding_ids = {row.finding_id for row in rows if row.finding_id is not None}
-    case_by_finding: dict[int, int] = {}
-    if finding_ids:
-        for case_id, case_finding_id in db.execute(
-            select(OperationalCaseEntity.id, OperationalCaseEntity.finding_id)
-            .where(OperationalCaseEntity.finding_id.in_(finding_ids))
-            .order_by(OperationalCaseEntity.id)
-        ).all():
-            case_by_finding.setdefault(case_finding_id, case_id)
+    # A case on any run's finding of the alert's problem is the alert's case.
+    problems = problems_of(db, finding_ids)
+    problem_cases = cases_of_problems(db, problems.values())
+    case_by_finding = {finding_id: problem_cases[problem].id for finding_id, problem in problems.items() if problem in problem_cases}
 
     return [
         AlertOut(

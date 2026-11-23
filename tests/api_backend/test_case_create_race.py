@@ -25,7 +25,7 @@ def _miss_the_first_existing_case_check():
         descriptions = getattr(statement, "column_descriptions", None) or []
         if not state["missed"] and descriptions and descriptions[0].get("entity") is OperationalCaseEntity:
             state["missed"] = True
-            return SimpleNamespace(scalar_one_or_none=lambda: None)
+            return SimpleNamespace(scalar_one_or_none=lambda: None, all=lambda: [])
         return real_execute(self, statement, *args, **kwargs)
 
     return patch.object(Session, "execute", execute)
