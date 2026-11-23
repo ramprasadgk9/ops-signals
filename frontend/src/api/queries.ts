@@ -97,6 +97,7 @@ import type {
   FindingAIWording,
   CaseRcaDraft,
   CaseResolutionDraft,
+  CaseStillSeen,
   CaseTimeline,
   CaseWriteupDraft,
   AITestResult,
@@ -315,6 +316,7 @@ export const api = {
     caseId: number,
     payload: { outcome_status: string; outcome_summary?: string; corrective_action?: string; learning_outcome_status?: string }
   ) => patchJson<typeof payload, OperationalCase>(`/api/cases/${caseId}/resolution`, payload),
+  caseStillSeen: (caseId: number) => getJson<CaseStillSeen>(`/api/cases/${caseId}/still-seen`),
   suggestRca: (caseId: number) => postJson<Record<string, never>, CaseRcaDraft>(`/api/cases/${caseId}/rca/suggest`, {}),
   caseTimeline: (caseId: number) => getJson<CaseTimeline>(`/api/cases/${caseId}/timeline`),
   updateWriteup: (caseId: number, writeup: string) => patchJson<{ writeup: string }, OperationalCase>(`/api/cases/${caseId}/writeup`, { writeup }),

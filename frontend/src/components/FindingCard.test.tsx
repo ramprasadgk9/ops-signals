@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { api } from '../api/queries';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { FindingCard } from './FindingCard';
 import type { Finding, SeenBeforeResponse } from '../types';
@@ -125,6 +125,28 @@ describe('FindingCard Create Case', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'Opens a case for this finding. From the case you can also create a Jira ticket.'
     );
+  });
+
+  it('says Open Case when the problem already has a case, and opens it without creating one', async () => {
+    const createCase = vi.spyOn(api, 'createCase');
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <Routes>
+            <Route path="/" element={<FindingCard finding={{ ...newPodsFinding, case_id: 12, case_status: 'resolved' }} />} />
+            <Route path="/cases/:id" element={<p>case page 12</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(screen.queryByRole('button', { name: 'Create Case' })).toBeNull();
+    fireEvent.mouseOver(screen.getByRole('button', { name: 'Open Case' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('This problem already has a case (#12, resolved).');
+    fireEvent.click(screen.getByRole('button', { name: 'Open Case' }));
+
+    expect(await screen.findByText('case page 12')).toBeInTheDocument();
+    expect(createCase).not.toHaveBeenCalled();
   });
 });
 

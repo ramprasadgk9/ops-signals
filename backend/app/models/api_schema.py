@@ -225,6 +225,10 @@ class FindingOut(BaseModel):
     ongoing: bool | None = None
     # The first finding of the same problem; None when this finding is the first.
     problem_id: int | None = None
+    # The problem's case, opened on this finding or another run's finding of it
+    # (services/problem_cases.py); None when the problem has no case. The card says Open Case then.
+    case_id: int | None = None
+    case_status: str | None = None
     # Deploys and other change events near the finding's change (services/finding_changes.py).
     changes: dict | None = None
     # How much to trust it: group, needs-attention tier, tested numbers, the team's own answers

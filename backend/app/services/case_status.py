@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # the case even when the root cause isn't verified; the UI then marks it "Root cause unconfirmed".
 # The resolution endpoint already requires a learning outcome for exactly these.
 CLOSING_OUTCOMES = {"resolved", "mitigated", "won_t_fix"}
+REOPENED_OUTCOME = "in_progress"
 
 
 def _filled(value: str | None) -> bool:
@@ -34,7 +35,8 @@ def derive_case_status(case: OperationalCaseEntity) -> tuple[str, str]:
     2. RCA and a corrective action exist → case_status "in_progress".
     3. A closing outcome (resolved, mitigated, won't fix) is recorded, or the RCA is verified and
        a corrective action and an outcome summary exist → "resolved" / "completed". The second
-       half is the original rule, kept so no case resolved under it reopens.
+       half is the original rule, kept so no case resolved under it reopens, unless the outcome
+       is "in_progress": the user reopened it.
 
     The case status always starts from "open", never from the stored value: a case whose RCA is
     later un-verified goes back, instead of staying resolved. The investigation status starts
@@ -51,8 +53,12 @@ def derive_case_status(case: OperationalCaseEntity) -> tuple[str, str]:
 
     has_rca = _filled(case.root_cause_summary)
     has_resolution = _filled(case.corrective_action)
-    closing_outcome = (case.outcome_status or "").lower() in CLOSING_OUTCOMES
-    if closing_outcome or (case.root_cause_verified and has_resolution and _filled(case.outcome_summary)):
+    outcome = (case.outcome_status or "").lower()
+    closing_outcome = outcome in CLOSING_OUTCOMES
+    # Outcome "In progress" is the user saying it isn't done, e.g. reopening a resolved case: the
+    # original rule then doesn't apply, even with the root cause verified.
+    original_rule = outcome != REOPENED_OUTCOME and case.root_cause_verified and has_resolution and _filled(case.outcome_summary)
+    if closing_outcome or original_rule:
         case_status = "resolved"
         investigation_status = "completed"
     elif has_rca and has_resolution:

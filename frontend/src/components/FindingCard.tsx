@@ -265,20 +265,29 @@ export function FindingCard({ finding, onViewDetails, repeats, usage, partOf = [
         >
           View Details
         </Button>
-        {/* The span keeps the tooltip working while the button is disabled. */}
-        <Tooltip title="Opens a case for this finding. From the case you can also create a Jira ticket.">
-          <span>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={handleCreateCase}
-              disabled={createCaseMutation.isPending || !canEdit}
-              title={canEdit ? undefined : WEB_LOCK_REASONS.createCase}
-            >
-              {createCaseMutation.isPending ? 'Creating...' : 'Create Case'}
+        {finding.case_id ? (
+          // One case per problem: a later run's finding of it opens the same case.
+          <Tooltip describeChild title={`This problem already has a case (#${finding.case_id}${finding.case_status === 'resolved' ? ', resolved' : ''}).`}>
+            <Button size="small" variant="outlined" onClick={() => navigate(`/cases/${finding.case_id}`)}>
+              Open Case
             </Button>
-          </span>
-        </Tooltip>
+          </Tooltip>
+        ) : (
+          // The span keeps the tooltip working while the button is disabled.
+          <Tooltip title="Opens a case for this finding. From the case you can also create a Jira ticket.">
+            <span>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={handleCreateCase}
+                disabled={createCaseMutation.isPending || !canEdit}
+                title={canEdit ? undefined : WEB_LOCK_REASONS.createCase}
+              >
+                {createCaseMutation.isPending ? 'Creating...' : 'Create Case'}
+              </Button>
+            </span>
+          </Tooltip>
+        )}
         {canInvestigate(finding) ? (
           <Tooltip title="Checks what it can and suggests where to look next. It doesn't claim a root cause: you confirm one.">
             <Button size="small" variant="outlined" onClick={() => setInvestigating(true)} data-testid="investigate-button">

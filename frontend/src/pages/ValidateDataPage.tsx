@@ -264,6 +264,9 @@ export function ValidateDataPage() {
   const [promMessage, setPromMessage] = useState<string | null>(null);
   const [promError, setPromError] = useState<string | null>(null);
   const [createdCases, setCreatedCases] = useState<Record<number, number>>({});
+  // A case made here, or the problem's existing case (one case per problem): either way Open Case.
+  const caseOf = (finding: { id?: number; case_id?: number | null }) =>
+    (finding.id !== undefined ? createdCases[finding.id] : undefined) ?? finding.case_id ?? undefined;
   const [savedCsvRun, setSavedCsvRun] = useState<{ run: CsvRunResult; findings: SavedFinding[] } | null>(null);
   const queryClient = useQueryClient();
 
@@ -1168,9 +1171,9 @@ export function ValidateDataPage() {
 	                      )}
                         {primaryFinding.id ? (
                           <Stack direction="row" spacing={1}>
-                            {createdCases[primaryFinding.id] ? (
-                              <Button size="small" variant="contained" href={`/cases/${createdCases[primaryFinding.id]}`} sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}>
-                                Open Case #{createdCases[primaryFinding.id]}
+                            {caseOf(primaryFinding) ? (
+                              <Button size="small" variant="contained" href={`/cases/${caseOf(primaryFinding)}`} sx={{ bgcolor: '#009688', textTransform: 'none', fontWeight: 850 }}>
+                                Open Case #{caseOf(primaryFinding)}
                               </Button>
                             ) : (
                               <Button
@@ -1250,8 +1253,8 @@ export function ValidateDataPage() {
                                 <Button size="small" variant="text" href={`/findings?finding=${finding.id}`} aria-label={`View finding #${finding.id} in Findings`} sx={{ textTransform: 'none', fontWeight: 850 }}>
                                   View
                                 </Button>
-                                {createdCases[finding.id] ? (
-                                  <Button size="small" variant="outlined" href={`/cases/${createdCases[finding.id]}`} sx={{ textTransform: 'none', fontWeight: 850, alignSelf: { xs: 'flex-start', sm: 'center' } }}>
+                                {caseOf(finding) ? (
+                                  <Button size="small" variant="outlined" href={`/cases/${caseOf(finding)}`} sx={{ textTransform: 'none', fontWeight: 850, alignSelf: { xs: 'flex-start', sm: 'center' } }}>
                                     Open Case
                                   </Button>
                                 ) : (
@@ -1322,9 +1325,9 @@ export function ValidateDataPage() {
                           <PlainHeadline finding={finding} titleSx={{ fontSize: 16, fontWeight: 500 }} />
                           <Typography variant="body2" color="text.secondary">{finding.service ?? 'n/a'} · {finding.metric_name} · importance {finding.importance_score.toFixed(2)}</Typography>
                         </Stack>
-                        {createdCases[finding.id] ? (
-                          <Button size="small" variant="outlined" href={`/cases/${createdCases[finding.id]}`} sx={{ textTransform: 'none', fontWeight: 850 }}>
-                            Open Case #{createdCases[finding.id]}
+                        {caseOf(finding) ? (
+                          <Button size="small" variant="outlined" href={`/cases/${caseOf(finding)}`} sx={{ textTransform: 'none', fontWeight: 850 }}>
+                            Open Case #{caseOf(finding)}
                           </Button>
                         ) : (
                           <Button size="small" variant="contained" disabled={createCaseMutation.isPending || !canEdit} onClick={() => createCaseMutation.mutate(finding.id)} sx={{ textTransform: 'none', fontWeight: 850 }}>

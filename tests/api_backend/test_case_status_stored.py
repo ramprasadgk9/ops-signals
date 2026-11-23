@@ -74,16 +74,32 @@ def test_a_case_goes_back_when_its_closing_outcome_is_withdrawn(client) -> None:
         f"/api/cases/{case_id}/resolution",
         json={"outcome_status": "in_progress", "outcome_summary": "Rolled back canary", "corrective_action": "Rollback deploy"},
     )
-    # Still resolved by the original rule: RCA verified, a fix and an outcome summary.
-    assert withdrawn.json()["case_status"] == "resolved"
-    reopened = client.patch(
-        f"/api/cases/{case_id}/rca",
-        json={"root_cause_status": "identified", "root_cause_summary": "Bad canary rollout", "root_cause_confidence": 0.6, "root_cause_verified": False},
-    )
 
-    assert reopened.json()["case_status"] == "in_progress"
+    # Reopened even with the root cause verified, a fix and an outcome summary: "In progress" is
+    # the user saying it isn't done.
+    assert withdrawn.json()["case_status"] == "in_progress"
     assert _stored(case_id).case_status == "in_progress"
     assert client.get("/api/overview/summary").json()["open_cases"] == 1
+
+
+def test_the_original_rule_still_resolves_a_case_whose_outcome_was_never_picked(client) -> None:
+    # Cases resolved under the original rule keep their status when the backend restarts.
+    case_id = _open_case(client)
+    with get_session_local()() as db:
+        case = db.get(OperationalCaseEntity, case_id)
+        case.outcome_status = "pending"
+        case.outcome_summary = "Rolled back canary"
+        case.corrective_action = "Rollback deploy"
+        case.root_cause_verified = True
+        case.root_cause_summary = "Bad canary rollout"
+        case.case_status = "resolved"
+        db.commit()
+
+    with get_session_local()() as db:
+        backfill_case_statuses(db)
+        db.commit()
+
+    assert _stored(case_id).case_status == "resolved"
 
 
 def test_a_closing_outcome_resolves_the_case_even_with_the_root_cause_unconfirmed(client) -> None:

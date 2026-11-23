@@ -12,6 +12,7 @@ import {
   FormControlLabel,
   Grid2 as Grid,
   InputLabel,
+  Link as MuiLink,
   MenuItem,
   Select,
   Stack,
@@ -36,6 +37,7 @@ import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'rea
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, retryUnlessClientError } from '../api/client';
 import { api } from '../api/queries';
+import type { CaseStillSeen } from '../types';
 import { LinkedAlerts } from '../components/AlertComponents';
 import { CaseOriginBadge } from '../components/CaseOriginBadge';
 import { CaseRecurrenceBanner } from '../components/CaseRecurrenceBanner';
@@ -214,6 +216,16 @@ export function CaseDetailsPage() {
   });
 
   const resolutionRequiresLearningOutcome = !isImported && outcomeStatus === 'resolved';
+  // Picking Resolved on a case that isn't resolved yet: warn when its problem is still being found.
+  // Advice only; a failed check shows nothing and never blocks the save.
+  const resolvingNow = !isImported && outcomeStatus === 'resolved' && caseQuery.data?.outcome_status !== 'resolved';
+  const stillSeenQuery = useQuery({
+    queryKey: ['case-still-seen', caseId],
+    queryFn: () => api.caseStillSeen(parseInt(caseId || '0')),
+    enabled: resolvingNow && Boolean(caseId),
+    retry: false,
+  });
+  const stillSeen = resolvingNow && stillSeenQuery.data?.still_seen ? stillSeenQuery.data : null;
   const canSaveResolution = !resolutionRequiresLearningOutcome || Boolean(learningOutcomeStatus);
 
   const updateResolutionMutation = useMutation({
@@ -879,6 +891,8 @@ export function CaseDetailsPage() {
                   </Select>
                 </FormControl>
 
+                {stillSeen ? <StillSeenWarning stillSeen={stillSeen} /> : null}
+
                 {showDrafts ? <CaseDraftButton draft={resolutionDraft} /> : null}
                 <TextField
                   label="Outcome summary"
@@ -1041,5 +1055,27 @@ function WorkflowHint({ done, text }: { done: boolean; text: string }) {
         {text}
       </Typography>
     </Stack>
+  );
+}
+
+function StillSeenWarning({ stillSeen }: { stillSeen: CaseStillSeen }) {
+  const when = stillSeen.seen_at
+    ? new Date(stillSeen.seen_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
+  return (
+    <Alert severity="warning" data-testid="still-seen-warning">
+      <strong>This problem is still showing up.</strong> The check {when ? `at ${when} ` : ''}still found it
+      {stillSeen.finding_id ? (
+        <>
+          {' '}(
+          <MuiLink component={RouterLink} to={`/findings?finding=${stillSeen.finding_id}`}>
+            finding #{stillSeen.finding_id}
+          </MuiLink>
+          )
+        </>
+      ) : null}
+      . If you resolve now, the fix you write may not have worked yet. Wait for the next check, or choose
+      Mitigated if it has only eased.
+    </Alert>
   );
 }

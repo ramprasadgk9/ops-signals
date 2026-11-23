@@ -14,12 +14,14 @@ from backend.app.assistant.service import OperationalIntelligenceAssistant
 from backend.app.config import AlertEnrichmentConfig, get_alert_enrichment_config
 from backend.app.models.api_schema import FindingAIWordingOut, FindingFeedbackIn, FindingOut
 from backend.app.models.db import get_db
-from backend.app.models.entities import AnalysisRunEntity, FindingEntity
+from backend.app.models.entities import AnalysisRunEntity, FindingEntity, OperationalCaseEntity
 from backend.app.services.finding_ai_wording import wording_facts, write_ai_wording
 from backend.app.services.finding_changes import finding_changes
 from backend.app.services.alert_rules import alerts_for_findings
 from backend.app.services.finding_plain import finding_plain
 from backend.app.services.finding_settings import finding_custom_settings
+from backend.app.services.active_findings import problem_of
+from backend.app.services.problem_cases import cases_of_problems
 from backend.app.identity import Actor, actor_name, current_actor
 from backend.app.services.finding_trust import finding_trust, record_feedback
 
@@ -51,6 +53,7 @@ def _to_finding_out(
     source: str | None = None,
     plain: dict | None = None,
     custom_settings: dict | None = None,
+    case: OperationalCaseEntity | None = None,
 ) -> FindingOut:
     return FindingOut(
         id=finding.id,
@@ -74,6 +77,8 @@ def _to_finding_out(
         event_end=finding.event_end,
         ongoing=finding.ongoing,
         problem_id=finding.problem_id,
+        case_id=case.id if case is not None else None,
+        case_status=case.case_status if case is not None else None,
         changes=changes,
         trust=trust,
         plain=plain,
@@ -98,6 +103,7 @@ def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmen
     # What the team's Prometheus alerts say about each finding's metric; none when they can't be read.
     plain = finding_plain(db, rows, alerts=alerts_for_findings(db, rows, config.service_labels), service_labels=config.service_labels)
     custom = finding_custom_settings(db, rows)
+    cases = cases_of_problems(db, {problem_of(row) for row in rows})
     out = []
     for row in rows:
         connection_id, source_type = runs.get(row.analysis_run_id, (None, None))
@@ -108,7 +114,8 @@ def _with_changes(db: Session, rows: list[FindingEntity], config: AlertEnrichmen
             row_trust = {**row_trust, "tested": None, "custom_settings": True}
         out.append(
             _to_finding_out(
-                row, changes.get(row.id), connection_id, row_trust, _FINDING_SOURCES.get(source_type or "", source_type), plain.get(row.id), custom.get(row.id)
+                row, changes.get(row.id), connection_id, row_trust, _FINDING_SOURCES.get(source_type or "", source_type), plain.get(row.id), custom.get(row.id),
+                cases.get(problem_of(row)),
             )
         )
     return out

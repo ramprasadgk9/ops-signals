@@ -143,3 +143,35 @@ def test_alerts_show_the_problems_case_on_a_later_runs_finding() -> None:
         body = client.get("/api/alerts").json()
 
     assert body[0]["case_id"] == case_id
+
+
+def _listed(client) -> dict[int, dict]:
+    return {finding["id"]: finding for finding in client.get("/api/findings").json()}
+
+
+def test_findings_say_which_case_their_problem_has(client) -> None:
+    first, later = _problem()
+    other = _create_finding(analysis_run_id="run-other", title="Memory went up")
+    assert _listed(client)[later]["case_id"] is None
+
+    opened = client.post(f"/api/cases/findings/{first}/create").json()
+
+    listed = _listed(client)
+    # Every run's finding of the problem carries its case, so each card says Open Case.
+    assert listed[first]["case_id"] == opened["case_id"]
+    assert listed[later]["case_id"] == opened["case_id"]
+    assert listed[later]["case_status"] == "open"
+    assert listed[other]["case_id"] is None
+
+
+def test_a_finding_of_a_resolved_problem_still_points_at_its_case(client, db_session) -> None:
+    first, later = _problem()
+    opened = client.post(f"/api/cases/findings/{first}/create").json()
+    case = db_session.get(OperationalCaseEntity, opened["case_id"])
+    case.case_status = "resolved"
+    db_session.commit()
+
+    listed = _listed(client)[later]
+
+    assert listed["case_id"] == opened["case_id"]
+    assert listed["case_status"] == "resolved"

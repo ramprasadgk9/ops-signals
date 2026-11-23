@@ -21,13 +21,33 @@ stateDiagram-v2
 4. Corrective action and outcome are recorded.
 5. The case is indexed into Qdrant for future retrieval.
 
-## One case per problem: Create Case on a finding seen again
+## One case per problem: Open Case on a finding seen again
 
-Create Case on a finding whose problem already has a case opens that case; it doesn't create a
-second one. Each analysis run that sees a problem again saves a new finding with the same
+A finding whose problem already has a case says **Open Case** instead of **Create Case**, on the
+Findings page, in New Analysis and in the Grafana app; it opens that case and doesn't create a
+second one. The tooltip gives the case number and says when it's resolved. Each analysis run that sees a problem again saves a new finding with the same
 `problem_id` ([finding states](operational-findings.md#finding-states-from-found-to-over)), so the
 card can show a newer finding than the one the case was opened from. This holds when the case is
 already resolved or closed: you reopen it from the case page if the problem isn't over.
+
+## Warning: resolving a problem that is still happening
+
+When you pick Resolved, the Resolution tab warns if the problem is still showing up: a run after
+the case was opened found it again, and it was still going at the end of that run's data. The
+warning names the time and the finding. It's advice: you can still save, for example when the fix
+is still rolling out. Resolving too early hides the problem from Overview, the shift handoff and
+the `ops_signals_active_findings` metric, and saves the fix as one that worked.
+
+There's no warning when no run found it after the case was opened (a one-off analysis), when the
+newest run saw it end, or for imported and pattern cases.
+
+## Reopen a resolved case and resolve it again
+
+Set the Resolution tab's Outcome Status back to In progress to reopen a case, in the web UI or the
+Grafana app. It reopens even when the root cause is verified. When the real fix is in, pick
+Resolved again and save: the new corrective action, outcome and learning outcome replace
+the earlier ones, and the resolve time becomes the new one. Editing the text of a resolved case
+works the same way.
 
 The same problem seen again later, after it was over, is a new problem and gets its own case.
 **Fix didn't hold** on it names the earlier case ([When a fix didn't stick](operational-memory.md#when-a-fix-didnt-stick)).

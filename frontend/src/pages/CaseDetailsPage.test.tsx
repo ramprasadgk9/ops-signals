@@ -16,6 +16,7 @@ vi.mock('../api/queries', () => ({
     updateInvestigation: vi.fn(),
     updateRCA: vi.fn(),
     updateResolution: vi.fn(),
+    caseStillSeen: vi.fn().mockResolvedValue({ still_seen: false, finding_id: null, seen_at: null }),
     aiStatus: vi.fn().mockResolvedValue({ enabled: false, provider: 'noop', model: null, endpoint: null, api_key_set: null, active: false, issue: null }),
     suggestRca: vi.fn(),
     suggestResolution: vi.fn(),
@@ -155,6 +156,46 @@ describe('CaseDetailsPage resolution tab', () => {
     await pickLearningOutcome(panel, /Confirmed — this was a real issue/i);
 
     expect(screen.getByRole('button', { name: /Save Resolution/i })).not.toBeDisabled();
+  });
+
+  it('warns when Resolved is picked while the problem is still being found, and still saves', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.caseStillSeen).mockResolvedValueOnce({ still_seen: true, finding_id: 57, seen_at: '2026-09-14T10:30:00Z' });
+    vi.mocked(api.updateResolution).mockResolvedValue(baseCase({ outcome_status: 'resolved' }));
+
+    renderPage();
+    const panel = await openResolutionPanel();
+    expect(screen.queryByTestId('still-seen-warning')).toBeNull();
+    await pickResolvedOutcome(panel);
+
+    const warning = await screen.findByTestId('still-seen-warning');
+    expect(warning).toHaveTextContent('This problem is still showing up.');
+    expect(within(warning).getByRole('link', { name: 'finding #57' })).toHaveAttribute('href', '/findings?finding=57');
+    await pickLearningOutcome(panel, /Confirmed — this was a real issue/i);
+    fireEvent.click(screen.getByRole('button', { name: /Save Resolution/i }));
+
+    await vi.waitFor(() => expect(api.updateResolution).toHaveBeenCalled());
+  });
+
+  it('shows no warning when the problem is not being found any more', async () => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+
+    renderPage();
+    const panel = await openResolutionPanel();
+    await pickResolvedOutcome(panel);
+
+    await waitFor(() => expect(api.caseStillSeen).toHaveBeenCalledWith(1));
+    expect(screen.queryByTestId('still-seen-warning')).toBeNull();
+  });
+
+  it('does not check while the case is already resolved', async () => {
+    vi.mocked(api.caseStillSeen).mockClear();
+    vi.mocked(api.getCase).mockResolvedValue(baseCase({ outcome_status: 'resolved', case_status: 'resolved' }));
+
+    renderPage();
+    await openResolutionPanel();
+
+    expect(api.caseStillSeen).not.toHaveBeenCalled();
   });
 
   it('sends learning_outcome_status when saving a resolved case', async () => {

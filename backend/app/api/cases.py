@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -39,6 +40,7 @@ from backend.app.services.case_timeline import case_timeline
 from backend.app.memory.document_builder import CaseDocumentBuilder
 from backend.app.services.case_status import CLOSING_OUTCOMES, derive_case_status, sync_case_status
 from backend.app.services.problem_cases import case_for_finding_problem
+from backend.app.services.problem_still_seen import problem_still_seen
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +163,31 @@ def get_case(case_id: int, db: Session = Depends(get_db)) -> CaseOut:
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     return _to_case_out(case)
+
+
+class StillSeenOut(BaseModel):
+    """Whether the case's problem was found again after the case was opened and was still going."""
+
+    still_seen: bool
+    finding_id: int | None = None
+    seen_at: datetime | None = None
+
+
+@router.get("/{case_id}/still-seen", response_model=StillSeenOut)
+def get_case_still_seen(case_id: int, db: Session = Depends(get_db)) -> StillSeenOut:
+    """For the Resolution tab's warning before Resolved is saved. A failed check says not seen:
+    the warning is advice and must never get in the way of a save."""
+    case = db.get(OperationalCaseEntity, case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    try:
+        seen = problem_still_seen(db, case)
+    except Exception as exc:
+        logger.warning("Still-seen check failed for case %s: %s", case_id, exc)
+        return StillSeenOut(still_seen=False)
+    if seen is None:
+        return StillSeenOut(still_seen=False)
+    return StillSeenOut(still_seen=True, finding_id=seen.finding_id, seen_at=seen.seen_at)
 
 
 @router.post("/findings/{finding_id}/create", response_model=CaseCreateResponse)
@@ -586,13 +613,14 @@ def update_resolution(
             detail="learning_outcome_status is required when resolving or closing a case",
         )
 
-    # Who closed it: set when it moves into a closing outcome, kept while it stays closed, cleared
-    # when it is reopened.
+    # Who closed it and when: set when it moves into a closing outcome, kept while it stays closed,
+    # cleared when it is reopened, so resolving again records the new time.
     was_closed = case.outcome_status in final_states
     if payload.outcome_status in final_states and not was_closed:
         case.resolved_by = actor_name(actor)
     elif payload.outcome_status not in final_states:
         case.resolved_by = None
+        case.resolved_at = None
     case.outcome_status = payload.outcome_status
     case.outcome_summary = payload.outcome_summary
     case.corrective_action = payload.corrective_action
@@ -608,6 +636,7 @@ def update_resolution(
                 root_cause_category=payload.root_cause_category,
                 resolution_summary=payload.resolution_summary or payload.outcome_summary,
                 resolved_by=payload.resolved_by,
+                replace=True,
             )
         except LearningOutcomeError as exc:
             db.rollback()
