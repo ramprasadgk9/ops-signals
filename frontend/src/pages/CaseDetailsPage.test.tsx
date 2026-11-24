@@ -84,10 +84,10 @@ async function openResolutionPanel() {
   return screen.getByRole('tabpanel');
 }
 
-async function pickResolvedOutcome(panel: HTMLElement) {
+async function pickResolvedOutcome(panel: HTMLElement, name = 'Resolved') {
   const comboboxes = within(panel).getAllByRole('combobox');
   fireEvent.mouseDown(comboboxes[0]);
-  fireEvent.click(await screen.findByRole('option', { name: 'Resolved' }));
+  fireEvent.click(await screen.findByRole('option', { name }));
 }
 
 async function pickLearningOutcome(panel: HTMLElement, optionNamePattern: RegExp) {
@@ -156,6 +156,26 @@ describe('CaseDetailsPage resolution tab', () => {
     await pickLearningOutcome(panel, /Confirmed — this was a real issue/i);
 
     expect(screen.getByRole('button', { name: /Save Resolution/i })).not.toBeDisabled();
+  });
+
+  it.each(['Mitigated', "Won't fix"])('asks for a Learning Outcome when closing a case as %s, as the backend requires', async (outcome) => {
+    vi.mocked(api.getCase).mockResolvedValue(baseCase());
+    vi.mocked(api.updateResolution).mockResolvedValue(baseCase());
+
+    renderPage();
+    const panel = await openResolutionPanel();
+    await pickResolvedOutcome(panel, outcome);
+
+    expect(within(panel).getAllByRole('combobox')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /Save Resolution/i })).toBeDisabled();
+
+    await pickLearningOutcome(panel, /Confirmed — this was a real issue/i);
+    fireEvent.click(screen.getByRole('button', { name: /Save Resolution/i }));
+
+    await vi.waitFor(() =>
+      expect(api.updateResolution).toHaveBeenCalledWith(1, expect.objectContaining({ learning_outcome_status: 'confirmed' }))
+    );
+    expect(api.caseStillSeen).not.toHaveBeenCalled();
   });
 
   it('warns when Resolved is picked while the problem is still being found, and still saves', async () => {

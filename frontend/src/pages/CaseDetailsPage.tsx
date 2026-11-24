@@ -96,6 +96,9 @@ function statusLabel(value: string): string {
 }
 
 // The tabs in order, by the name ?tab= uses.
+// Outcomes that close a case; matches CLOSING_OUTCOMES in backend/app/services/case_status.py.
+const CLOSING_OUTCOMES = ['resolved', 'mitigated', 'won_t_fix'];
+
 const CASE_TABS = ['overview', 'evidence', 'investigation', 'root-cause', 'resolution', 'publish-knowledge', 'similar-cases'];
 
 function workflowState(label: string, done: boolean, active: boolean) {
@@ -215,7 +218,8 @@ export function CaseDetailsPage() {
     },
   });
 
-  const resolutionRequiresLearningOutcome = !isImported && outcomeStatus === 'resolved';
+  // The backend asks for a learning outcome whenever a case closes (Resolved, Mitigated, Won't fix).
+  const resolutionRequiresLearningOutcome = !isImported && CLOSING_OUTCOMES.includes(outcomeStatus);
   // Picking Resolved on a case that isn't resolved yet: warn when its problem is still being found.
   // Advice only; a failed check shows nothing and never blocks the save.
   const resolvingNow = !isImported && outcomeStatus === 'resolved' && caseQuery.data?.outcome_status !== 'resolved';
@@ -925,7 +929,7 @@ export function CaseDetailsPage() {
                       <MenuItem value="inconclusive">Inconclusive — could not determine</MenuItem>
                     </Select>
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                      Required when marking a case Resolved — records whether this was a real issue so similar
+                      Required when marking a case Resolved, Mitigated or Won't fix — records whether this was a real issue so similar
                       future alerts can learn from it.
                     </Typography>
                   </FormControl>
