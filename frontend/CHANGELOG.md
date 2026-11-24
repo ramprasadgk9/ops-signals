@@ -4,6 +4,13 @@ Changes to the Ops Signals Grafana plugin. The plugin has its own version (1.0.x
 release names the plugin version it ships. The full project changelog is
 [CHANGELOG.md](https://github.com/ramprasadgk9/ops-signals/blob/main/CHANGELOG.md).
 
+## 1.0.40 - 2026-11-23 (Ops Signals 0.6.6)
+
+- **Open Case** instead of Create Case when the finding's problem already has a case. Viewers can
+  open it too.
+- The case form warns when Resolved is picked while the problem is still being found.
+- The case form offers **In progress**, which reopens a resolved case.
+
 ## 1.0.39 - 2026-11-20 (Ops Signals 0.6.5)
 
 - **Built with Grafana's standard plugin tooling** (create-plugin), which the plugin catalog review

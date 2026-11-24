@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.6 - 2026-11-23
+
+Includes Grafana plugin 1.0.40.
+
+**Cases**
+
+- **One case per problem.** Every run that sees a problem again saves a new finding for it. Create
+  Case on any of those findings now opens the problem's existing case instead of a second one.
+- **Open Case.** A finding card says Open Case instead of Create Case when its problem already has a
+  case, in the web UI, New Analysis and the Grafana app.
+- **Resolving again works.** Resolving a case a second time (after reopening it, or editing a
+  resolved case) failed with "learning outcome already exists" and saved nothing. It now replaces
+  the case's learning outcome and records the new resolve time.
+- **Warning before resolving a problem that is still happening.** When Resolved is picked and a run
+  after the case was opened still found the problem, the Resolution tab says so and links to that
+  finding. It never blocks the save.
+- **In progress reopens a case**, also when its root cause is verified.
+- **Mitigated and Won't fix save again** on the web Resolution tab, which now asks for the learning
+  outcome they need.
+
+**Investigate**
+
+- An investigation whose round was cut off (for example by a backend restart) no longer shows
+  "Checking" for ever; it ends as Interrupted and can be continued.
+- The first message lists the other metrics of the service that changed at the same moment, with
+  times in UTC.
+
 ## 0.6.5 - 2026-11-20
 
 Includes Grafana plugin 1.0.39.
