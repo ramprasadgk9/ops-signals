@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 5
     if: github.event.sender.type != 'Bot'
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v9
         with:
           script: |
             const isPullRequest = Boolean(context.payload.pull_request);
